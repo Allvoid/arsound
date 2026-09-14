@@ -1,0 +1,27 @@
+# Local working files: SoundCloud APKs, decompiled sources, tools and the signing key.
+# SoundCloud is closed-source, its APK and decompiled code must never be committed.
+/local/
+
+# Signing keys and secrets
+*.keystore
+*.jks
+*.p12
+gradle-local.properties
+local.properties
+.env
+
+# Build output
+build/
+.gradle/
+.kotlin/
+*.apk
+*.apks
+*.rvp
+*.rve
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
