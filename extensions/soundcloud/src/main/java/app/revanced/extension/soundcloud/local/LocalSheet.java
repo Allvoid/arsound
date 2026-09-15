@@ -57,9 +57,18 @@ public final class LocalSheet {
             handleParams.bottomMargin = dp(context, 12);
             content.addView(handle, handleParams);
 
+            LinearLayout header = new LinearLayout(context);
+            header.setOrientation(LinearLayout.HORIZONTAL);
+            header.setGravity(Gravity.CENTER_VERTICAL);
+            header.setPadding(dimen(context, "spacing_m"), dp(context, 4), dimen(context, "spacing_m"), dp(context, 2));
+            android.widget.ImageView logo = new android.widget.ImageView(context);
+            logo.setImageResource(DownloadTrackPatch.arsoundIcon("ic_actions_playlist"));
+            LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(context, 24), dp(context, 24));
+            logoParams.rightMargin = dp(context, 12);
+            header.addView(logo, logoParams);
             TextView titleView = text(context, "H3.Primary", title);
-            titleView.setPadding(dimen(context, "spacing_m"), dp(context, 4), dimen(context, "spacing_m"), dp(context, 2));
-            content.addView(titleView);
+            header.addView(titleView);
+            content.addView(header);
             if (subtitle != null) {
                 TextView subtitleView = text(context, "Body.Secondary", subtitle);
                 subtitleView.setPadding(dimen(context, "spacing_m"), 0, dimen(context, "spacing_m"), dp(context, 8));

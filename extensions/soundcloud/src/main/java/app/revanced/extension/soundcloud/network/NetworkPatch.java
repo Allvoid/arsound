@@ -60,6 +60,14 @@ public final class NetworkPatch {
                 if (Proxy.isProxyClass(existing.getClass()) && INTERCEPTOR_NAME.equals(existing.toString())) return;
             }
 
+            // Looked up once per client: the interceptor runs for every request, reflection lookups there cost battery.
+            java.lang.reflect.Method requestMethod = chainClass.getMethod("request");
+            java.lang.reflect.Method proceedMethod = chainClass.getMethod("proceed", requestClass);
+            java.lang.reflect.Method urlMethod = requestClass.getMethod("url");
+            Class<?> urlClass = urlMethod.getReturnType();
+            java.lang.reflect.Method hostMethod = urlClass.getMethod("host");
+            java.lang.reflect.Method pathMethod = urlClass.getMethod("encodedPath");
+
             Object interceptor = Proxy.newProxyInstance(loader, new Class<?>[]{interceptorClass}, (proxy, method, args) -> {
                 if (method.getDeclaringClass() == Object.class) {
                     if ("equals".equals(method.getName())) return proxy == args[0];
@@ -68,12 +76,10 @@ public final class NetworkPatch {
                 }
 
                 Object chain = args[0];
+                Object request = requestMethod.invoke(chain);
                 int delay = Settings.getDeveloperNetworkDelaySeconds();
                 if (delay > 0) {
-                    Object url = chainClass.getMethod("request").invoke(chain);
-                    Logger.printInfo(() -> "Delaying request by " + delay + " s: " + url);
-                }
-                if (delay > 0) {
+                    Logger.printInfo(() -> "Delaying request by " + delay + " s: " + request);
                     try {
                         Thread.sleep(delay * 1000L);
                     } catch (InterruptedException ex) {
@@ -82,16 +88,15 @@ public final class NetworkPatch {
                     }
                 }
 
-                Object request = chainClass.getMethod("request").invoke(chain);
-                Object url = request.getClass().getMethod("url").invoke(request);
-                String host = String.valueOf(url.getClass().getMethod("host").invoke(url));
+                Object url = urlMethod.invoke(request);
+                String host = (String) hostMethod.invoke(url);
                 RegionGuard.throwIfBlocked(host);
                 if (app.revanced.extension.soundcloud.power.PowerSavingPatch.isBackgroundReportBlocked(host,
-                        String.valueOf(url.getClass().getMethod("encodedPath").invoke(url)))) {
+                        (String) pathMethod.invoke(url))) {
                     throw new java.io.IOException("Arsound: background report blocked to save power");
                 }
                 try {
-                    return chainClass.getMethod("proceed", requestClass).invoke(chain, request);
+                    return proceedMethod.invoke(chain, request);
                 } catch (java.lang.reflect.InvocationTargetException ex) {
                     // Rethrow the original IOException, OkHttp handles it.
                     throw ex.getCause();

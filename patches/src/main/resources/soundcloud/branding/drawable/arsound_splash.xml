@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animation-list xmlns:android="http://schemas.android.com/apk/res/android" android:oneshot="true">
+    <item android:drawable="@drawable/arsound_splash_00" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_01" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_02" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_03" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_04" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_05" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_06" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_07" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_08" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_09" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_10" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_11" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_12" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_13" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_14" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_15" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_16" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_17" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_18" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_19" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_20" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_21" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_22" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_23" android:duration="33" />
+    <item android:drawable="@drawable/arsound_splash_24" android:duration="2000" />
+</animation-list>

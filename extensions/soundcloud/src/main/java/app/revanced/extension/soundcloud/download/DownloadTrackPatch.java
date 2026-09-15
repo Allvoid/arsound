@@ -154,8 +154,7 @@ public final class DownloadTrackPatch {
         title.setText(downloaded
                 ? text("Скачать файл ещё раз", "Download file again")
                 : text("Скачать файл", "Download file"));
-        icon.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE,
-                downloaded ? "ic_actions_downloaded" : "ic_actions_download_initial"));
+        icon.setImageResource(arsoundIcon(downloaded ? "ic_actions_downloaded" : "ic_actions_download_initial"));
 
         row.setBackgroundResource(selectableBackground(context));
         row.setOnClickListener(v -> {
@@ -369,6 +368,16 @@ public final class DownloadTrackPatch {
         Utils.runOnMainThread(() -> Toast.makeText(context, message, Toast.LENGTH_LONG).show());
     }
 
+    /**
+     * Rows added by Arsound to SoundCloud menus show the Arsound icon, so mod features are recognizable.
+     *
+     * @param fallback The SoundCloud icon used if the branding resources are not patched in.
+     */
+    public static int arsoundIcon(String fallback) {
+        int icon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon");
+        return icon != 0 ? icon : Utils.getResourceIdentifier(ResourceType.DRAWABLE, fallback);
+    }
+
     /** Creates a menu row styled like SoundCloud's own action list items. */
     public static ViewGroup createMenuRow(Context context, String title, String iconName, View.OnClickListener listener) {
         ViewGroup row = createConstraintLayout(context);
@@ -383,7 +392,7 @@ public final class DownloadTrackPatch {
         hide(row, "action_list_selectable_check_icon");
 
         titleView.setText(title);
-        icon.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE, iconName));
+        icon.setImageResource(arsoundIcon(iconName));
         row.setBackgroundResource(selectableBackground(context));
         row.setOnClickListener(listener);
         return row;

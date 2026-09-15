@@ -84,9 +84,20 @@ public final class ReVancedSettingsActivity extends Activity {
         root.addView(scrollView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        TextView title = createText("H1.Primary", "Arsound");
-        title.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_l"));
-        list.addView(title);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_l"));
+        int logoId = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon");
+        if (logoId != 0) {
+            android.widget.ImageView logo = new android.widget.ImageView(this);
+            logo.setImageResource(logoId);
+            LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+            logoParams.rightMargin = dp(12);
+            titleRow.addView(logo, logoParams);
+        }
+        titleRow.addView(createText("H1.Primary", "Arsound"));
+        list.addView(titleRow);
 
         list.addView(createSubHeading(text("Сеть", "Network")));
         TextView network = createText("Body.Secondary", text("Проверяю, откуда приложение выходит в интернет…", "Checking the app network location…"));

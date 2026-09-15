@@ -36,6 +36,11 @@ public final class SettingsEntry {
      * Injection point. Called from the Compose code of the SoundCloud settings screen.
      * Adds an "Arsound" row using the same composable as the native rows.
      */
+    private static Integer iconStart() {
+        int icon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon");
+        return icon == 0 ? null : icon;
+    }
+
     public static void addEntry(Composer composer) {
         ActionListItemKt.a(
                 "Arsound",
@@ -43,7 +48,7 @@ public final class SettingsEntry {
                 null,
                 false,
                 false,
-                null,
+                iconStart(),
                 Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
                 null,
                 null,

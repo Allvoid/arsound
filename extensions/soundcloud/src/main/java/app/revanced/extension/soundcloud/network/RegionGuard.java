@@ -38,14 +38,21 @@ public final class RegionGuard {
         return country;
     }
 
-    /** @return True if the request to this host must not be sent. */
+    /** A failed country check is not repeated for this long, so a dead network does not cause a check per request. */
+    private static final long FAILED_CHECK_BACKOFF_MS = 60_000;
+    /** Blocked requests are answered after this pause, so SoundCloud's retry loops cannot spin the radio and CPU. */
+    private static final long BLOCKED_RESPONSE_DELAY_MS = 1_500;
+
+    private static volatile long lastFailedCheck;
+
+    /** @return True if the request to this host must not be sent. Called on network threads. */
     public static boolean shouldBlock(String host) {
         if (!Settings.isRegionGuardEnabled() || host == null) return false;
         if (!isSoundCloudHost(host)) return false;
 
         listenForNetworkChanges();
         String current = country;
-        if (current == null) current = check();
+        if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) current = check();
         boolean blocked = current == null || BLOCKED_COUNTRY.equals(current);
         if (blocked) showBlockedToast(current);
         return blocked;
@@ -53,8 +60,27 @@ public final class RegionGuard {
 
     public static void throwIfBlocked(String host) throws IOException {
         if (shouldBlock(host)) {
+            try {
+                Thread.sleep(BLOCKED_RESPONSE_DELAY_MS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
             throw new IOException("Arsound: requests to SoundCloud are blocked from a Russian IP address");
         }
+    }
+
+    /**
+     * Called from SoundCloud's "is the network connected" check. While requests are blocked the app
+     * behaves as offline: it stops syncing and retrying, shows downloaded content and saves battery.
+     * Never checks on the calling thread; an unknown country starts a background check.
+     */
+    public static boolean isConnected(boolean connected) {
+        if (!connected || !Settings.isRegionGuardEnabled()) return connected;
+        String current = country;
+        if (current != null) return !BLOCKED_COUNTRY.equals(current);
+        if (System.currentTimeMillis() - lastFailedCheck <= FAILED_CHECK_BACKOFF_MS) return false;
+        Utils.runOnBackgroundThread(RegionGuard::check);
+        return true;
     }
 
     private static boolean isSoundCloudHost(String host) {
@@ -84,6 +110,7 @@ public final class RegionGuard {
         } catch (Exception ex) {
             Logger.printInfo(() -> "Region guard: country check failed: " + ex);
         }
+        lastFailedCheck = System.currentTimeMillis();
         return null;
     }
 
@@ -97,6 +124,7 @@ public final class RegionGuard {
                 @Override
                 public void onAvailable(Network network) {
                     country = null;
+                    lastFailedCheck = 0;
                     toastShown = false;
                 }
 

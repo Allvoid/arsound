@@ -37,6 +37,7 @@ rem Options (-O) belong to the patch enabled right before them, so "Change packa
   -e "Hide subscription offers" ^
   -e "Change account type" ^
   -e "Custom app name" ^
+  -e "Arsound branding" ^
   -e "Change package name" -O "Update permissions=true" -O "Update providers=true" ^
   --keystore "%KEYSTORE%" -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" || exit /b 1

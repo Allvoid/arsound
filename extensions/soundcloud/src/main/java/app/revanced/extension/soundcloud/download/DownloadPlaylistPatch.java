@@ -110,7 +110,7 @@ public final class DownloadPlaylistPatch {
         DownloadTrackPatch.hide(row, "action_list_selectable_check_icon");
 
         title.setText(text("Проверить скачивание треков", "Check track downloads"));
-        icon.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_download_initial"));
+        icon.setImageResource(DownloadTrackPatch.arsoundIcon("ic_actions_download_initial"));
 
         row.setBackgroundResource(DownloadTrackPatch.selectableBackground(context));
         row.setOnClickListener(v -> {
