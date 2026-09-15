@@ -102,6 +102,47 @@ public final class Settings {
         preferences.edit().putBoolean(POWER_SAVING, enabled).apply();
     }
 
+    public static final String CUSTOM_DNS = "custom_dns";
+    public static final String DNS_PRESET = "dns_preset";
+    public static final String DNS_MODE = "dns_mode";
+    public static final String CUSTOM_DOH_URL = "custom_doh_url";
+    public static final String CUSTOM_DNS_SERVERS = "custom_dns_servers";
+
+    public static boolean isCustomDnsEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(CUSTOM_DNS, false);
+    }
+
+    public static String getDnsPreset() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? "xbox" : preferences.getString(DNS_PRESET, "xbox");
+    }
+
+    public static String getDnsMode() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? "auto" : preferences.getString(DNS_MODE, "auto");
+    }
+
+    public static String getCustomDohUrl() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? "" : preferences.getString(CUSTOM_DOH_URL, "");
+    }
+
+    public static String getCustomDnsServers() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? "" : preferences.getString(CUSTOM_DNS_SERVERS, "");
+    }
+
+    public static void putBoolean(String key, boolean value) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences != null) preferences.edit().putBoolean(key, value).apply();
+    }
+
+    public static void putString(String key, String value) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences != null) preferences.edit().putString(key, value).apply();
+    }
+
     public static final String DEVELOPER_MODE = "developer_mode";
     public static final String DEVELOPER_NETWORK_DELAY = "developer_network_delay_seconds";
 

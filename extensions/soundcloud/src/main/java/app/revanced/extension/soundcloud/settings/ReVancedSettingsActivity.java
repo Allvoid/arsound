@@ -96,6 +96,7 @@ public final class ReVancedSettingsActivity extends Activity {
         network.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
         list.addView(network);
         checkNetwork(network);
+        addDnsOptions(list);
 
         list.addView(createSubHeading(text("Конфиденциальность", "Privacy")));
         list.addView(createToggleRow(
@@ -214,6 +215,133 @@ public final class ReVancedSettingsActivity extends Activity {
         addDeveloperOptions(developerOptions);
 
         return root;
+    }
+
+    private void addDnsOptions(LinearLayout list) {
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.VERTICAL);
+        list.addView(createToggleRow(
+                text("Свой DNS", "Custom DNS"),
+                text("Приложение узнаёт адреса серверов через выбранный DNS, а не через DNS провайдера. "
+                                + "Помогает, если провайдер режет или подменяет SoundCloud. Если сервер не отвечает, "
+                                + "используется обычный DNS.",
+                        "The app resolves server addresses through the chosen DNS instead of the provider DNS. "
+                                + "If the server does not answer, the normal DNS is used."),
+                Settings.isCustomDnsEnabled(),
+                (button, checked) -> {
+                    Settings.putBoolean(Settings.CUSTOM_DNS, checked);
+                    app.revanced.extension.soundcloud.network.CustomDns.clearCache();
+                    options.setVisibility(checked ? View.VISIBLE : View.GONE);
+                }
+        ));
+        options.setVisibility(Settings.isCustomDnsEnabled() ? View.VISIBLE : View.GONE);
+        list.addView(options);
+
+        TextView[] serverDescription = new TextView[1];
+        View serverRow = createActionRow(text("Сервер", "Server"), dnsServerDescription(), v -> {
+            String[] presets = {"xbox-dns.ru", text("Свой сервер", "Custom server")};
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle(text("Сервер DNS", "DNS server"))
+                    .setItems(presets, (dialog, which) -> {
+                        Settings.putString(Settings.DNS_PRESET, which == 0 ? app.revanced.extension.soundcloud.network.CustomDns.PRESET_XBOX : app.revanced.extension.soundcloud.network.CustomDns.PRESET_CUSTOM);
+                        app.revanced.extension.soundcloud.network.CustomDns.clearCache();
+                        if (which == 1) editCustomDns(serverDescription[0]);
+                        serverDescription[0].setText(dnsServerDescription());
+                    })
+                    .show();
+        });
+        serverDescription[0] = (TextView) ((ViewGroup) serverRow).getChildAt(1);
+        options.addView(serverRow);
+
+        TextView[] modeDescription = new TextView[1];
+        View modeRow = createActionRow(text("Способ", "Mode"), dnsModeDescription(), v -> {
+            String[] modes = {text("Авто: сначала DoH, потом обычный", "Auto: DoH first, then plain"),
+                    text("Только DNS-over-HTTPS", "DNS-over-HTTPS only"),
+                    text("Только обычный DNS", "Plain DNS only")};
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle(text("Способ", "Mode"))
+                    .setItems(modes, (dialog, which) -> {
+                        Settings.putString(Settings.DNS_MODE, which == 0 ? app.revanced.extension.soundcloud.network.CustomDns.MODE_AUTO
+                                : which == 1 ? app.revanced.extension.soundcloud.network.CustomDns.MODE_DOH : app.revanced.extension.soundcloud.network.CustomDns.MODE_PLAIN);
+                        app.revanced.extension.soundcloud.network.CustomDns.clearCache();
+                        modeDescription[0].setText(dnsModeDescription());
+                    })
+                    .show();
+        });
+        modeDescription[0] = (TextView) ((ViewGroup) modeRow).getChildAt(1);
+        options.addView(modeRow);
+
+        TextView[] testDescription = new TextView[1];
+        View testRow = createActionRow(text("Проверить", "Check"),
+                text("Узнать адрес api-v2.soundcloud.com через выбранный сервер", "Resolve api-v2.soundcloud.com through the chosen server"),
+                v -> {
+                    testDescription[0].setText(text("Проверяю…", "Checking…"));
+                    Utils.runOnBackgroundThread(() -> {
+                        String result = app.revanced.extension.soundcloud.network.CustomDns.test("api-v2.soundcloud.com");
+                        Utils.runOnMainThread(() -> testDescription[0].setText(result != null ? result
+                                : text("Сервер не ответил — будет использоваться обычный DNS", "No answer, the normal DNS is used")));
+                    });
+                });
+        testDescription[0] = (TextView) ((ViewGroup) testRow).getChildAt(1);
+        options.addView(testRow);
+    }
+
+    private String dnsServerDescription() {
+        if (!app.revanced.extension.soundcloud.network.CustomDns.PRESET_CUSTOM.equals(Settings.getDnsPreset())) {
+            return "xbox-dns.ru — DoH " + app.revanced.extension.soundcloud.network.CustomDns.XBOX_DOH + ", DNS 111.88.96.50, 111.88.96.51";
+        }
+        String doh = Settings.getCustomDohUrl();
+        String servers = Settings.getCustomDnsServers();
+        return text("Свой: ", "Custom: ") + (doh.isEmpty() ? "" : "DoH " + doh) + (servers.isEmpty() ? "" : " DNS " + servers)
+                + text(" (нажмите, чтобы изменить)", " (tap to change)");
+    }
+
+    private String dnsModeDescription() {
+        switch (Settings.getDnsMode()) {
+            case "doh":
+                return text("Только DNS-over-HTTPS", "DNS-over-HTTPS only");
+            case "plain":
+                return text("Только обычный DNS", "Plain DNS only");
+            default:
+                return text("Авто: сначала DoH, потом обычный", "Auto: DoH first, then plain");
+        }
+    }
+
+    private void editCustomDns(TextView description) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        android.widget.EditText doh = new android.widget.EditText(this);
+        doh.setHint("https://example.com/dns-query");
+        doh.setText(Settings.getCustomDohUrl());
+        android.widget.EditText servers = new android.widget.EditText(this);
+        servers.setHint(text("IP через запятую: 1.1.1.1, 8.8.8.8", "IPs separated by commas: 1.1.1.1, 8.8.8.8"));
+        servers.setText(Settings.getCustomDnsServers());
+        form.addView(doh);
+        form.addView(servers);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(text("Свой DNS", "Custom DNS"))
+                .setView(form)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    String url = doh.getText().toString().trim();
+                    if (!url.isEmpty() && !url.startsWith("https://")) {
+                        Toast.makeText(this, text("Адрес DoH должен начинаться с https://", "DoH address must start with https://"),
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    String list = servers.getText().toString().trim();
+                    if (!list.isEmpty() && !list.matches("[0-9a-fA-F:.,\\s]+")) {
+                        Toast.makeText(this, text("Серверы — только IP-адреса", "Servers must be IP addresses"),
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    Settings.putString(Settings.CUSTOM_DOH_URL, url);
+                    Settings.putString(Settings.CUSTOM_DNS_SERVERS, list);
+                    app.revanced.extension.soundcloud.network.CustomDns.clearCache();
+                    description.setText(dnsServerDescription());
+                })
+                .show();
     }
 
     private static final int[] NETWORK_DELAYS = {0, 3, 10, 20, 40};

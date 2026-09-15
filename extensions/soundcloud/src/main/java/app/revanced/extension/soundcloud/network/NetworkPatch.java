@@ -19,6 +19,35 @@ public final class NetworkPatch {
     private NetworkPatch() {
     }
 
+    private static final String DNS_NAME = "ArsoundDns";
+
+    /**
+     * Wraps the resolver of the client. The custom server is checked on every lookup, so the option
+     * applies without a restart; while it is off, or fails, the original resolver answers.
+     */
+    private static void installDns(Object builder, ClassLoader loader) throws Exception {
+        Class<?> dnsClass = Class.forName("okhttp3.Dns", false, loader);
+        Object original = builder.getClass().getMethod("getDns$okhttp").invoke(builder);
+        if (original != null && Proxy.isProxyClass(original.getClass()) && DNS_NAME.equals(original.toString())) return;
+        Object fallback = original != null ? original : dnsClass.getField("SYSTEM").get(null);
+
+        Object dns = Proxy.newProxyInstance(loader, new Class<?>[]{dnsClass}, (proxy, method, args) -> {
+            if (method.getDeclaringClass() == Object.class) {
+                if ("equals".equals(method.getName())) return proxy == args[0];
+                if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
+                return DNS_NAME;
+            }
+            java.util.List<java.net.InetAddress> custom = CustomDns.lookup((String) args[0]);
+            if (custom != null) return custom;
+            try {
+                return method.invoke(fallback, args);
+            } catch (java.lang.reflect.InvocationTargetException ex) {
+                throw ex.getCause();
+            }
+        });
+        builder.getClass().getMethod("dns", dnsClass).invoke(builder, dns);
+    }
+
     public static void onBuild(Object builder) {
         try {
             ClassLoader loader = builder.getClass().getClassLoader();
@@ -63,6 +92,7 @@ public final class NetworkPatch {
             });
 
             builder.getClass().getMethod("addInterceptor", interceptorClass).invoke(builder, interceptor);
+            installDns(builder, loader);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not configure OkHttp client", ex);
         }
