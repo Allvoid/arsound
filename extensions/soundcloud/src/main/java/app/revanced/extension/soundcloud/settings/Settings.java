@@ -164,6 +164,19 @@ public final class Settings {
         return preferences != null && preferences.getBoolean(REGION_GUARD, false);
     }
 
+    public static final String DUPLICATE_FILTER = "duplicate_filter";
+    public static final String MERGE_EDITED_VERSIONS = "merge_edited_versions";
+
+    public static boolean isDuplicateFilterEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(DUPLICATE_FILTER, false);
+    }
+
+    public static boolean isMergeEditedVersions() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(MERGE_EDITED_VERSIONS, false);
+    }
+
     public static final String DEVELOPER_MODE = "developer_mode";
     public static final String DEVELOPER_NETWORK_DELAY = "developer_network_delay_seconds";
 

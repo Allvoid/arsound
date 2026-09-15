@@ -13,6 +13,18 @@ public final class PowerSavingPatch {
     private PowerSavingPatch() {
     }
 
+    /**
+     * Event reports of bundled third-party SDKs (feature flag analytics and marketing), sent in
+     * the background every few seconds while the app is open. Feature flag downloads are kept.
+     */
+    public static boolean isBackgroundReportBlocked(String host, String path) {
+        if (!Settings.isPowerSavingEnabled()) return false;
+        host = host.toLowerCase(java.util.Locale.US);
+        if (host.equals("events.statsigapi.net")) return true;
+        if (host.endsWith("prodregistryv2.org") && path.contains("log_event")) return true;
+        return host.contains("moengage.com");
+    }
+
     public static long inboxPollSeconds(long original) {
         return Settings.isPowerSavingEnabled() ? Math.max(original, INBOX_POLL_SECONDS) : original;
     }

@@ -175,11 +175,37 @@ public final class ReVancedSettingsActivity extends Activity {
                 }
         ));
 
+        list.addView(createSubHeading(text("Рекомендации", "Recommendations")));
+        LinearLayout duplicateOptions = new LinearLayout(this);
+        duplicateOptions.setOrientation(LinearLayout.VERTICAL);
+        list.addView(createToggleRow(
+                text("Скрывать дубликаты", "Hide duplicates"),
+                text("Один и тот же трек, перезалитый разными людьми, показывается в рекомендациях на главной "
+                                + "и в автовоспроизведении только один раз. Совпадение — по названию и длительности (±2 с). "
+                                + "Лайки, плейлисты и профили не трогаются.",
+                        "The same song re-uploaded by different users appears once in home recommendations and autoplay. "
+                                + "Matched by title and duration (±2 s)."),
+                Settings.isDuplicateFilterEnabled(),
+                (button, checked) -> {
+                    Settings.putBoolean(Settings.DUPLICATE_FILTER, checked);
+                    duplicateOptions.setVisibility(checked ? View.VISIBLE : View.GONE);
+                }
+        ));
+        duplicateOptions.setVisibility(Settings.isDuplicateFilterEnabled() ? View.VISIBLE : View.GONE);
+        duplicateOptions.addView(createToggleRow(
+                text("Считать slowed, sped up и ремиксы тем же треком", "Treat slowed, sped up and remixes as the same song"),
+                text("Иначе такие версии остаются отдельными треками.", "Otherwise these versions stay separate."),
+                Settings.isMergeEditedVersions(),
+                (button, checked) -> Settings.putBoolean(Settings.MERGE_EDITED_VERSIONS, checked)
+        ));
+        list.addView(duplicateOptions);
+
         list.addView(createSubHeading(text("Энергосбережение", "Power saving")));
         list.addView(createToggleRow(
-                text("Реже проверять сообщения", "Check messages less often"),
-                text("Значок новых сообщений обновляется раз в 5 минут вместо каждых 30 секунд: "
-                                + "меньше просыпается радиомодуль. Применится после перезапуска.",
+                text("Экономия батареи", "Battery saving"),
+                text("Значок новых сообщений обновляется раз в 5 минут вместо каждых 30 секунд, а встроенные "
+                                + "сторонние SDK (Statsig, MoEngage) не отправляют фоновые отчёты каждые несколько секунд: "
+                                + "меньше просыпается радиомодуль. Опрос сообщений меняется после перезапуска.",
                         "The new messages badge updates every 5 minutes instead of every 30 seconds, "
                                 + "so the radio wakes up less. Applies after a restart."),
                 Settings.isPowerSavingEnabled(),

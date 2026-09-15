@@ -33,6 +33,7 @@ rem Options (-O) belong to the patch enabled right before them, so "Change packa
   -e "Play downloaded files" ^
   -e "Local music" ^
   -e "Power saving" ^
+  -e "Hide duplicate recommendations" ^
   -e "Hide subscription offers" ^
   -e "Change account type" ^
   -e "Custom app name" ^

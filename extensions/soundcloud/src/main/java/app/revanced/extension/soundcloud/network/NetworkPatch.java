@@ -84,7 +84,12 @@ public final class NetworkPatch {
 
                 Object request = chainClass.getMethod("request").invoke(chain);
                 Object url = request.getClass().getMethod("url").invoke(request);
-                RegionGuard.throwIfBlocked(String.valueOf(url.getClass().getMethod("host").invoke(url)));
+                String host = String.valueOf(url.getClass().getMethod("host").invoke(url));
+                RegionGuard.throwIfBlocked(host);
+                if (app.revanced.extension.soundcloud.power.PowerSavingPatch.isBackgroundReportBlocked(host,
+                        String.valueOf(url.getClass().getMethod("encodedPath").invoke(url)))) {
+                    throw new java.io.IOException("Arsound: background report blocked to save power");
+                }
                 try {
                     return chainClass.getMethod("proceed", requestClass).invoke(chain, request);
                 } catch (java.lang.reflect.InvocationTargetException ex) {
