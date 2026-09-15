@@ -33,6 +33,12 @@ import app.revanced.extension.shared.Utils;
 public final class ReVancedSettingsActivity extends Activity {
     private static final String CONSTRAINT_LAYOUT_CLASS = "androidx.constraintlayout.widget.ConstraintLayout";
 
+    private static final String EXTRA_SCREEN = "arsound_screen";
+    private static final String SCREEN_LOCAL_MUSIC = "local_music";
+    private static final int REQUEST_IMPORT = 1;
+
+    private LinearLayout localTrackList;
+
     private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
 
     private static String text(String russian, String english) {
@@ -44,7 +50,9 @@ public final class ReVancedSettingsActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         try {
-            setContentView(createContent());
+            setContentView(SCREEN_LOCAL_MUSIC.equals(getIntent().getStringExtra(EXTRA_SCREEN))
+                    ? createLocalMusicContent()
+                    : createContent());
         } catch (Exception ex) {
             Logger.printException(() -> "Failed to create ReVanced settings screen", ex);
             finish();
@@ -155,6 +163,15 @@ public final class ReVancedSettingsActivity extends Activity {
                 }
         ));
 
+        list.addView(createSubHeading(text("Локальная музыка", "Local music")));
+        list.addView(createActionRow(
+                text("Мои файлы", "My files"),
+                text("Импорт аудиофайлов с телефона и воспроизведение в плеере SoundCloud.",
+                        "Import audio files from the phone and play them in the SoundCloud player."),
+                v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
+                        .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_MUSIC))
+        ));
+
         list.addView(createSubHeading(text("Данные", "Data")));
         list.addView(createActionRow(
                 text("Сбросить данные SoundCloud", "Reset SoundCloud data"),
@@ -219,6 +236,137 @@ public final class ReVancedSettingsActivity extends Activity {
                 + text("Замедляет все запросы SoundCloud, чтобы проверить работу на плохом интернете. "
                         + "Действует сразу.",
                 "Slows down every SoundCloud request to test behavior on a poor connection. Applies immediately.");
+    }
+
+    private View createLocalMusicContent() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(themeColor("themeColorSurface"));
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(
+                    insets.getSystemWindowInsetLeft(),
+                    insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(),
+                    insets.getSystemWindowInsetBottom()
+            );
+            return insets.consumeSystemWindowInsets();
+        });
+        root.addView(createToolbar());
+
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(list);
+        root.addView(scrollView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        TextView title = createText("H1.Primary", text("Мои файлы", "My files"));
+        title.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_l"));
+        list.addView(title);
+
+        list.addView(createActionRow(
+                text("Импортировать файлы", "Import files"),
+                text("MP3, M4A, FLAC, OGG, WAV. Файлы копируются в память приложения.",
+                        "MP3, M4A, FLAC, OGG, WAV. Files are copied into the app storage."),
+                v -> {
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+                            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                            .setType("audio/*")
+                            .putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    startActivityForResult(intent, REQUEST_IMPORT);
+                }
+        ));
+        list.addView(createActionRow(
+                text("Перемешать всё", "Shuffle all"),
+                text("Играет все импортированные треки в случайном порядке.", "Plays all imported tracks in random order."),
+                v -> playLocal(0, true)
+        ));
+
+        list.addView(createSubHeading(text("Треки", "Tracks")));
+        localTrackList = new LinearLayout(this);
+        localTrackList.setOrientation(LinearLayout.VERTICAL);
+        list.addView(localTrackList);
+        reloadLocalTracks();
+
+        return root;
+    }
+
+    private java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> localTracks = new java.util.ArrayList<>();
+
+    private void reloadLocalTracks() {
+        Utils.runOnBackgroundThread(() -> {
+            java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks =
+                    app.revanced.extension.soundcloud.local.LocalMusic.getTracks(this);
+            Utils.runOnMainThread(() -> showLocalTracks(tracks));
+        });
+    }
+
+    private void showLocalTracks(java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks) {
+        localTracks = tracks;
+        localTrackList.removeAllViews();
+        if (tracks.isEmpty()) {
+            TextView empty = createText("Body.Secondary", text("Пока пусто. Нажмите «Импортировать файлы».",
+                    "Nothing here yet. Tap \"Import files\"."));
+            empty.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
+            localTrackList.addView(empty);
+            return;
+        }
+
+        for (int i = 0; i < tracks.size(); i++) {
+            app.revanced.extension.soundcloud.local.LocalMusic.Track track = tracks.get(i);
+            int index = i;
+            long seconds = track.durationMs / 1000;
+            String details = (track.artist.isEmpty() ? "" : track.artist + " · ")
+                    + String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60);
+            View row = createActionRow(track.title, details, v -> playLocal(index, false));
+            row.setOnLongClickListener(v -> {
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle(track.title)
+                        .setMessage(text("Удалить файл из приложения?", "Remove the file from the app?"))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(text("Удалить", "Remove"), (dialog, which) -> {
+                            app.revanced.extension.soundcloud.local.LocalMusic.delete(track);
+                            reloadLocalTracks();
+                        })
+                        .show();
+                return true;
+            });
+            localTrackList.addView(row);
+        }
+    }
+
+    private void playLocal(int index, boolean shuffle) {
+        java.util.List<java.io.File> files = new java.util.ArrayList<>();
+        for (app.revanced.extension.soundcloud.local.LocalMusic.Track track : localTracks) files.add(track.file);
+        if (files.isEmpty()) return;
+
+        if (app.revanced.extension.soundcloud.local.LocalMusic.play(files, index, shuffle)) {
+            finish();
+        } else {
+            Toast.makeText(this, text("Плеер ещё не готов. Откройте SoundCloud и попробуйте снова.",
+                    "The player is not ready. Open SoundCloud and try again."), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null) return;
+
+        java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) uris.add(data.getClipData().getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+
+        Toast.makeText(this, text("Импортирую…", "Importing…"), Toast.LENGTH_SHORT).show();
+        Utils.runOnBackgroundThread(() -> {
+            int count = app.revanced.extension.soundcloud.local.LocalMusic.importFiles(this, uris);
+            Utils.runOnMainThread(() -> {
+                Toast.makeText(this, text("Импортировано: " + count, "Imported: " + count), Toast.LENGTH_SHORT).show();
+                reloadLocalTracks();
+            });
+        });
     }
 
     private void confirmReset() {
