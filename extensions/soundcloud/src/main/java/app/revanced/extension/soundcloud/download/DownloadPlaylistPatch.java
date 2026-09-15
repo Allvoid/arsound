@@ -56,7 +56,10 @@ public final class DownloadPlaylistPatch {
             if (playlistId == null) return;
 
             // The menu items are recreated right after this call, so add the row once they are in place.
-            dialog.getWindow().getDecorView().post(() -> addRow(dialog, playlistId));
+            dialog.getWindow().getDecorView().post(() -> {
+                addRow(dialog, playlistId);
+                app.revanced.extension.soundcloud.local.LocalAdditions.addPlaylistMenuRow(dialog, "soundcloud:playlists:" + playlistId);
+            });
         } catch (Exception ex) {
             Logger.printException(() -> "onPlaylistMenu failure", ex);
         }

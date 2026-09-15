@@ -100,6 +100,65 @@ public final class Rx {
         return method.getName().equals("F");
     }
 
+    public static Object mapSingle(Object single, java.util.function.Function<Object, Object> mapper) throws Exception {
+        return map(single, "Single", "SingleMap", mapper);
+    }
+
+    public static Object mapObservable(Object observable, java.util.function.Function<Object, Object> mapper) throws Exception {
+        return map(observable, "Observable", "ObservableMap", mapper);
+    }
+
+    private static Object map(Object source, String baseName, String operatorName,
+                              java.util.function.Function<Object, Object> mapper) throws Exception {
+        ClassLoader loader = source.getClass().getClassLoader();
+        Class<?> base = type(loader, CORE + baseName);
+        Class<?> functionClass = type(loader, FUNCTIONS + "Function");
+        Object function = function(loader, "Function", args -> mapper.apply(args[0]));
+        return find(base, false, operatorName, functionClass).invoke(source, function);
+    }
+
+    /**
+     * Waits for the first item of an Observable, Single or Maybe.
+     *
+     * @return The item, or null on error, completion without items or timeout.
+     */
+    public static Object blockingFirst(Object reactive, long timeout, java.util.concurrent.TimeUnit unit) throws Exception {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Object> result = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Object> disposable = new java.util.concurrent.atomic.AtomicReference<>();
+
+        ClassLoader loader = reactive.getClass().getClassLoader();
+        Class<?> consumer = type(loader, FUNCTIONS + "Consumer");
+        Object onItem = function(loader, "Consumer", args -> {
+            result.compareAndSet(null, args[0]);
+            latch.countDown();
+            return null;
+        });
+        Object onError = function(loader, "Consumer", args -> {
+            latch.countDown();
+            return null;
+        });
+
+        for (Method method : reactive.getClass().getMethods()) {
+            Class<?>[] parameters = method.getParameterTypes();
+            if (method.getName().equals("subscribe") && parameters.length == 2
+                    && parameters[0] == consumer && parameters[1] == consumer) {
+                disposable.set(method.invoke(reactive, onItem, onError));
+                break;
+            }
+        }
+        latch.await(timeout, unit);
+
+        Object subscription = disposable.get();
+        if (subscription != null) {
+            try {
+                subscription.getClass().getMethod("dispose").invoke(subscription);
+            } catch (Exception ignored) {
+            }
+        }
+        return result.get();
+    }
+
     /** Subscribes to a Completable, Single or Observable and ignores its result and errors. */
     public static void subscribeIgnoringErrors(Object reactive, Consumer<Throwable> onError) {
         try {

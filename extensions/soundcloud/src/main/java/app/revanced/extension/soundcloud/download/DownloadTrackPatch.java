@@ -75,7 +75,10 @@ public final class DownloadTrackPatch {
             String trackId = parseTrackId(trackUrn);
             if (trackId == null) return;
 
-            Utils.runOnMainThread(() -> addDownloadRow(dialog, trackId));
+            Utils.runOnMainThread(() -> {
+                addDownloadRow(dialog, trackId);
+                app.revanced.extension.soundcloud.local.LocalAdditions.addTrackMenuRow(dialog, trackUrn);
+            });
         } catch (Exception ex) {
             Logger.printException(() -> "onTrackMenu failure", ex);
         }
@@ -359,6 +362,26 @@ public final class DownloadTrackPatch {
 
     static void showToast(Context context, String message) {
         Utils.runOnMainThread(() -> Toast.makeText(context, message, Toast.LENGTH_LONG).show());
+    }
+
+    /** Creates a menu row styled like SoundCloud's own action list items. */
+    public static ViewGroup createMenuRow(Context context, String title, String iconName, View.OnClickListener listener) {
+        ViewGroup row = createConstraintLayout(context);
+        row.setMinimumHeight(dimen(context, "action_list_default_height"));
+        LayoutInflater.from(context).inflate(
+                Utils.getResourceIdentifier(ResourceType.LAYOUT, "layout_action_list_item"), row, true);
+
+        TextView titleView = row.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "action_list_item_title"));
+        ImageView icon = row.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "action_list_item_icon_start"));
+        hide(row, "action_list_item_download_icon");
+        hide(row, "action_list_item_icon_end");
+        hide(row, "action_list_selectable_check_icon");
+
+        titleView.setText(title);
+        icon.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE, iconName));
+        row.setBackgroundResource(selectableBackground(context));
+        row.setOnClickListener(listener);
+        return row;
     }
 
     static void hide(View row, String idName) {

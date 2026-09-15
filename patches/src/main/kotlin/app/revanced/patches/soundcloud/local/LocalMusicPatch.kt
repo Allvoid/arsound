@@ -1,17 +1,59 @@
 package app.revanced.patches.soundcloud.local
 
 import app.revanced.patcher.definingClass
+import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstruction
+import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.addInstructionsWithLabels
+import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
+import app.revanced.patches.soundcloud.download.downloadTrackPatch
 import app.revanced.patches.soundcloud.misc.settings.settingsPatch
+import app.revanced.util.indexOfFirstInstructionOrThrow
 import app.revanced.util.indexOfFirstInstructionReversedOrThrow
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/local/LocalMusic;"
+
+private const val ADDITIONS_CLASS_DESCRIPTOR =
+    "Lapp/revanced/extension/soundcloud/local/LocalAdditions;"
+
+/** Reads the track urns for the playlist screen. */
+private val BytecodePatchContext.playlistScreenTracksMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/playlists/DataSourceProvider\$liveTracksForPlaylist\$3\$1;")
+}
+
+/** Reads the track urns when a whole playlist is played or shuffled. */
+private val BytecodePatchContext.trackUrnsForPlaybackMethod by gettingFirstMethodDeclaratively {
+    name("trackUrnsForPlayback")
+    definingClass("Lcom/soundcloud/android/playlists/DefaultPlaylistOperations;")
+}
+
+/** Saves the edited track list of an own playlist to the server. */
+private val BytecodePatchContext.editPlaylistTracksMethod by gettingFirstMethodDeclaratively {
+    name("editPlaylistTracks")
+    definingClass("Lcom/soundcloud/android/playlists/DefaultPlaylistOperations;")
+}
+
+/** Track lists; drops urns of local files. */
+private val BytecodePatchContext.localFileAwareTracksMethod by gettingFirstMethodDeclaratively {
+    name("tracks")
+    definingClass("Lcom/soundcloud/android/data/track/LocalFileAwareTrackRepository;")
+}
+
+/** Builds the playlist screen for a loaded playlist. */
+private val BytecodePatchContext.playlistScreenMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/playlists/DataSourceProvider\$playlistWithExtras\$1\$2;")
+}
 
 /**
  * The single entry point that turns a list of tracks into a play queue and starts it.
@@ -24,9 +66,9 @@ private val BytecodePatchContext.playbackInitiatorConstructorMethod by gettingFi
 @Suppress("unused")
 val localMusicPatch = bytecodePatch(
     name = "Local music",
-    description = "Adds importing audio files from the phone and playing them in the SoundCloud player.",
+    description = "Adds importing audio files, playing them in the SoundCloud player and adding any track to any playlist on this device only.",
 ) {
-    dependsOn(settingsPatch)
+    dependsOn(settingsPatch, downloadTrackPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
@@ -35,6 +77,59 @@ val localMusicPatch = bytecodePatch(
             addInstruction(
                 indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
                 "invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->setPlaybackInitiator(Ljava/lang/Object;)V",
+            )
+        }
+
+        // Only the playlist screen and playback get the additions; editors keep the server track list.
+        listOf(playlistScreenTracksMethod, trackUrnsForPlaybackMethod).forEach { method ->
+            method.apply {
+                val callIndex = indexOfFirstInstructionOrThrow {
+                    (this as? ReferenceInstruction)?.reference?.toString()?.contains("->playlistTrackUrns(") == true
+                }
+                val urnRegister = getInstruction<FiveRegisterInstruction>(callIndex).registerD
+                val resultRegister = getInstruction<OneRegisterInstruction>(callIndex + 1).registerA
+                addInstructions(
+                    callIndex + 2,
+                    """
+                        invoke-static { v$resultRegister, v$urnRegister }, $ADDITIONS_CLASS_DESCRIPTOR->appendToTrackUrns(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                        move-result-object v$resultRegister
+                        check-cast v$resultRegister, Lio/reactivex/rxjava3/core/Single;
+                    """,
+                )
+            }
+        }
+
+        editPlaylistTracksMethod.addInstructions(
+            0,
+            """
+                invoke-static { p1, p2 }, $ADDITIONS_CLASS_DESCRIPTOR->withoutLocalAdditions(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                move-result-object p2
+                check-cast p2, Ljava/util/Set;
+            """,
+        )
+
+        localFileAwareTracksMethod.addInstructionsWithLabels(
+            0,
+            """
+                invoke-static { p0, p1, p2 }, $ADDITIONS_CLASS_DESCRIPTOR->tracksWithLocalFiles(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                move-result-object v0
+                if-eqz v0, :original
+                check-cast v0, Lio/reactivex/rxjava3/core/Observable;
+                return-object v0
+            """,
+            ExternalLabel("original", localFileAwareTracksMethod.getInstruction(0)),
+        )
+
+        playlistScreenMethod.apply {
+            val itemIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.CHECK_CAST &&
+                    (this as ReferenceInstruction).reference.toString() ==
+                    "Lcom/soundcloud/android/foundation/domain/playlists/PlaylistItem;"
+            }
+            val itemRegister = getInstruction<OneRegisterInstruction>(itemIndex).registerA
+            addInstruction(
+                itemIndex + 1,
+                "invoke-static { v$itemRegister }, $ADDITIONS_CLASS_DESCRIPTOR->onPlaylistOpened(Ljava/lang/Object;)V",
             )
         }
     }
