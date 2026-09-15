@@ -35,8 +35,6 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private static final String EXTRA_SCREEN = "arsound_screen";
     private static final String SCREEN_LOCAL_MUSIC = "local_music";
-    private static final String SCREEN_LOCAL_PLAYLIST = "local_playlist";
-    private static final String EXTRA_PLAYLIST_ID = "arsound_playlist_id";
     private static final int REQUEST_IMPORT = 1;
 
     private LinearLayout localTrackList;
@@ -54,7 +52,6 @@ public final class ReVancedSettingsActivity extends Activity {
         try {
             String screen = getIntent().getStringExtra(EXTRA_SCREEN);
             setContentView(SCREEN_LOCAL_MUSIC.equals(screen) ? createLocalMusicContent()
-                    : SCREEN_LOCAL_PLAYLIST.equals(screen) ? createLocalPlaylistContent()
                     : createContent());
         } catch (Exception ex) {
             Logger.printException(() -> "Failed to create ReVanced settings screen", ex);
@@ -179,10 +176,36 @@ public final class ReVancedSettingsActivity extends Activity {
         ));
 
         list.addView(createSubHeading(text("Локальная музыка", "Local music")));
+        LinearLayout savedOptions = new LinearLayout(this);
+        savedOptions.setOrientation(LinearLayout.VERTICAL);
+        list.addView(createToggleRow(
+                text("Плейлист «Скачанные и импортированные»", "\"Downloaded and imported\" playlist"),
+                text("В библиотеке SoundCloud появится приватный плейлист со всеми треками, скачанными Arsound, "
+                                + "и импортированными файлами. Треки в нём есть только на этом телефоне. "
+                                + "Плейлист нельзя удалить: пока функция включена, он создаётся снова. "
+                                + "Применится после перезапуска.",
+                        "A private playlist with all tracks downloaded by Arsound and imported files appears in the "
+                                + "SoundCloud library. Its tracks exist only on this phone. Applies after a restart."),
+                Settings.isSavedPlaylistEnabled(),
+                (button, checked) -> {
+                    Settings.putBoolean(Settings.SAVED_PLAYLIST, checked);
+                    savedOptions.setVisibility(checked ? View.VISIBLE : View.GONE);
+                }
+        ));
+        savedOptions.setVisibility(Settings.isSavedPlaylistEnabled() ? View.VISIBLE : View.GONE);
+        savedOptions.addView(createToggleRow(
+                text("Скрыть этот плейлист", "Hide this playlist"),
+                text("Убирает плейлист из библиотеки, не выключая функцию.", "Removes the playlist from the library without turning the feature off."),
+                Settings.isSavedPlaylistHidden(),
+                (button, checked) -> Settings.putBoolean(Settings.SAVED_PLAYLIST_HIDDEN, checked)
+        ));
+        list.addView(savedOptions);
         list.addView(createActionRow(
-                text("Мои файлы", "My files"),
-                text("Импорт аудиофайлов с телефона и воспроизведение в плеере SoundCloud.",
-                        "Import audio files from the phone and play them in the SoundCloud player."),
+                text("Импортированные файлы", "Imported files"),
+                text("Импорт аудиофайлов с телефона и список импортированного. Файлы появляются в плейлисте "
+                                + "«Скачанные и импортированные».",
+                        "Import audio files from the phone and see what is imported. Files appear in the "
+                                + "\"Downloaded and imported\" playlist."),
                 v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
                         .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_MUSIC))
         ));
@@ -417,25 +440,6 @@ public final class ReVancedSettingsActivity extends Activity {
                     startActivityForResult(intent, REQUEST_IMPORT);
                 }
         ));
-        list.addView(createActionRow(
-                text("Перемешать всё", "Shuffle all"),
-                text("Играет все импортированные треки в случайном порядке.", "Plays all imported tracks in random order."),
-                v -> playLocal(0, true)
-        ));
-
-        list.addView(createSubHeading(text("Локальные плейлисты", "Local playlists")));
-        list.addView(createActionRow(
-                text("Создать плейлист", "Create playlist"),
-                text("Смешивайте треки SoundCloud и свои файлы. Треки SoundCloud добавляются из меню трека: "
-                                + "«Добавить в плейлист локально».",
-                        "Mix SoundCloud tracks and your files. Add SoundCloud tracks from the track menu: "
-                                + "\"Add to playlist locally\"."),
-                v -> createLocalPlaylist()
-        ));
-        localPlaylistList = new LinearLayout(this);
-        localPlaylistList.setOrientation(LinearLayout.VERTICAL);
-        list.addView(localPlaylistList);
-
         list.addView(createSubHeading(text("Треки", "Tracks")));
         localTrackList = new LinearLayout(this);
         localTrackList.setOrientation(LinearLayout.VERTICAL);
@@ -443,167 +447,6 @@ public final class ReVancedSettingsActivity extends Activity {
         reloadLocalTracks();
 
         return root;
-    }
-
-    private LinearLayout localPlaylistList;
-
-    private void showLocalPlaylists() {
-        if (localPlaylistList == null) return;
-        localPlaylistList.removeAllViews();
-        for (String[] playlist : app.revanced.extension.soundcloud.local.LocalAdditions.getLocalPlaylists()) {
-            int count = app.revanced.extension.soundcloud.local.LocalAdditions.getEntries(app.revanced.extension.soundcloud.local.LocalAdditions.localPlaylistKey(playlist[0])).size();
-            localPlaylistList.addView(createActionRow("★ " + playlist[1],
-                    text("Треков: " + count, "Tracks: " + count),
-                    v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
-                            .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_PLAYLIST)
-                            .putExtra(EXTRA_PLAYLIST_ID, playlist[0]))));
-        }
-    }
-
-    private void createLocalPlaylist() {
-        android.widget.EditText input = new android.widget.EditText(this);
-        input.setHint(text("Название", "Name"));
-        new android.app.AlertDialog.Builder(this)
-                .setTitle(text("Новый локальный плейлист", "New local playlist"))
-                .setView(input)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(text("Создать", "Create"), (dialog, which) -> {
-                    String name = input.getText().toString().trim();
-                    if (name.isEmpty()) name = text("Мой плейлист", "My playlist");
-                    app.revanced.extension.soundcloud.local.LocalAdditions.createLocalPlaylist(name);
-                    showLocalPlaylists();
-                })
-                .show();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        showLocalPlaylists();
-        if (localPlaylistId != null) reloadLocalPlaylist();
-    }
-
-    // Local playlist screen.
-
-    private String localPlaylistId;
-    private LinearLayout localPlaylistEntries;
-    private java.util.List<String> localPlaylistEntryList = new java.util.ArrayList<>();
-
-    private View createLocalPlaylistContent() {
-        localPlaylistId = getIntent().getStringExtra(EXTRA_PLAYLIST_ID);
-        String name = "";
-        for (String[] playlist : app.revanced.extension.soundcloud.local.LocalAdditions.getLocalPlaylists()) {
-            if (playlist[0].equals(localPlaylistId)) name = playlist[1];
-        }
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(themeColor("themeColorSurface"));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
-                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
-            return insets.consumeSystemWindowInsets();
-        });
-        root.addView(createToolbar());
-        ScrollView scrollView = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(list);
-        root.addView(scrollView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        TextView title = createText("H1.Primary", name);
-        title.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_l"));
-        list.addView(title);
-
-        String key = app.revanced.extension.soundcloud.local.LocalAdditions.localPlaylistKey(localPlaylistId);
-        list.addView(createActionRow(text("Слушать", "Play"), text("По порядку", "In order"),
-                v -> playEntries(0, false)));
-        list.addView(createActionRow(text("Перемешать", "Shuffle"), text("В случайном порядке", "In random order"),
-                v -> playEntries(0, true)));
-        list.addView(createActionRow(text("Добавить мой файл", "Add my file"),
-                text("Из импортированных в «Мои файлы»", "From files imported in My files"),
-                v -> Utils.runOnBackgroundThread(() -> {
-                    java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks = app.revanced.extension.soundcloud.local.LocalMusic.getTracks(this);
-                    Utils.runOnMainThread(() -> {
-                        String[] titles = new String[tracks.size()];
-                        for (int i = 0; i < tracks.size(); i++) titles[i] = tracks.get(i).title;
-                        new android.app.AlertDialog.Builder(this)
-                                .setTitle(text("Мои файлы", "My files"))
-                                .setItems(titles, (dialog, which) -> {
-                                    app.revanced.extension.soundcloud.local.LocalAdditions.add(key, app.revanced.extension.soundcloud.local.LocalAdditions.fileEntry(tracks.get(which).file));
-                                    reloadLocalPlaylist();
-                                })
-                                .setNegativeButton(android.R.string.cancel, null)
-                                .show();
-                    });
-                })));
-        list.addView(createActionRow(text("Удалить плейлист", "Delete playlist"),
-                text("Файлы и треки не удаляются", "Files and tracks are kept"),
-                v -> new android.app.AlertDialog.Builder(this)
-                        .setTitle(text("Удалить плейлист?", "Delete playlist?"))
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(text("Удалить", "Delete"), (dialog, which) -> {
-                            app.revanced.extension.soundcloud.local.LocalAdditions.deleteLocalPlaylist(localPlaylistId);
-                            finish();
-                        })
-                        .show()));
-
-        list.addView(createSubHeading(text("Треки", "Tracks")));
-        localPlaylistEntries = new LinearLayout(this);
-        localPlaylistEntries.setOrientation(LinearLayout.VERTICAL);
-        list.addView(localPlaylistEntries);
-        reloadLocalPlaylist();
-        return root;
-    }
-
-    private void reloadLocalPlaylist() {
-        String key = app.revanced.extension.soundcloud.local.LocalAdditions.localPlaylistKey(localPlaylistId);
-        Utils.runOnBackgroundThread(() -> {
-            java.util.List<String> entries = app.revanced.extension.soundcloud.local.LocalAdditions.getEntries(key);
-            java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> imported = app.revanced.extension.soundcloud.local.LocalMusic.getTracks(this);
-            java.util.List<String> labels = new java.util.ArrayList<>();
-            for (String entry : entries) labels.add(app.revanced.extension.soundcloud.local.LocalAdditions.describe(entry, imported));
-            Utils.runOnMainThread(() -> {
-                localPlaylistEntryList = entries;
-                localPlaylistEntries.removeAllViews();
-                if (entries.isEmpty()) {
-                    TextView empty = createText("Body.Secondary", text("Пусто. Добавьте свой файл или трек SoundCloud "
-                            + "через меню трека → «Добавить в плейлист локально».",
-                            "Empty. Add your file, or a SoundCloud track via its menu → \"Add to playlist locally\"."));
-                    empty.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
-                    localPlaylistEntries.addView(empty);
-                }
-                for (int i = 0; i < entries.size(); i++) {
-                    int index = i;
-                    String entry = entries.get(i);
-                    View row = createActionRow(labels.get(i),
-                            entry.startsWith("file:") ? text("Мой файл", "My file") : "SoundCloud",
-                            v -> playEntries(index, false));
-                    row.setOnLongClickListener(v -> {
-                        new android.app.AlertDialog.Builder(this)
-                                .setTitle(labels.get(index))
-                                .setNegativeButton(android.R.string.cancel, null)
-                                .setPositiveButton(text("Убрать из плейлиста", "Remove from playlist"), (dialog, which) -> {
-                                    app.revanced.extension.soundcloud.local.LocalAdditions.remove(key, entry);
-                                    reloadLocalPlaylist();
-                                })
-                                .show();
-                        return true;
-                    });
-                    localPlaylistEntries.addView(row);
-                }
-            });
-        });
-    }
-
-    private void playEntries(int index, boolean shuffle) {
-        if (localPlaylistEntryList.isEmpty()) return;
-        if (app.revanced.extension.soundcloud.local.LocalMusic.playEntries(localPlaylistEntryList, index, shuffle)) {
-            finish();
-        } else {
-            Toast.makeText(this, text("Плеер ещё не готов. Откройте SoundCloud и попробуйте снова.",
-                    "The player is not ready. Open SoundCloud and try again."), Toast.LENGTH_LONG).show();
-        }
     }
 
     private java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> localTracks = new java.util.ArrayList<>();

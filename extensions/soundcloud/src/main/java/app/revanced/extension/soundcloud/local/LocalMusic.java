@@ -62,6 +62,16 @@ public final class LocalMusic {
         return directory;
     }
 
+    /** Imported files, newest first, without reading their metadata. */
+    public static List<File> getFiles(Context context) {
+        File[] files = directory(context).listFiles(File::isFile);
+        List<File> result = new ArrayList<>();
+        if (files == null) return result;
+        Arrays.sort(files, (x, y) -> Long.compare(y.lastModified(), x.lastModified()));
+        result.addAll(Arrays.asList(files));
+        return result;
+    }
+
     /** Imported tracks, newest first. Reads metadata from the files, so call it off the main thread. */
     public static List<Track> getTracks(Context context) {
         File[] files = directory(context).listFiles(File::isFile);

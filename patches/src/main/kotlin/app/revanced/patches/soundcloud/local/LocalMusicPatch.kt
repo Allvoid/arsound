@@ -55,6 +55,33 @@ private val BytecodePatchContext.playlistScreenMethod by gettingFirstMethodDecla
     definingClass("Lcom/soundcloud/android/playlists/DataSourceProvider\$playlistWithExtras\$1\$2;")
 }
 
+private const val SAVED_CLASS_DESCRIPTOR =
+    "Lapp/revanced/extension/soundcloud/local/SavedPlaylist;"
+
+/** Creates, edits and deletes playlists of the user. */
+private val BytecodePatchContext.playlistOperationsConstructorMethod by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/playlists/DefaultPlaylistOperations;")
+}
+
+/** Decides whether the playlist screen can use the stored playlist or must load it from the server. */
+private val BytecodePatchContext.syncIfNotOwnedOrNotFoundMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/playlists/DataSourceProvider\$syncIfNotOwnedOrNotFound\$1;")
+}
+
+/** The native "Remove from playlist" action of the track menu. */
+private val BytecodePatchContext.removeFromPlaylistMethod by gettingFirstMethodDeclaratively {
+    name("removeFromPlaylist")
+    definingClass("Lcom/soundcloud/android/libs/engagements/DefaultTrackEngagements;")
+}
+
+/** Library playlists list. */
+private val BytecodePatchContext.myPlaylistsMethod by gettingFirstMethodDeclaratively {
+    name("myPlaylists")
+    definingClass("Lcom/soundcloud/android/collections/data/MyPlaylistOperations;")
+}
+
 /**
  * The single entry point that turns a list of tracks into a play queue and starts it.
  */
@@ -119,6 +146,51 @@ val localMusicPatch = bytecodePatch(
             """,
             ExternalLabel("original", localFileAwareTracksMethod.getInstruction(0)),
         )
+
+        playlistOperationsConstructorMethod.apply {
+            addInstruction(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0 }, $SAVED_CLASS_DESCRIPTOR->setPlaylistOperations(Ljava/lang/Object;)V",
+            )
+        }
+
+        syncIfNotOwnedOrNotFoundMethod.addInstructionsWithLabels(
+            0,
+            """
+                iget-object v0, p0, Lcom/soundcloud/android/playlists/DataSourceProvider${'$'}syncIfNotOwnedOrNotFound${'$'}1;->b:Lcom/soundcloud/android/foundation/domain/Urn;
+                invoke-static { v0, p1 }, $SAVED_CLASS_DESCRIPTOR->useStoredPlaylist(Ljava/lang/Object;Ljava/lang/Object;)Z
+                move-result v0
+                if-eqz v0, :original
+                invoke-static { p1 }, Lio/reactivex/rxjava3/core/Single;->n(Ljava/lang/Object;)Lio/reactivex/rxjava3/internal/operators/single/SingleJust;
+                move-result-object v0
+                return-object v0
+            """,
+            ExternalLabel("original", syncIfNotOwnedOrNotFoundMethod.getInstruction(0)),
+        )
+
+        removeFromPlaylistMethod.addInstructionsWithLabels(
+            0,
+            """
+                invoke-static { p1, p2 }, $ADDITIONS_CLASS_DESCRIPTOR->removeFromPlaylist(Ljava/lang/Object;Ljava/lang/Object;)Z
+                move-result v0
+                if-eqz v0, :original
+                return-void
+            """,
+            ExternalLabel("original", removeFromPlaylistMethod.getInstruction(0)),
+        )
+
+        myPlaylistsMethod.apply {
+            val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
+            val register = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+            addInstructions(
+                returnIndex,
+                """
+                    invoke-static { v$register }, $SAVED_CLASS_DESCRIPTOR->hideFromLists(Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$register
+                    check-cast v$register, Lio/reactivex/rxjava3/core/Observable;
+                """,
+            )
+        }
 
         playlistScreenMethod.apply {
             val itemIndex = indexOfFirstInstructionOrThrow {

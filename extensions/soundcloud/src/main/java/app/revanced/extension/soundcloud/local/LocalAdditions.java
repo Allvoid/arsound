@@ -100,9 +100,19 @@ public final class LocalAdditions {
         }
     }
 
+    /** Entries added by the user to this playlist. */
     public static List<String> getEntries(String playlistUrn) {
         List<String> entries = readAdditions().get(playlistUrn);
         return entries == null ? new ArrayList<>() : entries;
+    }
+
+    /** Entries shown in the playlist: for the saved tracks playlist, all downloads and imported files. */
+    public static List<String> getShownEntries(String playlistUrn) {
+        List<String> entries = getEntries(playlistUrn);
+        if (SavedPlaylist.isSavedPlaylist(playlistUrn)) {
+            for (String entry : SavedPlaylist.getEntries()) if (!entries.contains(entry)) entries.add(entry);
+        }
+        return entries;
     }
 
     /** @return False if the entry was already added. */
@@ -183,13 +193,13 @@ public final class LocalAdditions {
      */
     public static Object appendToTrackUrns(Object single, Object playlistUrn) {
         String key = String.valueOf(playlistUrn);
-        int count = getEntries(key).size();
+        int count = getShownEntries(key).size();
         Logger.printInfo(() -> "Track urns requested for " + key + ", local additions: " + count);
         if (count == 0) return single;
         try {
             return Rx.mapSingle(single, value -> {
                 List<Object> urns = new ArrayList<>((List<?>) value);
-                for (String entry : getEntries(key)) {
+                for (String entry : getShownEntries(key)) {
                     Object urn = toUrn(single.getClass().getClassLoader(), entry);
                     if (urn != null && !urns.contains(urn)) urns.add(urn);
                 }
@@ -308,13 +318,21 @@ public final class LocalAdditions {
      * @param tracks      The {@code Set<Urn>} to save.
      */
     public static Object withoutLocalAdditions(Object playlistUrn, Object tracks) {
-        List<String> entries = getEntries(String.valueOf(playlistUrn));
+        String playlist = String.valueOf(playlistUrn);
+        List<String> entries = getEntries(playlist);
         java.util.Set<Object> result = new java.util.LinkedHashSet<>();
+        boolean addedLocally = false;
         for (Object urn : (Iterable<?>) tracks) {
-            String value = String.valueOf(urn);
-            if (urn.getClass().getName().endsWith(".LocalTrackUrn") || entries.contains(value)) continue;
+            if (urn.getClass().getName().endsWith(".LocalTrackUrn")) {
+                // An imported file picked in the native "Add to playlist" screen.
+                String entry = entryOf(urn);
+                if (entry != null && add(playlist, entry)) addedLocally = true;
+                continue;
+            }
+            if (entries.contains(String.valueOf(urn))) continue;
             result.add(urn);
         }
+        if (addedLocally) notifyPlaylistChanged(playlist);
         return result;
     }
 
@@ -334,7 +352,7 @@ public final class LocalAdditions {
             String entry = String.valueOf(trackUrn);
             ViewGroup row = DownloadTrackPatch.createMenuRow(context,
                     text("Добавить в плейлист локально", "Add to playlist locally"),
-                    "ic_actions_playlist_add", v -> {
+                    "ic_actions_playlist_add_to_playlist", v -> {
                         Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
                         dialog.dismiss();
                         pickPlaylist(activity, entry);
@@ -356,8 +374,8 @@ public final class LocalAdditions {
             Context context = dialog.getContext();
             int count = getEntries(playlistUrn).size();
             ViewGroup row = DownloadTrackPatch.createMenuRow(context,
-                    text("Локально добавленные треки", "Locally added tracks") + (count > 0 ? " (" + count + ")" : ""),
-                    "ic_actions_playlist_add", v -> {
+                    text("Локальные треки", "Local tracks") + (count > 0 ? " (" + count + ")" : ""),
+                    "ic_actions_playlist_add_to_playlist", v -> {
                         Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
                         dialog.dismiss();
                         manageAdditions(activity, playlistUrn);
@@ -370,95 +388,40 @@ public final class LocalAdditions {
         }
     }
 
-    /** Lets the user pick one of the recently opened playlists and albums for the entry. */
+    /** Lets the user pick a playlist: own playlists and recently opened playlists and albums. */
     public static void pickPlaylist(Context context, String entry) {
-        List<String[]> targets = new ArrayList<>();
-        for (String[] playlist : getLocalPlaylists()) {
-            targets.add(new String[]{localPlaylistKey(playlist[0]), "★ " + playlist[1]});
-        }
-        targets.addAll(readRecentPlaylists());
+        List<String[]> targets = readRecentPlaylists();
+        String saved = SavedPlaylist.getUrn();
+        if (saved != null) targets.removeIf(item -> item[0].equals(saved));
         if (targets.isEmpty()) {
-            Toast.makeText(context, text("Создайте локальный плейлист в Arsound → «Мои файлы» или откройте нужный "
-                            + "плейлист SoundCloud — он появится в списке.",
-                    "Create a local playlist in Arsound → My files, or open a SoundCloud playlist first."),
-                    Toast.LENGTH_LONG).show();
+            Toast.makeText(context, text("Откройте нужный плейлист или альбом — он появится в списке.",
+                    "Open the playlist or album first, then it appears in the list."), Toast.LENGTH_LONG).show();
             return;
         }
 
-        String[] titles = new String[targets.size()];
-        for (int i = 0; i < targets.size(); i++) titles[i] = targets.get(i)[1];
-        new AlertDialog.Builder(context)
-                .setTitle(text("Добавить локально в…", "Add locally to…"))
-                .setItems(titles, (dialog, which) -> {
-                    boolean added = add(targets.get(which)[0], entry);
-                    rememberTitle(entry);
-                    Toast.makeText(context, added
-                                    ? text("Добавлено в «" + titles[which] + "». Видно только на этом телефоне.",
-                                    "Added to \"" + titles[which] + "\". Visible only on this phone.")
-                                    : text("Уже добавлено", "Already added"),
-                            Toast.LENGTH_LONG).show();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+        List<LocalSheet.Item> items = LocalSheet.items();
+        for (String[] target : targets) {
+            items.add(new LocalSheet.Item(target[1], "ic_actions_playlist_add_to_playlist", () -> {
+                boolean added = add(target[0], entry);
+                rememberTitle(entry);
+                notifyPlaylistChanged(target[0]);
+                Toast.makeText(context, added
+                                ? text("Добавлено в «" + target[1] + "» только на этом телефоне",
+                                "Added to \"" + target[1] + "\" on this phone only")
+                                : text("Уже в этом плейлисте", "Already in this playlist"),
+                        Toast.LENGTH_SHORT).show();
+            }));
+        }
+        LocalSheet.show(context, text("Добавить локально", "Add locally"),
+                text("Трек будет виден и играть только на этом телефоне", "The track is visible and plays only on this phone"),
+                items);
     }
 
-    // region Local playlists
+    // region Titles
 
-    private static final String LOCAL_PLAYLISTS = "local_playlists";
     private static final String TITLES = "titles";
-    private static final String LOCAL_PLAYLIST_PREFIX = "arsound:playlist:";
 
-    public static String localPlaylistKey(String id) {
-        return LOCAL_PLAYLIST_PREFIX + id;
-    }
-
-    /** Local playlists as id and name, in creation order. */
-    public static synchronized List<String[]> getLocalPlaylists() {
-        List<String[]> result = new ArrayList<>();
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return result;
-        try {
-            JSONArray json = new JSONArray(preferences.getString(LOCAL_PLAYLISTS, "[]"));
-            for (int i = 0; i < json.length(); i++) {
-                JSONObject item = json.getJSONObject(i);
-                result.add(new String[]{item.getString("id"), item.getString("name")});
-            }
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not read local playlists", ex);
-        }
-        return result;
-    }
-
-    private static synchronized void saveLocalPlaylists(List<String[]> playlists) {
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return;
-        try {
-            JSONArray json = new JSONArray();
-            for (String[] playlist : playlists) json.put(new JSONObject().put("id", playlist[0]).put("name", playlist[1]));
-            preferences.edit().putString(LOCAL_PLAYLISTS, json.toString()).apply();
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not save local playlists", ex);
-        }
-    }
-
-    public static String createLocalPlaylist(String name) {
-        List<String[]> playlists = getLocalPlaylists();
-        String id = String.valueOf(System.currentTimeMillis());
-        playlists.add(new String[]{id, name});
-        saveLocalPlaylists(playlists);
-        return id;
-    }
-
-    public static void deleteLocalPlaylist(String id) {
-        List<String[]> playlists = getLocalPlaylists();
-        playlists.removeIf(playlist -> playlist[0].equals(id));
-        saveLocalPlaylists(playlists);
-        Map<String, List<String>> additions = readAdditions();
-        additions.remove(localPlaylistKey(id));
-        writeAdditions(additions);
-    }
-
-    /** A readable name for an entry: the file metadata or the cached SoundCloud title. */
+    /** A readable name for an entry: the cached SoundCloud title. */
     public static synchronized String getTitle(String entry) {
         if (entry.startsWith(FILE_PREFIX)) return null;
         SharedPreferences preferences = preferences();
@@ -507,51 +470,50 @@ public final class LocalAdditions {
 
     // endregion
 
+    /** "Local tracks" of a playlist: what was added on this phone, with removal and adding own files. */
     private static void manageAdditions(Context context, String playlistUrn) {
-        List<String> entries = getEntries(playlistUrn);
         Utils.runOnBackgroundThread(() -> {
-            List<LocalMusic.Track> tracks = LocalMusic.getTracks(context);
-            Utils.runOnMainThread(() -> showManageDialog(context, playlistUrn, entries, tracks));
+            List<String> entries = getEntries(playlistUrn);
+            List<LocalMusic.Track> imported = LocalMusic.getTracks(context);
+            for (String entry : entries) rememberTitle(entry);
+            Utils.runOnMainThread(() -> {
+                List<LocalSheet.Item> items = LocalSheet.items();
+                items.add(new LocalSheet.Item(text("Добавить свой файл", "Add my file"), "ic_actions_playlist_add_to_playlist",
+                        () -> pickImportedFile(context, playlistUrn, imported)));
+                for (String entry : entries) {
+                    String label = describe(entry, imported);
+                    items.add(new LocalSheet.Item(label, "ic_actions_playlist_remove_from_playlist", () -> {
+                        remove(playlistUrn, entry);
+                        notifyPlaylistChanged(playlistUrn);
+                        Toast.makeText(context, text("Убрано: " + label, "Removed: " + label), Toast.LENGTH_SHORT).show();
+                    }));
+                }
+                LocalSheet.show(context, text("Локальные треки", "Local tracks"),
+                        entries.isEmpty()
+                                ? text("Здесь пока нет треков, добавленных на этом телефоне. Трек SoundCloud добавляется "
+                                        + "из его меню: «Добавить в плейлист локально».",
+                                "No tracks added on this phone yet. Add a SoundCloud track from its menu.")
+                                : text("Нажмите на трек, чтобы убрать его из плейлиста", "Tap a track to remove it"),
+                        items);
+            });
         });
     }
 
-    private static void showManageDialog(Context context, String playlistUrn, List<String> entries,
-                                         List<LocalMusic.Track> imported) {
-        List<String> labels = new ArrayList<>();
-        for (String entry : entries) labels.add("✕ " + describe(entry, imported));
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(context)
-                .setTitle(text("Локально добавленные", "Locally added"))
-                .setNegativeButton(android.R.string.cancel, null);
-        if (!imported.isEmpty()) {
-            builder.setPositiveButton(text("Добавить мой файл", "Add my file"),
-                    (dialog, which) -> pickImportedFile(context, playlistUrn, imported));
-        }
-        if (labels.isEmpty()) {
-            builder.setMessage(text("Пока ничего. Добавить трек SoundCloud: меню трека → «Добавить в плейлист локально».",
-                    "Nothing yet. To add a SoundCloud track: track menu → \"Add to playlist locally\"."));
-        } else {
-            builder.setItems(labels.toArray(new String[0]), (dialog, which) -> {
-                remove(playlistUrn, entries.get(which));
-                Toast.makeText(context, text("Убрано. Откройте плейлист заново.", "Removed. Reopen the playlist."),
-                        Toast.LENGTH_SHORT).show();
-            });
-        }
-        builder.show();
-    }
-
     private static void pickImportedFile(Context context, String playlistUrn, List<LocalMusic.Track> imported) {
-        String[] titles = new String[imported.size()];
-        for (int i = 0; i < imported.size(); i++) titles[i] = imported.get(i).title;
-        new AlertDialog.Builder(context)
-                .setTitle(text("Мои файлы", "My files"))
-                .setItems(titles, (dialog, which) -> {
-                    add(playlistUrn, fileEntry(imported.get(which).file));
-                    Toast.makeText(context, text("Добавлено. Откройте плейлист заново.", "Added. Reopen the playlist."),
-                            Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+        if (imported.isEmpty()) {
+            Toast.makeText(context, text("Сначала импортируйте файлы: Arsound → Импортированные файлы",
+                    "Import files first: Arsound → Imported files"), Toast.LENGTH_LONG).show();
+            return;
+        }
+        List<LocalSheet.Item> items = LocalSheet.items();
+        for (LocalMusic.Track track : imported) {
+            items.add(new LocalSheet.Item(track.title, "ic_actions_playlist_add_to_playlist", () -> {
+                add(playlistUrn, fileEntry(track.file));
+                notifyPlaylistChanged(playlistUrn);
+                Toast.makeText(context, text("Добавлено: " + track.title, "Added: " + track.title), Toast.LENGTH_SHORT).show();
+            }));
+        }
+        LocalSheet.show(context, text("Импортированные файлы", "Imported files"), null, items);
     }
 
     public static String describe(String entry, List<LocalMusic.Track> imported) {
@@ -562,6 +524,63 @@ public final class LocalAdditions {
         }
         String title = getTitle(entry);
         return title != null ? title : text("Трек SoundCloud ", "SoundCloud track ") + DownloadTrackPatch.parseTrackId(entry);
+    }
+
+    // endregion
+
+    // region Native playlist actions
+
+    /** Tells open playlist screens to reload their track list. */
+    public static void notifyPlaylistChanged(String playlistUrn) {
+        Object operations = SavedPlaylist.playlistOperations();
+        if (operations == null) return;
+        try {
+            ClassLoader loader = operations.getClass().getClassLoader();
+            Object urn = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader)
+                    .getMethod("forPlaylist", String.class)
+                    .invoke(null, playlistUrn.substring(playlistUrn.lastIndexOf(':') + 1));
+            operations.getClass().getMethod("notifyPlaylistsUpdated", java.util.Set.class, java.util.Set.class)
+                    .invoke(operations, Collections.singleton(urn), Collections.emptySet());
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not refresh playlist " + playlistUrn, ex);
+        }
+    }
+
+    private static String entryOf(Object trackUrn) {
+        if (trackUrn.getClass().getName().endsWith(".LocalTrackUrn")) {
+            try {
+                return fileEntry((File) trackUrn.getClass().getMethod("getFile").invoke(trackUrn));
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+        return String.valueOf(trackUrn);
+    }
+
+    /**
+     * Called at the start of the native "Remove from playlist" action.
+     *
+     * @return True if the track was a local track of this playlist and was removed here.
+     */
+    public static boolean removeFromPlaylist(Object playlistUrn, Object trackUrn) {
+        try {
+            String playlist = String.valueOf(playlistUrn);
+            String entry = entryOf(trackUrn);
+            if (entry == null) return false;
+
+            boolean local = getEntries(playlist).contains(entry);
+            boolean saved = SavedPlaylist.isSavedPlaylist(playlist) && SavedPlaylist.getEntries().contains(entry);
+            if (!local && !saved) return false;
+
+            if (local) remove(playlist, entry);
+            if (saved) SavedPlaylist.exclude(entry);
+            notifyPlaylistChanged(playlist);
+            Logger.printInfo(() -> "Removed local track " + entry + " from " + playlist);
+            return true;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not remove local track", ex);
+            return false;
+        }
     }
 
     // endregion

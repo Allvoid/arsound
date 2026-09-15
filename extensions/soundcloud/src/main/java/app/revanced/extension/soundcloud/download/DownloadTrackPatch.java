@@ -350,6 +350,10 @@ public final class DownloadTrackPatch {
         return file.isFile() && file.length() > 0 && file.canRead() ? file : null;
     }
 
+    public static Set<String> getDownloadedTrackIds() {
+        return new HashSet<>(getDownloadedTracks());
+    }
+
     private static Set<String> getDownloadedTracks() {
         SharedPreferences preferences = getPreferences();
         return preferences == null ? new HashSet<>() : preferences.getStringSet(DOWNLOADED_TRACKS, new HashSet<>());
