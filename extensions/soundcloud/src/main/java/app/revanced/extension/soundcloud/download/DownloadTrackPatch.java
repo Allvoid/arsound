@@ -188,7 +188,7 @@ public final class DownloadTrackPatch {
     /**
      * @return The response code and body of an authorized GET request to the SoundCloud API.
      */
-    static String[] apiGet(String url) throws Exception {
+    public static String[] apiGet(String url) throws Exception {
         HttpURLConnection connection = openApiConnection(url);
 
         int code = connection.getResponseCode();

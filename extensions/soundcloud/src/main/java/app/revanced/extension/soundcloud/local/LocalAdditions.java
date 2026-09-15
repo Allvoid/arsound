@@ -372,19 +372,26 @@ public final class LocalAdditions {
 
     /** Lets the user pick one of the recently opened playlists and albums for the entry. */
     public static void pickPlaylist(Context context, String entry) {
-        List<String[]> recent = readRecentPlaylists();
-        if (recent.isEmpty()) {
-            Toast.makeText(context, text("Сначала откройте нужный плейлист или альбом — он появится в списке.",
-                    "Open the playlist or album first, then it appears in the list."), Toast.LENGTH_LONG).show();
+        List<String[]> targets = new ArrayList<>();
+        for (String[] playlist : getLocalPlaylists()) {
+            targets.add(new String[]{localPlaylistKey(playlist[0]), "★ " + playlist[1]});
+        }
+        targets.addAll(readRecentPlaylists());
+        if (targets.isEmpty()) {
+            Toast.makeText(context, text("Создайте локальный плейлист в Arsound → «Мои файлы» или откройте нужный "
+                            + "плейлист SoundCloud — он появится в списке.",
+                    "Create a local playlist in Arsound → My files, or open a SoundCloud playlist first."),
+                    Toast.LENGTH_LONG).show();
             return;
         }
 
-        String[] titles = new String[recent.size()];
-        for (int i = 0; i < recent.size(); i++) titles[i] = recent.get(i)[1];
+        String[] titles = new String[targets.size()];
+        for (int i = 0; i < targets.size(); i++) titles[i] = targets.get(i)[1];
         new AlertDialog.Builder(context)
                 .setTitle(text("Добавить локально в…", "Add locally to…"))
                 .setItems(titles, (dialog, which) -> {
-                    boolean added = add(recent.get(which)[0], entry);
+                    boolean added = add(targets.get(which)[0], entry);
+                    rememberTitle(entry);
                     Toast.makeText(context, added
                                     ? text("Добавлено в «" + titles[which] + "». Видно только на этом телефоне.",
                                     "Added to \"" + titles[which] + "\". Visible only on this phone.")
@@ -394,6 +401,111 @@ public final class LocalAdditions {
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
+
+    // region Local playlists
+
+    private static final String LOCAL_PLAYLISTS = "local_playlists";
+    private static final String TITLES = "titles";
+    private static final String LOCAL_PLAYLIST_PREFIX = "arsound:playlist:";
+
+    public static String localPlaylistKey(String id) {
+        return LOCAL_PLAYLIST_PREFIX + id;
+    }
+
+    /** Local playlists as id and name, in creation order. */
+    public static synchronized List<String[]> getLocalPlaylists() {
+        List<String[]> result = new ArrayList<>();
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return result;
+        try {
+            JSONArray json = new JSONArray(preferences.getString(LOCAL_PLAYLISTS, "[]"));
+            for (int i = 0; i < json.length(); i++) {
+                JSONObject item = json.getJSONObject(i);
+                result.add(new String[]{item.getString("id"), item.getString("name")});
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not read local playlists", ex);
+        }
+        return result;
+    }
+
+    private static synchronized void saveLocalPlaylists(List<String[]> playlists) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return;
+        try {
+            JSONArray json = new JSONArray();
+            for (String[] playlist : playlists) json.put(new JSONObject().put("id", playlist[0]).put("name", playlist[1]));
+            preferences.edit().putString(LOCAL_PLAYLISTS, json.toString()).apply();
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not save local playlists", ex);
+        }
+    }
+
+    public static String createLocalPlaylist(String name) {
+        List<String[]> playlists = getLocalPlaylists();
+        String id = String.valueOf(System.currentTimeMillis());
+        playlists.add(new String[]{id, name});
+        saveLocalPlaylists(playlists);
+        return id;
+    }
+
+    public static void deleteLocalPlaylist(String id) {
+        List<String[]> playlists = getLocalPlaylists();
+        playlists.removeIf(playlist -> playlist[0].equals(id));
+        saveLocalPlaylists(playlists);
+        Map<String, List<String>> additions = readAdditions();
+        additions.remove(localPlaylistKey(id));
+        writeAdditions(additions);
+    }
+
+    /** A readable name for an entry: the file metadata or the cached SoundCloud title. */
+    public static synchronized String getTitle(String entry) {
+        if (entry.startsWith(FILE_PREFIX)) return null;
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return null;
+        try {
+            return new JSONObject(preferences.getString(TITLES, "{}")).optString(entry, null);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** Loads and caches the title of a SoundCloud track entry, so local lists can show it offline. */
+    public static void rememberTitle(String entry) {
+        if (entry.startsWith(FILE_PREFIX) || getTitle(entry) != null) return;
+        String id = DownloadTrackPatch.parseTrackId(entry);
+        if (id == null) return;
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id);
+                if (response[1] == null) return;
+                JSONObject track = new JSONObject(response[1]);
+                JSONObject user = track.optJSONObject("user");
+                String title = track.optString("title") + (user == null ? "" : " — " + user.optString("username"));
+                synchronized (LocalAdditions.class) {
+                    SharedPreferences preferences = preferences();
+                    if (preferences == null) return;
+                    JSONObject titles = new JSONObject(preferences.getString(TITLES, "{}"));
+                    titles.put(entry, title);
+                    preferences.edit().putString(TITLES, titles.toString()).apply();
+                }
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Could not load track title for " + entry + ": " + ex);
+            }
+        });
+    }
+
+    /** Converts entries to urns for playback. Missing files are skipped. */
+    public static List<Object> toUrns(ClassLoader loader, List<String> entries) {
+        List<Object> urns = new ArrayList<>();
+        for (String entry : entries) {
+            Object urn = toUrn(loader, entry);
+            if (urn != null) urns.add(urn);
+        }
+        return urns;
+    }
+
+    // endregion
 
     private static void manageAdditions(Context context, String playlistUrn) {
         List<String> entries = getEntries(playlistUrn);
@@ -442,13 +554,14 @@ public final class LocalAdditions {
                 .show();
     }
 
-    private static String describe(String entry, List<LocalMusic.Track> imported) {
+    public static String describe(String entry, List<LocalMusic.Track> imported) {
         if (entry.startsWith(FILE_PREFIX)) {
             String path = entry.substring(FILE_PREFIX.length());
             for (LocalMusic.Track track : imported) if (track.file.getPath().equals(path)) return track.title;
             return new File(path).getName();
         }
-        return text("Трек SoundCloud ", "SoundCloud track ") + DownloadTrackPatch.parseTrackId(entry);
+        String title = getTitle(entry);
+        return title != null ? title : text("Трек SoundCloud ", "SoundCloud track ") + DownloadTrackPatch.parseTrackId(entry);
     }
 
     // endregion

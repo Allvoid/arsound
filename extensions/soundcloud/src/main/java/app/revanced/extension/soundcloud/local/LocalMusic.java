@@ -152,40 +152,49 @@ public final class LocalMusic {
     }
 
     /**
-     * Plays the tracks in the SoundCloud player, starting with {@code startIndex}.
+     * Plays imported files in the SoundCloud player, starting with {@code startIndex}.
      *
      * @return False if the player is not ready yet.
      */
     public static boolean play(List<File> files, int startIndex, boolean shuffle) {
+        List<String> entries = new ArrayList<>();
+        for (File file : files) entries.add(LocalAdditions.fileEntry(file));
+        return playEntries(entries, startIndex, shuffle);
+    }
+
+    /**
+     * Plays SoundCloud tracks and imported files together.
+     *
+     * @param entries {@code soundcloud:tracks:ID} or {@code file:path} entries.
+     * @return False if the player is not ready yet or nothing is playable.
+     */
+    public static boolean playEntries(List<String> entries, int startIndex, boolean shuffle) {
         Object initiator = playbackInitiator;
-        if (initiator == null || files.isEmpty()) return false;
+        if (initiator == null || entries.isEmpty()) return false;
 
         try {
             ClassLoader loader = initiator.getClass().getClassLoader();
-            Class<?> localUrnClass = Class.forName("com.soundcloud.android.foundation.domain.LocalTrackUrn", false, loader);
             Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
             Class<?> itemClass = Class.forName("com.soundcloud.android.foundation.actions.models.PlayAllItem", false, loader);
             Class<?> contextClass = Class.forName("com.soundcloud.android.foundation.playqueue.PlaybackContext", false, loader);
             Class<?> linkClass = Class.forName("com.soundcloud.android.foundation.playqueue.PlaybackContext$Link", false, loader);
             Class<?> playAllClass = Class.forName("com.soundcloud.android.foundation.actions.models.PlayParams$PlayAll", false, loader);
             Class<?> singleClass = Class.forName("io.reactivex.rxjava3.core.Single", false, loader);
-
-            Object companion = localUrnClass.getField("Companion").get(null);
-            Method fromFile = companion.getClass().getMethod("fromFile", File.class);
             Constructor<?> itemConstructor = itemClass.getConstructor(urnClass, boolean.class);
 
-            List<File> ordered = new ArrayList<>(files.size());
+            List<String> ordered = new ArrayList<>(entries.size());
             if (shuffle) {
-                ordered.addAll(files);
+                ordered.addAll(entries);
                 java.util.Collections.shuffle(ordered);
             } else {
                 // Start at the tapped track and keep the rest in order after it.
-                ordered.addAll(files.subList(startIndex, files.size()));
-                ordered.addAll(files.subList(0, startIndex));
+                ordered.addAll(entries.subList(startIndex, entries.size()));
+                ordered.addAll(entries.subList(0, startIndex));
             }
 
             List<Object> items = new ArrayList<>();
-            for (File file : ordered) items.add(itemConstructor.newInstance(fromFile.invoke(companion, file), false));
+            for (Object urn : LocalAdditions.toUrns(loader, ordered)) items.add(itemConstructor.newInstance(urn, false));
+            if (items.isEmpty()) return false;
 
             Object playables = findJust(singleClass).invoke(null, items);
             Object playbackContext = linkClass.getConstructor(String.class).newInstance("arsound:local");
