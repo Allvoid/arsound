@@ -11,6 +11,8 @@ import app.revanced.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
+import app.revanced.patcher.extensions.getInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/recommendations/DuplicateFilter;"
@@ -18,10 +20,13 @@ private const val EXTENSION_CLASS_DESCRIPTOR =
 private const val AUTOPLAY_CLASS =
     "Lcom/soundcloud/android/features/playqueue/extender/PlayQueueExtenderOperations\$loadRelatedForRemoteTrack\$1;"
 
-/** Turns the entities of any home screen section into its items; every section builder calls it. */
+/**
+ * Builds the items of all home screen sections (server-driven). Shelves, carousels and galleries
+ * read their ordered entity list from a field right before mapping it to items.
+ */
 private val BytecodePatchContext.sectionItemsMethod by gettingFirstMethodDeclaratively {
-    name("c")
-    definingClass("Lcom/soundcloud/android/sections/domain/SectionKt;")
+    name("e")
+    definingClass("Lcom/soundcloud/android/sections/ui/models/SectionsViewStateKt;")
     returnType("Ljava/util/ArrayList;")
 }
 
@@ -41,13 +46,25 @@ val duplicateFilterPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
-        sectionItemsMethod.addInstructions(
-            0,
-            """
-                invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->filterSectionEntities(Ljava/util/List;)Ljava/util/List;
-                move-result-object p0
-            """,
-        )
+        sectionItemsMethod.apply {
+            val listReads = implementation!!.instructions.withIndex().filter { (_, instruction) ->
+                instruction.opcode == Opcode.IGET_OBJECT &&
+                    (instruction as ReferenceInstruction).reference.toString().let {
+                        it.startsWith("Lcom/soundcloud/android/sections/domain/Section$") && it.endsWith(":Ljava/util/List;")
+                    }
+            }.map { it.index }
+            // From the end, so earlier indexes stay valid.
+            listReads.reversed().forEach { index ->
+                val register = getInstruction<TwoRegisterInstruction>(index).registerA
+                addInstructions(
+                    index + 1,
+                    """
+                        invoke-static { v$register }, $EXTENSION_CLASS_DESCRIPTOR->filterSectionEntities(Ljava/util/List;)Ljava/util/List;
+                        move-result-object v$register
+                    """,
+                )
+            }
+        }
 
         autoplayItemsMethod.apply {
             // invoke-interface {v1}, Iterable;->iterator(); move-result-object v17

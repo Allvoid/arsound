@@ -110,8 +110,6 @@ public final class DuplicateFilter {
      * @param entities {@code List<SectionEntity>}.
      */
     public static List<?> filterSectionEntities(List<?> entities) {
-        Logger.printInfo(() -> "Section entities: " + (entities == null ? 0 : entities.size())
-                + ", filter on: " + Settings.isDuplicateFilterEnabled());
         if (!Settings.isDuplicateFilterEnabled() || entities == null) return entities;
         try {
             List<Object> result = new ArrayList<>(entities.size());
