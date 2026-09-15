@@ -83,6 +83,8 @@ public final class NetworkPatch {
                 }
 
                 Object request = chainClass.getMethod("request").invoke(chain);
+                Object url = request.getClass().getMethod("url").invoke(request);
+                RegionGuard.throwIfBlocked(String.valueOf(url.getClass().getMethod("host").invoke(url)));
                 try {
                     return chainClass.getMethod("proceed", requestClass).invoke(chain, request);
                 } catch (java.lang.reflect.InvocationTargetException ex) {

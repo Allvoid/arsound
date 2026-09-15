@@ -157,6 +157,13 @@ public final class Settings {
         return preferences != null && preferences.getBoolean(SAVED_PLAYLIST_HIDDEN, false);
     }
 
+    public static final String REGION_GUARD = "region_guard";
+
+    public static boolean isRegionGuardEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(REGION_GUARD, false);
+    }
+
     public static final String DEVELOPER_MODE = "developer_mode";
     public static final String DEVELOPER_NETWORK_DELAY = "developer_network_delay_seconds";
 

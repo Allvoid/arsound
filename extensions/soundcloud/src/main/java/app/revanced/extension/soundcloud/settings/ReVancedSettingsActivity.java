@@ -94,6 +94,17 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(network);
         checkNetwork(network);
         addDnsOptions(list);
+        list.addView(createToggleRow(
+                text("Не выходить в сеть с российского IP", "Stay offline on a Russian IP"),
+                text("Перед запросами к SoundCloud приложение проверяет страну своего IP через Cloudflare. "
+                                + "Если IP российский или проверка не удалась, запросы к SoundCloud не отправляются, "
+                                + "играют только скачанные и импортированные треки. Страна перепроверяется при смене сети. "
+                                + "Геобаза Cloudflare может расходиться с базой SoundCloud.",
+                        "Before contacting SoundCloud the app checks its IP country through Cloudflare. "
+                                + "On a Russian IP, or if the check fails, no requests are sent to SoundCloud."),
+                Settings.isRegionGuardEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.REGION_GUARD, checked)
+        ));
 
         list.addView(createSubHeading(text("Конфиденциальность", "Privacy")));
         list.addView(createToggleRow(

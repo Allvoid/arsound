@@ -250,6 +250,7 @@ public final class DownloadTrackPatch {
     }
 
     private static HttpURLConnection openApiConnection(String url) throws Exception {
+        app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlocked(new URL(url).getHost());
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         String authorization = getAuthorization();
         if (authorization != null) connection.setRequestProperty("Authorization", authorization);
