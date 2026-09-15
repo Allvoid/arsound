@@ -130,6 +130,15 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.setPlayDownloadedFilesEnabled(checked)
         ));
         list.addView(createToggleRow(
+                text("Повторять при сбое сети", "Retry on network errors"),
+                text("Если трек оборвался из-за плохой связи, плеер сам повторит загрузку до трёх раз "
+                                + "вместо ошибки «Track cannot be streamed».",
+                        "If a track stops because of a poor connection, the player retries up to three times "
+                                + "instead of showing \"Track cannot be streamed\"."),
+                Settings.isPlaybackRetryEnabled(),
+                (button, checked) -> Settings.setPlaybackRetryEnabled(checked)
+        ));
+        list.addView(createToggleRow(
                 text("Блокировать рекламу в плеере", "Block playback advertisements"),
                 text("Не запрашивает аудио- и видеорекламу между треками и рекламные плашки "
                                 + "в плеере, ленте, библиотеке, плейлистах и профилях. "

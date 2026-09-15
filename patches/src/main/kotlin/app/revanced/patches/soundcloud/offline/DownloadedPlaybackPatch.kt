@@ -2,6 +2,7 @@ package app.revanced.patches.soundcloud.offline
 
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.ExternalLabel
+import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
@@ -11,7 +12,9 @@ import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patches.soundcloud.download.downloadTrackPatch
 import app.revanced.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/offline/DownloadedPlaybackPatch;"
@@ -26,6 +29,23 @@ private const val FUNCTION_CLASS =
 private val BytecodePatchContext.playbackItemForTrackMethod by gettingFirstMethodDeclaratively {
     name("apply")
     definingClass(FUNCTION_CLASS)
+}
+
+/**
+ * Loads the notification artwork of the current track. Playback start waits for this in a zip,
+ * so a slow artwork request delayed even tracks played from a file.
+ */
+private val BytecodePatchContext.notificationArtworkMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/playback/mediasession/MetadataOperations\$trackMediaMetadata\$3;")
+}
+
+/**
+ * Maps player errors to states. A source error while Android reports a connection becomes fatal.
+ */
+private val BytecodePatchContext.playerStateChangedMethod by gettingFirstMethodDeclaratively {
+    name("onPlayerStateChanged")
+    definingClass("Lcom/soundcloud/android/exoplayer/BaseExoPlayer\$exoPlayerEventListener\$1;")
 }
 
 @Suppress("unused")
@@ -77,6 +97,45 @@ val downloadedPlaybackPatch = bytecodePatch(
                     return-object v0
                 """,
                 ExternalLabel("stream", getInstruction(localCheckIndex)),
+            )
+        }
+
+        playerStateChangedMethod.apply {
+            val connectedIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_INTERFACE &&
+                    (this as ReferenceInstruction).reference.toString() ==
+                    "Lcom/soundcloud/android/utilities/android/network/ConnectionHelper;->d()Z"
+            }
+            // iget-object vN, vPlayer, BaseExoPlayer;->c:ConnectionHelper
+            val playerRegister = getInstruction<TwoRegisterInstruction>(connectedIndex - 1).registerB
+            val connectedRegister = getInstruction<OneRegisterInstruction>(connectedIndex + 1).registerA
+            addInstructions(
+                connectedIndex + 2,
+                """
+                    invoke-static { v$playerRegister, v$connectedRegister }, Lapp/revanced/extension/soundcloud/offline/PlaybackRetryPatch;->onPlaybackError(Ljava/lang/Object;Z)Z
+                    move-result v$connectedRegister
+                """,
+            )
+        }
+
+        notificationArtworkMethod.apply {
+            // new-instance v2, MaybeSwitchIfEmptySingle; invoke-direct {v2, v0, v1} -- v1 is Single.just(absent).
+            val artworkIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.NEW_INSTANCE &&
+                    (this as ReferenceInstruction).reference.toString().endsWith("MaybeSwitchIfEmptySingle;")
+            }
+            addInstructions(
+                artworkIndex + 2,
+                """
+                    move-object v6, v1
+                    move-object v1, v2
+                    const-wide/16 v2, 0x5dc
+                    sget-object v4, Ljava/util/concurrent/TimeUnit;->MILLISECONDS:Ljava/util/concurrent/TimeUnit;
+                    iget-object v5, p0, Lcom/soundcloud/android/playback/mediasession/MetadataOperations;->d:Lio/reactivex/rxjava3/core/Scheduler;
+                    new-instance v0, Lio/reactivex/rxjava3/internal/operators/single/SingleTimeout;
+                    invoke-direct/range { v0 .. v6 }, Lio/reactivex/rxjava3/internal/operators/single/SingleTimeout;-><init>(Lio/reactivex/rxjava3/core/Single;JLjava/util/concurrent/TimeUnit;Lio/reactivex/rxjava3/core/Scheduler;Lio/reactivex/rxjava3/core/SingleSource;)V
+                    move-object v2, v0
+                """,
             )
         }
     }

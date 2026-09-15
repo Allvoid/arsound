@@ -72,6 +72,21 @@ public final class Settings {
         preferences.edit().putBoolean(PLAY_DOWNLOADED_FILES, enabled).apply();
     }
 
+    public static final String PLAYBACK_RETRY = "playback_retry";
+
+    /** Retries transient playback errors automatically. On by default. */
+    public static boolean isPlaybackRetryEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(PLAYBACK_RETRY, true);
+    }
+
+    public static void setPlaybackRetryEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(PLAYBACK_RETRY, enabled).apply();
+    }
+
     public static final String DEVELOPER_MODE = "developer_mode";
     public static final String DEVELOPER_NETWORK_DELAY = "developer_network_delay_seconds";
 
