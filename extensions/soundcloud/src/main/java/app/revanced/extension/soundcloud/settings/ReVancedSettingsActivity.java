@@ -110,6 +110,20 @@ public final class ReVancedSettingsActivity extends Activity {
                 Settings.isHideSubscriptionOffersEnabled(),
                 (button, checked) -> Settings.setHideSubscriptionOffersEnabled(checked)
         ));
+        list.addView(createToggleRow(
+                text("Блокировать рекламу в плеере", "Block playback advertisements"),
+                text("Не запрашивает и не добавляет аудио- и видеорекламу между треками. "
+                                + "После изменения перезапустите SoundCloud.",
+                        "Prevents audio and video advertisements between tracks from being requested or added. "
+                                + "Restart SoundCloud after changing this option."),
+                Settings.isBlockPlaybackAdsEnabled(),
+                (button, checked) -> {
+                    Settings.setBlockPlaybackAdsEnabled(checked);
+                    Toast.makeText(this,
+                            text("Перезапустите SoundCloud, чтобы применить", "Restart SoundCloud to apply"),
+                            Toast.LENGTH_SHORT).show();
+                }
+        ));
 
         list.addView(createSubHeading(text("Данные", "Data")));
         list.addView(createActionRow(

@@ -26,7 +26,8 @@ import app.revanced.extension.shared.Utils;
 
 /**
  * Adds a "Check downloads" row to the playlist and album menu.
- * It finds the tracks whose artist enabled free downloads and offers to download all of them.
+ * It finds playable, non-subscription tracks and offers to download them all. Each task prefers
+ * the author-provided file, then falls back to the official progressive stream.
  */
 @SuppressWarnings("unused")
 public final class DownloadPlaylistPatch {
@@ -149,7 +150,7 @@ public final class DownloadPlaylistPatch {
                     JSONArray array = new JSONArray(tracks[1]);
                     for (int i = 0; i < array.length(); i++) {
                         JSONObject track = array.getJSONObject(i);
-                        if (track.optBoolean("downloadable") && track.optBoolean("has_downloads_left", true)) {
+                        if (track.optBoolean("streamable", true) && isNotRestricted(track)) {
                             downloadable.add(new TrackInfo(String.valueOf(track.getLong("id")), track.optString("title")));
                         }
                     }
@@ -170,8 +171,8 @@ public final class DownloadPlaylistPatch {
 
         if (downloadable.isEmpty()) {
             builder.setTitle(text("Нечего скачать", "Nothing to download"))
-                    .setMessage(text("Ни один из " + total + " треков автор не разрешил скачивать.",
-                            "None of the " + total + " tracks can be downloaded."))
+                    .setMessage(text("Нет доступных для скачивания полных треков среди " + total + ".",
+                            "None of the " + total + " tracks is available as a full download."))
                     .setPositiveButton(android.R.string.ok, null)
                     .show();
             return;
@@ -204,5 +205,12 @@ public final class DownloadPlaylistPatch {
             DownloadTrackPatch.showToast(appContext, text("Скачивание началось: " + count + " в Музыка/Arsound",
                     "Downloading " + count + " tracks to Music/Arsound"));
         });
+    }
+
+    private static boolean isNotRestricted(JSONObject track) {
+        String policy = track.optString("policy").toUpperCase(java.util.Locale.US);
+        String monetization = track.optString("monetization_model").toUpperCase(java.util.Locale.US);
+        return !policy.contains("SNIP") && !policy.contains("BLOCK") && !policy.contains("SUB")
+                && !monetization.contains("SUB") && !monetization.contains("GO_PLUS");
     }
 }

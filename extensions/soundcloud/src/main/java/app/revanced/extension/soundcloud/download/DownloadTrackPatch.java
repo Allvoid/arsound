@@ -33,10 +33,11 @@ import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 
 /**
- * Adds a "Download" row to the track menu for tracks whose artist allowed free downloads.
+ * Adds a "Download" row to the track menu.
  * <p>
- * Uses the same public endpoint as the "Download file" button on soundcloud.com,
- * which only returns a file when the artist enabled downloads for the track.
+ * It first uses the same endpoint as the "Download file" button on soundcloud.com. If an author
+ * has not enabled that endpoint, it resolves the progressive stream that the official player uses.
+ * Subscription-only and preview-only tracks are explicitly excluded.
  */
 @SuppressWarnings("unused")
 public final class DownloadTrackPatch {
@@ -44,6 +45,7 @@ public final class DownloadTrackPatch {
     private static final String PREFERENCES_NAME = "revanced_soundcloud_downloads";
     private static final String DOWNLOADED_TRACKS = "downloaded_tracks";
     private static final Pattern TRACK_ID = Pattern.compile("(\\d+)$");
+    private static final String API_ROOT = "https://api-v2.soundcloud.com";
 
     private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
 
@@ -161,33 +163,15 @@ public final class DownloadTrackPatch {
     }
 
     private static void requestDownload(Context context, String trackId) {
-        Toast.makeText(context, text("Проверяю, можно ли скачать…", "Checking download…"), Toast.LENGTH_SHORT).show();
+        Toast.makeText(context, text("Подготавливаю скачивание…", "Preparing download…"), Toast.LENGTH_SHORT).show();
 
         Utils.runOnBackgroundThread(() -> {
             try {
-                HttpURLConnection connection = (HttpURLConnection)
-                        new URL("https://api-v2.soundcloud.com/tracks/" + trackId + "/download").openConnection();
-                String authorization = getAuthorization();
-                if (authorization != null) connection.setRequestProperty("Authorization", authorization);
-                connection.setConnectTimeout(10_000);
-                connection.setReadTimeout(10_000);
-
-                int code = connection.getResponseCode();
-                if (code != HttpURLConnection.HTTP_OK) {
-                    Logger.printInfo(() -> "Download not available for track " + trackId + ", HTTP " + code);
-                    showToast(context, code == 404 || code == 403 || code == 401
-                            ? text("Автор не разрешил скачивание этого трека", "The artist has not enabled downloads for this track")
-                            : text("Не удалось скачать, ошибка " + code, "Download failed, error " + code));
+                String fileUrl = resolveDownloadUrl(trackId);
+                if (fileUrl == null) {
+                    showToast(context, text("Этот трек недоступен для скачивания", "This track is not available for download"));
                     return;
                 }
-
-                StringBuilder body = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) body.append(line);
-                }
-
-                String fileUrl = new JSONObject(body.toString()).getString("redirectUri");
                 enqueue(context, trackId, fileUrl);
             } catch (Exception ex) {
                 Logger.printException(() -> "Download request failure", ex);
@@ -200,11 +184,7 @@ public final class DownloadTrackPatch {
      * @return The response code and body of an authorized GET request to the SoundCloud API.
      */
     static String[] apiGet(String url) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        String authorization = getAuthorization();
-        if (authorization != null) connection.setRequestProperty("Authorization", authorization);
-        connection.setConnectTimeout(10_000);
-        connection.setReadTimeout(15_000);
+        HttpURLConnection connection = openApiConnection(url);
 
         int code = connection.getResponseCode();
         if (code != HttpURLConnection.HTTP_OK) return new String[]{String.valueOf(code), null};
@@ -218,16 +198,84 @@ public final class DownloadTrackPatch {
     }
 
     /**
-     * Starts the download of a track the artist allowed to download, without any messages.
+     * Starts a download through the author-provided file URL or the public progressive stream.
+     * Subscription-only and preview-only tracks never pass this method.
      *
      * @return True if the download started.
      */
     static boolean downloadSilently(Context context, String trackId) throws Exception {
-        String[] response = apiGet("https://api-v2.soundcloud.com/tracks/" + trackId + "/download");
-        if (response[1] == null) return false;
-
-        enqueue(context, trackId, new JSONObject(response[1]).getString("redirectUri"), false);
+        String fileUrl = resolveDownloadUrl(trackId);
+        if (fileUrl == null) return false;
+        enqueue(context, trackId, fileUrl, false);
         return true;
+    }
+
+    /** Resolves a fresh URL for each task because CDN stream URLs expire. */
+    private static String resolveDownloadUrl(String trackId) throws Exception {
+        String[] directDownload = apiGet(API_ROOT + "/tracks/" + trackId + "/download");
+        if (directDownload[1] != null) {
+            String redirect = new JSONObject(directDownload[1]).optString("redirectUri");
+            if (!redirect.isEmpty()) return redirect;
+        }
+
+        String[] trackResponse = apiGet(API_ROOT + "/tracks/" + trackId);
+        if (trackResponse[1] == null) {
+            Logger.printInfo(() -> "Could not load stream metadata for " + trackId + ", HTTP " + trackResponse[0]);
+            return null;
+        }
+
+        JSONObject track = new JSONObject(trackResponse[1]);
+        if (isRestrictedTrack(track)) {
+            Logger.printInfo(() -> "Not downloading restricted track " + trackId);
+            return null;
+        }
+
+        JSONObject progressive = findProgressiveTranscoding(track.optJSONObject("media"));
+        if (progressive == null) {
+            Logger.printInfo(() -> "No progressive stream available for " + trackId);
+            return null;
+        }
+
+        String endpoint = progressive.optString("url");
+        if (endpoint.isEmpty()) return null;
+        String[] streamResponse = apiGet(endpoint);
+        if (streamResponse[1] == null) return null;
+        String streamUrl = new JSONObject(streamResponse[1]).optString("url");
+        return streamUrl.isEmpty() ? null : streamUrl;
+    }
+
+    private static HttpURLConnection openApiConnection(String url) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        String authorization = getAuthorization();
+        if (authorization != null) connection.setRequestProperty("Authorization", authorization);
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        return connection;
+    }
+
+    /** Prefer a single progressive MP3/AAC file; HLS is intentionally not saved as a playlist. */
+    private static JSONObject findProgressiveTranscoding(JSONObject media) {
+        if (media == null) return null;
+        org.json.JSONArray transcodings = media.optJSONArray("transcodings");
+        if (transcodings == null) return null;
+
+        for (int i = 0; i < transcodings.length(); i++) {
+            JSONObject transcoding = transcodings.optJSONObject(i);
+            if (transcoding == null) continue;
+            JSONObject format = transcoding.optJSONObject("format");
+            if (format == null || !"progressive".equals(format.optString("protocol"))) continue;
+            String mimeType = format.optString("mime_type");
+            if (mimeType.startsWith("audio/")) return transcoding;
+        }
+        return null;
+    }
+
+    /** Keeps the patch within the user's existing free, full-track playback entitlement. */
+    private static boolean isRestrictedTrack(JSONObject track) {
+        String policy = track.optString("policy").toUpperCase(Locale.US);
+        String monetization = track.optString("monetization_model").toUpperCase(Locale.US);
+        return policy.contains("SNIP") || policy.contains("BLOCK") || policy.contains("SUB")
+                || monetization.contains("SUB") || monetization.contains("GO_PLUS");
     }
 
     private static void enqueue(Context context, String trackId, String fileUrl) {

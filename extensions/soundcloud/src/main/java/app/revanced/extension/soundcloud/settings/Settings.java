@@ -42,6 +42,24 @@ public final class Settings {
         preferences.edit().putBoolean(HIDE_SUBSCRIPTION_OFFERS, enabled).apply();
     }
 
+    public static final String BLOCK_PLAYBACK_ADS = "block_playback_ads";
+
+    /**
+     * Controls the player-level ad request guard. Enabled by default because an ad request that
+     * cannot be fulfilled otherwise leaves the player in an unnecessary loading state.
+     */
+    public static boolean isBlockPlaybackAdsEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(BLOCK_PLAYBACK_ADS, true);
+    }
+
+    public static void setBlockPlaybackAdsEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(BLOCK_PLAYBACK_ADS, enabled).apply();
+    }
+
     public static void setTelemetryEnabled(boolean enabled) {
         SharedPreferences preferences = getPreferences();
         if (preferences == null) return;
