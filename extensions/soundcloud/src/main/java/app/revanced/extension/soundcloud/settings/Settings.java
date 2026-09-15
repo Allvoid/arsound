@@ -87,6 +87,21 @@ public final class Settings {
         preferences.edit().putBoolean(PLAYBACK_RETRY, enabled).apply();
     }
 
+    public static final String POWER_SAVING = "power_saving";
+
+    /** Reduces background polling. On by default. */
+    public static boolean isPowerSavingEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(POWER_SAVING, true);
+    }
+
+    public static void setPowerSavingEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(POWER_SAVING, enabled).apply();
+    }
+
     public static final String DEVELOPER_MODE = "developer_mode";
     public static final String DEVELOPER_NETWORK_DELAY = "developer_network_delay_seconds";
 

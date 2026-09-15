@@ -166,6 +166,17 @@ public final class ReVancedSettingsActivity extends Activity {
                 }
         ));
 
+        list.addView(createSubHeading(text("Энергосбережение", "Power saving")));
+        list.addView(createToggleRow(
+                text("Реже проверять сообщения", "Check messages less often"),
+                text("Значок новых сообщений обновляется раз в 5 минут вместо каждых 30 секунд: "
+                                + "меньше просыпается радиомодуль. Применится после перезапуска.",
+                        "The new messages badge updates every 5 minutes instead of every 30 seconds, "
+                                + "so the radio wakes up less. Applies after a restart."),
+                Settings.isPowerSavingEnabled(),
+                (button, checked) -> Settings.setPowerSavingEnabled(checked)
+        ));
+
         list.addView(createSubHeading(text("Локальная музыка", "Local music")));
         list.addView(createActionRow(
                 text("Мои файлы", "My files"),
