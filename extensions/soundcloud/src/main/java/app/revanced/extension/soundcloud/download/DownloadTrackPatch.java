@@ -44,6 +44,8 @@ public final class DownloadTrackPatch {
     private static final String ROW_TAG = "arsound_download_row";
     private static final String PREFERENCES_NAME = "revanced_soundcloud_downloads";
     private static final String DOWNLOADED_TRACKS = "downloaded_tracks";
+    /** Maps a track id to the file name in Music/Arsound. Downloads made before this key existed have no entry. */
+    private static final String TRACK_FILE_PREFIX = "track_file_";
     private static final Pattern TRACK_ID = Pattern.compile("(\\d+)$");
     private static final String API_ROOT = "https://api-v2.soundcloud.com";
 
@@ -118,7 +120,7 @@ public final class DownloadTrackPatch {
 
     private static volatile Object downloadedIcon;
 
-    static String parseTrackId(Object trackUrn) {
+    public static String parseTrackId(Object trackUrn) {
         if (trackUrn == null) return null;
         Matcher matcher = TRACK_ID.matcher(trackUrn.toString());
         return matcher.find() ? matcher.group(1) : null;
@@ -298,7 +300,10 @@ public final class DownloadTrackPatch {
 
         Set<String> tracks = new HashSet<>(getDownloadedTracks());
         tracks.add(trackId);
-        getPreferences().edit().putStringSet(DOWNLOADED_TRACKS, tracks).apply();
+        getPreferences().edit()
+                .putStringSet(DOWNLOADED_TRACKS, tracks)
+                .putString(TRACK_FILE_PREFIX + trackId, fileName)
+                .apply();
 
         if (notify) showToast(context, text("Скачивание началось: Музыка/Arsound", "Downloading to Music/Arsound"));
     }
@@ -324,6 +329,22 @@ public final class DownloadTrackPatch {
             Logger.printException(() -> "Could not read the OAuth token", ex);
         }
         return null;
+    }
+
+    /**
+     * @return The downloaded file of the track, or null if it was not downloaded, is still downloading
+     * or was deleted.
+     */
+    public static java.io.File getDownloadedFile(String trackId) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || trackId == null) return null;
+        String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+        if (fileName == null) return null;
+
+        java.io.File file = new java.io.File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound/" + fileName);
+        // DownloadManager writes into a temporary file first, so a present file with content is complete.
+        return file.isFile() && file.length() > 0 && file.canRead() ? file : null;
     }
 
     private static Set<String> getDownloadedTracks() {

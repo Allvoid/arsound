@@ -1,19 +1,22 @@
 package app.revanced.extension.soundcloud.offline;
 
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
- * Makes playlist and album screens show the copy stored on the device immediately.
+ * Makes playlist and album screens show what is stored on the device immediately.
  * <p>
- * SoundCloud waits for the server before it shows a playlist created by another user, even when
- * every track is already saved offline. On a slow connection that wait can last 20 seconds per
- * request. The patched code returns the stored playlist and refreshes it in the background;
- * the screen observes the database and picks up the refreshed data by itself.
+ * SoundCloud blocked the screen on the network in three places:
+ * <ol>
+ *     <li>for playlists of other users it waited for the server copy of the playlist;</li>
+ *     <li>if the playlist was last synced more than 24 hours ago, the track list waited for a full sync;</li>
+ *     <li>if metadata of even one track was missing, the whole track list waited for the server.</li>
+ * </ol>
+ * All three now show local data first and let the network update the screen through the database.
  */
 @SuppressWarnings("unused")
 public final class OfflineFirstPatch {
@@ -25,10 +28,13 @@ public final class OfflineFirstPatch {
     }
 
     /**
+     * Point 1.
+     *
      * @param repository A {@code PlaylistWithTracksRepository}.
      * @param urn        The playlist {@code Urn}.
      */
     public static void syncInBackground(Object repository, Object urn) {
+        Logger.printInfo(() -> "Showing stored playlist first: " + urn);
         Utils.runOnBackgroundThread(() -> {
             try {
                 ClassLoader loader = repository.getClass().getClassLoader();
@@ -36,7 +42,6 @@ public final class OfflineFirstPatch {
                 Class<?> playlistUrnClass = Class.forName("com.soundcloud.android.foundation.domain.PlaylistUrn", false, loader);
                 Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
                 Class<?> repositoryClass = Class.forName("com.soundcloud.android.foundation.domain.playlists.PlaylistWithTracksRepository", false, loader);
-                Class<?> consumerClass = Class.forName("io.reactivex.rxjava3.functions.Consumer", false, loader);
 
                 Object playlistUrn = Class.forName("com.soundcloud.android.foundation.domain.UrnKt", false, loader)
                         .getMethod("toPlaylist", urnClass).invoke(null, urn);
@@ -45,22 +50,47 @@ public final class OfflineFirstPatch {
                         .invoke(repository, playlistUrn, synced);
 
                 // Errors must be consumed, otherwise RxJava passes them to its global handler, which crashes the app.
-                Object ignore = Proxy.newProxyInstance(loader, new Class<?>[]{consumerClass}, (proxy, method, args) -> {
-                    if (method.getDeclaringClass() == Object.class) {
-                        if ("equals".equals(method.getName())) return proxy == args[0];
-                        if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
-                        return "ArsoundIgnoreConsumer";
-                    }
-                    if (args != null && args.length == 1 && args[0] instanceof Throwable) {
-                        Logger.printInfo(() -> "Background playlist refresh failed: " + args[0]);
-                    }
-                    return null;
-                });
-                Method subscribe = observable.getClass().getMethod("subscribe", consumerClass, consumerClass);
-                subscribe.invoke(observable, ignore, ignore);
+                Rx.subscribeIgnoringErrors(observable,
+                        error -> Logger.printInfo(() -> "Background playlist refresh failed: " + error));
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not start background playlist refresh", ex);
             }
         });
+    }
+
+    /**
+     * Point 2. Starts the playlist sync without waiting for it.
+     *
+     * @param sync The {@code Completable} of the sync the track list would wait for.
+     * @return True if the sync was started in the background and the caller must not wait.
+     */
+    public static boolean detachPlaylistSync(Object sync) {
+        if (!isEnabled()) return false;
+        Logger.printInfo(() -> "Playlist sync moved to background");
+        Rx.subscribeIgnoringErrors(sync, error -> Logger.printInfo(() -> "Background playlist sync failed: " + error));
+        return true;
+    }
+
+    /**
+     * Point 3. Emits the tracks found in the database right away, then the result that includes
+     * tracks loaded from the server.
+     *
+     * @param repository   The {@code TrackRepository}.
+     * @param urns         The list of {@code TrackUrn}.
+     * @param syncIfMissing The original {@code tracks(urns, SYNC_MISSING)} observable.
+     */
+    public static Object localTracksFirst(Object repository, Object urns, Object syncIfMissing) {
+        if (!isEnabled()) return syncIfMissing;
+        try {
+            ClassLoader loader = repository.getClass().getClassLoader();
+            Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
+            Class<?> repositoryClass = Class.forName("com.soundcloud.android.foundation.domain.tracks.TrackRepository", false, loader);
+            Method tracks = repositoryClass.getMethod("tracks", Iterable.class, strategyClass);
+            Object local = tracks.invoke(repository, urns, strategyClass.getField("LOCAL_ONLY").get(null));
+            return Rx.localUntilRemote(local, syncIfMissing);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not show local tracks first", ex);
+            return syncIfMissing;
+        }
     }
 }

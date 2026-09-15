@@ -120,13 +120,14 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.setOfflineFirstEnabled(checked)
         ));
         list.addView(createToggleRow(
-                text("Сначала сохранённое", "Offline first playlists"),
-                text("Плейлисты и альбомы открываются сразу из памяти телефона, а обновляются в фоне. "
-                                + "Помогает при плохом интернете.",
-                        "Playlists and albums open instantly from the device and refresh in the background. "
-                                + "Helps on a poor connection."),
-                Settings.isOfflineFirstEnabled(),
-                (button, checked) -> Settings.setOfflineFirstEnabled(checked)
+                text("Играть скачанные из файла", "Play downloaded files"),
+                text("Треки, скачанные Arsound в «Музыка/Arsound», играют из файла, а не из сети: "
+                                + "работают без интернета и не тратят трафик. Действует для скачанных "
+                                + "после этого обновления.",
+                        "Tracks downloaded by Arsound to Music/Arsound play from the file instead of the network: "
+                                + "they work offline and use no data. Applies to tracks downloaded after this update."),
+                Settings.isPlayDownloadedFilesEnabled(),
+                (button, checked) -> Settings.setPlayDownloadedFilesEnabled(checked)
         ));
         list.addView(createToggleRow(
                 text("Блокировать рекламу в плеере", "Block playback advertisements"),
@@ -155,7 +156,60 @@ public final class ReVancedSettingsActivity extends Activity {
                 v -> confirmReset()
         ));
 
+        list.addView(createSubHeading(text("Для разработчика", "Developer")));
+        LinearLayout developerOptions = new LinearLayout(this);
+        developerOptions.setOrientation(LinearLayout.VERTICAL);
+        list.addView(createToggleRow(
+                text("Настройки для разработчика", "Developer options"),
+                text("Показывает инструменты для проверки и отладки. Обычному пользователю не нужны.",
+                        "Shows testing and debugging tools. Not needed for everyday use."),
+                Settings.isDeveloperModeEnabled(),
+                (button, checked) -> {
+                    Settings.setDeveloperModeEnabled(checked);
+                    developerOptions.setVisibility(checked ? View.VISIBLE : View.GONE);
+                }
+        ));
+        developerOptions.setVisibility(Settings.isDeveloperModeEnabled() ? View.VISIBLE : View.GONE);
+        list.addView(developerOptions);
+        addDeveloperOptions(developerOptions);
+
         return root;
+    }
+
+    private static final int[] NETWORK_DELAYS = {0, 3, 10, 20, 40};
+
+    private void addDeveloperOptions(LinearLayout container) {
+        TextView[] delayDescription = new TextView[1];
+        View delayRow = createActionRow(
+                text("Имитация плохой сети", "Simulate a poor connection"),
+                networkDelayDescription(),
+                v -> {
+                    int current = Settings.isDeveloperModeEnabled()
+                            ? Settings.getDeveloperNetworkDelaySeconds() : 0;
+                    int next = NETWORK_DELAYS[0];
+                    for (int i = 0; i < NETWORK_DELAYS.length; i++) {
+                        if (NETWORK_DELAYS[i] == current) {
+                            next = NETWORK_DELAYS[(i + 1) % NETWORK_DELAYS.length];
+                            break;
+                        }
+                    }
+                    Settings.setDeveloperNetworkDelaySeconds(next);
+                    delayDescription[0].setText(networkDelayDescription());
+                }
+        );
+        delayDescription[0] = (TextView) ((ViewGroup) delayRow).getChildAt(1);
+        container.addView(delayRow);
+    }
+
+    private String networkDelayDescription() {
+        int delay = Settings.getDeveloperNetworkDelaySeconds();
+        String state = delay == 0
+                ? text("выключено", "off")
+                : text("задержка " + delay + " с на каждый запрос", delay + " s delay per request");
+        return text("Нажмите, чтобы переключить: ", "Tap to change: ") + state + ". "
+                + text("Замедляет все запросы SoundCloud, чтобы проверить работу на плохом интернете. "
+                        + "Действует сразу.",
+                "Slows down every SoundCloud request to test behavior on a poor connection. Applies immediately.");
     }
 
     private void confirmReset() {

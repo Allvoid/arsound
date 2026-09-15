@@ -29,6 +29,8 @@ rem Options (-O) belong to the patch enabled right before them, so "Change packa
   -e "Download tracks" ^
   -e "Control playback advertisements" ^
   -e "Offline first playlists" ^
+  -e "Network" ^
+  -e "Play downloaded files" ^
   -e "Hide subscription offers" ^
   -e "Change account type" ^
   -e "Custom app name" ^
