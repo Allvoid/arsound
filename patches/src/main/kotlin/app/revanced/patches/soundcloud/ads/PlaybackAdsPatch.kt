@@ -5,6 +5,7 @@ import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
@@ -24,10 +25,28 @@ private val BytecodePatchContext.playbackAdRequestMethod by gettingFirstMethodDe
     parameterTypes("Lcom/soundcloud/android/ads/player/PlayerAdsController\$AdFetchReason;")
 }
 
+/**
+ * The single "no_audio_ads" feature check behind queue-start ads, mid-queue ads and display ad SDK start-up.
+ */
+private val BytecodePatchContext.shouldRequestAdsMethod by gettingFirstMethodDeclaratively {
+    name("getShouldRequestAds")
+    definingClass("Lcom/soundcloud/android/configuration/features/DefaultFeatureOperations;")
+}
+
+private const val BANNER_CONDITIONS_CLASS =
+    "Lcom/soundcloud/android/ads/display/ui/banner/main/BannerAdFetchConditionsImpl;"
+
+// Banner conditions: a - player, b - profile, c - library, d - playlist, e - home and feed.
+private val BytecodePatchContext.bannerPlayerMethod by gettingFirstMethodDeclaratively { name("a"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
+private val BytecodePatchContext.bannerProfileMethod by gettingFirstMethodDeclaratively { name("b"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
+private val BytecodePatchContext.bannerLibraryMethod by gettingFirstMethodDeclaratively { name("c"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
+private val BytecodePatchContext.bannerPlaylistMethod by gettingFirstMethodDeclaratively { name("d"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
+private val BytecodePatchContext.bannerSectionsMethod by gettingFirstMethodDeclaratively { name("e"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
+
 @Suppress("unused")
 val playbackAdsPatch = bytecodePatch(
     name = "Control playback advertisements",
-    description = "Adds an option to prevent SoundCloud from requesting and queuing audio and video advertisements.",
+    description = "Adds an option to prevent SoundCloud from requesting audio, video and banner advertisements.",
 ) {
     dependsOn(settingsPatch)
 
@@ -44,5 +63,28 @@ val playbackAdsPatch = bytecodePatch(
             """,
             ExternalLabel("request", playbackAdRequestMethod.getInstruction(0)),
         )
+
+        // Returning false from these methods is what SoundCloud does for accounts without ads,
+        // so callers simply skip the banner view or the ad item instead of leaving an empty strip.
+        listOf(
+            shouldRequestAdsMethod,
+            bannerPlayerMethod,
+            bannerProfileMethod,
+            bannerLibraryMethod,
+            bannerPlaylistMethod,
+            bannerSectionsMethod,
+        ).forEach { method ->
+            method.addInstructionsWithLabels(
+                0,
+                """
+                    invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->isAdsBlocked()Z
+                    move-result v0
+                    if-eqz v0, :original
+                    const/4 v0, 0x0
+                    return v0
+                """,
+                ExternalLabel("original", method.getInstruction(0)),
+            )
+        }
     }
 }

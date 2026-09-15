@@ -19,4 +19,9 @@ public final class PlaybackAdPatch {
         if (blocked) Logger.printDebug(() -> "Prevented playback advertisement request");
         return blocked;
     }
+
+    /** Guard for the ad feature flag and banner conditions, which are checked often, so no logging. */
+    public static boolean isAdsBlocked() {
+        return Settings.isBlockPlaybackAdsEnabled();
+    }
 }

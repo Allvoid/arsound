@@ -42,6 +42,21 @@ public final class Settings {
         preferences.edit().putBoolean(HIDE_SUBSCRIPTION_OFFERS, enabled).apply();
     }
 
+    public static final String OFFLINE_FIRST = "offline_first";
+
+    /** Shows stored playlists before the server answers. On by default. */
+    public static boolean isOfflineFirstEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(OFFLINE_FIRST, true);
+    }
+
+    public static void setOfflineFirstEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(OFFLINE_FIRST, enabled).apply();
+    }
+
     public static final String BLOCK_PLAYBACK_ADS = "block_playback_ads";
 
     /**

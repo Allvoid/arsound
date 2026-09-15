@@ -111,10 +111,30 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.setHideSubscriptionOffersEnabled(checked)
         ));
         list.addView(createToggleRow(
+                text("Сначала сохранённое", "Offline first playlists"),
+                text("Плейлисты и альбомы открываются сразу из памяти телефона, а обновляются в фоне. "
+                                + "Помогает при плохом интернете.",
+                        "Playlists and albums open instantly from the device and refresh in the background. "
+                                + "Helps on a poor connection."),
+                Settings.isOfflineFirstEnabled(),
+                (button, checked) -> Settings.setOfflineFirstEnabled(checked)
+        ));
+        list.addView(createToggleRow(
+                text("Сначала сохранённое", "Offline first playlists"),
+                text("Плейлисты и альбомы открываются сразу из памяти телефона, а обновляются в фоне. "
+                                + "Помогает при плохом интернете.",
+                        "Playlists and albums open instantly from the device and refresh in the background. "
+                                + "Helps on a poor connection."),
+                Settings.isOfflineFirstEnabled(),
+                (button, checked) -> Settings.setOfflineFirstEnabled(checked)
+        ));
+        list.addView(createToggleRow(
                 text("Блокировать рекламу в плеере", "Block playback advertisements"),
-                text("Не запрашивает и не добавляет аудио- и видеорекламу между треками. "
+                text("Не запрашивает аудио- и видеорекламу между треками и рекламные плашки "
+                                + "в плеере, ленте, библиотеке, плейлистах и профилях. "
                                 + "После изменения перезапустите SoundCloud.",
-                        "Prevents audio and video advertisements between tracks from being requested or added. "
+                        "Prevents audio and video advertisements between tracks and banner ads "
+                                + "in the player, feed, library, playlists and profiles. "
                                 + "Restart SoundCloud after changing this option."),
                 Settings.isBlockPlaybackAdsEnabled(),
                 (button, checked) -> {
