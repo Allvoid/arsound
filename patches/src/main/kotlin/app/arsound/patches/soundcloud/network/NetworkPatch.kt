@@ -1,0 +1,87 @@
+package app.arsound.patches.soundcloud.network
+
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import app.arsound.util.indexOfFirstInstructionOrThrow
+import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
+import app.revanced.patcher.definingClass
+import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.getInstruction
+import app.revanced.patcher.returnType
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.name
+import app.revanced.patcher.patch.BytecodePatchContext
+import app.revanced.patcher.patch.bytecodePatch
+import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+
+private const val EXTENSION_CLASS_DESCRIPTOR =
+    "Lapp/revanced/extension/soundcloud/network/NetworkPatch;"
+
+/**
+ * OkHttp is not obfuscated, and every client of the app, including its own copies made with
+ * newBuilder(), is created by this method.
+ */
+private val BytecodePatchContext.okHttpBuildMethod by gettingFirstMethodDeclaratively {
+    name("build")
+    definingClass("Lokhttp3/OkHttpClient\$Builder;")
+}
+
+/** SoundCloud's own "is the network connected" check, used for offline mode, sync and retries. */
+private val BytecodePatchContext.networkConnectedMethod by gettingFirstMethodDeclaratively {
+    name("d")
+    definingClass("Lcom/soundcloud/android/utilities/android/network/NetworkConnectionHelper;")
+    returnType("Z")
+}
+
+/** Opens DataDome's check screen from the SDK: {@code co.datadome.sdk.l.run()}. */
+private val BytecodePatchContext.dataDomeChallengeStartMethod by gettingFirstMethodDeclaratively("captcha_url", "co.datadome.sdk.CAPTCHA_RESULT") {
+    name("run")
+    definingClass("Lco/datadome/sdk/l;")
+}
+
+/** Network: Adds network options to the app HTTP clients, including a developer option that simulates a slow connection. Part of the "Arsound" patch, not shown on its own. */
+val networkPatch = bytecodePatch {
+    dependsOn(settingsPatch)
+
+    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+
+    apply {
+        // Ask before the bot protection check screen opens over the app.
+        dataDomeChallengeStartMethod.apply {
+            val startIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.name == "startActivity"
+            }
+            val call = getInstruction<FiveRegisterInstruction>(startIndex)
+            replaceInstruction(
+                startIndex,
+                "invoke-static { v${call.registerC}, v${call.registerD} }, " +
+                    "Lapp/revanced/extension/soundcloud/network/DataDomePrompt;->start(Landroid/content/Context;Landroid/content/Intent;)V",
+            )
+        }
+
+        okHttpBuildMethod.addInstructions(
+            0,
+            "invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->onBuild(Ljava/lang/Object;)V",
+        )
+
+        networkConnectedMethod.apply {
+            // Every "return pN" of the method passes the result through the region guard first.
+            implementation!!.instructions.withIndex()
+                .filter { it.value.opcode == Opcode.RETURN }
+                .map { it.index }
+                .reversed()
+                .forEach { index ->
+                    val register = getInstruction<OneRegisterInstruction>(index).registerA
+                    addInstructions(
+                        index,
+                        """
+                            invoke-static { v$register }, Lapp/revanced/extension/soundcloud/network/RegionGuard;->isConnected(Z)Z
+                            move-result v$register
+                        """,
+                    )
+                }
+        }
+    }
+}
