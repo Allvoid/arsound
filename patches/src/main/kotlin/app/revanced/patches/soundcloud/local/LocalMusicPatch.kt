@@ -55,6 +55,12 @@ private val BytecodePatchContext.filterAndSortPlaylistsMethod by gettingFirstMet
     definingClass("Lcom/soundcloud/android/collections/data/MyPlaylistOperations;")
 }
 
+/** Renders a loaded state of the library playlist screens: {@code PlaylistCollectionFragment.P(AsyncLoaderState)}. */
+private val BytecodePatchContext.playlistCollectionRenderMethod by gettingFirstMethodDeclaratively {
+    name("P")
+    definingClass("Lcom/soundcloud/android/features/library/playlists/PlaylistCollectionFragment;")
+}
+
 /** onViewCreated of the library playlist screens. */
 private val BytecodePatchContext.playlistCollectionViewCreatedMethod by gettingFirstMethodDeclaratively {
     name("q0")
@@ -145,6 +151,21 @@ val localMusicPatch = bytecodePatch(
                 """
                     invoke-static { v$register }, Lapp/revanced/extension/soundcloud/local/PlaylistOrder;->applyOrder(Ljava/util/List;)Ljava/util/List;
                     move-result-object v$register
+                """,
+            )
+        }
+        // The screen may show a list kept in memory from before a rearrange: order it again before rendering.
+        playlistCollectionRenderMethod.apply {
+            // Right after "check-cast p1, List": the null check that follows jumps over anything placed later.
+            val castIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.CHECK_CAST && (this as ReferenceInstruction).reference.toString() == "Ljava/util/List;"
+            }
+            val listRegister = getInstruction<OneRegisterInstruction>(castIndex).registerA
+            addInstructions(
+                castIndex + 1,
+                """
+                    invoke-static { v$listRegister }, Lapp/revanced/extension/soundcloud/local/PlaylistOrder;->orderScreenItems(Ljava/util/List;)Ljava/util/List;
+                    move-result-object v$listRegister
                 """,
             )
         }

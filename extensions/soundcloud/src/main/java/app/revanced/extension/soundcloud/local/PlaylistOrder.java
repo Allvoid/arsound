@@ -94,6 +94,36 @@ public final class PlaylistOrder {
         }
     }
 
+    /**
+     * Injection point. Called with the rows the library playlists screen is about to show
+     * ({@code List<PlaylistCollectionItem>}), also when it shows a list it kept in memory from before a
+     * rearrange. Playlist rows are put in the saved order; headers stay where they are.
+     */
+    public static List<?> orderScreenItems(List<?> rows) {
+        if (rows == null || !Settings.isPlaylistOrderEnabled()) return rows;
+        List<String> order = savedOrder();
+        if (order.isEmpty()) return rows;
+        try {
+            List<Integer> slots = new ArrayList<>();
+            List<Object> playlists = new ArrayList<>();
+            for (int i = 0; i < rows.size(); i++) {
+                Object row = rows.get(i);
+                if (row != null && row.getClass().getName().equals(PLAYLIST_ITEM_CLASS)) {
+                    slots.add(i);
+                    playlists.add(row);
+                }
+            }
+            if (playlists.size() < 2) return rows;
+            List<?> ordered = applyOrder(playlists);
+            List<Object> result = new ArrayList<>(rows);
+            for (int i = 0; i < slots.size(); i++) result.set(slots.get(i), ordered.get(i));
+            return result;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not order the playlists screen", ex);
+            return rows;
+        }
+    }
+
     /** Injection point. Called when the playlist collection screen has created its views. */
     public static void attach(Object fragment, View root) {
         if (!Settings.isPlaylistOrderEnabled() || root == null
