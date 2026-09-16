@@ -21,6 +21,7 @@ import java.util.Locale;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.update.UpdateChecker;
 
 /**
  * Settings screen of the ReVanced SoundCloud patches.
@@ -275,6 +276,35 @@ public final class ReVancedSettingsActivity extends Activity {
                         "Removes the SoundCloud cache, track database and app settings, like \"Clear data\" in Android. "
                                 + "Your login, Arsound settings and downloaded tracks list are kept."),
                 v -> confirmReset()
+        ));
+
+        list.addView(createSubHeading(text("Обновления", "Updates")));
+        list.addView(createToggleRow(
+                text("Проверять при запуске", "Check on launch"),
+                text("При каждом запуске в фоне смотрит, вышла ли новая версия Arsound на GitHub.",
+                        "Checks GitHub for a new Arsound version in the background on every launch."),
+                Settings.isUpdateCheckEnabled(),
+                (button, checked) -> Settings.setUpdateCheckEnabled(checked)
+        ));
+        list.addView(createActionRow(
+                text("Проверить обновления", "Check for updates"),
+                text("Версия " + UpdateChecker.VERSION, "Version " + UpdateChecker.VERSION),
+                v -> UpdateChecker.check((release, failed) -> {
+                    if (isFinishing()) return;
+                    if (release != null) {
+                        UpdateChecker.showUpdateSheet(this, release);
+                    } else {
+                        Toast.makeText(this, failed
+                                        ? text("Не удалось проверить обновления", "Could not check for updates")
+                                        : text("У вас последняя версия", "You have the latest version"),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
+        ));
+        list.addView(createActionRow(
+                text("Arsound на GitHub", "Arsound on GitHub"),
+                UpdateChecker.REPOSITORY_URL.replace("https://", ""),
+                v -> UpdateChecker.openUrl(this, UpdateChecker.REPOSITORY_URL)
         ));
 
         list.addView(createSubHeading(text("Для разработчика", "Developer")));

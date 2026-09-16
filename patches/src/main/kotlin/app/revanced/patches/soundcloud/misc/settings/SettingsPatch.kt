@@ -9,6 +9,7 @@ import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patches.soundcloud.misc.extension.sharedExtensionPatch
 import app.revanced.util.getNode
 import app.revanced.util.indexOfFirstInstructionOrThrow
+import app.revanced.util.indexOfFirstInstructionReversedOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 
@@ -59,6 +60,15 @@ val settingsPatch = bytecodePatch(
                 helpCenterStringIndex,
                 "invoke-static { v$composerRegister }, " +
                     "$SETTINGS_ENTRY_CLASS_DESCRIPTOR->addEntry(Landroidx/compose/runtime/Composer;)V",
+            )
+        }
+
+        // Background update check on every launch, shown on the first screen that opens.
+        applicationOnCreateMethod.apply {
+            addInstruction(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/update/UpdateChecker;" +
+                    "->onApplicationCreate(Landroid/app/Application;)V",
             )
         }
     }

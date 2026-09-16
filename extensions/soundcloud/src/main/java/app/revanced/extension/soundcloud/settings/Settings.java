@@ -57,6 +57,21 @@ public final class Settings {
         preferences.edit().putBoolean(HIDE_UPGRADE_TAB, enabled).apply();
     }
 
+    public static final String UPDATE_CHECK = "update_check";
+
+    /** Checks GitHub for a newer Arsound release on every launch. On by default. */
+    public static boolean isUpdateCheckEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(UPDATE_CHECK, true);
+    }
+
+    public static void setUpdateCheckEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(UPDATE_CHECK, enabled).apply();
+    }
+
     public static final String OFFLINE_FIRST = "offline_first";
 
     /** Shows stored playlists before the server answers. On by default. */
