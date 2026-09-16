@@ -171,10 +171,19 @@ public final class DownloadTrackPatch {
 
         Utils.runOnBackgroundThread(() -> {
             try {
+                if (getDownloadState(context, trackId) == DownloadState.IN_PROGRESS) {
+                    showToast(context, text("Этот трек уже скачивается", "This track is already downloading"));
+                    return;
+                }
                 String fileUrl = resolveDownloadUrl(trackId);
                 if (fileUrl == null) {
                     showToast(context, text("Этот трек недоступен для скачивания", "This track is not available for download"));
                     return;
+                }
+                // "Download again" replaces the file instead of saving a second copy next to it.
+                java.io.File previous = getDownloadedFile(trackId);
+                if (previous != null && !previous.delete()) {
+                    Logger.printInfo(() -> "Could not delete the previous file " + previous);
                 }
                 enqueue(context, trackId, fileUrl);
             } catch (Exception ex) {
@@ -350,6 +359,37 @@ public final class DownloadTrackPatch {
      * @return The downloaded file of the track, or null if it was not downloaded, is still downloading
      * or was deleted.
      */
+    public enum DownloadState {NOT_DOWNLOADED, IN_PROGRESS, DOWNLOADED}
+
+    /**
+     * Whether a track was already downloaded by Arsound, so it is not downloaded twice.
+     * Tracks downloaded before the file name was remembered count as downloaded: their file cannot be checked.
+     */
+    public static DownloadState getDownloadState(Context context, String trackId) {
+        if (getDownloadedFile(trackId) != null) return DownloadState.DOWNLOADED;
+        if (!getDownloadedTracks().contains(trackId)) return DownloadState.NOT_DOWNLOADED;
+
+        SharedPreferences preferences = getPreferences();
+        String fileName = preferences == null ? null : preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+        if (fileName == null) return DownloadState.DOWNLOADED;
+
+        // Marked, but the file is not complete: either still downloading, or the file was deleted.
+        try {
+            DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+            DownloadManager.Query query = new DownloadManager.Query().setFilterByStatus(
+                    DownloadManager.STATUS_PENDING | DownloadManager.STATUS_RUNNING | DownloadManager.STATUS_PAUSED);
+            try (android.database.Cursor cursor = manager.query(query)) {
+                int title = cursor.getColumnIndex(DownloadManager.COLUMN_TITLE);
+                while (cursor.moveToNext()) {
+                    if (fileName.equals(cursor.getString(title))) return DownloadState.IN_PROGRESS;
+                }
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not check running downloads", ex);
+        }
+        return DownloadState.NOT_DOWNLOADED;
+    }
+
     public static java.io.File getDownloadedFile(String trackId) {
         SharedPreferences preferences = getPreferences();
         if (preferences == null || trackId == null) return null;

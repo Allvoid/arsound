@@ -144,6 +144,7 @@ public final class DownloadPlaylistPatch {
                 }
 
                 List<TrackInfo> downloadable = new ArrayList<>();
+                int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
                 for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
                     List<String> chunk = ids.subList(start, Math.min(ids.size(), start + TRACKS_PER_REQUEST));
                     String[] tracks = DownloadTrackPatch.apiGet(
@@ -153,15 +154,24 @@ public final class DownloadPlaylistPatch {
                     JSONArray array = new JSONArray(tracks[1]);
                     for (int i = 0; i < array.length(); i++) {
                         JSONObject track = array.getJSONObject(i);
-                        if (track.optBoolean("streamable", true) && isNotRestricted(track)) {
-                            downloadable.add(new TrackInfo(String.valueOf(track.getLong("id")), track.optString("title")));
+                        if (!track.optBoolean("streamable", true) || !isNotRestricted(track)) continue;
+                        String id = String.valueOf(track.getLong("id"));
+                        switch (DownloadTrackPatch.getDownloadState(context, id)) {
+                            case DOWNLOADED:
+                                alreadyDownloaded[0]++;
+                                break;
+                            case IN_PROGRESS:
+                                alreadyDownloaded[1]++;
+                                break;
+                            default:
+                                downloadable.add(new TrackInfo(id, track.optString("title")));
                         }
                     }
                 }
 
-                Logger.printInfo(() -> "Playlist " + playlistId + ": " + downloadable.size()
-                        + " of " + ids.size() + " tracks downloadable");
-                Utils.runOnMainThread(() -> showResult(context, ids.size(), downloadable));
+                Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, downloaded "
+                        + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download " + downloadable.size());
+                Utils.runOnMainThread(() -> showResult(context, ids.size(), alreadyDownloaded[0], alreadyDownloaded[1], downloadable));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
                 DownloadTrackPatch.showToast(context, text("Не удалось проверить треки", "Could not check the tracks"));
@@ -169,26 +179,37 @@ public final class DownloadPlaylistPatch {
         });
     }
 
-    private static void showResult(Context context, int total, List<TrackInfo> downloadable) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+    private static void showResult(Context context, int total, int downloaded, int downloading, List<TrackInfo> downloadable) {
+        int unavailable = total - downloaded - downloading - downloadable.size();
+        StringBuilder summary = new StringBuilder();
+        summary.append(text("Треков в плейлисте: ", "Tracks in the playlist: ")).append(total).append('\n')
+                .append(text("Уже скачано: ", "Already downloaded: ")).append(downloaded).append('\n');
+        if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
+        summary.append(text("Можно скачать: ", "Can be downloaded: ")).append(downloadable.size()).append('\n');
+        if (unavailable > 0) {
+            summary.append(text("Недоступно (по подписке, отрывки или закрытые): ",
+                    "Not available (subscription, previews or blocked): ")).append(unavailable).append('\n');
+        }
 
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
         if (downloadable.isEmpty()) {
-            builder.setTitle(text("Нечего скачать", "Nothing to download"))
-                    .setMessage(text("Нет доступных для скачивания полных треков среди " + total + ".",
-                            "None of the " + total + " tracks is available as a full download."))
+            builder.setTitle(downloaded + downloading > 0
+                            ? text("Всё доступное уже скачано", "Everything available is downloaded")
+                            : text("Нечего скачать", "Nothing to download"))
+                    .setMessage(summary.toString().trim())
                     .setPositiveButton(android.R.string.ok, null)
                     .show();
             return;
         }
 
-        StringBuilder titles = new StringBuilder();
-        for (TrackInfo track : downloadable) titles.append("• ").append(track.title).append('\n');
+        summary.append('\n').append(text("Будут скачаны:", "Will be downloaded:")).append('\n');
+        for (TrackInfo track : downloadable) summary.append("• ").append(track.title).append('\n');
 
-        builder.setTitle(text("Можно скачать " + downloadable.size() + " из " + total,
-                        downloadable.size() + " of " + total + " tracks can be downloaded"))
-                .setMessage(titles.toString().trim())
+        builder.setTitle(text("Можно скачать ещё " + downloadable.size(), downloadable.size() + " more can be downloaded"))
+                .setMessage(summary.toString().trim())
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(text("Скачать все", "Download all"), (d, which) -> downloadAll(context, downloadable))
+                .setPositiveButton(text("Скачать " + downloadable.size(), "Download " + downloadable.size()),
+                        (d, which) -> downloadAll(context, downloadable))
                 .show();
     }
 
@@ -198,6 +219,9 @@ public final class DownloadPlaylistPatch {
             int started = 0;
             for (TrackInfo track : tracks) {
                 try {
+                    // Checked again: the dialog may have stayed open while the same track was downloaded elsewhere.
+                    if (DownloadTrackPatch.getDownloadState(appContext, track.id)
+                            != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) continue;
                     if (DownloadTrackPatch.downloadSilently(appContext, track.id)) started++;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Download failure for track " + track.id, ex);
