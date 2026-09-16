@@ -37,6 +37,12 @@ private const val BANNER_CONDITIONS_CLASS =
     "Lcom/soundcloud/android/ads/display/ui/banner/main/BannerAdFetchConditionsImpl;"
 
 // Banner conditions: a - player, b - profile, c - library, d - playlist, e - home and feed.
+/** Shows the full screen ad when the main screen opens (a suspend function). */
+private val BytecodePatchContext.interstitialAdShowMethod by gettingFirstMethodDeclaratively {
+    name("a")
+    definingClass("Lcom/soundcloud/android/ads/display/ui/interstitial/DefaultInterstitialAdController;")
+}
+
 private val BytecodePatchContext.bannerPlayerMethod by gettingFirstMethodDeclaratively { name("a"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
 private val BytecodePatchContext.bannerProfileMethod by gettingFirstMethodDeclaratively { name("b"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
 private val BytecodePatchContext.bannerLibraryMethod by gettingFirstMethodDeclaratively { name("c"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
@@ -53,6 +59,19 @@ val playbackAdsPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Full screen ad on app start: the call returns right away, as if no ad was available.
+        interstitialAdShowMethod.addInstructionsWithLabels(
+            0,
+            """
+                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->isAdsBlocked()Z
+                move-result v0
+                if-eqz v0, :show
+                sget-object v0, Lkotlin/Unit;->INSTANCE:Lkotlin/Unit;
+                return-object v0
+            """,
+            ExternalLabel("show", interstitialAdShowMethod.getInstruction(0)),
+        )
+
         playbackAdRequestMethod.addInstructionsWithLabels(
             0,
             """
