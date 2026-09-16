@@ -4,7 +4,7 @@ Generates the Arsound branding resources bundled with the patches.
 Source: the exported "letter A" icon set (PNG glyphs and the drawing animation).
 Output: patches/src/main/resources/soundcloud/branding/...
 
-Run: python tools/branding/generate.py [path to the export folder]
+Run: python tools/branding/generate.py <path to the export folder>
 Needs: pip install pillow picosvg skia-pathops resvg-py
 """
 import pathlib
@@ -12,7 +12,9 @@ import sys
 
 from PIL import Image
 
-EXPORT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "export")
+if len(sys.argv) < 2:
+    sys.exit("Usage: python tools/branding/generate.py <path to the icon export folder>")
+EXPORT = pathlib.Path(sys.argv[1])
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "patches/src/main/resources/soundcloud/branding"
 

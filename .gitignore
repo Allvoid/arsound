@@ -10,6 +10,10 @@ gradle-local.properties
 local.properties
 .env
 
+# Working notes and decompiler projects
+PLAN.md
+*.jadx
+
 # Build output
 build/
 .gradle/
