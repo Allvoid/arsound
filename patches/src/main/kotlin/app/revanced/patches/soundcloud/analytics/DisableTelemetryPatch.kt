@@ -7,11 +7,8 @@ import app.revanced.patches.soundcloud.misc.settings.settingsPatch
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/analytics/DisableTelemetryPatch;"
 
-@Suppress("unused")
-val disableTelemetryPatch = bytecodePatch(
-    name = "Disable telemetry",
-    description = "Adds an option to disable SoundCloud's telemetry system.",
-) {
+/** Disable telemetry: Adds an option to disable SoundCloud's telemetry system. Part of the "Arsound" patch, not shown on its own. */
+val disableTelemetryPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith(

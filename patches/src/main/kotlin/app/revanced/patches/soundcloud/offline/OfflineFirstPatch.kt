@@ -56,11 +56,8 @@ private val BytecodePatchContext.myPlaylistOperationsConstructorMethod by gettin
     definingClass("Lcom/soundcloud/android/collections/data/MyPlaylistOperations;")
 }
 
-@Suppress("unused")
-val offlineFirstPatch = bytecodePatch(
-    name = "Offline first playlists",
-    description = "Shows stored playlists and albums immediately and refreshes them in the background.",
-) {
+/** Offline first playlists: Shows stored playlists and albums immediately and refreshes them in the background. Part of the "Arsound" patch, not shown on its own. */
+val offlineFirstPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

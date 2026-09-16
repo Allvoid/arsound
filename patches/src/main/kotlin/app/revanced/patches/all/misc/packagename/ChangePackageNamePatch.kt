@@ -44,14 +44,16 @@ val changePackageNamePatch = resourcePatch(
     packageNameOption()
 
     val updatePermissions by booleanOption(
-        default = false,
+        // On: Arsound installs next to the original SoundCloud, which needs unique permissions and providers.
+        default = true,
         name = "Update permissions",
         description = "Update compatibility receiver permissions. " +
             "Enabling this can fix installation errors, but this can also break features in certain apps.",
     )
 
     val updateProviders by booleanOption(
-        default = false,
+        // On: Arsound installs next to the original SoundCloud, which needs unique permissions and providers.
+        default = true,
         name = "Update providers",
         description = "Update provider names declared by the app. " +
             "Enabling this can fix installation errors, but this can also break features in certain apps.",

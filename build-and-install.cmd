@@ -21,24 +21,10 @@ for /f "delims=" %%u in ('gh api user --jq .login') do set "ORG_GRADLE_PROJECT_g
 
 call "%~dp0gradlew.bat" :patches:buildAndroid --console=plain || exit /b 1
 
-rem Options (-O) belong to the patch enabled right before them, so "Change package name" must stay last.
+rem "Arsound" includes every patch of this project, with the options it needs.
 "%JAVA_HOME%\bin\java.exe" -jar local\tools\revanced-cli-6.0.0-all.jar patch ^
   -p patches\build\libs\patches-0.1.0.rvp -b --exclusive ^
-  -e "Settings" ^
-  -e "Disable telemetry" ^
-  -e "Download tracks" ^
-  -e "Control playback advertisements" ^
-  -e "Offline first playlists" ^
-  -e "Network" ^
-  -e "Play downloaded files" ^
-  -e "Local music" ^
-  -e "Power saving" ^
-  -e "Hide duplicate recommendations" ^
-  -e "Hide subscription offers" ^
-  -e "Change account type" ^
-  -e "Custom app name" ^
-  -e "Arsound branding" ^
-  -e "Change package name" -O "Update permissions=true" -O "Update providers=true" ^
+  -e "Arsound" ^
   --keystore "%KEYSTORE%" -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" || exit /b 1
 

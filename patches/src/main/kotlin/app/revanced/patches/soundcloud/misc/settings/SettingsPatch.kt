@@ -33,10 +33,8 @@ private val settingsActivityPatch = resourcePatch {
     }
 }
 
-val settingsPatch = bytecodePatch(
-    name = "Settings",
-    description = "Adds a ReVanced menu to the SoundCloud settings, styled like the app.",
-) {
+/** Settings: Adds a ReVanced menu to the SoundCloud settings, styled like the app. Part of the "Arsound" patch, not shown on its own. */
+val settingsPatch = bytecodePatch {
     dependsOn(sharedExtensionPatch, settingsActivityPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

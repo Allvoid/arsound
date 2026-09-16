@@ -50,11 +50,8 @@ private val BytecodePatchContext.homeSuggestionsConstructor by gettingFirstMetho
     definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Suggestions;")
 }
 
-@Suppress("unused")
-val duplicateFilterPatch = bytecodePatch(
-    name = "Hide duplicate recommendations",
-    description = "Adds an option to hide re-uploads of the same song in home sections and autoplay.",
-) {
+/** Hide duplicate recommendations: Adds an option to hide re-uploads of the same song in home sections and autoplay. Part of the "Arsound" patch, not shown on its own. */
+val duplicateFilterPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

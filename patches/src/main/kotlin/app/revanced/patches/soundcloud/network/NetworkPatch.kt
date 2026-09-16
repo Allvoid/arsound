@@ -41,11 +41,8 @@ private val BytecodePatchContext.dataDomeChallengeStartMethod by gettingFirstMet
     definingClass("Lco/datadome/sdk/l;")
 }
 
-@Suppress("unused")
-val networkPatch = bytecodePatch(
-    name = "Network",
-    description = "Adds network options to the app HTTP clients, including a developer option that simulates a slow connection.",
-) {
+/** Network: Adds network options to the app HTTP clients, including a developer option that simulates a slow connection. Part of the "Arsound" patch, not shown on its own. */
+val networkPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

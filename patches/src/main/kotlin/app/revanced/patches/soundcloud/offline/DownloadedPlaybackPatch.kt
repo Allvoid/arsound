@@ -48,11 +48,8 @@ private val BytecodePatchContext.playerStateChangedMethod by gettingFirstMethodD
     definingClass("Lcom/soundcloud/android/exoplayer/BaseExoPlayer\$exoPlayerEventListener\$1;")
 }
 
-@Suppress("unused")
-val downloadedPlaybackPatch = bytecodePatch(
-    name = "Play downloaded files",
-    description = "Plays tracks downloaded by Arsound from the file instead of streaming them.",
-) {
+/** Play downloaded files: Plays tracks downloaded by Arsound from the file instead of streaming them. Part of the "Arsound" patch, not shown on its own. */
+val downloadedPlaybackPatch = bytecodePatch {
     dependsOn(downloadTrackPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

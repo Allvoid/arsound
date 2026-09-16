@@ -5,11 +5,8 @@ import app.revanced.patcher.patch.stringOption
 import app.revanced.util.asSequence
 import org.w3c.dom.Element
 
-@Suppress("unused")
-val appNamePatch = resourcePatch(
-    name = "Custom app name",
-    description = "Changes the app name shown on the home screen and in the \"Open with\" dialog.",
-) {
+/** Custom app name: Changes the app name shown on the home screen and in the "Open with" dialog. Part of the "Arsound" patch, not shown on its own. */
+val appNamePatch = resourcePatch {
     compatibleWith("com.soundcloud.android")
 
     val appName by stringOption(

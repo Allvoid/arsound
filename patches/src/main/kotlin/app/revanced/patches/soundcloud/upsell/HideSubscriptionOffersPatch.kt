@@ -78,11 +78,8 @@ private val emptyActivityPatch = resourcePatch {
     }
 }
 
-@Suppress("unused")
-val hideSubscriptionOffersPatch = bytecodePatch(
-    name = "Hide subscription offers",
-    description = "Adds an option to remove the SoundCloud Go and Go+ offer screen and marketing popups.",
-) {
+/** Hide subscription offers: Adds an option to remove the SoundCloud Go and Go+ offer screen and marketing popups. Part of the "Arsound" patch, not shown on its own. */
+val hideSubscriptionOffersPatch = bytecodePatch {
     dependsOn(settingsPatch, emptyActivityPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

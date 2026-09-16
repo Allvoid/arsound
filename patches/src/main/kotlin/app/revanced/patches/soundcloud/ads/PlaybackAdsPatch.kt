@@ -49,11 +49,8 @@ private val BytecodePatchContext.bannerLibraryMethod by gettingFirstMethodDeclar
 private val BytecodePatchContext.bannerPlaylistMethod by gettingFirstMethodDeclaratively { name("d"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
 private val BytecodePatchContext.bannerSectionsMethod by gettingFirstMethodDeclaratively { name("e"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
 
-@Suppress("unused")
-val playbackAdsPatch = bytecodePatch(
-    name = "Control playback advertisements",
-    description = "Adds an option to prevent SoundCloud from requesting audio, video and banner advertisements.",
-) {
+/** Control playback advertisements: Adds an option to prevent SoundCloud from requesting audio, video and banner advertisements. Part of the "Arsound" patch, not shown on its own. */
+val playbackAdsPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

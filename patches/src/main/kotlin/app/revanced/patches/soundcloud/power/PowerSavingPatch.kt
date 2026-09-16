@@ -42,11 +42,8 @@ internal val BytecodePatchContext.updateWakeAndWifiLockMethod by gettingFirstMet
     parameterTypes()
 }
 
-@Suppress("unused")
-val powerSavingPatch = bytecodePatch(
-    name = "Power saving",
-    description = "Adds an option to reduce background network polling.",
-) {
+/** Power saving: Adds an option to reduce background network polling. Part of the "Arsound" patch, not shown on its own. */
+val powerSavingPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

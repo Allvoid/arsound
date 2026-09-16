@@ -7,12 +7,8 @@ import org.w3c.dom.Element
 private const val ORIGINAL_ACCOUNT_TYPE = "com.soundcloud.android.account"
 private const val REVANCED_ACCOUNT_TYPE = "com.soundcloud.android.revanced.account"
 
-@Suppress("unused")
-val accountTypePatch = resourcePatch(
-    name = "Change account type",
-    description = "Uses a separate Android account type, so the app can sign in " +
-        "while the original SoundCloud app is installed. Required with \"Change package name\".",
-) {
+/** Change account type: Uses a separate Android account type, so the app can sign in while the original SoundCloud app is installed. Required with "Change package name". Part of the "Arsound" patch, not shown on its own. */
+val accountTypePatch = resourcePatch {
     compatibleWith("com.soundcloud.android")
 
     apply {

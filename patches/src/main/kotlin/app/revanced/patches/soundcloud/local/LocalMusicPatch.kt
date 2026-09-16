@@ -132,11 +132,8 @@ private val BytecodePatchContext.playbackInitiatorConstructorMethod by gettingFi
     definingClass("Lcom/soundcloud/android/playback/session/PlaybackInitiator;")
 }
 
-@Suppress("unused")
-val localMusicPatch = bytecodePatch(
-    name = "Local music",
-    description = "Adds importing audio files, playing them in the SoundCloud player and adding any track to any playlist on this device only.",
-) {
+/** Local music: Adds importing audio files, playing them in the SoundCloud player and adding any track to any playlist on this device only. Part of the "Arsound" patch, not shown on its own. */
+val localMusicPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))

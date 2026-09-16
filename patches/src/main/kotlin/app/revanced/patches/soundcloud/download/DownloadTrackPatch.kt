@@ -34,11 +34,8 @@ private val downloadPermissionPatch = resourcePatch {
 private const val PLAYLIST_EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/download/DownloadPlaylistPatch;"
 
-@Suppress("unused")
-val downloadTrackPatch = bytecodePatch(
-    name = "Download tracks",
-    description = "Adds a \"Download file\" button to the track menu and a download check to the playlist menu, for tracks whose artist enabled free downloads.",
-) {
+/** Download tracks: Adds a "Download file" button to the track menu and a download check to the playlist menu, for tracks whose artist enabled free downloads. Part of the "Arsound" patch, not shown on its own. */
+val downloadTrackPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadPermissionPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
