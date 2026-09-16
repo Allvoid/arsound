@@ -183,6 +183,17 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.setHideUpgradeTabEnabled(checked)
         ));
         list.addView(createToggleRow(
+                text("Сохранять плейлисты заранее", "Save playlists ahead"),
+                text("В фоне сохраняет содержимое всех плейлистов и альбомов библиотеки — только текст: названия, "
+                                + "исполнители, длительности. Без музыки и картинок, места почти не занимает. "
+                                + "Плейлисты открываются сразу, в том числе без интернета.",
+                        "Saves the contents of every playlist and album in the library in the background, as text only: "
+                                + "titles, artists, durations. No audio or images, takes almost no space. "
+                                + "Playlists open instantly, also offline."),
+                Settings.isPlaylistPreloadEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.PLAYLIST_PRELOAD, checked)
+        ));
+        list.addView(createToggleRow(
                 text("Сначала сохранённое", "Offline first playlists"),
                 text("Плейлисты и альбомы открываются сразу из памяти телефона, а обновляются в фоне. "
                                 + "Помогает при плохом интернете.",

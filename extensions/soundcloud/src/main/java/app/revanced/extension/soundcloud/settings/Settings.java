@@ -173,6 +173,14 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).apply();
     }
 
+    public static final String PLAYLIST_PRELOAD = "playlist_preload";
+
+    /** Saves the contents of all library playlists ahead of time, as text. On by default. */
+    public static boolean isPlaylistPreloadEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(PLAYLIST_PRELOAD, true);
+    }
+
     public static final String NETWORK_BANNER = "network_banner";
 
     /** Status pill on the main screen when there is no network or SoundCloud is switched off. On by default. */

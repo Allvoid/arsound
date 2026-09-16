@@ -1,7 +1,9 @@
 package app.revanced.patches.soundcloud.offline
 
+import app.revanced.util.indexOfFirstInstructionReversedOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.ExternalLabel
+import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
@@ -48,6 +50,12 @@ private val BytecodePatchContext.hotTracksMethod by gettingFirstMethodDeclarativ
     definingClass("Lcom/soundcloud/android/tracks/DefaultTrackItemRepository;")
 }
 
+/** The library playlists source, captured to preload their contents. */
+private val BytecodePatchContext.myPlaylistOperationsConstructorMethod by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/collections/data/MyPlaylistOperations;")
+}
+
 @Suppress("unused")
 val offlineFirstPatch = bytecodePatch(
     name = "Offline first playlists",
@@ -58,6 +66,14 @@ val offlineFirstPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Save every library playlist's contents ahead of time, as text in SoundCloud's database.
+        myPlaylistOperationsConstructorMethod.apply {
+            addInstruction(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/offline/PlaylistPreloader;->setMyPlaylistOperations(Ljava/lang/Object;)V",
+            )
+        }
+
         fetchAndSyncPlaylistMethod.addInstructionsWithLabels(
             0,
             """
