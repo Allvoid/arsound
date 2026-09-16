@@ -151,6 +151,7 @@ public final class LocalMusic {
     }
 
     public static boolean delete(Track track) {
+        LocalAdditions.clearLocalTrackCache();
         return track.file.delete();
     }
 

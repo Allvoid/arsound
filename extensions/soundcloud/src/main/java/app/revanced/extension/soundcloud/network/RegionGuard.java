@@ -106,12 +106,11 @@ public final class RegionGuard {
      */
     public static void recheck(Runnable onDone) {
         Utils.runOnBackgroundThread(() -> {
-            synchronized (RegionGuard.class) {
-                country = null;
-                lastFailedCheck = 0;
-                toastShown = false;
-                check();
-            }
+            lastFailedCheck = 0;
+            toastShown = false;
+            String fresh = fetchCountry();
+            if (fresh != null) country = fresh;
+            else lastFailedCheck = System.currentTimeMillis();
             if (onDone != null) Utils.runOnMainThread(onDone);
         });
     }
@@ -122,13 +121,12 @@ public final class RegionGuard {
         Utils.runOnBackgroundThread(() -> {
             try {
                 String previous = country;
-                synchronized (RegionGuard.class) {
-                    country = null;
-                    check();
-                    // Keep the old answer if the new check failed, so a dead network does not unblock anything.
-                    if (country == null && previous != null) country = previous;
+                // The known answer stays in use until a new one arrives; a failed check changes nothing.
+                String fresh = fetchCountry();
+                if (fresh != null) {
+                    country = fresh;
+                    if (!fresh.equals(previous)) toastShown = false;
                 }
-                if (country != null && !country.equals(previous)) toastShown = false;
             } finally {
                 recheckRunning = false;
             }
@@ -138,6 +136,14 @@ public final class RegionGuard {
     /** Checks the country once for all waiting requests. Null means the check failed. */
     private static synchronized String check() {
         if (country != null) return country;
+        String fresh = fetchCountry();
+        if (fresh != null) country = fresh;
+        else lastFailedCheck = System.currentTimeMillis();
+        return fresh;
+    }
+
+    /** Asks Cloudflare for the country of the current public IP. Null means the check failed. */
+    private static String fetchCountry() {
         checkedAt = System.currentTimeMillis();
         try {
             HttpURLConnection connection = (HttpURLConnection)
@@ -148,16 +154,15 @@ public final class RegionGuard {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (line.startsWith("loc=")) {
-                        country = line.substring(4).trim().toUpperCase(Locale.US);
-                        Logger.printInfo(() -> "Region guard: country " + country);
-                        return country;
+                        String found = line.substring(4).trim().toUpperCase(Locale.US);
+                        Logger.printInfo(() -> "Region guard: country " + found);
+                        return found;
                     }
                 }
             }
         } catch (Exception ex) {
             Logger.printInfo(() -> "Region guard: country check failed: " + ex);
         }
-        lastFailedCheck = System.currentTimeMillis();
         return null;
     }
 
@@ -177,10 +182,10 @@ public final class RegionGuard {
 
                 @Override
                 public void onLinkPropertiesChanged(Network network, android.net.LinkProperties properties) {
-                    // A new local address or DNS on the same network often means a new public IP too.
-                    country = null;
-                    lastFailedCheck = 0;
-                    toastShown = false;
+                    // A new local address or DNS on the same network may mean a new public IP. This event is
+                    // frequent, so requests keep the known answer while it is checked again in the background.
+                    checkedAt = 0;
+                    recheckIfStale();
                 }
 
                 @Override

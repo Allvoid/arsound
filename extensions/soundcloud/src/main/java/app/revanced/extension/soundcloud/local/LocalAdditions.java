@@ -260,14 +260,20 @@ public final class LocalAdditions {
 
             return Rx.mapObservable(response, value -> {
                 try {
+                    // Waiting here froze the app: this can run on the main thread, and every missing file
+                    // track waited up to 5 s in turn. Now: cached items, a short total budget off the main
+                    // thread only, and anything still missing is loaded in the background for the next update.
+                    boolean mainThread = android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
+                    long deadline = System.currentTimeMillis() + LOCAL_TRACK_BUDGET_MS;
                     return mergeLocalTracks(loader, value, requested, urn -> {
-                        try {
-                            Object found = Rx.blockingFirst(track.invoke(repository, urn, strategy), 5, TimeUnit.SECONDS);
-                            return found == null ? null : found.getClass().getMethod("getItem").invoke(found);
-                        } catch (Exception ex) {
-                            Logger.printInfo(() -> "Local file track unavailable: " + urn + " " + ex);
+                        Object cached = LOCAL_TRACK_CACHE.get(String.valueOf(urn));
+                        if (cached != null) return cached;
+                        long left = deadline - System.currentTimeMillis();
+                        if (mainThread || left <= 0) {
+                            loadLocalTrackInBackground(repository, track, urn, strategy);
                             return null;
                         }
+                        return loadLocalTrack(repository, track, urn, strategy, left);
                     });
                 } catch (Exception ex) {
                     Logger.printException(() -> "Could not merge local file tracks", ex);
@@ -278,6 +284,30 @@ public final class LocalAdditions {
             Logger.printException(() -> "Could not add local file tracks", ex);
             return null;
         }
+    }
+
+    private static final long LOCAL_TRACK_BUDGET_MS = 1_500;
+    private static final Map<String, Object> LOCAL_TRACK_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static Object loadLocalTrack(Object repository, Method track, Object urn, Object strategy, long timeoutMs) {
+        try {
+            Object found = Rx.blockingFirst(track.invoke(repository, urn, strategy), timeoutMs, TimeUnit.MILLISECONDS);
+            Object item = found == null ? null : found.getClass().getMethod("getItem").invoke(found);
+            if (item != null) LOCAL_TRACK_CACHE.put(String.valueOf(urn), item);
+            return item;
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Local file track unavailable: " + urn + " " + ex);
+            return null;
+        }
+    }
+
+    /** Called when imported files change, so removed files are not shown from the cache. */
+    public static void clearLocalTrackCache() {
+        LOCAL_TRACK_CACHE.clear();
+    }
+
+    private static void loadLocalTrackInBackground(Object repository, Method track, Object urn, Object strategy) {
+        Utils.runOnBackgroundThread(() -> loadLocalTrack(repository, track, urn, strategy, 5_000));
     }
 
     private static Object mergeLocalTracks(ClassLoader loader, Object response, List<Object> requested,
