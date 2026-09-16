@@ -129,6 +129,8 @@ public final class PlaylistOrder {
         private final ViewGroup recycler;
         private final ClassLoader loader;
         private Object touchHelper;
+        /** The playlist being dragged. Positions reported during a fast drag with auto scroll can be stale. */
+        private Object dragged;
         private boolean active;
         private final List<ObjectAnimator> wiggles = new ArrayList<>();
         private final GestureDetector gestures;
@@ -269,12 +271,15 @@ public final class PlaylistOrder {
         }
 
         private boolean canMove(int from, int to) {
-            return isPlaylistAt(from) && isPlaylistAt(to);
+            return isPlaylistAt(to) && (dragged != null || isPlaylistAt(from));
         }
 
-        private void move(int from, int to) {
+        private void move(int reportedFrom, int to) {
             try {
                 List<Object> items = items();
+                int index = dragged == null ? -1 : items.indexOf(dragged);
+                int from = index >= 0 ? index : reportedFrom;
+                if (from == to || !isPlaylistAt(from) || !isPlaylistAt(to)) return;
                 if (from < to) {
                     for (int i = from; i < to; i++) Collections.swap(items, i, i + 1);
                 } else {
@@ -306,6 +311,9 @@ public final class PlaylistOrder {
         private void startDrag(View child) {
             try {
                 Object holder = viewHolder(child);
+                int position = position(child);
+                List<Object> list = items();
+                dragged = position >= 0 && position < list.size() ? list.get(position) : null;
                 Class<?> holderType = Class.forName("androidx.recyclerview.widget.RecyclerView$ViewHolder", false, loader);
                 touchHelper.getClass().getMethod("r", holderType).invoke(touchHelper, holder);
                 child.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
