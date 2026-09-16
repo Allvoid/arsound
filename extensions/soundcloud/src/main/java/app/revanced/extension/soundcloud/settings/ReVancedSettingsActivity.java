@@ -131,6 +131,15 @@ public final class ReVancedSettingsActivity extends Activity {
         ));
 
         list.addView(createToggleRow(
+                text("Показывать статус сети", "Show network status"),
+                text("Небольшая плашка сверху главного экрана, когда нет сети или SoundCloud отключён из-за российского IP. "
+                                + "Нажатие проверяет сеть снова.",
+                        "A small pill at the top of the main screen when there is no network or SoundCloud is off "
+                                + "because of a Russian IP. Tap to check again."),
+                Settings.isNetworkBannerEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.NETWORK_BANNER, checked)
+        ));
+        list.addView(createToggleRow(
                 text("Спрашивать перед проверкой устройства", "Ask before device check"),
                 text("Защита SoundCloud от ботов (DataDome) иногда открывает белое окно проверки поверх приложения. "
                                 + "Вместо этого появится вопрос: пройти проверку сейчас или позже.",

@@ -69,11 +69,13 @@ public final class UpdateChecker {
                 // The network of an app that is not on screen yet is blocked, so the check starts here.
                 startCheckOnce();
                 showPendingRelease();
+                app.revanced.extension.soundcloud.network.NetworkBanner.onActivityResumed(activity);
             }
 
             @Override
             public void onActivityPaused(Activity activity) {
                 if (resumedActivity.get() == activity) resumedActivity = new WeakReference<>(null);
+                app.revanced.extension.soundcloud.network.NetworkBanner.onActivityPaused(activity);
             }
 
             @Override
