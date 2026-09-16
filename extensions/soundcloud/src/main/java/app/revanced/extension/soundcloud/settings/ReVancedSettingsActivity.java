@@ -249,12 +249,12 @@ public final class ReVancedSettingsActivity extends Activity {
         LinearLayout savedOptions = new LinearLayout(this);
         savedOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
-                text("Плейлист «Скачанные и импортированные»", "\"Downloaded and imported\" playlist"),
-                text("В библиотеке SoundCloud появится приватный плейлист со всеми треками, скачанными Arsound, "
-                                + "и импортированными файлами. Треки в нём есть только на этом телефоне. "
+                text("Плейлист «Импортированные»", "\"Imported\" playlist"),
+                text("В библиотеке SoundCloud появится приватный плейлист со всеми "
+                                + "импортированными файлами. Треки в нём есть только на этом телефоне. "
                                 + "Плейлист нельзя удалить: пока функция включена, он создаётся снова. "
                                 + "Применится после перезапуска.",
-                        "A private playlist with all tracks downloaded by Arsound and imported files appears in the "
+                        "A private playlist with all imported files appears in the "
                                 + "SoundCloud library. Its tracks exist only on this phone. Applies after a restart."),
                 Settings.isSavedPlaylistEnabled(),
                 (button, checked) -> {
@@ -273,9 +273,9 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(createActionRow(
                 text("Импортированные файлы", "Imported files"),
                 text("Импорт аудиофайлов с телефона и список импортированного. Файлы появляются в плейлисте "
-                                + "«Скачанные и импортированные».",
+                                + "«Импортированные».",
                         "Import audio files from the phone and see what is imported. Files appear in the "
-                                + "\"Downloaded and imported\" playlist."),
+                                + "\"Imported\" playlist."),
                 v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
                         .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_MUSIC))
         ));

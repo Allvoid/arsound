@@ -15,11 +15,11 @@ import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
- * The "Downloaded and imported" playlist.
+ * The "Imported" playlist.
  * <p>
  * It is a regular, empty, private SoundCloud playlist, so the library, the playlist screen,
- * playback and shuffle work natively. Its tracks exist only on this device: every track
- * downloaded by Arsound and every imported file is appended when the app reads the playlist.
+ * playback and shuffle work natively. Its tracks exist only on this device: every imported
+ * file is appended when the app reads the playlist.
  * If the playlist is deleted, it is created again on the next start while the option is on.
  */
 @SuppressWarnings("unused")
@@ -39,7 +39,7 @@ public final class SavedPlaylist {
     }
 
     public static String title() {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? "Скачанные и импортированные" : "Downloaded and imported";
+        return "ru".equals(Locale.getDefault().getLanguage()) ? "Импортированные" : "Imported";
     }
 
     /** The urn of the playlist, or null if it does not exist or the option is off. */
@@ -81,10 +81,39 @@ public final class SavedPlaylist {
             String id = urn.substring(urn.lastIndexOf(':') + 1);
             String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/playlists/" + id);
             // Only a definite "not found" means it was deleted; network errors keep the playlist.
-            if (!"404".equals(response[0])) return;
+            if (!"404".equals(response[0])) {
+                renameIfNeeded(preferences, urn);
+                return;
+            }
             Logger.printInfo(() -> "Saved tracks playlist was deleted, creating it again");
         }
         create(preferences);
+    }
+
+    private static final String PLAYLIST_TITLE = "saved_playlist_title";
+
+    /** Playlists created by older versions were called "Downloaded and imported". */
+    private static void renameIfNeeded(SharedPreferences preferences, String urn) {
+        String title = title();
+        if (title.equals(preferences.getString(PLAYLIST_TITLE, null))) return;
+        Object operations = playlistOperations;
+        if (operations == null) return;
+        try {
+            ClassLoader loader = operations.getClass().getClassLoader();
+            Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
+            Object playlistUrn = urnClass.getMethod("forPlaylist", String.class)
+                    .invoke(null, urn.substring(urn.lastIndexOf(':') + 1));
+            // The flag is "private": the playlist stays private. Saved locally, then synced by SoundCloud.
+            Object completable = operations.getClass()
+                    .getMethod("editPlaylistDetails", urnClass, String.class, String.class, boolean.class, List.class)
+                    .invoke(operations, playlistUrn, title, "", true, Collections.emptyList());
+            Rx.subscribeIgnoringErrors(completable, error ->
+                    Logger.printException(() -> "Could not rename the saved tracks playlist", error));
+            preferences.edit().putString(PLAYLIST_TITLE, title).apply();
+            Logger.printInfo(() -> "Renamed the saved tracks playlist to " + title);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not rename the saved tracks playlist", ex);
+        }
     }
 
     private static void create(SharedPreferences preferences) throws Exception {
@@ -102,7 +131,7 @@ public final class SavedPlaylist {
 
         Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
         String urn = String.valueOf(playlist.getClass().getMethod("getUrn").invoke(playlist));
-        preferences.edit().putString(PLAYLIST_URN, urn).apply();
+        preferences.edit().putString(PLAYLIST_URN, urn).putString(PLAYLIST_TITLE, title()).apply();
         Logger.printInfo(() -> "Created the saved tracks playlist " + urn);
     }
 
@@ -158,16 +187,12 @@ public final class SavedPlaylist {
         preferences.edit().putStringSet(EXCLUDED, excluded).apply();
     }
 
-    /** Downloaded track entries first, newest imported files after them. */
+    /** Imported files, newest first. Tracks downloaded by Arsound are not part of this playlist. */
     public static List<String> getEntries() {
         SharedPreferences preferences = preferences();
         java.util.Set<String> excluded = preferences == null ? new java.util.HashSet<>()
                 : preferences.getStringSet(EXCLUDED, new java.util.HashSet<>());
         List<String> entries = new ArrayList<>();
-        for (String id : DownloadTrackPatch.getDownloadedTrackIds()) {
-            String entry = "soundcloud:tracks:" + id;
-            if (!excluded.contains(entry)) entries.add(entry);
-        }
         Context context = Utils.getContext();
         if (context != null) {
             for (java.io.File file : LocalMusic.getFiles(context)) {

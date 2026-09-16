@@ -176,7 +176,7 @@ public final class Settings {
     public static final String SAVED_PLAYLIST = "saved_playlist";
     public static final String SAVED_PLAYLIST_HIDDEN = "saved_playlist_hidden";
 
-    /** The "Downloaded and imported" playlist. On by default. */
+    /** The "Imported" playlist. On by default. */
     public static boolean isSavedPlaylistEnabled() {
         SharedPreferences preferences = getPreferences();
         return preferences == null || preferences.getBoolean(SAVED_PLAYLIST, true);
