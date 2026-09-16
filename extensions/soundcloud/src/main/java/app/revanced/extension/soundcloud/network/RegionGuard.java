@@ -44,6 +44,10 @@ public final class RegionGuard {
     private static final long BLOCKED_RESPONSE_DELAY_MS = 1_500;
 
     private static volatile long lastFailedCheck;
+    /** A blocked or failed result is re-checked in the background this often, so a new IP on the same network is noticed. */
+    private static final long BLOCKED_RECHECK_MS = 30_000;
+    private static volatile long checkedAt;
+    private static volatile boolean recheckRunning;
 
     /** @return True if the request to this host must not be sent. Called on network threads. */
     public static boolean shouldBlock(String host) {
@@ -54,7 +58,10 @@ public final class RegionGuard {
         String current = country;
         if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) current = check();
         boolean blocked = current == null || BLOCKED_COUNTRY.equals(current);
-        if (blocked) showBlockedToast(current);
+        if (blocked) {
+            recheckIfStale();
+            showBlockedToast(current);
+        }
         return blocked;
     }
 
@@ -77,7 +84,11 @@ public final class RegionGuard {
     public static boolean isConnected(boolean connected) {
         if (!connected || !Settings.isRegionGuardEnabled()) return connected;
         String current = country;
-        if (current != null) return !BLOCKED_COUNTRY.equals(current);
+        if (current != null) {
+            if (!BLOCKED_COUNTRY.equals(current)) return true;
+            recheckIfStale();
+            return false;
+        }
         if (System.currentTimeMillis() - lastFailedCheck <= FAILED_CHECK_BACKOFF_MS) return false;
         Utils.runOnBackgroundThread(RegionGuard::check);
         return true;
@@ -89,9 +100,45 @@ public final class RegionGuard {
                 || host.endsWith("snd.sc");
     }
 
+    /**
+     * Forgets the known country and checks it again in the background, for example after the user
+     * switched a VPN on the same network. The callback, if any, runs on the main thread.
+     */
+    public static void recheck(Runnable onDone) {
+        Utils.runOnBackgroundThread(() -> {
+            synchronized (RegionGuard.class) {
+                country = null;
+                lastFailedCheck = 0;
+                toastShown = false;
+                check();
+            }
+            if (onDone != null) Utils.runOnMainThread(onDone);
+        });
+    }
+
+    private static void recheckIfStale() {
+        if (recheckRunning || System.currentTimeMillis() - checkedAt < BLOCKED_RECHECK_MS) return;
+        recheckRunning = true;
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                String previous = country;
+                synchronized (RegionGuard.class) {
+                    country = null;
+                    check();
+                    // Keep the old answer if the new check failed, so a dead network does not unblock anything.
+                    if (country == null && previous != null) country = previous;
+                }
+                if (country != null && !country.equals(previous)) toastShown = false;
+            } finally {
+                recheckRunning = false;
+            }
+        });
+    }
+
     /** Checks the country once for all waiting requests. Null means the check failed. */
     private static synchronized String check() {
         if (country != null) return country;
+        checkedAt = System.currentTimeMillis();
         try {
             HttpURLConnection connection = (HttpURLConnection)
                     new URL("https://www.cloudflare.com/cdn-cgi/trace").openConnection();
@@ -123,6 +170,14 @@ public final class RegionGuard {
             manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
+                    country = null;
+                    lastFailedCheck = 0;
+                    toastShown = false;
+                }
+
+                @Override
+                public void onLinkPropertiesChanged(Network network, android.net.LinkProperties properties) {
+                    // A new local address or DNS on the same network often means a new public IP too.
                     country = null;
                     lastFailedCheck = 0;
                     toastShown = false;

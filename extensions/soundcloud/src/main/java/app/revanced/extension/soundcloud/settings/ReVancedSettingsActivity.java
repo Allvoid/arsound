@@ -117,6 +117,18 @@ public final class ReVancedSettingsActivity extends Activity {
                 Settings.isRegionGuardEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.REGION_GUARD, checked)
         ));
+        list.addView(createActionRow(
+                text("Проверить IP снова", "Check IP again"),
+                text("Если сменили VPN или сеть, а SoundCloud всё ещё отключён.",
+                        "If you switched a VPN or network and SoundCloud is still off."),
+                v -> app.revanced.extension.soundcloud.network.RegionGuard.recheck(() -> {
+                    String country = app.revanced.extension.soundcloud.network.RegionGuard.lastCountry();
+                    Toast.makeText(this, country == null
+                                    ? text("Не удалось проверить страну", "Could not check the country")
+                                    : text("Страна IP: ", "IP country: ") + country,
+                            Toast.LENGTH_SHORT).show();
+                })
+        ));
 
         list.addView(createSubHeading(text("Конфиденциальность", "Privacy")));
         list.addView(createToggleRow(
