@@ -311,7 +311,8 @@ public final class DownloadTrackPatch {
     private static void enqueue(Context context, String trackId, String fileUrl, boolean notify) {
         Uri uri = Uri.parse(fileUrl);
         String fileName = uri.getLastPathSegment();
-        if (fileName == null || !fileName.contains(".")) fileName = "soundcloud-" + trackId;
+        // Author downloads can come from a link without an extension; players then do not recognise the file.
+        if (fileName == null || !fileName.contains(".")) fileName = "soundcloud-" + trackId + ".mp3";
 
         DownloadManager.Request request = new DownloadManager.Request(uri)
                 .setTitle(fileName)
@@ -398,6 +399,11 @@ public final class DownloadTrackPatch {
 
         java.io.File file = new java.io.File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound/" + fileName);
+        // Early versions saved some files without an extension; such files may have been renamed to ".mp3" since.
+        if (!file.isFile() && !fileName.contains(".")) {
+            java.io.File withExtension = new java.io.File(file.getPath() + ".mp3");
+            if (withExtension.isFile()) file = withExtension;
+        }
         // DownloadManager writes into a temporary file first, so a present file with content is complete.
         return file.isFile() && file.length() > 0 && file.canRead() ? file : null;
     }
