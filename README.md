@@ -45,15 +45,19 @@ Arsound — это набор патчей на основе [ReVanced](https://
 
 ## Как установить
 
-Arsound не распространяет APK SoundCloud: патчи применяются к приложению, которое вы берёте сами.
+Arsound не распространяет APK SoundCloud: патчи применяются к приложению, которое вы скачиваете сами,
+на компьютере с помощью [ReVanced CLI](https://github.com/ReVanced/revanced-cli/releases).
 
-1. Установите [ReVanced Manager](https://revanced.app/download).
-2. Скачайте файл патчей `patches-*.rvp` со страницы [Releases](https://github.com/Allvoid/arsound/releases).
-3. В ReVanced Manager выберите этот файл как источник патчей (в разных версиях Manager пункт называется по-разному,
-   ищите «Источники» или «Patches» в настройках). Если ваша версия Manager не умеет брать патчи из файла,
-   примените их через ReVanced CLI — см. [BUILDING.md](BUILDING.md).
-4. Выберите APK SoundCloud **2026.09.02-release**, включите все патчи Arsound и установите результат.
+Коротко:
+1. Скачайте Java 21, ReVanced CLI, файл патчей `patches-*.rvp` со страницы [Releases](https://github.com/Allvoid/arsound/releases)
+   и SoundCloud **2026.09.02-release**.
+2. Выполните:
+   ```
+   java -jar revanced-cli-6.0.0-all.jar patch -bp patches-0.1.0.rvp -e "Change package name" -O "Update permissions=true" -O "Update providers=true" soundcloud.apk
+   ```
+3. Поставьте получившийся `soundcloud-patched.apk` на телефон и сохраните `soundcloud-patched.keystore` для обновлений.
 
+Подробная инструкция со ссылками на всё нужное — в описании [последнего релиза](https://github.com/Allvoid/arsound/releases/latest).
 Оригинальный SoundCloud удалять не нужно — Arsound ставится отдельным приложением.
 
 Хотите собрать патчи сами или помочь с разработкой — смотрите [BUILDING.md](BUILDING.md).
