@@ -33,7 +33,7 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * The drag itself reuses SoundCloud's own play queue drag helper. Obfuscated names of this app version:
  * {@code RecyclerView.N(View)} getChildViewHolder, {@code RecyclerView.c0} item touch listeners,
  * {@code OnItemTouchListener.a(MotionEvent)} onInterceptTouchEvent, {@code ItemTouchHelper.h} attach,
- * {@code ItemTouchHelper.r} startDrag, {@code Adapter.p(II)} notifyItemMoved, {@code UniflowAdapter.h} items.
+ * {@code ItemTouchHelper.r} startDrag, {@code Adapter.m(II)} notifyItemMoved (as called by {@code AdapterListUpdateCallback.e}, onMoved), {@code UniflowAdapter.h} items.
  */
 @SuppressWarnings("unused")
 public final class PlaylistOrder {
@@ -129,8 +129,6 @@ public final class PlaylistOrder {
         private final ViewGroup recycler;
         private final ClassLoader loader;
         private Object touchHelper;
-        /** The playlist being dragged. Positions reported during a fast drag with auto scroll can be stale. */
-        private Object dragged;
         private boolean active;
         private final List<ObjectAnimator> wiggles = new ArrayList<>();
         private final GestureDetector gestures;
@@ -271,22 +269,25 @@ public final class PlaylistOrder {
         }
 
         private boolean canMove(int from, int to) {
-            return isPlaylistAt(to) && (dragged != null || isPlaylistAt(from));
+            return isPlaylistAt(from) && isPlaylistAt(to);
         }
 
-        private void move(int reportedFrom, int to) {
+        /**
+         * Moves exactly what the list reports: the adapter positions of the dragged and the target rows.
+         * The data and the notification must always match, otherwise RecyclerView crashes with
+         * "Inconsistency detected" on the next layout.
+         */
+        private void move(int from, int to) {
             try {
                 List<Object> items = items();
-                int index = dragged == null ? -1 : items.indexOf(dragged);
-                int from = index >= 0 ? index : reportedFrom;
-                if (from == to || !isPlaylistAt(from) || !isPlaylistAt(to)) return;
-                if (from < to) {
-                    for (int i = from; i < to; i++) Collections.swap(items, i, i + 1);
-                } else {
-                    for (int i = from; i > to; i--) Collections.swap(items, i, i - 1);
-                }
+                if (from < 0 || to < 0 || from >= items.size() || to >= items.size()) return;
+                items.add(to, items.remove(from));
                 Object adapter = recycler.getClass().getMethod("getAdapter").invoke(recycler);
-                adapter.getClass().getMethod("p", int.class, int.class).invoke(adapter, from, to);
+                adapter.getClass().getMethod("m", int.class, int.class).invoke(adapter, from, to);
+                // SoundCloud may deliver a fresh list at any moment (like counts, sync) and diffs it against
+                // the adapter. Saving at every step keeps that list in the order on screen, otherwise the
+                // diff moves rows back under the finger and RecyclerView becomes inconsistent.
+                save();
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not move playlist", ex);
             }
@@ -311,9 +312,6 @@ public final class PlaylistOrder {
         private void startDrag(View child) {
             try {
                 Object holder = viewHolder(child);
-                int position = position(child);
-                List<Object> list = items();
-                dragged = position >= 0 && position < list.size() ? list.get(position) : null;
                 Class<?> holderType = Class.forName("androidx.recyclerview.widget.RecyclerView$ViewHolder", false, loader);
                 touchHelper.getClass().getMethod("r", holderType).invoke(touchHelper, holder);
                 child.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
