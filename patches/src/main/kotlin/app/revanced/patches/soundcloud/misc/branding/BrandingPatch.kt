@@ -8,6 +8,7 @@ import org.w3c.dom.Element
 
 private const val SPLASH_FRAMES = 25
 private val DENSITIES = listOf("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")
+private val ARTWORK_PLACEHOLDER_NAMES = listOf("ic_default_playable_artwork_placeholder", "ic_default_playable_artwork_placeholder_dark")
 private val LOGO_NAMES = listOf("ic_logo_cloud", "ic_logo_cloud_active", "ic_logo_cloud_dark", "ic_logo_cloud_light", "ic_logo_cloud_launcher")
 private val LAUNCHER_FOREGROUND_NAMES = listOf(
     "ic_launcher_foreground", "ic_launcher_foreground_black", "ic_launcher_foreground_orange", "ic_launcher_foreground_white",
@@ -65,9 +66,20 @@ val brandingPatch = resourcePatch(
                 }!!.toList()
             }
             .forEach { it.delete() }
+
+        // Track artwork placeholder: bitmaps instead of vectors, see tools/branding/generate.py.
+        res.listFiles { file -> file.isDirectory && file.name.startsWith("drawable") }!!
+            .flatMap { directory ->
+                directory.listFiles { file ->
+                    file.name.endsWith(".xml") && file.nameWithoutExtension in ARTWORK_PLACEHOLDER_NAMES
+                }!!.toList()
+            }
+            .forEach { it.delete() }
         copyResources(
             "soundcloud/branding",
             ResourceGroup("drawable", *LOGO_NAMES.map { "$it.xml" }.toTypedArray()),
+            ResourceGroup("drawable-nodpi", *ARTWORK_PLACEHOLDER_NAMES.map { "$it.png" }.toTypedArray()),
+            ResourceGroup("drawable-night-nodpi", "ic_default_playable_artwork_placeholder.png"),
             ResourceGroup("drawable-nodpi", *LAUNCHER_FOREGROUND_NAMES.map { "$it.png" }.toTypedArray()),
             // The loading animation of the whole app (Lottie): the letter being drawn instead of the cloud.
             ResourceGroup("raw", "loading_animation.json"),

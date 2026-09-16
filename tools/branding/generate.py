@@ -5,7 +5,7 @@ Source: the exported "letter A" icon set (PNG glyphs and the drawing animation).
 Output: patches/src/main/resources/soundcloud/branding/...
 
 Run: python tools/branding/generate.py [path to the export folder]
-Needs: pip install pillow picosvg skia-pathops
+Needs: pip install pillow picosvg skia-pathops resvg-py
 """
 import pathlib
 import sys
@@ -123,7 +123,43 @@ def lottie_loading(frames: list) -> dict:
             "nm": "arsound_loading", "ddd": 0, "assets": assets, "layers": layers}
 
 
+PLACEHOLDER_SOURCE = ROOT / "local/analysis/res-decoded/res/drawable/ic_default_playable_artwork_placeholder_dark.xml"
+# Name, folder, background, foreground: the colours SoundCloud resolves from its theme attributes.
+PLACEHOLDER_VARIANTS = [
+    ("ic_default_playable_artwork_placeholder", "drawable-nodpi", "#f3f3f3", "#00000026"),
+    ("ic_default_playable_artwork_placeholder", "drawable-night-nodpi", "#303030", "#ffffff33"),
+    ("ic_default_playable_artwork_placeholder_dark", "drawable-nodpi", "#303030", "#666666"),
+]
+
+
+def artwork_placeholders() -> None:
+    """
+    The track artwork placeholder as a bitmap. The vector is stretched over the whole player for tracks without
+    artwork (local files), and a vector that changes size is rasterized again on every frame of the player
+    expand animation, which made it stutter. A bitmap is uploaded once and only scaled.
+    """
+    import re
+
+    import resvg_py
+
+    if not PLACEHOLDER_SOURCE.exists():
+        print("Placeholder source not found, skipped:", PLACEHOLDER_SOURCE)
+        return
+    paths = re.findall(r'android:pathData="([^"]+)"', PLACEHOLDER_SOURCE.read_text(encoding="utf-8"))
+    for name, folder, background, foreground in PLACEHOLDER_VARIANTS:
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="512" height="512">'
+            f'<path fill="{background}" d="{paths[0]}"/>'
+            f'<path fill="{foreground}" fill-rule="evenodd" d="{paths[1]}"/></svg>'
+        )
+        path = OUT / folder / f"{name}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(bytes(resvg_py.svg_to_bytes(svg_string=svg)))
+
+
 def main() -> None:
+    artwork_placeholders()
+
     # Launcher foreground, also used as the monochrome layer.
     save(centered(glyph(LAUNCHER_GLYPH_PX), ADAPTIVE_PX), "drawable-nodpi/arsound_launcher_foreground.png")
 
