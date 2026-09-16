@@ -7,15 +7,15 @@
 
 ```
 patches/                          Патчи (Kotlin)
-  src/main/kotlin/app/revanced/
+  src/main/kotlin/app/arsound/
     patches/soundcloud/           Патчи SoundCloud
     patches/shared/misc/          Общие части ReVanced: подключение расширения, поиск ресурсов
     patches/all/misc/packagename/ Патч смены имени пакета из ReVanced
     util/                         Утилиты ReVanced для работы с байткодом
 extensions/                       Код, который встраивается в приложение (Java)
-  soundcloud/                     Экран Arsound, скачивание, хуки
-  soundcloud/stub/                Заглушки классов SoundCloud для компиляции
-  shared/                         Общая библиотека расширений ReVanced
+  arsound/                        Экран Arsound, скачивание, хуки
+  arsound/stub/                   Заглушки классов SoundCloud для компиляции
+  arsound-shared/                 Общая библиотека расширений ReVanced
 tools/branding/generate.py        Генерация иконок и анимаций Arsound
 build-and-install.cmd             Сборка, патчинг и установка одной командой
 local/                            Локальные файлы, в Git не попадают (см. ниже)
@@ -25,7 +25,11 @@ local/                            Локальные файлы, в Git не п�
 Вызов уходит в **расширение** (Java) — обычный Android-код, который добавляется в APK и делает всю работу:
 рисует экраны, ходит в API, хранит настройки.
 
-| Патч | Что внутри |
+Пользователь видит семь групп «Arsound: …» из `patches/soundcloud/ArsoundPatch.kt`, все включены по умолчанию.
+Групп несколько намеренно: ReVanced Manager предлагает ту версию приложения, с которой совместимо больше всего
+видимых патчей во всех подключённых наборах. Внутри групп — скрытые патчи (без имени):
+
+| Скрытый патч | Что внутри |
 |---|---|
 | **Settings** | Пункт «Arsound» в настройках SoundCloud (Compose-строка `ActionListItemKt.a`), экран Arsound на обычных View с ресурсами SoundCloud, проверка обновлений через GitHub Releases. |
 | **Disable telemetry** | Отключение аналитики SoundCloud. |
@@ -100,7 +104,7 @@ java -jar local/tools/APKEditor-1.4.9.jar m -i local/apk/2026.09.02 -o local/apk
 build-and-install.cmd
 ```
 
-Скрипт собирает патчи (`patches/build/libs/patches-0.1.0.rvp`), применяет их к APK, подписывает ключом
+Скрипт собирает патчи (`patches/build/libs/patches-<версия>.rvp`, версия — в `gradle.properties`), применяет их к APK, подписывает ключом
 из `local/` и ставит на подключённый телефон. Если телефона нет, готовый APK остаётся в `local/out/`.
 
 Иконки и анимации пересобираются отдельно:
@@ -111,6 +115,23 @@ python tools/branding/generate.py <папка экспорта иконки>
 
 Нужны `pillow`, `picosvg`, `skia-pathops`, `resvg-py`. Заглушка обложки берётся из разобранного APK
 (`local/analysis/res-decoded`), если он есть.
+
+Патчинг на компьютере без Manager:
+
+```bash
+java -jar revanced-cli-6.0.0-all.jar patch -bp patches-<версия>.rvp soundcloud.apk
+```
+
+Все группы включены по умолчанию и сами подключают смену имени пакета с нужными опциями.
+
+### Файл для ReVanced Manager
+
+`patches.json` в корне репозитория — описание последней версии в формате ReVanced API. Manager подключает его
+по ссылке `https://raw.githubusercontent.com/Allvoid/arsound/main/patches.json` и сам проверяет обновления.
+При выпуске новой версии обновите в нём `version`, `created_at` и `download_url`.
+
+Классы патчей лежат в `app.arsound.*`, а расширения называются `arsound*.rve`: если взять имена ReVanced,
+Manager грузит оба набора в одно пространство, и наши копии ломают официальные ReVanced Patches.
 
 ## Нюансы
 

@@ -45,22 +45,18 @@ Arsound — это набор патчей на основе [ReVanced](https://
 
 ## Как установить
 
-Arsound не распространяет APK SoundCloud: патчи применяются к приложению, которое вы скачиваете сами,
-на компьютере с помощью [ReVanced CLI](https://github.com/ReVanced/revanced-cli/releases).
+Прямо с телефона, без компьютера, через [ReVanced Manager](https://github.com/ReVanced/revanced-manager/releases):
 
-Коротко:
-1. Скачайте Java 21, ReVanced CLI, файл патчей `patches-*.rvp` со страницы [Releases](https://github.com/Allvoid/arsound/releases)
-   и SoundCloud **2026.09.02-release**.
-2. Выполните:
-   ```
-   java -jar revanced-cli-6.0.0-all.jar patch -bp patches-0.1.0.rvp -e "Change package name" -O "Update permissions=true" -O "Update providers=true" soundcloud.apk
-   ```
-3. Поставьте получившийся `soundcloud-patched.apk` на телефон и сохраните `soundcloud-patched.keystore` для обновлений.
+1. Установите [ReVanced Manager](https://github.com/ReVanced/revanced-manager/releases/download/v2.6.0/revanced-manager-2.6.0.apk)
+   и [загрузчики для него](https://github.com/ReVanced/revanced-manager-downloaders/releases/download/v1.2.0/revanced-manager-downloaders-1.2.0.apk).
+2. В Manager: «Патчи» → ✏️ → «Добавить патчи» → «Введите URL» → вставьте
+   `https://raw.githubusercontent.com/Allvoid/arsound/main/patches.json`.
+3. «Приложения» → SoundCloud → «Патч». Manager сам скачает SoundCloud нужной версии, пропатчит и предложит установить.
 
-Подробная инструкция со ссылками на всё нужное — в описании [последнего релиза](https://github.com/Allvoid/arsound/releases/latest).
+Подробная инструкция с пояснениями к каждому шагу — в описании [последнего релиза](https://github.com/Allvoid/arsound/releases/latest).
 Оригинальный SoundCloud удалять не нужно — Arsound ставится отдельным приложением.
 
-Хотите собрать патчи сами или помочь с разработкой — смотрите [BUILDING.md](BUILDING.md).
+Собрать патчи самому или пропатчить на компьютере — [BUILDING.md](BUILDING.md).
 
 ## Частые вопросы
 
@@ -74,9 +70,9 @@ Arsound не распространяет APK SoundCloud: патчи приме�
 **GNU General Public License v3.0**, см. [LICENSE](LICENSE).
 
 Основан на [ReVanced Patches](https://gitlab.com/ReVanced/revanced-patches) © ReVanced, GPLv3.
-Из ReVanced взяты, без изменений или с небольшими изменениями: общая библиотека расширений (`extensions/shared`),
-подключение расширения и поиск ресурсов (`patches/shared/misc`), утилиты байткода (`patches/util`),
+Из ReVanced взяты, без изменений или с небольшими изменениями: общая библиотека расширений (`extensions/arsound-shared`),
+подключение расширения и поиск ресурсов (`patches/shared/misc`), утилиты байткода (`util`),
 патч смены имени пакета (`patches/all/misc/packagename`), настройки сборки Gradle. Патч телеметрии переделан
-из одноимённого патча ReVanced. Остальное в `patches/soundcloud` и `extensions/soundcloud` написано для этого проекта.
+из одноимённого патча ReVanced. Остальное в `patches/soundcloud` и `extensions/arsound` написано для этого проекта.
 
 SoundCloud — товарный знак SoundCloud Global Limited & Co. KG. Проект не распространяет APK и код SoundCloud.

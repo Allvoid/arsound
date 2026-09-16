@@ -23,9 +23,12 @@ for /f "delims=" %%u in ('gh api user --jq .login') do set "ORG_GRADLE_PROJECT_g
 
 call "%~dp0gradlew.bat" :patches:buildAndroid --console=plain || exit /b 1
 
+rem The patches file carries the version from gradle.properties in its name.
+for %%f in (patches\build\libs\patches-*.rvp) do set "RVP=%%f"
+
 rem The "Arsound: ..." groups include every patch of this project, with the options they need.
 "%JAVA_HOME%\bin\java.exe" -jar local\tools\revanced-cli-6.0.0-all.jar patch ^
-  -p patches\build\libs\patches-0.1.0.rvp -b --exclusive ^
+  -p "%RVP%" -b --exclusive ^
   -e "Arsound: основа" ^
   -e "Arsound: без рекламы" ^
   -e "Arsound: скачивание" ^
