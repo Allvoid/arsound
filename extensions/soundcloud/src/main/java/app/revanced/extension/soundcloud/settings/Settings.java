@@ -173,6 +173,14 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).apply();
     }
 
+    public static final String PLAYLIST_ORDER = "playlist_order";
+
+    /** Manual order of the library playlists, rearranged with a long press. On by default. */
+    public static boolean isPlaylistOrderEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(PLAYLIST_ORDER, true);
+    }
+
     public static final String SAVED_PLAYLIST = "saved_playlist";
     public static final String SAVED_PLAYLIST_HIDDEN = "saved_playlist_hidden";
 

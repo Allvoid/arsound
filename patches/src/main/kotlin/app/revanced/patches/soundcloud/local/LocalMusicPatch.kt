@@ -50,6 +50,17 @@ private val importActivityPatch = resourcePatch {
     }
 }
 
+private val BytecodePatchContext.filterAndSortPlaylistsMethod by gettingFirstMethodDeclaratively {
+    name("filterAndSort")
+    definingClass("Lcom/soundcloud/android/collections/data/MyPlaylistOperations;")
+}
+
+/** onViewCreated of the library playlist screens. */
+private val BytecodePatchContext.playlistCollectionViewCreatedMethod by gettingFirstMethodDeclaratively {
+    name("q0")
+    definingClass("Lcom/soundcloud/android/features/library/playlists/PlaylistCollectionFragment;")
+}
+
 /** Reads the track urns for the playlist screen. */
 private val BytecodePatchContext.playlistScreenTracksMethod by gettingFirstMethodDeclaratively {
     name("apply")
@@ -125,6 +136,25 @@ val localMusicPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Manual playlist order: applied after SoundCloud's sorting, rearranged on the library screen.
+        filterAndSortPlaylistsMethod.apply {
+            val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
+            val register = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+            addInstructions(
+                returnIndex,
+                """
+                    invoke-static { v$register }, Lapp/revanced/extension/soundcloud/local/PlaylistOrder;->applyOrder(Ljava/util/List;)Ljava/util/List;
+                    move-result-object v$register
+                """,
+            )
+        }
+        playlistCollectionViewCreatedMethod.apply {
+            addInstruction(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0, p1 }, Lapp/revanced/extension/soundcloud/local/PlaylistOrder;->attach(Ljava/lang/Object;Landroid/view/View;)V",
+            )
+        }
+
         // "Import files from this phone" below "Manage imported likes" on SoundCloud's "Import my music" screen.
         playlistImportSettingsScreenMethod.apply {
             val revertTitleIndex = indexOfFirstInstructionOrThrow {

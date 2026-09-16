@@ -270,6 +270,23 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.putBoolean(Settings.SAVED_PLAYLIST_HIDDEN, checked)
         ));
         list.addView(savedOptions);
+        list.addView(createToggleRow(
+                text("Свой порядок плейлистов", "Custom playlist order"),
+                text("Долгое нажатие на плейлист в «Библиотека → Плейлисты» включает перестановку: плейлисты "
+                                + "покачиваются, зажатый можно перетащить. Касание выключает режим. Порядок хранится на телефоне.",
+                        "Long press a playlist in Library → Playlists to rearrange: playlists wiggle and the pressed one "
+                                + "can be dragged. A tap ends it. The order is kept on this phone."),
+                Settings.isPlaylistOrderEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.PLAYLIST_ORDER, checked)
+        ));
+        list.addView(createActionRow(
+                text("Сбросить порядок плейлистов", "Reset playlist order"),
+                text("Вернуть сортировку SoundCloud.", "Go back to SoundCloud's sorting."),
+                v -> {
+                    app.revanced.extension.soundcloud.local.PlaylistOrder.reset();
+                    Toast.makeText(this, text("Порядок сброшен", "Order reset"), Toast.LENGTH_SHORT).show();
+                }
+        ));
         list.addView(createActionRow(
                 text("Импортированные файлы", "Imported files"),
                 text("Импорт аудиофайлов с телефона и список импортированного. Файлы появляются в плейлисте "
