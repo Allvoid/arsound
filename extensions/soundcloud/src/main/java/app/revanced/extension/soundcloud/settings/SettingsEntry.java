@@ -16,9 +16,10 @@ import app.revanced.extension.shared.Utils;
 public final class SettingsEntry {
     /**
      * Bitmask of the parameters left at their default value.
-     * Same value SoundCloud passes for its own rows with a trailing chevron.
+     * SoundCloud passes 4028 for its own rows with a trailing chevron; bit 0x20 (the start icon)
+     * is cleared here, otherwise the passed icon is replaced by the default and never shows.
      */
-    private static final int DEFAULT_PARAMETERS_MASK = 4028;
+    private static final int DEFAULT_PARAMETERS_MASK = 4028 & ~0x20;
 
     private static final Function0<Unit> OPEN_SETTINGS = () -> {
         try {
