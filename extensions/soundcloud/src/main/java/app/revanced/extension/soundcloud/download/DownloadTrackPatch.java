@@ -248,6 +248,18 @@ public final class DownloadTrackPatch {
         return streamUrl.isEmpty() ? null : streamUrl;
     }
 
+    /** Sends a JSON body with the given method. Returns the response code. */
+    public static int apiSend(String method, String url, String json) throws Exception {
+        HttpURLConnection connection = openApiConnection(url);
+        connection.setRequestMethod(method);
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        try (java.io.OutputStream output = connection.getOutputStream()) {
+            output.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return connection.getResponseCode();
+    }
+
     private static HttpURLConnection openApiConnection(String url) throws Exception {
         app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlocked(new URL(url).getHost());
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();

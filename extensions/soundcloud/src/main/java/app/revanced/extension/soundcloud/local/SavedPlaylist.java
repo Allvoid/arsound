@@ -90,26 +90,33 @@ public final class SavedPlaylist {
         create(preferences);
     }
 
-    private static final String PLAYLIST_TITLE = "saved_playlist_title";
+    // The earlier local-only rename stored "saved_playlist_title"; a new key makes it run again on the server.
+    private static final String PLAYLIST_TITLE = "saved_playlist_server_title";
 
-    /** Playlists created by older versions were called "Downloaded and imported". */
+    /**
+     * Playlists created by older versions were called "Downloaded and imported". Renamed on the server:
+     * a local edit through the app was overwritten by the next sync. Runs on a background thread.
+     */
     private static void renameIfNeeded(SharedPreferences preferences, String urn) {
         String title = title();
         if (title.equals(preferences.getString(PLAYLIST_TITLE, null))) return;
-        Object operations = playlistOperations;
-        if (operations == null) return;
         try {
-            ClassLoader loader = operations.getClass().getClassLoader();
-            Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
-            Object playlistUrn = urnClass.getMethod("forPlaylist", String.class)
-                    .invoke(null, urn.substring(urn.lastIndexOf(':') + 1));
-            // The flag is "private": the playlist stays private. Saved locally, then synced by SoundCloud.
-            Object completable = operations.getClass()
-                    .getMethod("editPlaylistDetails", urnClass, String.class, String.class, boolean.class, List.class)
-                    .invoke(operations, playlistUrn, title, "", true, Collections.emptyList());
-            Rx.subscribeIgnoringErrors(completable, error ->
-                    Logger.printException(() -> "Could not rename the saved tracks playlist", error));
+            String id = urn.substring(urn.lastIndexOf(':') + 1);
+            org.json.JSONObject body = new org.json.JSONObject()
+                    .put("playlist", new org.json.JSONObject().put("title", title));
+            int code = DownloadTrackPatch.apiSend("PUT", "https://api-v2.soundcloud.com/playlists/" + id, body.toString());
+            if (code / 100 != 2) {
+                Logger.printInfo(() -> "Could not rename the saved tracks playlist: HTTP " + code);
+                return;
+            }
             preferences.edit().putString(PLAYLIST_TITLE, title).apply();
+            Object operations = playlistOperations;
+            if (operations != null) {
+                ClassLoader loader = operations.getClass().getClassLoader();
+                Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
+                Object playlistUrn = urnClass.getMethod("forPlaylist", String.class).invoke(null, id);
+                operations.getClass().getMethod("syncPlaylist", urnClass).invoke(operations, playlistUrn);
+            }
             Logger.printInfo(() -> "Renamed the saved tracks playlist to " + title);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not rename the saved tracks playlist", ex);
