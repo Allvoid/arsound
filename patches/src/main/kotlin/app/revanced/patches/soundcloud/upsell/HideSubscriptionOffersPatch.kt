@@ -47,6 +47,13 @@ internal val BytecodePatchContext.factoryPaywallIntentMethod by gettingFirstMeth
     name("c")
 }
 
+internal val BytecodePatchContext.setupNavigationModelMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/ui/main/MainNavigationView;")
+    name("setupNavigationModel")
+    returnType("V")
+    parameterTypes("Lcom/soundcloud/android/architecture/view/RootActivity;", "Ljava/util/List;")
+}
+
 internal val BytecodePatchContext.showInAppMessageMethod by gettingFirstMethodDeclaratively("Failed to show in-app message") {
     definingClass("Lcom/soundcloud/android/moengage/DefaultMoEngageSdk;")
 }
@@ -110,6 +117,15 @@ val hideSubscriptionOffersPatch = bytecodePatch(
                 ExternalLabel("show", getInstruction(0)),
             )
         }
+
+        // Drop the Upgrade tab before the bottom bar menu is built, so the other tabs share its space.
+        setupNavigationModelMethod.addInstructions(
+            0,
+            """
+                invoke-static { p2 }, $EXTENSION_CLASS_DESCRIPTOR->filterNavigationTabs(Ljava/util/List;)Ljava/util/List;
+                move-result-object p2
+            """,
+        )
 
         // MoEngage in-app messages and nudges, the marketing popups shown on app start.
         listOf(showInAppMessageMethod, showNudgeMethod).forEach { method ->

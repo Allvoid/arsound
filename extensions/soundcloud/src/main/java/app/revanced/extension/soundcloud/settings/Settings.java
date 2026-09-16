@@ -42,6 +42,21 @@ public final class Settings {
         preferences.edit().putBoolean(HIDE_SUBSCRIPTION_OFFERS, enabled).apply();
     }
 
+    public static final String HIDE_UPGRADE_TAB = "hide_upgrade_tab";
+
+    /** Removes the Upgrade tab from the bottom bar. Off by default. */
+    public static boolean isHideUpgradeTabEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(HIDE_UPGRADE_TAB, false);
+    }
+
+    public static void setHideUpgradeTabEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(HIDE_UPGRADE_TAB, enabled).apply();
+    }
+
     public static final String OFFLINE_FIRST = "offline_first";
 
     /** Shows stored playlists before the server answers. On by default. */

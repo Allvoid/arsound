@@ -142,6 +142,15 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.setHideSubscriptionOffersEnabled(checked)
         ));
         list.addView(createToggleRow(
+                text("Скрыть вкладку Upgrade", "Hide Upgrade tab"),
+                text("Убирает вкладку Upgrade из нижней панели, остальные вкладки занимают её место. "
+                                + "Применяется после перезапуска.",
+                        "Removes the Upgrade tab from the bottom bar, the other tabs take its space. "
+                                + "Applies after a restart."),
+                Settings.isHideUpgradeTabEnabled(),
+                (button, checked) -> Settings.setHideUpgradeTabEnabled(checked)
+        ));
+        list.addView(createToggleRow(
                 text("Сначала сохранённое", "Offline first playlists"),
                 text("Плейлисты и альбомы открываются сразу из памяти телефона, а обновляются в фоне. "
                                 + "Помогает при плохом интернете.",

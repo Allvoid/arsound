@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.Settings;
 
@@ -40,6 +43,27 @@ public final class HidePaywallPatch {
         activity.finish();
         activity.overridePendingTransition(0, 0);
         return true;
+    }
+
+    /**
+     * Injection point. Called with the bottom bar tabs before the menu is built.
+     *
+     * @return The tabs without the Upgrade tab if it is hidden, otherwise the original list.
+     */
+    public static List<?> filterNavigationTabs(List<?> tabs) {
+        if (tabs == null || !Settings.isHideUpgradeTabEnabled()) return tabs;
+
+        List<Object> filtered = new ArrayList<>(tabs.size());
+        for (Object tab : tabs) {
+            String name = tab == null ? "" : tab.getClass().getSimpleName();
+            if (name.equals("GoNavigationTarget") || name.equals("GoPlusNavigationTarget")
+                    || name.equals("ProUnlimitedNavigationTarget")) {
+                Logger.printDebug(() -> "Hiding bottom bar tab " + name);
+                continue;
+            }
+            filtered.add(tab);
+        }
+        return filtered;
     }
 
     /**
