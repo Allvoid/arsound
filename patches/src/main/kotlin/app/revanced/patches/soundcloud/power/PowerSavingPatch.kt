@@ -1,7 +1,11 @@
 package app.revanced.patches.soundcloud.power
 
 import app.revanced.patcher.definingClass
+import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.parameterTypes
+import app.revanced.patcher.returnType
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
@@ -10,6 +14,7 @@ import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
@@ -19,6 +24,22 @@ private const val EXTENSION_CLASS_DESCRIPTOR =
 private val BytecodePatchContext.inboxPollingMethod by gettingFirstMethodDeclaratively {
     name("onStateChanged")
     definingClass("Lcom/soundcloud/android/messages/inbox/titlebar/TitleBarInboxController\$attach\$1;")
+}
+
+/** Starts a playback item: {@code BaseExoPlayer.f(PlaybackItem)}. */
+internal val BytecodePatchContext.playerPlayMethod by gettingFirstMethodDeclaratively {
+    name("f")
+    definingClass("Lcom/soundcloud/android/exoplayer/BaseExoPlayer;")
+    returnType("V")
+    parameterTypes("Lcom/soundcloud/android/playback/core/PlaybackItem;")
+}
+
+/** Updates the wake and Wi-Fi locks from the playback state: {@code ExoPlayerImpl.Q()}. */
+internal val BytecodePatchContext.updateWakeAndWifiLockMethod by gettingFirstMethodDeclaratively {
+    name("Q")
+    definingClass("Landroidx/media3/exoplayer/ExoPlayerImpl;")
+    returnType("V")
+    parameterTypes()
 }
 
 @Suppress("unused")
@@ -31,6 +52,25 @@ val powerSavingPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        playerPlayMethod.addInstruction(
+            0,
+            "invoke-static { p0, p1 }, Lapp/revanced/extension/soundcloud/power/PowerSavingPatch;->onPlaybackItem(Ljava/lang/Object;Ljava/lang/Object;)V",
+        )
+        updateWakeAndWifiLockMethod.apply {
+            // The Wi-Fi lock call that takes the "playing" flag, not the constant "off".
+            val wifiLockIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.definingClass == "Landroidx/media3/common/util/WifiLockManager;"
+            }
+            val register = getInstruction<FiveRegisterInstruction>(wifiLockIndex).registerD
+            addInstructions(
+                wifiLockIndex,
+                """
+                    invoke-static { v$register }, Lapp/revanced/extension/soundcloud/power/PowerSavingPatch;->keepWifiAwake(Z)Z
+                    move-result v$register
+                """,
+            )
+        }
+
         inboxPollingMethod.apply {
             // const-wide/16 v0, 0x1e; move-wide v2, v0 -- the same value is the initial delay and the period.
             val periodIndex = indexOfFirstInstructionOrThrow(Opcode.CONST_WIDE_16)
