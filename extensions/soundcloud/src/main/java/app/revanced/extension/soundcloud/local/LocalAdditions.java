@@ -383,6 +383,16 @@ public final class LocalAdditions {
             row.setTag(PLAYLIST_ROW_TAG);
             menuItems.addView(row, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            ViewGroup importRow = DownloadTrackPatch.createMenuRow(context,
+                    text("Импортировать музыку сюда", "Import music here"),
+                    "ic_actions_upload", v -> {
+                        Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
+                        dialog.dismiss();
+                        ImportActivity.start(activity, playlistUrn);
+                    });
+            menuItems.addView(importRow, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not add local additions row", ex);
         }

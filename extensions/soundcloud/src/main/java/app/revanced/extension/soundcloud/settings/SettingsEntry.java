@@ -42,6 +42,37 @@ public final class SettingsEntry {
         return icon == 0 ? null : icon;
     }
 
+    private static final Function0<Unit> IMPORT_FILES = () -> {
+        app.revanced.extension.soundcloud.local.ImportActivity.start(Utils.getContext(), null);
+        return Unit.INSTANCE;
+    };
+
+    /**
+     * Injection point. Called from the Compose code of SoundCloud's "Import my music" screen,
+     * below "Manage imported likes". Imports audio files from the phone.
+     */
+    public static void addImportEntry(Composer composer) {
+        ActionListItemKt.a(
+                "ru".equals(java.util.Locale.getDefault().getLanguage())
+                        ? "Импорт файлов с телефона" : "Import files from this phone",
+                IMPORT_FILES,
+                null,
+                false,
+                false,
+                iconStart(),
+                Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
+                null,
+                null,
+                false,
+                null,
+                null,
+                composer,
+                0,
+                0,
+                DEFAULT_PARAMETERS_MASK
+        );
+    }
+
     public static void addEntry(Composer composer) {
         ActionListItemKt.a(
                 "Arsound",

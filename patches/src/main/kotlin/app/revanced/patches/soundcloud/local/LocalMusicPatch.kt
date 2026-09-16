@@ -10,6 +10,11 @@ import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
+import app.revanced.patcher.patch.resourcePatch
+import app.revanced.patcher.extensions.fieldReference
+import app.revanced.patcher.extensions.methodReference
+import app.revanced.util.getNode
+import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import app.revanced.patches.soundcloud.download.downloadTrackPatch
 import app.revanced.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.util.indexOfFirstInstructionOrThrow
@@ -24,6 +29,26 @@ private const val EXTENSION_CLASS_DESCRIPTOR =
 
 private const val ADDITIONS_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/local/LocalAdditions;"
+
+private val BytecodePatchContext.playlistImportSettingsScreenMethod by gettingFirstMethodDeclaratively {
+    name("a")
+    definingClass("Lcom/soundcloud/android/settings/playlistimport/PlaylistImportSettingsScreenKt;")
+}
+
+private val importActivityPatch = resourcePatch {
+    apply {
+        document("AndroidManifest.xml").use { document ->
+            document.getNode("application").appendChild(
+                document.createElement("activity").apply {
+                    setAttribute("android:name", "app.revanced.extension.soundcloud.local.ImportActivity")
+                    setAttribute("android:exported", "false")
+                    setAttribute("android:theme", "@android:style/Theme.Translucent.NoTitleBar")
+                    setAttribute("android:excludeFromRecents", "true")
+                },
+            )
+        }
+    }
+}
 
 /** Reads the track urns for the playlist screen. */
 private val BytecodePatchContext.playlistScreenTracksMethod by gettingFirstMethodDeclaratively {
@@ -95,11 +120,28 @@ val localMusicPatch = bytecodePatch(
     name = "Local music",
     description = "Adds importing audio files, playing them in the SoundCloud player and adding any track to any playlist on this device only.",
 ) {
-    dependsOn(settingsPatch, downloadTrackPatch)
+    dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // "Import files from this phone" below "Manage imported likes" on SoundCloud's "Import my music" screen.
+        playlistImportSettingsScreenMethod.apply {
+            val revertTitleIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.SGET && fieldReference?.name == "playlist_import_settings_revert_transfer"
+            }
+            val rowIndex = indexOfFirstInstructionOrThrow(revertTitleIndex) {
+                opcode == Opcode.INVOKE_STATIC_RANGE && methodReference?.definingClass?.endsWith("ActionListStandardKt;") == true
+            }
+            // ActionListStandard(changed, defaults, composer, modifier, title, subtitle, onClick).
+            val composerRegister = getInstruction<RegisterRangeInstruction>(rowIndex).startRegister + 2
+            addInstruction(
+                rowIndex + 1,
+                "invoke-static { v$composerRegister }, " +
+                    "Lapp/revanced/extension/soundcloud/settings/SettingsEntry;->addImportEntry(Landroidx/compose/runtime/Composer;)V",
+            )
+        }
+
         playbackInitiatorConstructorMethod.apply {
             addInstruction(
                 indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),

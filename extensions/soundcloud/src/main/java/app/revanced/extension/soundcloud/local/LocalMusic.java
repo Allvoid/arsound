@@ -116,18 +116,31 @@ public final class LocalMusic {
      * @return The number of imported files.
      */
     public static int importFiles(Context context, List<Uri> uris) {
+        return importFileList(context, uris).size();
+    }
+
+    /**
+     * Copies picked documents into the import directory.
+     *
+     * @return The imported files.
+     */
+    public static List<File> importFileList(Context context, List<Uri> uris) {
         ContentResolver resolver = context.getContentResolver();
-        int imported = 0;
+        List<File> imported = new java.util.ArrayList<>();
         for (Uri uri : uris) {
             String name = displayName(resolver, uri);
             File target = uniqueFile(directory(context), name);
             try (InputStream input = resolver.openInputStream(uri);
                  OutputStream output = new FileOutputStream(target)) {
-                if (input == null) continue;
+                if (input == null) {
+                    //noinspection ResultOfMethodCallIgnored
+                    target.delete();
+                    continue;
+                }
                 byte[] buffer = new byte[64 * 1024];
                 int read;
                 while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-                imported++;
+                imported.add(target);
             } catch (Exception ex) {
                 //noinspection ResultOfMethodCallIgnored
                 target.delete();
