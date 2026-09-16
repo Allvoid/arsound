@@ -134,8 +134,22 @@ public final class DuplicateFilter {
         }
     }
 
+    /**
+     * Injection point. Items of a server-driven home screen block ({@code ArrayList<SDUIView>}),
+     * called from the constructors of carousel, gallery and suggestion views. Filters the list in place.
+     */
+    public static void filterHomeViews(java.util.ArrayList<Object> views) {
+        if (!Settings.isDuplicateFilterEnabled() || views == null) return;
+        List<?> filtered = filterSectionEntities(views);
+        if (filtered.size() == views.size()) return;
+        views.clear();
+        views.addAll(filtered);
+    }
+
     private static Object trackItemOf(Object entity) throws IllegalAccessException {
-        if (entity == null || !entity.getClass().getName().endsWith("SectionTrackEntity")) return null;
+        if (entity == null) return null;
+        String name = entity.getClass().getName();
+        if (!name.endsWith("SectionTrackEntity") && !name.endsWith("SDUIView$Track")) return null;
         for (Field field : entity.getClass().getDeclaredFields()) {
             if (field.getType().getName().endsWith(".TrackItem")) {
                 field.setAccessible(true);

@@ -36,6 +36,20 @@ private val BytecodePatchContext.autoplayItemsMethod by gettingFirstMethodDeclar
     definingClass(AUTOPLAY_CLASS)
 }
 
+/** Constructors of server-driven home screen views that hold a list of items. */
+private val BytecodePatchContext.homeCarouselConstructor by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Carousel;")
+}
+private val BytecodePatchContext.homeGalleryConstructor by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Gallery;")
+}
+private val BytecodePatchContext.homeSuggestionsConstructor by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Suggestions;")
+}
+
 @Suppress("unused")
 val duplicateFilterPatch = bytecodePatch(
     name = "Hide duplicate recommendations",
@@ -46,6 +60,16 @@ val duplicateFilterPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Home screen (server-driven UI): the item list is filtered in place before the view object keeps it.
+        listOf(homeCarouselConstructor, homeGalleryConstructor, homeSuggestionsConstructor).forEach { constructor ->
+            // p1 is the first parameter.
+            val parameter = constructor.parameterTypes.indexOfFirst { it.toString() == "Ljava/util/ArrayList;" } + 1
+            constructor.addInstructions(
+                0,
+                "invoke-static { p$parameter }, Lapp/revanced/extension/soundcloud/recommendations/DuplicateFilter;->filterHomeViews(Ljava/util/ArrayList;)V",
+            )
+        }
+
         sectionItemsMethod.apply {
             val listReads = implementation!!.instructions.withIndex().filter { (_, instruction) ->
                 instruction.opcode == Opcode.IGET_OBJECT &&

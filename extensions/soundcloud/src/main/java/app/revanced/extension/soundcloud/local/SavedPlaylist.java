@@ -64,6 +64,9 @@ public final class SavedPlaylist {
             try {
                 Thread.sleep(8_000);
                 ensureExists();
+            } catch (java.io.IOException ex) {
+                // No network or requests blocked by the region guard: tried again on the next start.
+                Logger.printInfo(() -> "Saved tracks playlist not checked: " + ex.getMessage());
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not prepare the saved tracks playlist", ex);
             }
