@@ -5,6 +5,7 @@ Source: the exported "letter A" icon set (PNG glyphs and the drawing animation).
 Output: patches/src/main/resources/soundcloud/branding/...
 
 Run: python tools/branding/generate.py [path to the export folder]
+Needs: pip install pillow picosvg skia-pathops
 """
 import pathlib
 import sys
@@ -42,7 +43,56 @@ def save(image: Image.Image, relative: str) -> None:
     image.save(path, optimize=True)
 
 
-LOGO_NAMES = ["ic_logo_cloud", "ic_logo_cloud_active", "ic_logo_cloud_dark", "ic_logo_cloud_light", "ic_logo_cloud_launcher"]
+# Name, size in dp and fill colour of SoundCloud's own logo vectors, kept as they were.
+LOGO_VECTORS = {
+    "ic_logo_cloud": (24, "?colorDrawableSecondary"),
+    "ic_logo_cloud_active": (24, "?colorDrawablePrimaryActive"),
+    "ic_logo_cloud_dark": (24, "@color/black"),
+    "ic_logo_cloud_light": (24, "@color/white"),
+    "ic_logo_cloud_launcher": (54, "@color/white"),
+}
+
+
+def vector_glyph_path() -> str:
+    """The glyph SVG as one filled path: strokes outlined (picosvg), the counter mask subtracted (skia-pathops)."""
+    import re
+
+    import pathops
+    from picosvg.svg import SVG
+    from picosvg.svg_pathops import skia_path, svg_commands
+    from picosvg.svg_transform import Affine2D
+    from picosvg.svg_types import SVGPath
+
+    source = (EXPORT / "svg/glyph-white.svg").read_text(encoding="utf-8")
+    counter = re.search(r'<mask.*?<path d="([^"]+)"', source).group(1)
+    tx, ty, scale = map(float, re.search(r"translate\(([-\d.]+) ([-\d.]+)\) scale\(([\d.]+)\)", source).groups())
+    without_mask = re.sub(r"<mask.*?</mask>", "", source).replace(' mask="url(#counter)"', "")
+    shapes = SVG.fromstring(without_mask).topicosvg().shapes()
+
+    glyph_outline = pathops.Path()
+    for shape in shapes:
+        glyph_outline = pathops.op(glyph_outline, skia_path(shape.as_cmd_seq(), shape.fill_rule), pathops.PathOp.UNION)
+    hole = SVGPath(d=counter).apply_transform(Affine2D(scale, 0, 0, scale, tx, ty))
+    result = pathops.op(glyph_outline, skia_path(hole.as_cmd_seq(), "nonzero"), pathops.PathOp.DIFFERENCE)
+    return SVGPath.from_commands(svg_commands(result)).round_floats(2).d
+
+
+def vector_drawable(path: str, size: int, color: str) -> str:
+    # The glyph fills 84% of the icon, like the PNG icons; the source viewport is 512.
+    inset = 512 * 0.08 / 0.84
+    viewport = 512 + inset * 2
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="{size}dp" android:height="{size}dp" '
+        f'android:viewportWidth="{viewport:.2f}" android:viewportHeight="{viewport:.2f}">\n'
+        f'    <group android:translateX="{inset:.2f}" android:translateY="{inset:.2f}">\n'
+        f'        <path android:fillColor="{color}" android:pathData="{path}" />\n'
+        "    </group>\n"
+        "</vector>\n"
+    )
+
+
+LOGO_NAMES = list(LOGO_VECTORS)
 LAUNCHER_FOREGROUND_NAMES = ["ic_launcher_foreground", "ic_launcher_foreground_black", "ic_launcher_foreground_orange", "ic_launcher_foreground_white"]
 
 
@@ -83,11 +133,11 @@ def main() -> None:
         icon = centered(glyph(round(size * 0.84)), size)
         save(icon, f"drawable-{density}/arsound_icon.png")
 
-    # SoundCloud logo spots: PNG instead of the vector, since Compose screens cannot draw bitmap XML.
-    for density, scale in DENSITIES.items():
-        size = round(24 * scale)
-        for name in LOGO_NAMES:
-            save(centered(glyph(round(size * 0.84)), size), f"drawable-{density}/{name}.png")
+    # SoundCloud logo spots: vectors, so the large logo on the sign-in screen stays sharp.
+    glyph_path = vector_glyph_path()
+    (OUT / "drawable").mkdir(parents=True, exist_ok=True)
+    for name, (size, color) in LOGO_VECTORS.items():
+        (OUT / f"drawable/{name}.xml").write_text(vector_drawable(glyph_path, size, color), encoding="utf-8")
     for name in LAUNCHER_FOREGROUND_NAMES:
         save(centered(glyph(LAUNCHER_GLYPH_PX), ADAPTIVE_PX), f"drawable-nodpi/{name}.png")
 

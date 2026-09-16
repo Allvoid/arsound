@@ -55,8 +55,9 @@ val brandingPatch = resourcePatch(
                 )
             }
 
-        // SoundCloud logo spots and its own start screen: the vectors are removed and PNGs with the same names
-        // are copied, because Compose screens can draw PNG and vector drawables, but not bitmap XML.
+        // SoundCloud logo spots: its vectors in every density folder are removed and replaced by letter vectors
+        // with the same names, sizes and colours, so the 88dp logo on the sign-in screen stays sharp.
+        // The launcher foregrounds become PNGs, because Compose screens cannot draw bitmap XML.
         res.listFiles { file -> file.isDirectory && file.name.startsWith("drawable") }!!
             .flatMap { directory ->
                 directory.listFiles { file ->
@@ -66,7 +67,7 @@ val brandingPatch = resourcePatch(
             .forEach { it.delete() }
         copyResources(
             "soundcloud/branding",
-            *DENSITIES.map { ResourceGroup("drawable-$it", *LOGO_NAMES.map { name -> "$name.png" }.toTypedArray()) }.toTypedArray(),
+            ResourceGroup("drawable", *LOGO_NAMES.map { "$it.xml" }.toTypedArray()),
             ResourceGroup("drawable-nodpi", *LAUNCHER_FOREGROUND_NAMES.map { "$it.png" }.toTypedArray()),
             // The loading animation of the whole app (Lottie): the letter being drawn instead of the cloud.
             ResourceGroup("raw", "loading_animation.json"),
