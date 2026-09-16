@@ -39,10 +39,24 @@ public final class LocalSheet {
     }
 
     public static void show(Context context, String title, String subtitle, List<Item> items) {
+        show(context, title, subtitle, items, null);
+    }
+
+    /**
+     * @param onCancel Runs when the sheet is closed without choosing an item (swipe, tap outside, back).
+     */
+    public static void show(Context context, String title, String subtitle, List<Item> items, Runnable onCancel) {
         try {
             Dialog dialog = (Dialog) Class.forName("com.google.android.material.bottomsheet.BottomSheetDialog")
                     .getConstructor(Context.class, int.class)
                     .newInstance(context, 0);
+
+            boolean[] chosen = {false};
+            if (onCancel != null) {
+                dialog.setOnDismissListener(d -> {
+                    if (!chosen[0]) onCancel.run();
+                });
+            }
 
             LinearLayout content = new LinearLayout(context);
             content.setOrientation(LinearLayout.VERTICAL);
@@ -79,6 +93,7 @@ public final class LocalSheet {
             list.setOrientation(LinearLayout.VERTICAL);
             for (Item item : items) {
                 list.addView(DownloadTrackPatch.createMenuRow(context, item.title, item.icon, v -> {
+                    chosen[0] = true;
                     dialog.dismiss();
                     if (item.action != null) item.action.run();
                 }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

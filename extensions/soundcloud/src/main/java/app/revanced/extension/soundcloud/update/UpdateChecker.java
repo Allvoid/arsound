@@ -99,6 +99,11 @@ public final class UpdateChecker {
 
     }
 
+    /** The activity on screen, or null. */
+    public static Activity resumedActivity() {
+        return resumedActivity.get();
+    }
+
     private static void startCheckOnce() {
         if (checkedThisLaunch || !Settings.isUpdateCheckEnabled()) return;
         checkedThisLaunch = true;

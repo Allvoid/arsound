@@ -1,5 +1,9 @@
 package app.revanced.patches.soundcloud.network
 
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import app.revanced.util.indexOfFirstInstructionOrThrow
+import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.getInstruction
@@ -31,6 +35,12 @@ private val BytecodePatchContext.networkConnectedMethod by gettingFirstMethodDec
     returnType("Z")
 }
 
+/** Opens DataDome's check screen from the SDK: {@code co.datadome.sdk.l.run()}. */
+private val BytecodePatchContext.dataDomeChallengeStartMethod by gettingFirstMethodDeclaratively("captcha_url", "co.datadome.sdk.CAPTCHA_RESULT") {
+    name("run")
+    definingClass("Lco/datadome/sdk/l;")
+}
+
 @Suppress("unused")
 val networkPatch = bytecodePatch(
     name = "Network",
@@ -41,6 +51,19 @@ val networkPatch = bytecodePatch(
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Ask before the bot protection check screen opens over the app.
+        dataDomeChallengeStartMethod.apply {
+            val startIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.name == "startActivity"
+            }
+            val call = getInstruction<FiveRegisterInstruction>(startIndex)
+            replaceInstruction(
+                startIndex,
+                "invoke-static { v${call.registerC}, v${call.registerD} }, " +
+                    "Lapp/revanced/extension/soundcloud/network/DataDomePrompt;->start(Landroid/content/Context;Landroid/content/Intent;)V",
+            )
+        }
+
         okHttpBuildMethod.addInstructions(
             0,
             "invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->onBuild(Ljava/lang/Object;)V",

@@ -130,6 +130,16 @@ public final class ReVancedSettingsActivity extends Activity {
                 })
         ));
 
+        list.addView(createToggleRow(
+                text("Спрашивать перед проверкой устройства", "Ask before device check"),
+                text("Защита SoundCloud от ботов (DataDome) иногда открывает белое окно проверки поверх приложения. "
+                                + "Вместо этого появится вопрос: пройти проверку сейчас или позже.",
+                        "SoundCloud's bot protection (DataDome) sometimes opens a white check screen over the app. "
+                                + "Instead, you are asked whether to verify now or later."),
+                Settings.isDataDomePromptEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.DATADOME_PROMPT, checked)
+        ));
+
         list.addView(createSubHeading(text("Конфиденциальность", "Privacy")));
         list.addView(createToggleRow(
                 text("Телеметрия", "Telemetry"),
