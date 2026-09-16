@@ -1,6 +1,5 @@
 package app.arsound.patches.soundcloud
 
-import app.revanced.patcher.patch.bytecodePatch
 import app.arsound.patches.all.misc.packagename.changePackageNamePatch
 import app.arsound.patches.soundcloud.ads.playbackAdsPatch
 import app.arsound.patches.soundcloud.analytics.disableTelemetryPatch
@@ -16,35 +15,89 @@ import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
 import app.arsound.patches.soundcloud.recommendations.duplicateFilterPatch
 import app.arsound.patches.soundcloud.upsell.hideSubscriptionOffersPatch
+import app.revanced.patcher.patch.Patch
+import app.revanced.patcher.patch.bytecodePatch
 
-/**
- * The only patch users see: every Arsound feature at once. Features are switched in the app
- * (SoundCloud settings → Arsound), so there is nothing to choose while patching.
+/*
+ * The patches users see. Features are switched in the app (SoundCloud settings → Arsound), so every group is
+ * enabled by default and there is nothing to choose while patching.
+ *
+ * There are several groups instead of one on purpose: ReVanced Manager suggests and downloads the app version
+ * compatible with the most visible patches across all patch sources, and the official ReVanced Patches have
+ * four SoundCloud patches for an older version. With more Arsound patches, Manager suggests the right version.
  */
-@Suppress("unused")
-val arsoundPatch = bytecodePatch(
-    name = "Arsound",
-    description = "All Arsound features: no ads, track downloads, local music, instant playlists, " +
-        "network and battery options. Installs next to the original SoundCloud.",
-) {
+
+private const val SOUNDCLOUD_VERSION = "2026.09.02-release"
+
+/** What every group needs: the Arsound settings screen, the icon and name, and installing next to the original. */
+private val basePatch = bytecodePatch {
     dependsOn(
         settingsPatch,
-        disableTelemetryPatch,
-        downloadTrackPatch,
-        playbackAdsPatch,
-        offlineFirstPatch,
-        networkPatch,
-        downloadedPlaybackPatch,
-        localMusicPatch,
-        powerSavingPatch,
-        duplicateFilterPatch,
-        hideSubscriptionOffersPatch,
         accountTypePatch,
         appNamePatch,
         brandingPatch,
-        // Last: renames the package after every other patch.
+        // Renames the package after every other patch.
         changePackageNamePatch,
     )
-
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 }
+
+private fun arsoundGroup(name: String, description: String, vararg features: Patch) = bytecodePatch(
+    name = name,
+    description = description,
+) {
+    dependsOn(basePatch, *features)
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
+}
+
+@Suppress("unused")
+val arsoundBaseGroup = arsoundGroup(
+    "Arsound: основа",
+    "Меню «Arsound» в настройках SoundCloud, своя иконка, выключенная телеметрия, проверка обновлений. " +
+        "Ставится рядом с оригинальным SoundCloud.",
+    disableTelemetryPatch,
+)
+
+@Suppress("unused")
+val arsoundNoAdsGroup = arsoundGroup(
+    "Arsound: без рекламы",
+    "Нет рекламы между треками, баннеров и полноэкранной рекламы; нет предложений подписки Go и Go+.",
+    playbackAdsPatch,
+    hideSubscriptionOffersPatch,
+)
+
+@Suppress("unused")
+val arsoundDownloadsGroup = arsoundGroup(
+    "Arsound: скачивание",
+    "Скачивание доступных треков в «Музыка/Arsound» и воспроизведение скачанного из файла.",
+    downloadTrackPatch,
+    downloadedPlaybackPatch,
+)
+
+@Suppress("unused")
+val arsoundLocalMusicGroup = arsoundGroup(
+    "Arsound: своя музыка",
+    "Импорт аудиофайлов с телефона, локальные треки в любых плейлистах, свой порядок плейлистов.",
+    localMusicPatch,
+)
+
+@Suppress("unused")
+val arsoundPlaylistsGroup = arsoundGroup(
+    "Arsound: мгновенные плейлисты",
+    "Плейлисты и альбомы открываются сразу, в том числе без интернета.",
+    offlineFirstPatch,
+)
+
+@Suppress("unused")
+val arsoundNetworkGroup = arsoundGroup(
+    "Arsound: сеть и батарея",
+    "Свой DNS, запрет выхода в сеть с российского IP, статус сети, вопрос перед проверкой устройства, экономия батареи.",
+    networkPatch,
+    powerSavingPatch,
+)
+
+@Suppress("unused")
+val arsoundRecommendationsGroup = arsoundGroup(
+    "Arsound: без дубликатов",
+    "Скрывает перезаливы одного и того же трека в рекомендациях и на главной.",
+    duplicateFilterPatch,
+)

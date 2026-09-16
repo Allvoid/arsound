@@ -2,6 +2,8 @@
 rem Builds the patches, patches the SoundCloud APK and installs it next to the original app.
 rem Local files (APK, tools, signing key) live in the "local" folder, which is not committed.
 setlocal
+rem The patch names are in Russian.
+chcp 65001 >nul
 cd /d "%~dp0"
 
 if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot"
@@ -21,10 +23,16 @@ for /f "delims=" %%u in ('gh api user --jq .login') do set "ORG_GRADLE_PROJECT_g
 
 call "%~dp0gradlew.bat" :patches:buildAndroid --console=plain || exit /b 1
 
-rem "Arsound" includes every patch of this project, with the options it needs.
+rem The "Arsound: ..." groups include every patch of this project, with the options they need.
 "%JAVA_HOME%\bin\java.exe" -jar local\tools\revanced-cli-6.0.0-all.jar patch ^
   -p patches\build\libs\patches-0.1.0.rvp -b --exclusive ^
-  -e "Arsound" ^
+  -e "Arsound: основа" ^
+  -e "Arsound: без рекламы" ^
+  -e "Arsound: скачивание" ^
+  -e "Arsound: своя музыка" ^
+  -e "Arsound: мгновенные плейлисты" ^
+  -e "Arsound: сеть и батарея" ^
+  -e "Arsound: без дубликатов" ^
   --keystore "%KEYSTORE%" -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" || exit /b 1
 
