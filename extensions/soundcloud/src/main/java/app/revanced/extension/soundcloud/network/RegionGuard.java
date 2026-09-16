@@ -38,8 +38,12 @@ public final class RegionGuard {
         return country;
     }
 
-    /** A failed country check is not repeated for this long, so a dead network does not cause a check per request. */
-    private static final long FAILED_CHECK_BACKOFF_MS = 60_000;
+    /**
+     * A failed country check is not repeated for this long, so a dead network does not cause a check per request.
+     * Short: right after launch Android blocks the network of an app that is not yet on screen, and a long pause
+     * made SoundCloud show "No internet connection" on start.
+     */
+    private static final long FAILED_CHECK_BACKOFF_MS = 3_000;
     /** Blocked requests are answered after this pause, so SoundCloud's retry loops cannot spin the radio and CPU. */
     private static final long BLOCKED_RESPONSE_DELAY_MS = 1_500;
 
@@ -56,7 +60,9 @@ public final class RegionGuard {
 
         listenForNetworkChanges();
         String current = country;
-        if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) current = check();
+        if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) {
+            current = check();
+        }
         boolean blocked = current == null || BLOCKED_COUNTRY.equals(current);
         if (blocked) {
             recheckIfStale();
@@ -89,7 +95,7 @@ public final class RegionGuard {
             recheckIfStale();
             return false;
         }
-        if (System.currentTimeMillis() - lastFailedCheck <= FAILED_CHECK_BACKOFF_MS) return false;
+        // Unknown yet: report the network as connected, the requests themselves wait for the check.
         Utils.runOnBackgroundThread(RegionGuard::check);
         return true;
     }
@@ -144,6 +150,7 @@ public final class RegionGuard {
 
     /** Asks Cloudflare for the country of the current public IP. Null means the check failed. */
     private static String fetchCountry() {
+        waitUntilForeground();
         checkedAt = System.currentTimeMillis();
         try {
             HttpURLConnection connection = (HttpURLConnection)
@@ -164,6 +171,26 @@ public final class RegionGuard {
             Logger.printInfo(() -> "Region guard: country check failed: " + ex);
         }
         return null;
+    }
+
+    /**
+     * Right after launch Android blocks the network of an app that is not on screen yet, and the failed
+     * DNS answer stays cached for several seconds, so a check started then failed and SoundCloud showed
+     * "No internet connection". Waits up to 3 seconds for the app to come to the foreground.
+     */
+    private static void waitUntilForeground() {
+        long deadline = System.currentTimeMillis() + 3_000;
+        android.app.ActivityManager.RunningAppProcessInfo info = new android.app.ActivityManager.RunningAppProcessInfo();
+        while (System.currentTimeMillis() < deadline) {
+            android.app.ActivityManager.getMyMemoryState(info);
+            if (info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE) return;
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     private static void listenForNetworkChanges() {

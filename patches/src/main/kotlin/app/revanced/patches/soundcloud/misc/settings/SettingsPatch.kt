@@ -9,7 +9,6 @@ import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patches.soundcloud.misc.extension.sharedExtensionPatch
 import app.revanced.util.getNode
 import app.revanced.util.indexOfFirstInstructionOrThrow
-import app.revanced.util.indexOfFirstInstructionReversedOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 
@@ -65,8 +64,9 @@ val settingsPatch = bytecodePatch(
 
         // Background update check on every launch, shown on the first screen that opens.
         applicationOnCreateMethod.apply {
+            // At the start: later in onCreate the p0 register is reused for other objects.
             addInstruction(
-                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                0,
                 "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/update/UpdateChecker;" +
                     "->onApplicationCreate(Landroid/app/Application;)V",
             )

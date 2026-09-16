@@ -66,6 +66,8 @@ public final class UpdateChecker {
             @Override
             public void onActivityResumed(Activity activity) {
                 resumedActivity = new WeakReference<>(activity);
+                // The network of an app that is not on screen yet is blocked, so the check starts here.
+                startCheckOnce();
                 showPendingRelease();
             }
 
@@ -95,6 +97,9 @@ public final class UpdateChecker {
             }
         });
 
+    }
+
+    private static void startCheckOnce() {
         if (checkedThisLaunch || !Settings.isUpdateCheckEnabled()) return;
         checkedThisLaunch = true;
         check((release, failed) -> {
