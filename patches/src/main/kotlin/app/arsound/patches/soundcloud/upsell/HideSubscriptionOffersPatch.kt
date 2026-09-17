@@ -75,6 +75,17 @@ private val emptyActivityPatch = resourcePatch {
                 },
             )
         }
+
+        // "Get Pro" in the title bar of the home screen. Nothing can be bought in a mod installed outside Google Play.
+        document("res/layout/upsell_creator_action_bar_title_layout.xml").use { document ->
+            val root = document.documentElement
+            root.setAttribute("android:layout_width", "0dp")
+            val button = document.getElementsByTagName("com.soundcloud.android.ui.components.text.SoundCloudTextView").item(0)
+                as org.w3c.dom.Element
+            button.setAttribute("android:layout_width", "0dp")
+            button.setAttribute("android:visibility", "gone")
+            button.setAttribute("android:text", "")
+        }
     }
 }
 
