@@ -22,7 +22,6 @@ public final class DownloadedPlaybackPatch {
      * @return The path of the downloaded file to play, or null to stream as usual.
      */
     public static String playableFilePath(Object track) {
-        if (!Settings.isPlayDownloadedFilesEnabled()) return null;
         try {
             Object urn = track.getClass().getMethod("getTrackUrn").invoke(track);
             File file = DownloadTrackPatch.getDownloadedFile(DownloadTrackPatch.parseTrackId(urn));

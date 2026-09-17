@@ -36,7 +36,7 @@ public final class InstantFilePlayback {
     }
 
     private static File downloadedFile(Object trackUrn) {
-        if (trackUrn == null || !Settings.isPlayDownloadedFilesEnabled()) return null;
+        if (trackUrn == null) return null;
         return DownloadTrackPatch.getDownloadedFile(DownloadTrackPatch.parseTrackId(trackUrn));
     }
 

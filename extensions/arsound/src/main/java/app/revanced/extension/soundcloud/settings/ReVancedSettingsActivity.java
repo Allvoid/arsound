@@ -52,15 +52,26 @@ public final class ReVancedSettingsActivity extends Activity {
 
         try {
             String screen = getIntent().getStringExtra(EXTRA_SCREEN);
-            setContentView(SCREEN_LOCAL_MUSIC.equals(screen) ? createLocalMusicContent()
-                    : createContent());
+            setContentView(screen == null ? createContent()
+                    : SCREEN_LOCAL_MUSIC.equals(screen) ? createLocalMusicContent()
+                    : createSection(screen));
         } catch (Exception ex) {
             Logger.printException(() -> "Failed to create ReVanced settings screen", ex);
             finish();
         }
     }
 
-    private View createContent() {
+    private static final String SCREEN_NETWORK = "network";
+    private static final String SCREEN_PLAYBACK = "playback";
+    private static final String SCREEN_ADS = "ads";
+    private static final String SCREEN_RECOMMENDATIONS = "recommendations";
+    private static final String SCREEN_MUSIC = "music";
+    private static final String SCREEN_PRIVACY = "privacy";
+    private static final String SCREEN_UPDATES = "updates";
+    private static final String SCREEN_DEVELOPER = "developer";
+
+    /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
+    private LinearLayout createScreen(LinearLayout[] listOut) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(themeColor("themeColorSurface"));
@@ -84,12 +95,16 @@ public final class ReVancedSettingsActivity extends Activity {
         scrollView.addView(list);
         root.addView(scrollView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        listOut[0] = list;
+        return root;
+    }
 
+    private View createTitle(String title, boolean withLogo) {
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         titleRow.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_l"));
-        int logoId = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon");
+        int logoId = withLogo ? Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon") : 0;
         if (logoId != 0) {
             android.widget.ImageView logo = new android.widget.ImageView(this);
             logo.setImageResource(logoId);
@@ -97,30 +112,109 @@ public final class ReVancedSettingsActivity extends Activity {
             logoParams.rightMargin = dp(12);
             titleRow.addView(logo, logoParams);
         }
-        titleRow.addView(createText("H1.Primary", "Arsound"));
-        list.addView(titleRow);
+        titleRow.addView(createText("H1.Primary", title));
+        return titleRow;
+    }
 
-        list.addView(createSubHeading(text("Сеть", "Network")));
+    private View openScreenRow(String title, String description, String screen) {
+        return createActionRow(title, description, v -> startActivity(
+                new android.content.Intent(this, ReVancedSettingsActivity.class).putExtra(EXTRA_SCREEN, screen)));
+    }
+
+    /** The main screen: one row per section, each section opens as its own screen. */
+    private View createContent() {
+        LinearLayout[] holder = new LinearLayout[1];
+        LinearLayout root = createScreen(holder);
+        LinearLayout list = holder[0];
+        list.addView(createTitle("Arsound", true));
+
+        list.addView(openScreenRow(text("Сеть", "Network"),
+                text("Российский IP, свой DNS, статус сети, проверка устройства", "Russian IP, custom DNS, network status, device check"),
+                SCREEN_NETWORK));
+        list.addView(openScreenRow(text("Офлайн и воспроизведение", "Offline and playback"),
+                text("Плейлисты без интернета, повтор при обрыве связи", "Playlists without a connection, retry on dropped connection"),
+                SCREEN_PLAYBACK));
+        list.addView(openScreenRow(text("Реклама и подписка", "Ads and subscription"),
+                text("Реклама, предложения Go и Go+, вкладка Upgrade", "Ads, Go and Go+ offers, Upgrade tab"),
+                SCREEN_ADS));
+        list.addView(openScreenRow(text("Рекомендации", "Recommendations"),
+                text("Дубликаты треков на главной и в автовоспроизведении", "Duplicate tracks on the home screen and in autoplay"),
+                SCREEN_RECOMMENDATIONS));
+        list.addView(openScreenRow(text("Своя музыка", "Your music"),
+                text("Импорт файлов, плейлист «Импортированные», свой порядок", "Import files, \"Imported\" playlist, custom order"),
+                SCREEN_MUSIC));
+        list.addView(openScreenRow(text("Батарея и конфиденциальность", "Battery and privacy"),
+                text("Экономия батареи, телеметрия", "Battery saving, telemetry"),
+                SCREEN_PRIVACY));
+        list.addView(openScreenRow(text("Обновления и данные", "Updates and data"),
+                text("Версия " + UpdateChecker.VERSION + ", проверка обновлений, сброс данных SoundCloud",
+                        "Version " + UpdateChecker.VERSION + ", update check, SoundCloud data reset"),
+                SCREEN_UPDATES));
+        list.addView(openScreenRow(text("Для разработчика", "Developer"),
+                text("Инструменты для проверки и отладки", "Testing and debugging tools"),
+                SCREEN_DEVELOPER));
+        return root;
+    }
+
+    private View createSection(String screen) {
+        LinearLayout[] holder = new LinearLayout[1];
+        LinearLayout root = createScreen(holder);
+        LinearLayout list = holder[0];
+        switch (screen) {
+            case SCREEN_NETWORK:
+                list.addView(createTitle(text("Сеть", "Network"), false));
+                addNetworkSection(list);
+                break;
+            case SCREEN_PLAYBACK:
+                list.addView(createTitle(text("Офлайн и воспроизведение", "Offline and playback"), false));
+                addPlaybackSection(list);
+                break;
+            case SCREEN_ADS:
+                list.addView(createTitle(text("Реклама и подписка", "Ads and subscription"), false));
+                addAdsSection(list);
+                break;
+            case SCREEN_RECOMMENDATIONS:
+                list.addView(createTitle(text("Рекомендации", "Recommendations"), false));
+                addRecommendationsSection(list);
+                break;
+            case SCREEN_MUSIC:
+                list.addView(createTitle(text("Своя музыка", "Your music"), false));
+                addMusicSection(list);
+                break;
+            case SCREEN_PRIVACY:
+                list.addView(createTitle(text("Батарея и конфиденциальность", "Battery and privacy"), false));
+                addPrivacySection(list);
+                break;
+            case SCREEN_UPDATES:
+                list.addView(createTitle(text("Обновления и данные", "Updates and data"), false));
+                addUpdatesSection(list);
+                break;
+            default:
+                list.addView(createTitle(text("Для разработчика", "Developer"), false));
+                addDeveloperSection(list);
+        }
+        return root;
+    }
+
+    private void addNetworkSection(LinearLayout list) {
         TextView network = createText("Body.Secondary", text("Проверяю, откуда приложение выходит в интернет…", "Checking the app network location…"));
         network.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
         list.addView(network);
         checkNetwork(network);
-        addDnsOptions(list);
         list.addView(createToggleRow(
                 text("Не выходить в сеть с российского IP", "Stay offline on a Russian IP"),
-                text("Перед запросами к SoundCloud приложение проверяет страну своего IP через Cloudflare. "
-                                + "Если IP российский или проверка не удалась, запросы к SoundCloud не отправляются, "
-                                + "играют только скачанные и импортированные треки. Страна перепроверяется при смене сети. "
-                                + "Геобаза Cloudflare может расходиться с базой SoundCloud.",
-                        "Before contacting SoundCloud the app checks its IP country through Cloudflare. "
-                                + "On a Russian IP, or if the check fails, no requests are sent to SoundCloud."),
+                text("Если приложение выходит в интернет с российского IP, оно не обращается к SoundCloud. "
+                                + "Играют скачанные и импортированные треки. Страна определяется через Cloudflare "
+                                + "и проверяется заново при смене сети.",
+                        "On a Russian IP the app does not contact SoundCloud; downloaded and imported tracks still play. "
+                                + "The country is checked through Cloudflare, again whenever the network changes."),
                 Settings.isRegionGuardEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.REGION_GUARD, checked)
         ));
         list.addView(createActionRow(
                 text("Проверить IP снова", "Check IP again"),
-                text("Если сменили VPN или сеть, а SoundCloud всё ещё отключён.",
-                        "If you switched a VPN or network and SoundCloud is still off."),
+                text("Если включили VPN или сменили сеть, а SoundCloud всё ещё не работает.",
+                        "If you turned on a VPN or changed the network and SoundCloud still does not work."),
                 v -> app.revanced.extension.soundcloud.network.RegionGuard.recheck(() -> {
                     String country = app.revanced.extension.soundcloud.network.RegionGuard.lastCountry();
                     Toast.makeText(this, country == null
@@ -129,106 +223,68 @@ public final class ReVancedSettingsActivity extends Activity {
                             Toast.LENGTH_SHORT).show();
                 })
         ));
-
+        addDnsOptions(list);
         list.addView(createToggleRow(
                 text("Показывать статус сети", "Show network status"),
-                text("Небольшая плашка сверху главного экрана, когда нет сети или SoundCloud отключён из-за российского IP. "
-                                + "Нажатие проверяет сеть снова.",
-                        "A small pill at the top of the main screen when there is no network or SoundCloud is off "
-                                + "because of a Russian IP. Tap to check again."),
+                text("Плашка вверху главного экрана, когда нет интернета или SoundCloud отключён из-за российского IP. "
+                                + "Нажмите на неё, чтобы проверить сеть снова.",
+                        "A pill at the top of the home screen when there is no connection or SoundCloud is off "
+                                + "because of a Russian IP. Tap it to check again."),
                 Settings.isNetworkBannerEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.NETWORK_BANNER, checked)
         ));
         list.addView(createToggleRow(
                 text("Спрашивать перед проверкой устройства", "Ask before device check"),
-                text("Защита SoundCloud от ботов (DataDome) иногда открывает белое окно проверки поверх приложения. "
+                text("SoundCloud иногда проверяет, не бот ли вы, и открывает белое окно поверх приложения. "
                                 + "Вместо этого появится вопрос: пройти проверку сейчас или позже.",
-                        "SoundCloud's bot protection (DataDome) sometimes opens a white check screen over the app. "
-                                + "Instead, you are asked whether to verify now or later."),
+                        "SoundCloud sometimes checks that you are not a bot and opens a white screen over the app. "
+                                + "Instead, you are asked whether to do it now or later."),
                 Settings.isDataDomePromptEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.DATADOME_PROMPT, checked)
         ));
+    }
 
-        list.addView(createSubHeading(text("Конфиденциальность", "Privacy")));
-        list.addView(createToggleRow(
-                text("Телеметрия", "Telemetry"),
-                text("Отправка статистики использования в SoundCloud. Изменение применится после перезапуска приложения.",
-                        "Sends usage statistics to SoundCloud. Takes effect after restarting the app."),
-                Settings.isTelemetryEnabled(),
-                (button, checked) -> {
-                    Settings.setTelemetryEnabled(checked);
-                    Toast.makeText(this,
-                            text("Перезапустите SoundCloud, чтобы применить", "Restart SoundCloud to apply"),
-                            Toast.LENGTH_SHORT).show();
-                }
-        ));
-
-        list.addView(createSubHeading(text("Интерфейс", "Interface")));
-        list.addView(createToggleRow(
-                text("Скрывать предложения подписки", "Hide subscription offers"),
-                text("Сразу закрывает экран с предложением купить SoundCloud Go и Go+, "
-                                + "в том числе с ошибкой «Oops… try again».",
-                        "Closes the SoundCloud Go and Go+ offer screen as soon as it opens, "
-                                + "including the \"Oops… try again\" error."),
-                Settings.isHideSubscriptionOffersEnabled(),
-                (button, checked) -> Settings.setHideSubscriptionOffersEnabled(checked)
-        ));
-        list.addView(createToggleRow(
-                text("Скрыть вкладку Upgrade", "Hide Upgrade tab"),
-                text("Убирает вкладку Upgrade из нижней панели, остальные вкладки занимают её место. "
-                                + "Применяется после перезапуска.",
-                        "Removes the Upgrade tab from the bottom bar, the other tabs take its space. "
-                                + "Applies after a restart."),
-                Settings.isHideUpgradeTabEnabled(),
-                (button, checked) -> Settings.setHideUpgradeTabEnabled(checked)
-        ));
+    private void addPlaybackSection(LinearLayout list) {
+        TextView note = createText("Body.Secondary", text(
+                "Скачанные треки всегда играют из файла на телефоне — сразу, без интернета и без трафика.",
+                "Downloaded tracks always play from the file on the phone: right away, without a connection or data."));
+        note.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
+        list.addView(note);
         list.addView(createToggleRow(
                 text("Сохранять плейлисты заранее", "Save playlists ahead"),
-                text("В фоне сохраняет содержимое всех плейлистов и альбомов библиотеки — только текст: названия, "
-                                + "исполнители, длительности. Без музыки и картинок, места почти не занимает. "
-                                + "Плейлисты открываются сразу, в том числе без интернета.",
-                        "Saves the contents of every playlist and album in the library in the background, as text only: "
-                                + "titles, artists, durations. No audio or images, takes almost no space. "
-                                + "Playlists open instantly, also offline."),
+                text("В фоне сохраняет списки треков всех плейлистов и альбомов из библиотеки: названия, исполнителей, "
+                                + "длительность. Без музыки и картинок, места почти не занимает. Нужно, чтобы плейлисты "
+                                + "открывались без интернета.",
+                        "Saves the track lists of every playlist and album in the library in the background: titles, "
+                                + "artists, durations. No audio or images, takes almost no space. Lets playlists open offline."),
                 Settings.isPlaylistPreloadEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.PLAYLIST_PRELOAD, checked)
         ));
         list.addView(createToggleRow(
-                text("Сначала сохранённое", "Offline first playlists"),
-                text("Плейлисты и альбомы открываются сразу из памяти телефона, а обновляются в фоне. "
-                                + "Помогает при плохом интернете.",
-                        "Playlists and albums open instantly from the device and refresh in the background. "
-                                + "Helps on a poor connection."),
+                text("Открывать плейлисты сразу", "Open playlists right away"),
+                text("Плейлист показывается из памяти телефона, не дожидаясь SoundCloud, а обновляется в фоне.",
+                        "A playlist is shown from the phone without waiting for SoundCloud and refreshes in the background."),
                 Settings.isOfflineFirstEnabled(),
                 (button, checked) -> Settings.setOfflineFirstEnabled(checked)
         ));
         list.addView(createToggleRow(
-                text("Играть скачанные из файла", "Play downloaded files"),
-                text("Треки, скачанные Arsound в «Музыка/Arsound», играют из файла, а не из сети: "
-                                + "работают без интернета и не тратят трафик. Действует для скачанных "
-                                + "после этого обновления.",
-                        "Tracks downloaded by Arsound to Music/Arsound play from the file instead of the network: "
-                                + "they work offline and use no data. Applies to tracks downloaded after this update."),
-                Settings.isPlayDownloadedFilesEnabled(),
-                (button, checked) -> Settings.setPlayDownloadedFilesEnabled(checked)
-        ));
-        list.addView(createToggleRow(
-                text("Повторять при сбое сети", "Retry on network errors"),
-                text("Если трек оборвался из-за плохой связи, плеер сам повторит загрузку до трёх раз "
-                                + "вместо ошибки «Track cannot be streamed».",
-                        "If a track stops because of a poor connection, the player retries up to three times "
-                                + "instead of showing \"Track cannot be streamed\"."),
+                text("Повторять при обрыве связи", "Retry on dropped connection"),
+                text("Если трек из сети оборвался, плеер сам попробует ещё до трёх раз вместо ошибки "
+                                + "«Track cannot be streamed».",
+                        "If a streamed track stops, the player tries up to three more times instead of showing "
+                                + "\"Track cannot be streamed\"."),
                 Settings.isPlaybackRetryEnabled(),
                 (button, checked) -> Settings.setPlaybackRetryEnabled(checked)
         ));
+    }
+
+    private void addAdsSection(LinearLayout list) {
         list.addView(createToggleRow(
-                text("Блокировать рекламу в плеере", "Block playback advertisements"),
-                text("Не запрашивает аудио- и видеорекламу между треками и рекламные плашки "
-                                + "в плеере, ленте, библиотеке, плейлистах и профилях. "
-                                + "После изменения перезапустите SoundCloud.",
-                        "Prevents audio and video advertisements between tracks and banner ads "
-                                + "in the player, feed, library, playlists and profiles. "
-                                + "Restart SoundCloud after changing this option."),
+                text("Блокировать рекламу", "Block ads"),
+                text("Без аудио- и видеорекламы между треками и без рекламных баннеров в плеере, ленте, библиотеке, "
+                                + "плейлистах и профилях. Применится после перезапуска SoundCloud.",
+                        "No audio or video ads between tracks and no banner ads in the player, feed, library, "
+                                + "playlists and profiles. Applies after restarting SoundCloud."),
                 Settings.isBlockPlaybackAdsEnabled(),
                 (button, checked) -> {
                     Settings.setBlockPlaybackAdsEnabled(checked);
@@ -237,17 +293,34 @@ public final class ReVancedSettingsActivity extends Activity {
                             Toast.LENGTH_SHORT).show();
                 }
         ));
+        list.addView(createToggleRow(
+                text("Скрывать предложения подписки", "Hide subscription offers"),
+                text("Не показывает экран покупки SoundCloud Go и Go+, всплывающие предложения и баннер подписки "
+                                + "на главной. Купить подписку в моде всё равно нельзя.",
+                        "Hides the SoundCloud Go and Go+ purchase screen, popups and the subscription banner on the "
+                                + "home screen. A subscription cannot be bought in the mod anyway."),
+                Settings.isHideSubscriptionOffersEnabled(),
+                (button, checked) -> Settings.setHideSubscriptionOffersEnabled(checked)
+        ));
+        list.addView(createToggleRow(
+                text("Скрыть вкладку Upgrade", "Hide Upgrade tab"),
+                text("Убирает вкладку Upgrade из нижней панели. Применится после перезапуска.",
+                        "Removes the Upgrade tab from the bottom bar. Applies after a restart."),
+                Settings.isHideUpgradeTabEnabled(),
+                (button, checked) -> Settings.setHideUpgradeTabEnabled(checked)
+        ));
+    }
 
-        list.addView(createSubHeading(text("Рекомендации", "Recommendations")));
+    private void addRecommendationsSection(LinearLayout list) {
         LinearLayout duplicateOptions = new LinearLayout(this);
         duplicateOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
                 text("Скрывать дубликаты", "Hide duplicates"),
-                text("Один и тот же трек, перезалитый разными людьми, показывается в рекомендациях на главной "
-                                + "и в автовоспроизведении только один раз. Совпадение — по названию и длительности (±2 с). "
-                                + "Лайки, плейлисты и профили не трогаются.",
-                        "The same song re-uploaded by different users appears once in home recommendations and autoplay. "
-                                + "Matched by title and duration (±2 s)."),
+                text("Один и тот же трек, перезалитый разными людьми, показывается на главной и в автовоспроизведении "
+                                + "один раз. Одинаковыми считаются треки с тем же названием и длительностью (разница до 2 с). "
+                                + "Лайки, плейлисты и профили не меняются.",
+                        "The same song re-uploaded by different users appears once on the home screen and in autoplay. "
+                                + "Tracks with the same title and duration (within 2 s) count as the same."),
                 Settings.isDuplicateFilterEnabled(),
                 (button, checked) -> {
                     Settings.putBoolean(Settings.DUPLICATE_FILTER, checked);
@@ -257,35 +330,30 @@ public final class ReVancedSettingsActivity extends Activity {
         duplicateOptions.setVisibility(Settings.isDuplicateFilterEnabled() ? View.VISIBLE : View.GONE);
         duplicateOptions.addView(createToggleRow(
                 text("Считать slowed, sped up и ремиксы тем же треком", "Treat slowed, sped up and remixes as the same song"),
-                text("Иначе такие версии остаются отдельными треками.", "Otherwise these versions stay separate."),
+                text("Если выключено, такие версии показываются отдельно.", "When off, these versions are shown separately."),
                 Settings.isMergeEditedVersions(),
                 (button, checked) -> Settings.putBoolean(Settings.MERGE_EDITED_VERSIONS, checked)
         ));
         list.addView(duplicateOptions);
+    }
 
-        list.addView(createSubHeading(text("Энергосбережение", "Power saving")));
-        list.addView(createToggleRow(
-                text("Экономия батареи", "Battery saving"),
-                text("Значок новых сообщений обновляется раз в 5 минут вместо каждых 30 секунд, а встроенные "
-                                + "сторонние SDK (Statsig, MoEngage) не отправляют фоновые отчёты каждые несколько секунд: "
-                                + "меньше просыпается радиомодуль. Опрос сообщений меняется после перезапуска.",
-                        "The new messages badge updates every 5 minutes instead of every 30 seconds, "
-                                + "so the radio wakes up less. Applies after a restart."),
-                Settings.isPowerSavingEnabled(),
-                (button, checked) -> Settings.setPowerSavingEnabled(checked)
+    private void addMusicSection(LinearLayout list) {
+        list.addView(createActionRow(
+                text("Импортированные файлы", "Imported files"),
+                text("Добавить аудиофайлы с телефона и посмотреть уже добавленные.",
+                        "Add audio files from the phone and see the ones already added."),
+                v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
+                        .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_MUSIC))
         ));
-
-        list.addView(createSubHeading(text("Локальная музыка", "Local music")));
         LinearLayout savedOptions = new LinearLayout(this);
         savedOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
                 text("Плейлист «Импортированные»", "\"Imported\" playlist"),
-                text("В библиотеке SoundCloud появится приватный плейлист со всеми "
-                                + "импортированными файлами. Треки в нём есть только на этом телефоне. "
-                                + "Плейлист нельзя удалить: пока функция включена, он создаётся снова. "
+                text("Приватный плейлист в библиотеке со всеми импортированными файлами. Треки в нём есть только "
+                                + "на этом телефоне. Если удалить плейлист, при следующем запуске он появится снова. "
                                 + "Применится после перезапуска.",
-                        "A private playlist with all imported files appears in the "
-                                + "SoundCloud library. Its tracks exist only on this phone. Applies after a restart."),
+                        "A private playlist in the library with all imported files. Its tracks exist only on this phone. "
+                                + "If you delete it, it comes back on the next start. Applies after a restart."),
                 Settings.isSavedPlaylistEnabled(),
                 (button, checked) -> {
                     Settings.putBoolean(Settings.SAVED_PLAYLIST, checked);
@@ -295,57 +363,63 @@ public final class ReVancedSettingsActivity extends Activity {
         savedOptions.setVisibility(Settings.isSavedPlaylistEnabled() ? View.VISIBLE : View.GONE);
         savedOptions.addView(createToggleRow(
                 text("Скрыть этот плейлист", "Hide this playlist"),
-                text("Убирает плейлист из библиотеки, не выключая функцию.", "Removes the playlist from the library without turning the feature off."),
+                text("Плейлист пропадёт из библиотеки, но импортированные треки останутся.",
+                        "The playlist disappears from the library, imported tracks stay."),
                 Settings.isSavedPlaylistHidden(),
                 (button, checked) -> Settings.putBoolean(Settings.SAVED_PLAYLIST_HIDDEN, checked)
         ));
         list.addView(savedOptions);
         list.addView(createToggleRow(
                 text("Свой порядок плейлистов и треков", "Custom playlist and track order"),
-                text("Долгое нажатие на плейлист в «Библиотека → Плейлисты» или на трек внутри плейлиста включает "
-                                + "перестановку: строки покачиваются, зажатую можно перетащить. Касание выключает режим. "
-                                + "Порядок хранится на телефоне, воспроизведение идёт в нём же.",
-                        "Long press a playlist in Library → Playlists, or a track inside a playlist, to rearrange: rows wiggle "
-                                + "and the pressed one can be dragged. A tap ends it. The order is kept on this phone and "
-                                + "playback follows it."),
+                text("Зажмите плейлист в «Библиотека → Плейлисты» или трек внутри плейлиста и перетащите. "
+                                + "Чтобы закончить, коснитесь списка. Порядок хранится на телефоне, треки играют в нём же.",
+                        "Press and hold a playlist in Library → Playlists, or a track inside a playlist, and drag it. "
+                                + "Tap the list to finish. The order is kept on this phone and playback follows it."),
                 Settings.isPlaylistOrderEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.PLAYLIST_ORDER, checked)
         ));
         list.addView(createActionRow(
                 text("Сбросить порядок", "Reset order"),
-                text("Вернуть порядок SoundCloud для плейлистов и треков во всех плейлистах.",
-                        "Go back to SoundCloud's order of playlists and of tracks in every playlist."),
+                text("Вернуть порядок SoundCloud для плейлистов и треков.",
+                        "Go back to SoundCloud's order of playlists and tracks."),
                 v -> {
                     app.revanced.extension.soundcloud.local.PlaylistOrder.reset();
                     app.revanced.extension.soundcloud.local.TrackOrder.resetAll();
                     Toast.makeText(this, text("Порядок сброшен", "Order reset"), Toast.LENGTH_SHORT).show();
                 }
         ));
-        list.addView(createActionRow(
-                text("Импортированные файлы", "Imported files"),
-                text("Импорт аудиофайлов с телефона и список импортированного. Файлы появляются в плейлисте "
-                                + "«Импортированные».",
-                        "Import audio files from the phone and see what is imported. Files appear in the "
-                                + "\"Imported\" playlist."),
-                v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
-                        .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_MUSIC))
-        ));
+    }
 
-        list.addView(createSubHeading(text("Данные", "Data")));
-        list.addView(createActionRow(
-                text("Сбросить данные SoundCloud", "Reset SoundCloud data"),
-                text("Удалит кэш, базу треков и настройки SoundCloud, как «Очистить данные» в Android. "
-                                + "Нужен интернет. Вход, настройки Arsound, скачанные треки и порядок плейлистов сохранятся.",
-                        "Removes the SoundCloud cache, track database and app settings, like \"Clear data\" in Android. "
-                                + "Needs a connection. Login, Arsound settings, downloaded tracks and playlist order are kept."),
-                v -> confirmReset()
+    private void addPrivacySection(LinearLayout list) {
+        list.addView(createToggleRow(
+                text("Экономия батареи", "Battery saving"),
+                text("Приложение реже выходит в сеть в фоне: новые сообщения проверяются раз в 5 минут вместо "
+                                + "каждых 30 секунд, встроенные сервисы аналитики не отправляют отчёты. "
+                                + "Применится после перезапуска.",
+                        "The app goes online less in the background: new messages are checked every 5 minutes "
+                                + "instead of every 30 seconds, built-in analytics services send no reports. Applies after a restart."),
+                Settings.isPowerSavingEnabled(),
+                (button, checked) -> Settings.setPowerSavingEnabled(checked)
         ));
+        list.addView(createToggleRow(
+                text("Телеметрия", "Telemetry"),
+                text("Отправка статистики использования в SoundCloud. Применится после перезапуска.",
+                        "Sends usage statistics to SoundCloud. Applies after a restart."),
+                Settings.isTelemetryEnabled(),
+                (button, checked) -> {
+                    Settings.setTelemetryEnabled(checked);
+                    Toast.makeText(this,
+                            text("Перезапустите SoundCloud, чтобы применить", "Restart SoundCloud to apply"),
+                            Toast.LENGTH_SHORT).show();
+                }
+        ));
+    }
 
-        list.addView(createSubHeading(text("Обновления", "Updates")));
+    private void addUpdatesSection(LinearLayout list) {
         list.addView(createToggleRow(
                 text("Проверять при запуске", "Check on launch"),
-                text("При каждом запуске в фоне смотрит, вышла ли новая версия Arsound на GitHub.",
-                        "Checks GitHub for a new Arsound version in the background on every launch."),
+                text("При запуске приложение смотрит на GitHub, вышла ли новая версия Arsound.",
+                        "On launch the app checks GitHub for a new Arsound version."),
                 Settings.isUpdateCheckEnabled(),
                 (button, checked) -> Settings.setUpdateCheckEnabled(checked)
         ));
@@ -369,14 +443,25 @@ public final class ReVancedSettingsActivity extends Activity {
                 UpdateChecker.REPOSITORY_URL.replace("https://", ""),
                 v -> UpdateChecker.openUrl(this, UpdateChecker.REPOSITORY_URL)
         ));
+        list.addView(createActionRow(
+                text("Сбросить данные SoundCloud", "Reset SoundCloud data"),
+                text("Удаляет кэш, базу треков и настройки SoundCloud, как «Очистить данные» в Android. Помогает, "
+                                + "если трек пишет «Недоступно в вашей стране», хотя в оригинале играет. Нужен интернет. "
+                                + "Вход, настройки Arsound, скачанные треки и порядок сохранятся.",
+                        "Removes the SoundCloud cache, track database and settings, like \"Clear data\" in Android. Helps when "
+                                + "a track says it is not available in your country. Needs a connection. Login, Arsound settings, "
+                                + "downloaded tracks and order are kept."),
+                v -> confirmReset()
+        ));
+    }
 
-        list.addView(createSubHeading(text("Для разработчика", "Developer")));
+    private void addDeveloperSection(LinearLayout list) {
         LinearLayout developerOptions = new LinearLayout(this);
         developerOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
                 text("Настройки для разработчика", "Developer options"),
-                text("Показывает инструменты для проверки и отладки. Обычному пользователю не нужны.",
-                        "Shows testing and debugging tools. Not needed for everyday use."),
+                text("Инструменты для проверки и отладки. Обычно не нужны.",
+                        "Testing and debugging tools. Usually not needed."),
                 Settings.isDeveloperModeEnabled(),
                 (button, checked) -> {
                     Settings.setDeveloperModeEnabled(checked);
@@ -386,8 +471,6 @@ public final class ReVancedSettingsActivity extends Activity {
         developerOptions.setVisibility(Settings.isDeveloperModeEnabled() ? View.VISIBLE : View.GONE);
         list.addView(developerOptions);
         addDeveloperOptions(developerOptions);
-
-        return root;
     }
 
     private void addDnsOptions(LinearLayout list) {

@@ -87,21 +87,6 @@ public final class Settings {
         preferences.edit().putBoolean(OFFLINE_FIRST, enabled).apply();
     }
 
-    public static final String PLAY_DOWNLOADED_FILES = "play_downloaded_files";
-
-    /** Plays tracks downloaded by Arsound from the file. On by default. */
-    public static boolean isPlayDownloadedFilesEnabled() {
-        SharedPreferences preferences = getPreferences();
-        return preferences == null || preferences.getBoolean(PLAY_DOWNLOADED_FILES, true);
-    }
-
-    public static void setPlayDownloadedFilesEnabled(boolean enabled) {
-        SharedPreferences preferences = getPreferences();
-        if (preferences == null) return;
-
-        preferences.edit().putBoolean(PLAY_DOWNLOADED_FILES, enabled).apply();
-    }
-
     public static final String PLAYBACK_RETRY = "playback_retry";
 
     /** Retries transient playback errors automatically. On by default. */
