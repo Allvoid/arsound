@@ -217,14 +217,21 @@ public final class DownloadTrackPatch {
      * @return True if the download started.
      */
     static boolean downloadSilently(Context context, String trackId) throws Exception {
-        String fileUrl = resolveDownloadUrl(trackId);
+        return downloadSilently(context, trackId, null);
+    }
+
+    /**
+     * @param resolvedUrl A file URL resolved moments ago, or null to resolve it now.
+     */
+    static boolean downloadSilently(Context context, String trackId, String resolvedUrl) throws Exception {
+        String fileUrl = resolvedUrl != null ? resolvedUrl : resolveDownloadUrl(trackId);
         if (fileUrl == null) return false;
         enqueue(context, trackId, fileUrl, false);
         return true;
     }
 
     /** Resolves a fresh URL for each task because CDN stream URLs expire. */
-    private static String resolveDownloadUrl(String trackId) throws Exception {
+    static String resolveDownloadUrl(String trackId) throws Exception {
         String[] directDownload = apiGet(API_ROOT + "/tracks/" + trackId + "/download");
         if (directDownload[1] != null) {
             String redirect = new JSONObject(directDownload[1]).optString("redirectUri");

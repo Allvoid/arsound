@@ -38,10 +38,19 @@ public final class DownloadPlaylistPatch {
     private static final class TrackInfo {
         final String id;
         final String title;
+        /** The file URL found by the check. */
+        final String url;
+        final long resolvedAt = System.currentTimeMillis();
 
-        TrackInfo(String id, String title) {
+        TrackInfo(String id, String title, String url) {
             this.id = id;
             this.title = title;
+            this.url = url;
+        }
+
+        /** Stream links expire, so a link from a dialog left open for long is resolved again. */
+        String freshUrl() {
+            return System.currentTimeMillis() - resolvedAt < 5 * 60_000 ? url : null;
         }
     }
 
@@ -144,6 +153,7 @@ public final class DownloadPlaylistPatch {
                 }
 
                 List<TrackInfo> downloadable = new ArrayList<>();
+                List<String> unavailableTitles = new ArrayList<>();
                 int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
                 for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
                     List<String> chunk = ids.subList(start, Math.min(ids.size(), start + TRACKS_PER_REQUEST));
@@ -164,14 +174,24 @@ public final class DownloadPlaylistPatch {
                                 alreadyDownloaded[1]++;
                                 break;
                             default:
-                                downloadable.add(new TrackInfo(id, track.optString("title")));
+                                // The track data does not show region blocks: only the file link does. The check
+                                // asks for it now, so "can be downloaded" means the download will really start.
+                                String url = null;
+                                try {
+                                    url = DownloadTrackPatch.resolveDownloadUrl(id);
+                                } catch (Exception ex) {
+                                    Logger.printInfo(() -> "No file link for " + id + ": " + ex);
+                                }
+                                if (url != null) downloadable.add(new TrackInfo(id, track.optString("title"), url));
+                                else unavailableTitles.add(track.optString("title"));
                         }
                     }
                 }
 
                 Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, downloaded "
                         + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download " + downloadable.size());
-                Utils.runOnMainThread(() -> showResult(context, ids.size(), alreadyDownloaded[0], alreadyDownloaded[1], downloadable));
+                Utils.runOnMainThread(() -> showResult(context, ids.size(), alreadyDownloaded[0], alreadyDownloaded[1],
+                        downloadable, unavailableTitles));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
                 DownloadTrackPatch.showToast(context, text("Не удалось проверить треки", "Could not check the tracks"));
@@ -179,7 +199,8 @@ public final class DownloadPlaylistPatch {
         });
     }
 
-    private static void showResult(Context context, int total, int downloaded, int downloading, List<TrackInfo> downloadable) {
+    private static void showResult(Context context, int total, int downloaded, int downloading, List<TrackInfo> downloadable,
+                                   List<String> unavailableTitles) {
         int unavailable = total - downloaded - downloading - downloadable.size();
         StringBuilder summary = new StringBuilder();
         summary.append(text("Треков в плейлисте: ", "Tracks in the playlist: ")).append(total).append('\n')
@@ -187,8 +208,9 @@ public final class DownloadPlaylistPatch {
         if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
         summary.append(text("Можно скачать: ", "Can be downloaded: ")).append(downloadable.size()).append('\n');
         if (unavailable > 0) {
-            summary.append(text("Недоступно (по подписке, отрывки или закрытые): ",
-                    "Not available (subscription, previews or blocked): ")).append(unavailable).append('\n');
+            summary.append(text("Недоступно (заблокировано в регионе, по подписке, отрывки или закрытые): ",
+                    "Not available (blocked in your region, subscription, previews or private): ")).append(unavailable).append('\n');
+            for (String title : unavailableTitles) summary.append("  ✕ ").append(title).append('\n');
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
@@ -222,15 +244,18 @@ public final class DownloadPlaylistPatch {
                     // Checked again: the dialog may have stayed open while the same track was downloaded elsewhere.
                     if (DownloadTrackPatch.getDownloadState(appContext, track.id)
                             != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) continue;
-                    if (DownloadTrackPatch.downloadSilently(appContext, track.id)) started++;
+                    if (DownloadTrackPatch.downloadSilently(appContext, track.id, track.freshUrl())) started++;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Download failure for track " + track.id, ex);
                 }
             }
 
             int count = started;
-            DownloadTrackPatch.showToast(appContext, text("Скачивание началось: " + count + " в Музыка/Arsound",
-                    "Downloading " + count + " tracks to Music/Arsound"));
+            int failed = tracks.size() - started;
+            DownloadTrackPatch.showToast(appContext, failed == 0
+                    ? text("Скачивание началось: " + count + " в Музыка/Arsound", "Downloading " + count + " tracks to Music/Arsound")
+                    : text("Скачивание началось: " + count + ", не удалось начать: " + failed,
+                    "Downloading " + count + " tracks, could not start " + failed));
         });
     }
 
