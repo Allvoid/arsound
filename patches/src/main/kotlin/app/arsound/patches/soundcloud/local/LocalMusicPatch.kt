@@ -62,6 +62,12 @@ private val BytecodePatchContext.playlistCollectionRenderMethod by gettingFirstM
 }
 
 /** onViewCreated of the library playlist screens. */
+/** The playlist and album screen, where tracks can be rearranged. */
+private val BytecodePatchContext.playlistDetailViewCreatedMethod by gettingFirstMethodDeclaratively {
+    name("onViewCreated")
+    definingClass("Lcom/soundcloud/android/playlist/view/PlaylistDetailFragment;")
+}
+
 private val BytecodePatchContext.playlistCollectionViewCreatedMethod by gettingFirstMethodDeclaratively {
     name("q0")
     definingClass("Lcom/soundcloud/android/features/library/playlists/PlaylistCollectionFragment;")
@@ -164,6 +170,13 @@ val localMusicPatch = bytecodePatch {
                     invoke-static { v$listRegister }, Lapp/revanced/extension/soundcloud/local/PlaylistOrder;->orderScreenItems(Ljava/util/List;)Ljava/util/List;
                     move-result-object v$listRegister
                 """,
+            )
+        }
+        playlistDetailViewCreatedMethod.apply {
+            // At the start: the method reuses p1 for other values later. The list is set up after a post.
+            addInstruction(
+                0,
+                "invoke-static { p1 }, Lapp/revanced/extension/soundcloud/local/TrackOrder;->attach(Landroid/view/View;)V",
             )
         }
         playlistCollectionViewCreatedMethod.apply {

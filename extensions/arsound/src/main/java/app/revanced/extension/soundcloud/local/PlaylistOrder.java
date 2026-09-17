@@ -1,17 +1,10 @@
 package app.revanced.extension.soundcloud.local;
 
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.view.GestureDetector;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -30,10 +23,7 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * device and applied on top of SoundCloud's sorting; playlists that are not in the saved order yet
  * (new ones) come first.
  * <p>
- * The drag itself reuses SoundCloud's own play queue drag helper. Obfuscated names of this app version:
- * {@code RecyclerView.N(View)} getChildViewHolder, {@code RecyclerView.c0} item touch listeners,
- * {@code OnItemTouchListener.a(MotionEvent)} onInterceptTouchEvent, {@code ItemTouchHelper.h} attach,
- * {@code ItemTouchHelper.r} startDrag, {@code Adapter.m(II)} notifyItemMoved (as called by {@code AdapterListUpdateCallback.e}, onMoved), {@code UniflowAdapter.h} items.
+ * The drag is {@link DragReorder}.
  */
 @SuppressWarnings("unused")
 public final class PlaylistOrder {
@@ -135,7 +125,7 @@ public final class PlaylistOrder {
                     Logger.printInfo(() -> "Playlist order: no list found");
                     return;
                 }
-                new Rearranger(recycler).install();
+                new DragReorder(recycler, PlaylistOrder::isPlaylistRow, PlaylistOrder::save).install();
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not set up playlist rearranging", ex);
             }
@@ -155,231 +145,18 @@ public final class PlaylistOrder {
         return null;
     }
 
-    private static final class Rearranger {
-        private final ViewGroup recycler;
-        private final ClassLoader loader;
-        private Object touchHelper;
-        private boolean active;
-        private final List<ObjectAnimator> wiggles = new ArrayList<>();
-        private final GestureDetector gestures;
-
-        Rearranger(ViewGroup recycler) {
-            this.recycler = recycler;
-            this.loader = recycler.getClass().getClassLoader();
-            this.gestures = new GestureDetector(recycler.getContext(), new GestureDetector.SimpleOnGestureListener() {
-                @Override
-                public void onLongPress(MotionEvent event) {
-                    View child = childUnder(event.getX(), event.getY());
-                    if (child == null || !isPlaylist(child)) return;
-                    if (!active) start();
-                    startDrag(child);
-                }
-            });
-        }
-
-        void install() throws Exception {
-            Class<?> hostType = Class.forName(
-                    "com.soundcloud.android.libs.recyclerviewutils.touchhelpers.ItemDragCallback$DragHost", false, loader);
-            Object host = Proxy.newProxyInstance(loader, new Class<?>[]{hostType}, (proxy, method, args) -> {
-                switch (method.getName()) {
-                    case "N":
-                        return canMove((Integer) args[0], (Integer) args[1]);
-                    case "k":
-                        move((Integer) args[0], (Integer) args[1]);
-                        return null;
-                    case "p":
-                        save();
-                        return null;
-                    default:
-                        return defaultValue(method);
-                }
-            });
-            Object callback = Class.forName(
-                            "com.soundcloud.android.libs.recyclerviewutils.touchhelpers.ItemDragCallback", false, loader)
-                    .getConstructor(Context.class, hostType)
-                    .newInstance(recycler.getContext(), host);
-            Class<?> callbackType = Class.forName("androidx.recyclerview.widget.ItemTouchHelper$Callback", false, loader);
-            Class<?> helperType = Class.forName("androidx.recyclerview.widget.ItemTouchHelper", false, loader);
-            Class<?> recyclerType = Class.forName("androidx.recyclerview.widget.RecyclerView", false, loader);
-            touchHelper = helperType.getConstructor(callbackType).newInstance(callback);
-            helperType.getMethod("h", recyclerType).invoke(touchHelper, recycler);
-
-            Class<?> listenerType = Class.forName("androidx.recyclerview.widget.RecyclerView$OnItemTouchListener", false, loader);
-            Object listener = Proxy.newProxyInstance(loader, new Class<?>[]{listenerType}, (proxy, method, args) -> {
-                if (method.getName().equals("a") && args != null && args.length == 1 && args[0] instanceof MotionEvent) {
-                    return intercept((MotionEvent) args[0]);
-                }
-                if (method.getName().equals("onTouchEvent")) return null;
-                return defaultValue(method);
-            });
-            Field listeners = recyclerType.getDeclaredField("c0");
-            listeners.setAccessible(true);
-            //noinspection unchecked
-            ((List<Object>) listeners.get(recycler)).add(0, listener);
-
-            recycler.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-                @Override
-                public void onViewAttachedToWindow(View view) {
-                }
-
-                @Override
-                public void onViewDetachedFromWindow(View view) {
-                    stop();
-                }
-            });
-            recycler.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-                if (active) wiggleChildren();
-            });
-            Logger.printDebug(() -> "Playlist rearranging ready");
-        }
-
-        private static Object defaultValue(Method method) {
-            if (method.getName().equals("toString")) return "ArsoundPlaylistOrder";
-            Class<?> type = method.getReturnType();
-            if (type == boolean.class) return false;
-            if (type == int.class) return 0;
-            return null;
-        }
-
-        /** Long presses are detected here; a tap in the rearrange mode ends it without opening a playlist. */
-        private boolean intercept(MotionEvent event) {
-            gestures.onTouchEvent(event);
-            if (active && event.getActionMasked() == MotionEvent.ACTION_UP
-                    && event.getEventTime() - event.getDownTime() < android.view.ViewConfiguration.getLongPressTimeout()) {
-                stop();
-                return true;
-            }
-            return false;
-        }
-
-        private View childUnder(float x, float y) {
-            for (int i = recycler.getChildCount() - 1; i >= 0; i--) {
-                View child = recycler.getChildAt(i);
-                if (x >= child.getLeft() && x <= child.getRight() && y >= child.getTop() && y <= child.getBottom()) {
-                    return child;
-                }
-            }
-            return null;
-        }
-
-        private Object viewHolder(View child) throws Exception {
-            return recycler.getClass().getMethod("N", View.class).invoke(recycler, child);
-        }
-
-        private int position(View child) {
-            try {
-                Object holder = viewHolder(child);
-                return (Integer) holder.getClass().getMethod("getBindingAdapterPosition").invoke(holder);
-            } catch (Exception ex) {
-                return -1;
-            }
-        }
-
-        private List<Object> items() throws Exception {
-            Object adapter = recycler.getClass().getMethod("getAdapter").invoke(recycler);
-            Class<?> type = Class.forName("com.soundcloud.android.uniflow.android.UniflowAdapter", false, loader);
-            Field field = type.getDeclaredField("h");
-            field.setAccessible(true);
-            //noinspection unchecked
-            return (List<Object>) field.get(adapter);
-        }
-
-        private boolean isPlaylistAt(int position) {
-            try {
-                List<Object> items = items();
-                return position >= 0 && position < items.size()
-                        && items.get(position).getClass().getName().equals(PLAYLIST_ITEM_CLASS);
-            } catch (Exception ex) {
-                return false;
-            }
-        }
-
-        private boolean isPlaylist(View child) {
-            return isPlaylistAt(position(child));
-        }
-
-        private boolean canMove(int from, int to) {
-            return isPlaylistAt(from) && isPlaylistAt(to);
-        }
-
-        /**
-         * Moves exactly what the list reports: the adapter positions of the dragged and the target rows.
-         * The data and the notification must always match, otherwise RecyclerView crashes with
-         * "Inconsistency detected" on the next layout.
-         */
-        private void move(int from, int to) {
-            try {
-                List<Object> items = items();
-                if (from < 0 || to < 0 || from >= items.size() || to >= items.size()) return;
-                items.add(to, items.remove(from));
-                Object adapter = recycler.getClass().getMethod("getAdapter").invoke(recycler);
-                adapter.getClass().getMethod("m", int.class, int.class).invoke(adapter, from, to);
-                // SoundCloud may deliver a fresh list at any moment (like counts, sync) and diffs it against
-                // the adapter. Saving at every step keeps that list in the order on screen, otherwise the
-                // diff moves rows back under the finger and RecyclerView becomes inconsistent.
-                save();
-            } catch (Exception ex) {
-                Logger.printException(() -> "Could not move playlist", ex);
-            }
-        }
-
-        private void save() {
-            try {
-                StringBuilder order = new StringBuilder();
-                for (Object item : items()) {
-                    if (!item.getClass().getName().equals(PLAYLIST_ITEM_CLASS)) continue;
-                    String urn = urnOf(item);
-                    if (urn != null) order.append(urn).append('\n');
-                }
-                SharedPreferences preferences = preferences();
-                if (preferences != null) preferences.edit().putString(ORDER, order.toString()).apply();
-                Logger.printDebug(() -> "Saved playlist order");
-            } catch (Exception ex) {
-                Logger.printException(() -> "Could not save playlist order", ex);
-            }
-        }
-
-        private void startDrag(View child) {
-            try {
-                Object holder = viewHolder(child);
-                Class<?> holderType = Class.forName("androidx.recyclerview.widget.RecyclerView$ViewHolder", false, loader);
-                touchHelper.getClass().getMethod("r", holderType).invoke(touchHelper, holder);
-                child.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            } catch (Exception ex) {
-                Logger.printException(() -> "Could not start dragging", ex);
-            }
-        }
-
-        private void start() {
-            active = true;
-            wiggleChildren();
-        }
-
-        private void stop() {
-            if (!active) return;
-            active = false;
-            for (ObjectAnimator animator : wiggles) animator.cancel();
-            wiggles.clear();
-            for (int i = 0; i < recycler.getChildCount(); i++) recycler.getChildAt(i).setRotation(0);
-        }
-
-        private void wiggleChildren() {
-            for (int i = 0; i < recycler.getChildCount(); i++) {
-                View child = recycler.getChildAt(i);
-                Object running = child.getTag(TAG_WIGGLE);
-                if (running instanceof ObjectAnimator && ((ObjectAnimator) running).isRunning()) continue;
-                if (!isPlaylist(child)) continue;
-                float angle = (i % 2 == 0) ? 0.8f : -0.8f;
-                ObjectAnimator animator = ObjectAnimator.ofFloat(child, View.ROTATION, -angle, angle);
-                animator.setDuration(120 + (i % 3) * 15L);
-                animator.setRepeatMode(ValueAnimator.REVERSE);
-                animator.setRepeatCount(ValueAnimator.INFINITE);
-                animator.start();
-                child.setTag(TAG_WIGGLE, animator);
-                wiggles.add(animator);
-            }
-        }
+    private static boolean isPlaylistRow(Object item) {
+        return item.getClass().getName().equals(PLAYLIST_ITEM_CLASS);
     }
 
-    private static final int TAG_WIGGLE = 0x7f_ad_50_01;
+    private static void save(List<Object> rows) {
+        StringBuilder order = new StringBuilder();
+        for (Object item : rows) {
+            if (!isPlaylistRow(item)) continue;
+            String urn = urnOf(item);
+            if (urn != null) order.append(urn).append('\n');
+        }
+        SharedPreferences preferences = preferences();
+        if (preferences != null) preferences.edit().putString(ORDER, order.toString()).apply();
+    }
 }

@@ -195,7 +195,7 @@ public final class LocalAdditions {
         String key = String.valueOf(playlistUrn);
         int count = getShownEntries(key).size();
         Logger.printInfo(() -> "Track urns requested for " + key + ", local additions: " + count);
-        if (count == 0) return single;
+        if (count == 0 && !TrackOrder.hasOrder(key)) return single;
         try {
             return Rx.mapSingle(single, value -> {
                 List<Object> urns = new ArrayList<>((List<?>) value);
@@ -203,7 +203,7 @@ public final class LocalAdditions {
                     Object urn = toUrn(single.getClass().getClassLoader(), entry);
                     if (urn != null && !urns.contains(urn)) urns.add(urn);
                 }
-                return urns;
+                return TrackOrder.apply(key, urns);
             });
         } catch (Exception ex) {
             Logger.printException(() -> "Could not append local additions", ex);

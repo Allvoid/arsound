@@ -301,19 +301,23 @@ public final class ReVancedSettingsActivity extends Activity {
         ));
         list.addView(savedOptions);
         list.addView(createToggleRow(
-                text("Свой порядок плейлистов", "Custom playlist order"),
-                text("Долгое нажатие на плейлист в «Библиотека → Плейлисты» включает перестановку: плейлисты "
-                                + "покачиваются, зажатый можно перетащить. Касание выключает режим. Порядок хранится на телефоне.",
-                        "Long press a playlist in Library → Playlists to rearrange: playlists wiggle and the pressed one "
-                                + "can be dragged. A tap ends it. The order is kept on this phone."),
+                text("Свой порядок плейлистов и треков", "Custom playlist and track order"),
+                text("Долгое нажатие на плейлист в «Библиотека → Плейлисты» или на трек внутри плейлиста включает "
+                                + "перестановку: строки покачиваются, зажатую можно перетащить. Касание выключает режим. "
+                                + "Порядок хранится на телефоне, воспроизведение идёт в нём же.",
+                        "Long press a playlist in Library → Playlists, or a track inside a playlist, to rearrange: rows wiggle "
+                                + "and the pressed one can be dragged. A tap ends it. The order is kept on this phone and "
+                                + "playback follows it."),
                 Settings.isPlaylistOrderEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.PLAYLIST_ORDER, checked)
         ));
         list.addView(createActionRow(
-                text("Сбросить порядок плейлистов", "Reset playlist order"),
-                text("Вернуть сортировку SoundCloud.", "Go back to SoundCloud's sorting."),
+                text("Сбросить порядок", "Reset order"),
+                text("Вернуть порядок SoundCloud для плейлистов и треков во всех плейлистах.",
+                        "Go back to SoundCloud's order of playlists and of tracks in every playlist."),
                 v -> {
                     app.revanced.extension.soundcloud.local.PlaylistOrder.reset();
+                    app.revanced.extension.soundcloud.local.TrackOrder.resetAll();
                     Toast.makeText(this, text("Порядок сброшен", "Order reset"), Toast.LENGTH_SHORT).show();
                 }
         ));
