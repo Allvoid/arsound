@@ -27,6 +27,18 @@ private val downloadPermissionPatch = resourcePatch {
                     setAttribute("android:name", "android.permission.DOWNLOAD_WITHOUT_NOTIFICATION")
                 },
             )
+            // Reads tracks downloaded before a reinstall, which no longer belong to the app.
+            document.getNode("manifest").appendChild(
+                document.createElement("uses-permission").apply {
+                    setAttribute("android:name", "android.permission.READ_MEDIA_AUDIO")
+                },
+            )
+            document.getNode("manifest").appendChild(
+                document.createElement("uses-permission").apply {
+                    setAttribute("android:name", "android.permission.READ_EXTERNAL_STORAGE")
+                    setAttribute("android:maxSdkVersion", "32")
+                },
+            )
         }
     }
 }

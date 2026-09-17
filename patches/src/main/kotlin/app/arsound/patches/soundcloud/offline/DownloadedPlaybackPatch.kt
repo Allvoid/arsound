@@ -48,6 +48,15 @@ private val BytecodePatchContext.playerStateChangedMethod by gettingFirstMethodD
     definingClass("Lcom/soundcloud/android/exoplayer/BaseExoPlayer\$exoPlayerEventListener\$1;")
 }
 
+/**
+ * Builds what the player waits for before a queue item starts: the playback item and the
+ * notification metadata. For tracks both waited for SoundCloud's repository without a timeout.
+ */
+private val BytecodePatchContext.playbackDataMethod by gettingFirstMethodDeclaratively {
+    name("j")
+    definingClass("Lcom/soundcloud/android/playback/PlaybackMediaProvider;")
+}
+
 /** Play downloaded files: Plays tracks downloaded by Arsound from the file instead of streaming them. Part of the "Arsound" patch, not shown on its own. */
 val downloadedPlaybackPatch = bytecodePatch {
     dependsOn(downloadTrackPatch)
@@ -94,6 +103,40 @@ val downloadedPlaybackPatch = bytecodePatch {
                     return-object v0
                 """,
                 ExternalLabel("stream", getInstruction(localCheckIndex)),
+            )
+        }
+
+        playbackDataMethod.apply {
+            // Track branch: v4 = playbackItemForTrack(...).map(PlaybackItem), v8 TrackSourceInfo,
+            // v9/v10 start position, v11 TrackUrn; then goto to AppPlaybackData.
+            val itemIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as ReferenceInstruction).reference.toString().startsWith("Lio/reactivex/rxjava3/core/Maybe;->j(")
+            }
+            val itemRegister = getInstruction<OneRegisterInstruction>(itemIndex + 1).registerA
+            addInstructions(
+                itemIndex + 2,
+                """
+                    invoke-static { v$itemRegister, v8, v9, v10, v11 }, Lapp/revanced/extension/soundcloud/offline/InstantFilePlayback;->playbackItem(Ljava/lang/Object;Ljava/lang/Object;JLjava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$itemRegister
+                    check-cast v$itemRegister, Lio/reactivex/rxjava3/core/Maybe;
+                """,
+            )
+
+            // metadata.map(Success) is in v3; v4 is overwritten by the next instruction.
+            val metadataIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as ReferenceInstruction).reference.toString().startsWith("Lio/reactivex/rxjava3/core/Observable;->E(")
+            }
+            val metadataRegister = getInstruction<OneRegisterInstruction>(metadataIndex + 1).registerA
+            addInstructions(
+                metadataIndex + 2,
+                """
+                    move-object/from16 v4, p1
+                    invoke-static { v$metadataRegister, v4 }, Lapp/revanced/extension/soundcloud/offline/InstantFilePlayback;->metadata(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$metadataRegister
+                    check-cast v$metadataRegister, Lio/reactivex/rxjava3/core/Observable;
+                """,
             )
         }
 

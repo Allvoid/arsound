@@ -36,7 +36,7 @@ local/                            Локальные файлы, в Git не п�
 | **Download tracks** | Сначала авторский download (`/tracks/{id}/download`), затем поток `progressive` из `media.transcodings` через DownloadManager. HLS не сохраняется, Go/Go+ и preview отсекаются до запроса ссылки. Уже скачанные и скачивающиеся треки повторно не ставятся в очередь. |
 | **Control playback advertisements** | Флаг `no_audio_ads`, условия баннеров, реклама между треками и полноэкранная реклама при запуске. |
 | **Offline first playlists** | Сохранённая копия плейлиста отдаётся сразу, синхронизация уходит в фон; фоновое сохранение метаданных всех плейлистов библиотеки (`SyncInitiator`). |
-| **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`), таймаут обложки уведомления, повтор при сбое потока. |
+| **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`): элемент воспроизведения собирается сразу в `PlaybackMediaProvider.j`, без ожидания `TrackRepository` (`SYNC_MISSING`), метаданные уведомления ждут не больше 2 с. Таймаут обложки уведомления, повтор при сбое потока. Разрешение `READ_MEDIA_AUDIO` для файлов, скачанных до переустановки. |
 | **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, плашка статуса сети. |
 | **Local music** | Импорт файлов, плейлист «Импортированные», локальные добавления в любые плейлисты, свой порядок плейлистов в библиотеке. |
 | **Power saving** | Реже опрос входящих, без фоновых отчётов SDK, без WifiLock при проигрывании файла. |
@@ -71,6 +71,9 @@ local/
   tools/APKEditor-*.jar                  склейка split APK
   tools/apktool_*.jar, tools/jadx/       разбор APK
   sc-revanced.keystore                   ключ подписи мода
+  manager.keystore                       (необязательно) ключ, экспортированный из ReVanced Manager;
+  manager.keystore.alias, .password      его псевдоним и пароль из Manager → Настройки → Импорт и экспорт.
+                                         Если он есть, сборка ставится поверх версии из Manager без потери данных
   out/                                   готовые APK и логи
 ```
 

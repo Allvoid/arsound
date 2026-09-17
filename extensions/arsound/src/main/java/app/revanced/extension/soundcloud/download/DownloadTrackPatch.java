@@ -408,6 +408,62 @@ public final class DownloadTrackPatch {
         return file.isFile() && file.length() > 0 && file.canRead() ? file : null;
     }
 
+    /**
+     * Finds the files of tracks downloaded before the file name was remembered.
+     * <p>
+     * Such tracks are marked as downloaded, but their file cannot be told apart from the others: it is named
+     * after the stream on SoundCloud's CDN, not after the track. Without the name they were streamed instead of
+     * played from the file, and did not play at all without a network. The stream URL still ends with the same
+     * name, so it is resolved again once, while the network works.
+     *
+     * @return How many files were found.
+     */
+    public static int rememberOldFileNames() {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return 0;
+        java.io.File folder = new java.io.File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
+
+        int found = 0;
+        for (String trackId : getDownloadedTracks()) {
+            if (preferences.contains(TRACK_FILE_PREFIX + trackId)) continue;
+            try {
+                String url = resolveDownloadUrl(trackId);
+                String name = url == null ? null : Uri.parse(url).getLastPathSegment();
+                if (name == null) continue;
+                if (!new java.io.File(folder, name).isFile()) {
+                    String alternative = name.replaceFirst("(\\.[^.]+)$", "-1$1");
+                    if (!new java.io.File(folder, alternative).isFile()) continue;
+                    name = alternative;
+                }
+                preferences.edit().putString(TRACK_FILE_PREFIX + trackId, name).apply();
+                found++;
+            } catch (Exception ex) {
+                // Most likely no network; the next start tries again.
+                Logger.printInfo(() -> "Could not find the file of " + trackId + ": " + ex);
+                break;
+            }
+        }
+        int total = found;
+        Logger.printInfo(() -> "Old downloads: found files of " + total + " tracks");
+        return found;
+    }
+
+    /** Whether a downloaded file exists but cannot be read, because it was created before a reinstall. */
+    public static boolean hasUnreadableDownloads() {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return false;
+        java.io.File folder = new java.io.File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
+        for (String trackId : getDownloadedTracks()) {
+            String name = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+            if (name == null) continue;
+            java.io.File file = new java.io.File(folder, name);
+            if (file.exists() && !file.canRead()) return true;
+        }
+        return false;
+    }
+
     public static Set<String> getDownloadedTrackIds() {
         return new HashSet<>(getDownloadedTracks());
     }

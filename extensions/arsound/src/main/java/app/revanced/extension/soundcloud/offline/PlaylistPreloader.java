@@ -46,6 +46,9 @@ public final class PlaylistPreloader {
         Utils.runOnBackgroundThread(() -> {
             try {
                 Thread.sleep(START_DELAY_MS);
+                if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
+                    app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
+                }
                 preload();
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist preload failed", ex);

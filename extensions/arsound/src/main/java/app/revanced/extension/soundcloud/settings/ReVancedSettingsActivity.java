@@ -331,9 +331,9 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(createActionRow(
                 text("Сбросить данные SoundCloud", "Reset SoundCloud data"),
                 text("Удалит кэш, базу треков и настройки SoundCloud, как «Очистить данные» в Android. "
-                                + "Вход в аккаунт, настройки Arsound и список скачанных треков сохранятся.",
+                                + "Нужен интернет. Вход, настройки Arsound, скачанные треки и порядок плейлистов сохранятся.",
                         "Removes the SoundCloud cache, track database and app settings, like \"Clear data\" in Android. "
-                                + "Your login, Arsound settings and downloaded tracks list are kept."),
+                                + "Needs a connection. Login, Arsound settings, downloaded tracks and playlist order are kept."),
                 v -> confirmReset()
         ));
 
@@ -678,10 +678,12 @@ public final class ReVancedSettingsActivity extends Activity {
     private void confirmReset() {
         new android.app.AlertDialog.Builder(this)
                 .setTitle(text("Сбросить данные?", "Reset data?"))
-                .setMessage(text("SoundCloud перезапустится и заново загрузит библиотеку. "
-                                + "Вход, настройки Arsound и скачанные треки останутся.",
-                        "SoundCloud restarts and reloads your library. "
-                                + "Login, Arsound settings and downloaded tracks are kept."))
+                .setMessage(text("SoundCloud перезапустится и заново загрузит библиотеку с сервера — нужен рабочий интернет. "
+                                + "Без него плейлисты не откроются, пока сеть не появится. Вход, настройки Arsound, "
+                                + "скачанные треки, порядок плейлистов и импортированная музыка останутся.",
+                        "SoundCloud restarts and downloads your library from the server again, so a working connection "
+                                + "is needed. Without it playlists stay empty until the network is back. Login, Arsound "
+                                + "settings, downloaded tracks, playlist order and imported music are kept."))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Сбросить", "Reset"), (dialog, which) -> {
                     DataReset.resetKeepingLogin(this);
