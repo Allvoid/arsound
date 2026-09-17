@@ -107,21 +107,41 @@ public final class DownloadTrackPatch {
             Object trackUrn = trackItem.getClass().getMethod("getUrn").invoke(trackItem);
             String trackId = parseTrackId(trackUrn);
             if (trackId == null || !getDownloadedTracks().contains(trackId)) return icon;
-
-            if (downloadedIcon == null) {
-                Class<?> viewStateClass = Class.forName("com.soundcloud.android.ui.components.labels.icons.DownloadIcon$ViewState");
-                Class<?> stepClass = Class.forName("com.soundcloud.android.ui.components.labels.icons.DownloadIcon$Step");
-                Object downloadedStep = stepClass.getMethod("valueOf", String.class).invoke(null, "DOWNLOADED");
-                downloadedIcon = viewStateClass.getConstructor(stepClass).newInstance(downloadedStep);
-            }
-            return downloadedIcon;
+            return iconState(DownloadProgress.isDownloading(trackId) ? "DOWNLOADING" : "DOWNLOADED");
         } catch (Exception ex) {
             Logger.printException(() -> "getDownloadIcon failure", ex);
             return icon;
         }
     }
 
-    private static volatile Object downloadedIcon;
+    private static final java.util.Map<String, Object> iconStates = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** SoundCloud's download icon in the given step: DOWNLOADED, or DOWNLOADING with its spinner. */
+    private static Object iconState(String step) throws Exception {
+        Object state = iconStates.get(step);
+        if (state != null) return state;
+        Class<?> viewStateClass = Class.forName("com.soundcloud.android.ui.components.labels.icons.DownloadIcon$ViewState");
+        Class<?> stepClass = Class.forName("com.soundcloud.android.ui.components.labels.icons.DownloadIcon$Step");
+        state = viewStateClass.getConstructor(stepClass).newInstance(stepClass.getMethod("valueOf", String.class).invoke(null, step));
+        iconStates.put(step, state);
+        return state;
+    }
+
+    /**
+     * Injection point. Called when a playlist cell builds its download icon.
+     *
+     * @return The spinning icon while tracks started from this playlist are downloading, otherwise the original.
+     */
+    public static Object getPlaylistDownloadIcon(Object icon, Object playlist) {
+        try {
+            Object urn = playlist.getClass().getMethod("getUrn").invoke(playlist);
+            String id = parseTrackId(urn);
+            return DownloadProgress.isPlaylistDownloading(id) ? iconState("DOWNLOADING") : icon;
+        } catch (Exception ex) {
+            Logger.printException(() -> "getPlaylistDownloadIcon failure", ex);
+            return icon;
+        }
+    }
 
     public static String parseTrackId(Object trackUrn) {
         if (trackUrn == null) return null;
@@ -224,9 +244,16 @@ public final class DownloadTrackPatch {
      * @param resolvedUrl A file URL resolved moments ago, or null to resolve it now.
      */
     static boolean downloadSilently(Context context, String trackId, String resolvedUrl) throws Exception {
+        return downloadSilently(context, trackId, resolvedUrl, null);
+    }
+
+    /**
+     * @param playlistId The playlist the download was started from, which then shows the download icon.
+     */
+    static boolean downloadSilently(Context context, String trackId, String resolvedUrl, String playlistId) throws Exception {
         String fileUrl = resolvedUrl != null ? resolvedUrl : resolveDownloadUrl(trackId);
         if (fileUrl == null) return false;
-        enqueue(context, trackId, fileUrl, false);
+        enqueue(context, trackId, fileUrl, false, playlistId);
         return true;
     }
 
@@ -316,6 +343,10 @@ public final class DownloadTrackPatch {
     }
 
     private static void enqueue(Context context, String trackId, String fileUrl, boolean notify) {
+        enqueue(context, trackId, fileUrl, notify, null);
+    }
+
+    private static void enqueue(Context context, String trackId, String fileUrl, boolean notify, String playlistId) {
         Uri uri = Uri.parse(fileUrl);
         String fileName = uri.getLastPathSegment();
         // Author downloads can come from a link without an extension; players then do not recognise the file.
@@ -336,6 +367,7 @@ public final class DownloadTrackPatch {
                 .putStringSet(DOWNLOADED_TRACKS, tracks)
                 .putString(TRACK_FILE_PREFIX + trackId, fileName)
                 .apply();
+        DownloadProgress.onStarted(trackId, playlistId);
 
         if (notify) showToast(context, text("Скачивание началось: Музыка/Arsound", "Downloading to Music/Arsound"));
     }
@@ -469,6 +501,19 @@ public final class DownloadTrackPatch {
             if (file.exists() && !file.canRead()) return true;
         }
         return false;
+    }
+
+    /** File names in Music/Arsound mapped to their track ids. */
+    static java.util.Map<String, String> trackIdsByFileName() {
+        java.util.Map<String, String> result = new java.util.HashMap<>();
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return result;
+        for (java.util.Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+            if (entry.getKey().startsWith(TRACK_FILE_PREFIX) && entry.getValue() instanceof String) {
+                result.put((String) entry.getValue(), entry.getKey().substring(TRACK_FILE_PREFIX.length()));
+            }
+        }
+        return result;
     }
 
     public static Set<String> getDownloadedTrackIds() {

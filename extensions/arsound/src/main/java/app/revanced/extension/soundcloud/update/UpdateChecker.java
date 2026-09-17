@@ -71,12 +71,14 @@ public final class UpdateChecker {
                 showPendingRelease();
                 app.revanced.extension.soundcloud.network.NetworkBanner.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity);
+                app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity);
             }
 
             @Override
             public void onActivityPaused(Activity activity) {
                 if (resumedActivity.get() == activity) resumedActivity = new WeakReference<>(null);
                 app.revanced.extension.soundcloud.network.NetworkBanner.onActivityPaused(activity);
+                app.revanced.extension.soundcloud.download.DownloadProgress.onActivityPaused(activity);
             }
 
             @Override

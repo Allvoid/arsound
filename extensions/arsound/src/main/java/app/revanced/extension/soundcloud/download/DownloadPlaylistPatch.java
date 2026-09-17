@@ -190,7 +190,7 @@ public final class DownloadPlaylistPatch {
 
                 Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, downloaded "
                         + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download " + downloadable.size());
-                Utils.runOnMainThread(() -> showResult(context, ids.size(), alreadyDownloaded[0], alreadyDownloaded[1],
+                Utils.runOnMainThread(() -> showResult(context, playlistId, ids.size(), alreadyDownloaded[0], alreadyDownloaded[1],
                         downloadable, unavailableTitles));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
@@ -199,7 +199,7 @@ public final class DownloadPlaylistPatch {
         });
     }
 
-    private static void showResult(Context context, int total, int downloaded, int downloading, List<TrackInfo> downloadable,
+    private static void showResult(Context context, String playlistId, int total, int downloaded, int downloading, List<TrackInfo> downloadable,
                                    List<String> unavailableTitles) {
         int unavailable = total - downloaded - downloading - downloadable.size();
         StringBuilder summary = new StringBuilder();
@@ -231,11 +231,11 @@ public final class DownloadPlaylistPatch {
                 .setMessage(summary.toString().trim())
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Скачать " + downloadable.size(), "Download " + downloadable.size()),
-                        (d, which) -> downloadAll(context, downloadable))
+                        (d, which) -> downloadAll(context, playlistId, downloadable))
                 .show();
     }
 
-    private static void downloadAll(Context context, List<TrackInfo> tracks) {
+    private static void downloadAll(Context context, String playlistId, List<TrackInfo> tracks) {
         Context appContext = context.getApplicationContext();
         Utils.runOnBackgroundThread(() -> {
             int started = 0;
@@ -244,7 +244,7 @@ public final class DownloadPlaylistPatch {
                     // Checked again: the dialog may have stayed open while the same track was downloaded elsewhere.
                     if (DownloadTrackPatch.getDownloadState(appContext, track.id)
                             != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) continue;
-                    if (DownloadTrackPatch.downloadSilently(appContext, track.id, track.freshUrl())) started++;
+                    if (DownloadTrackPatch.downloadSilently(appContext, track.id, track.freshUrl(), playlistId)) started++;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Download failure for track " + track.id, ex);
                 }

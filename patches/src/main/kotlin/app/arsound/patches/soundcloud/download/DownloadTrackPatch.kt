@@ -90,6 +90,22 @@ val downloadTrackPatch = bytecodePatch {
             )
         }
 
+        // Playlist cells: the spinning download icon while tracks started from the playlist are downloading.
+        playlistMetaLabelMethod.apply {
+            val offlineIconIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_STATIC && methodReference?.definingClass?.endsWith("/OfflineStatesKt;") == true
+            }
+            val iconRegister = getInstruction<OneRegisterInstruction>(offlineIconIndex + 1).registerA
+            addInstructions(
+                offlineIconIndex + 2,
+                """
+                    invoke-static { v$iconRegister, p0 }, $EXTENSION_CLASS_DESCRIPTOR->getPlaylistDownloadIcon(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$iconRegister
+                    check-cast v$iconRegister, Lcom/soundcloud/android/ui/components/labels/icons/DownloadIcon${'$'}ViewState;
+                """,
+            )
+        }
+
         // Show SoundCloud's "downloaded" icon in the track cells of tracks downloaded with this patch.
         trackMetaLabelMethod.apply {
             // The method has many registers, so the track item is passed with a range invoke at the start,
