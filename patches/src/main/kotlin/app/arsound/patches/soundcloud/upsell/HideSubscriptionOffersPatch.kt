@@ -89,6 +89,19 @@ private val emptyActivityPatch = resourcePatch {
     }
 }
 
+/** Server-driven home blocks: a subscription banner and a banner ad slot. Their render methods draw nothing when hidden. */
+private val BytecodePatchContext.upsellPlaceholderRenderMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/sdui/components/renderers/UpsellPlaceholderRenderer;")
+    name("d")
+    parameterTypes("Lcom/soundcloud/android/sdui/components/SDUIView\$UpsellPlaceholder;", "Landroidx/compose/runtime/Composer;", "I")
+}
+
+private val BytecodePatchContext.bannerAdPlaceholderRenderMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/sdui/components/renderers/BannerAdPlaceholderRenderer;")
+    name("d")
+    parameterTypes("Lcom/soundcloud/android/sdui/components/SDUIView\$BannerAdPlaceholder;", "Landroidx/compose/runtime/Composer;", "I")
+}
+
 /** Hide subscription offers: Adds an option to remove the SoundCloud Go and Go+ offer screen and marketing popups. Part of the "Arsound" patch, not shown on its own. */
 val hideSubscriptionOffersPatch = bytecodePatch {
     dependsOn(settingsPatch, emptyActivityPatch)
@@ -96,6 +109,20 @@ val hideSubscriptionOffersPatch = bytecodePatch {
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Returning before the render method starts its Compose group leaves nothing on screen.
+        listOf(upsellPlaceholderRenderMethod, bannerAdPlaceholderRenderMethod).forEach { method ->
+            method.addInstructionsWithLabels(
+                0,
+                """
+                    invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->hideInAppMessages()Z
+                    move-result v0
+                    if-eqz v0, :draw
+                    return-void
+                """,
+                ExternalLabel("draw", method.getInstruction(0)),
+            )
+        }
+
         // Replace the intent to the offer screen before the screen is started, so it never draws.
         fun MutableMethod.filterReturnedIntent() {
             val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
