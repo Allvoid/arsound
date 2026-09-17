@@ -104,6 +104,33 @@ public final class PlaylistPreloader {
 
     /** Urns of the playlists and albums in the library, as SoundCloud lists them (liked and own). */
     private static List<String> libraryPlaylists(Object operations, ClassLoader loader) throws Exception {
+        List<String> urns = new ArrayList<>();
+        for (Object item : libraryItems(operations, loader, "LOCAL_ONLY")) {
+            String urn = String.valueOf(item.getClass().getMethod("getUrn").invoke(item));
+            // The saved local-music playlist has no server tracks to save.
+            if (!SavedPlaylist.isSavedPlaylist(urn)) urns.add(urn);
+        }
+        return urns;
+    }
+
+    /**
+     * The {@code PlaylistItem}s of the library.
+     *
+     * @param strategy A {@code LoadStrategy} name, for example LOCAL_ONLY or SYNCED.
+     * @return The items, empty if the app is not ready or loading failed.
+     */
+    public static List<Object> libraryItems(String strategy) {
+        Object operations = myPlaylistOperations;
+        if (operations == null) return new ArrayList<>();
+        try {
+            return libraryItems(operations, operations.getClass().getClassLoader(), strategy);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not list library playlists", ex);
+            return new ArrayList<>();
+        }
+    }
+
+    private static List<Object> libraryItems(Object operations, ClassLoader loader, String strategy) throws Exception {
         Class<?> optionsClass = Class.forName("com.soundcloud.android.foundation.domain.playable.PlaylistsOptions", false, loader);
         Class<?> sortByClass = Class.forName("com.soundcloud.android.foundation.domain.playable.SortBy", false, loader);
         Class<?> markerClass = Class.forName("kotlin.jvm.internal.DefaultConstructorMarker", false, loader);
@@ -114,20 +141,14 @@ public final class PlaylistPreloader {
 
         Class<?> filterClass = Class.forName("com.soundcloud.android.foundation.domain.playable.FilterAndSortOptions", false, loader);
         Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
-        Object localOnly = strategyClass.getMethod("valueOf", String.class).invoke(null, "LOCAL_ONLY");
+        Object loadStrategy = strategyClass.getMethod("valueOf", String.class).invoke(null, strategy);
         Object observable = operations.getClass().getMethod("myPlaylists", filterClass, strategyClass)
-                .invoke(operations, options, localOnly);
+                .invoke(operations, options, loadStrategy);
 
         Object list = Rx.blockingFirst(observable, 30, TimeUnit.SECONDS);
-        List<String> urns = new ArrayList<>();
-        if (list instanceof List) {
-            for (Object item : (List<?>) list) {
-                String urn = String.valueOf(item.getClass().getMethod("getUrn").invoke(item));
-                // The saved local-music playlist has no server tracks to save.
-                if (!SavedPlaylist.isSavedPlaylist(urn)) urns.add(urn);
-            }
-        }
-        return urns;
+        List<Object> items = new ArrayList<>();
+        if (list instanceof List) items.addAll((List<?>) list);
+        return items;
     }
 
     private static Object syncInitiator(Object playlistOperations, ClassLoader loader) throws Exception {

@@ -86,10 +86,13 @@ public final class SavedPlaylist {
             // Only a definite "not found" means it was deleted; network errors keep the playlist.
             if (!"404".equals(response[0])) {
                 renameIfNeeded(preferences, urn);
+                hideOtherCopies(preferences, urn);
                 return;
             }
             Logger.printInfo(() -> "Saved tracks playlist was deleted, creating it again");
         }
+        // After a reinstall the stored urn is gone, but the playlist still exists on the server.
+        if (urn == null && adoptExisting(preferences)) return;
         create(preferences);
     }
 
@@ -126,6 +129,68 @@ public final class SavedPlaylist {
         }
     }
 
+    /** Titles this playlist had in any language and version. */
+    private static final java.util.Set<String> KNOWN_TITLES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "Импортированные", "Imported", "Скачанные и импортированные", "Downloaded and imported"));
+    /** Extra copies created by older versions after a reinstall. Hidden from lists, not deleted. */
+    private static final String DUPLICATES = "saved_playlist_duplicates";
+
+    /**
+     * Finds the playlist created before the app data was lost, instead of creating another one.
+     * All empty library playlists with a known title count: the oldest one is used, the others are hidden.
+     */
+    private static boolean adoptExisting(SharedPreferences preferences) {
+        List<String> found = findCopies(app.revanced.extension.soundcloud.offline.PlaylistPreloader.libraryItems("LOCAL_ONLY"));
+        if (found.isEmpty()) {
+            found = findCopies(app.revanced.extension.soundcloud.offline.PlaylistPreloader.libraryItems("SYNCED"));
+        }
+        if (found.isEmpty()) return false;
+
+        // Ids grow over time: the smallest is the first playlist created.
+        Collections.sort(found, (first, second) -> Long.compare(idOf(first), idOf(second)));
+        String urn = found.get(0);
+        java.util.Set<String> duplicates = new java.util.HashSet<>(found.subList(1, found.size()));
+        preferences.edit()
+                .putString(PLAYLIST_URN, urn)
+                .putStringSet(DUPLICATES, duplicates)
+                .apply();
+        Logger.printInfo(() -> "Using the existing saved tracks playlist " + urn + ", hidden copies: " + duplicates.size());
+        return true;
+    }
+
+    /** Hides copies made by older versions next to the playlist in use. Checked once. */
+    private static void hideOtherCopies(SharedPreferences preferences, String urn) {
+        if (preferences.contains(DUPLICATES)) return;
+        List<String> found = findCopies(app.revanced.extension.soundcloud.offline.PlaylistPreloader.libraryItems("LOCAL_ONLY"));
+        found.remove(urn);
+        preferences.edit().putStringSet(DUPLICATES, new java.util.HashSet<>(found)).apply();
+        Logger.printInfo(() -> "Hidden copies of the saved tracks playlist: " + found.size());
+    }
+
+    private static List<String> findCopies(List<Object> items) {
+        List<String> urns = new ArrayList<>();
+        for (Object item : items) {
+            try {
+                String title = String.valueOf(item.getClass().getMethod("getTitle").invoke(item));
+                int tracks = (Integer) item.getClass().getMethod("getTracksCount").invoke(item);
+                if (tracks == 0 && KNOWN_TITLES.contains(title)) {
+                    urns.add(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)));
+                }
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not read a library playlist", ex);
+            }
+        }
+        return urns;
+    }
+
+    private static long idOf(String urn) {
+        try {
+            return Long.parseLong(urn.substring(urn.lastIndexOf(':') + 1));
+        } catch (NumberFormatException ex) {
+            return Long.MAX_VALUE;
+        }
+    }
+
     private static void create(SharedPreferences preferences) throws Exception {
         Object operations = playlistOperations;
         if (operations == null) return;
@@ -155,12 +220,16 @@ public final class SavedPlaylist {
             return Rx.mapObservable(observable, value -> {
                 SharedPreferences preferences = preferences();
                 String saved = preferences == null ? null : preferences.getString(PLAYLIST_URN, null);
+                java.util.Set<String> duplicates = preferences == null ? Collections.emptySet()
+                        : preferences.getStringSet(DUPLICATES, Collections.emptySet());
                 // Hidden by the user, or the whole option is off: the empty server playlist stays out of sight.
-                if (saved == null || (Settings.isSavedPlaylistEnabled() && !Settings.isSavedPlaylistHidden())) return value;
+                boolean hideSaved = saved != null && !(Settings.isSavedPlaylistEnabled() && !Settings.isSavedPlaylistHidden());
+                if (!hideSaved && duplicates.isEmpty()) return value;
                 List<Object> items = new ArrayList<>();
                 for (Object item : (List<?>) value) {
                     try {
-                        if (saved.equals(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)))) continue;
+                        String urn = String.valueOf(item.getClass().getMethod("getUrn").invoke(item));
+                        if ((hideSaved && saved.equals(urn)) || duplicates.contains(urn)) continue;
                     } catch (Exception ignored) {
                     }
                     items.add(item);
