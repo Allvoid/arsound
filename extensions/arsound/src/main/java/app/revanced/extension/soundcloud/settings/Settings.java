@@ -271,6 +271,33 @@ public final class Settings {
         preferences.edit().putBoolean(BLOCK_PLAYBACK_ADS, enabled).apply();
     }
 
+    public static final String HIDE_IMPORT_BANNER = "hide_import_banner";
+
+    /**
+     * Removes the playlist import banner ("Transfer your gems") from the library. On by default:
+     * the banner comes back on its own after it is closed.
+     */
+    public static boolean isHideImportBannerEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(HIDE_IMPORT_BANNER, true);
+    }
+
+    public static void setHideImportBannerEnabled(boolean enabled) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+
+        preferences.edit().putBoolean(HIDE_IMPORT_BANNER, enabled).apply();
+    }
+
+    /** Writes the debug log to a file, so a rare problem can be caught over several days. Off by default. */
+    public static boolean isFileLoggingEnabled() {
+        return app.revanced.extension.shared.debug.LogFile.isEnabled();
+    }
+
+    public static void setFileLoggingEnabled(boolean enabled) {
+        app.revanced.extension.shared.debug.LogFile.setEnabled(enabled);
+    }
+
     public static void setTelemetryEnabled(boolean enabled) {
         SharedPreferences preferences = getPreferences();
         if (preferences == null) return;

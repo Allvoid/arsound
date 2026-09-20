@@ -42,6 +42,7 @@ import app.revanced.extension.shared.Utils;
 @SuppressWarnings("unused")
 public final class DownloadTrackPatch {
     private static final String ROW_TAG = "arsound_download_row";
+    private static final String DELETE_ROW_TAG = "arsound_delete_row";
     private static final String PREFERENCES_NAME = "revanced_soundcloud_downloads";
     private static final String DOWNLOADED_TRACKS = "downloaded_tracks";
     /** Maps a track id to the file name in Music/Arsound. Downloads made before this key existed have no entry. */
@@ -156,6 +157,8 @@ public final class DownloadTrackPatch {
         LinearLayout parent = (LinearLayout) menuItems.getParent();
         View existing = parent.findViewWithTag(ROW_TAG);
         if (existing != null) parent.removeView(existing);
+        View existingDelete = parent.findViewWithTag(DELETE_ROW_TAG);
+        if (existingDelete != null) parent.removeView(existingDelete);
 
         Context context = dialog.getContext();
         ViewGroup row = createConstraintLayout(context);
@@ -184,6 +187,24 @@ public final class DownloadTrackPatch {
 
         parent.addView(row, parent.indexOfChild(menuItems) + 1, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        if (!downloaded) return;
+        // Only tracks downloaded by Arsound get this row; music imported from the phone is left alone.
+        ViewGroup deleteRow = createMenuRow(context, text("Удалить скачанный файл", "Delete the downloaded file"),
+                "ic_actions_delete", v -> {
+                    dialog.dismiss();
+                    Context appContext = context.getApplicationContext();
+                    Utils.runOnBackgroundThread(() -> {
+                        boolean deleted = deleteDownload(appContext, trackId);
+                        showToast(appContext, deleted
+                                ? text("Файл удалён", "The file is deleted")
+                                : text("Не удалось удалить файл", "Could not delete the file"));
+                        DownloadProgress.onDownloadsDeleted();
+                    });
+                });
+        deleteRow.setTag(DELETE_ROW_TAG);
+        parent.addView(deleteRow, parent.indexOfChild(row) + 1, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private static void requestDownload(Context context, String trackId) {
@@ -195,9 +216,9 @@ public final class DownloadTrackPatch {
                     showToast(context, text("Этот трек уже скачивается", "This track is already downloading"));
                     return;
                 }
-                String fileUrl = resolveDownloadUrl(trackId);
-                if (fileUrl == null) {
-                    showToast(context, text("Этот трек недоступен для скачивания", "This track is not available for download"));
+                TrackSource source = resolveSource(trackId);
+                if (!source.isDownloadable()) {
+                    showToast(context, unavailableMessage(source.status));
                     return;
                 }
                 // "Download again" replaces the file instead of saving a second copy next to it.
@@ -205,7 +226,7 @@ public final class DownloadTrackPatch {
                 if (previous != null && !previous.delete()) {
                     Logger.printInfo(() -> "Could not delete the previous file " + previous);
                 }
-                enqueue(context, trackId, fileUrl);
+                start(context, trackId, source, true, null);
             } catch (Exception ex) {
                 Logger.printException(() -> "Download request failure", ex);
                 showToast(context, text("Не удалось скачать трек", "Could not download the track"));
@@ -220,7 +241,10 @@ public final class DownloadTrackPatch {
         HttpURLConnection connection = openApiConnection(url);
 
         int code = connection.getResponseCode();
-        if (code != HttpURLConnection.HTTP_OK) return new String[]{String.valueOf(code), null};
+        if (code != HttpURLConnection.HTTP_OK) {
+            Logger.printInfo(() -> "API request failed, HTTP " + code + " for " + url);
+            return new String[]{String.valueOf(code), null};
+        }
 
         StringBuilder body = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
@@ -251,40 +275,171 @@ public final class DownloadTrackPatch {
      * @param playlistId The playlist the download was started from, which then shows the download icon.
      */
     static boolean downloadSilently(Context context, String trackId, String resolvedUrl, String playlistId) throws Exception {
-        String fileUrl = resolvedUrl != null ? resolvedUrl : resolveDownloadUrl(trackId);
-        if (fileUrl == null) return false;
-        enqueue(context, trackId, fileUrl, false, playlistId);
+        TrackSource source = resolvedUrl != null ? TrackSource.progressive(resolvedUrl) : resolveSource(trackId);
+        return downloadSilently(context, trackId, source, playlistId);
+    }
+
+    /**
+     * @param source A source resolved moments ago, or null to resolve it now.
+     */
+    static boolean downloadSilently(Context context, String trackId, TrackSource source, String playlistId) throws Exception {
+        if (source == null || !source.isFresh()) source = resolveSource(trackId);
+        if (!source.isDownloadable()) return false;
+        start(context, trackId, source, false, playlistId);
         return true;
     }
 
-    /** Resolves a fresh URL for each task because CDN stream URLs expire. */
+    /** Starts the download through the download manager, or through the HLS assembler. */
+    private static void start(Context context, String trackId, TrackSource source, boolean notify, String playlistId) {
+        if (source.status == TrackSource.Status.READY) {
+            enqueue(context, trackId, source.url, notify, playlistId);
+            return;
+        }
+
+        // The segments are downloaded, decrypted and packed by the app itself, which takes CPU time.
+        DownloadProgress.onAssemblyStarted(trackId, playlistId);
+        if (notify) {
+            showToast(context, text("Собираю трек из потока, это займёт немного времени…",
+                    "Assembling the track from its stream, this takes a moment…"));
+        }
+        Utils.runOnBackgroundThread(() -> {
+            String fileName = null;
+            try {
+                fileName = HlsDownloader.download(context, trackId, source.url, source.mimeType);
+            } finally {
+                if (fileName != null) {
+                    rememberDownload(trackId, fileName);
+                    if (notify) showToast(context, text("Трек сохранён: Музыка/Arsound", "Saved to Music/Arsound"));
+                } else if (notify) {
+                    showToast(context, text("Не удалось собрать трек", "Could not assemble the track"));
+                }
+                DownloadProgress.onAssemblyFinished(trackId);
+            }
+        });
+    }
+
+    /** Why a track cannot be downloaded, for the toast of the track menu. */
+    private static String unavailableMessage(TrackSource.Status status) {
+        switch (status) {
+            case AUDIO_ONLY_PREVIEW:
+                return text("Это только отрывок трека", "This track is only a preview");
+            case SUBSCRIPTION_REQUIRED:
+                return text("Этот трек доступен по подписке", "This track needs a subscription");
+            case DRM_PROTECTED:
+                return text("Этот трек защищён DRM: его можно слушать, но не сохранить",
+                        "This track is DRM protected: it plays, but cannot be saved");
+            default:
+                return text("Этот трек недоступен для скачивания", "This track is not available for download");
+        }
+    }
+
+    /**
+     * Resolves a fresh progressive URL for each task, because CDN stream URLs expire.
+     *
+     * @return The URL of a single file, or null when the track is only offered as HLS or not at all.
+     */
     static String resolveDownloadUrl(String trackId) throws Exception {
+        TrackSource source = resolveSource(trackId);
+        return source.status == TrackSource.Status.READY ? source.url : null;
+    }
+
+    /**
+     * Finds out how the audio of a track can be saved.
+     * <p>
+     * The author-provided file comes first, then the progressive stream of the player, then its HLS
+     * playlist, and finally the same request as other client profiles.
+     */
+    static TrackSource resolveSource(String trackId) throws Exception {
         String[] directDownload = apiGet(API_ROOT + "/tracks/" + trackId + "/download");
         if (directDownload[1] != null) {
             String redirect = new JSONObject(directDownload[1]).optString("redirectUri");
-            if (!redirect.isEmpty()) return redirect;
+            if (!redirect.isEmpty()) return TrackSource.progressive(redirect);
         }
 
+        TrackSource source = TrackSource.unavailable(TrackSource.Status.UNAVAILABLE);
         String[] trackResponse = apiGet(API_ROOT + "/tracks/" + trackId);
         if (trackResponse[1] == null) {
             Logger.printInfo(() -> "Could not load stream metadata for " + trackId + ", HTTP " + trackResponse[0]);
-            return null;
+        } else {
+            source = sourceOfTrack(trackId, new JSONObject(trackResponse[1]), DownloadTrackPatch::resolveStreamUrl);
+            if (source.isDownloadable()) return source;
         }
 
-        JSONObject track = new JSONObject(trackResponse[1]);
-        if (isRestrictedTrack(track)) {
-            Logger.printInfo(() -> "Not downloading restricted track " + trackId);
-            return null;
+        // The app is offered less than the web player: a track that is a preview here can be whole there.
+        TrackSource alternative = ClientProfiles.search(trackId);
+        if (alternative != null && alternative.isDownloadable()) return alternative;
+        // Neither client can save it: the stricter reason of the two is the one worth showing.
+        if (alternative != null && source.status == TrackSource.Status.REQUIRES_PROFILE_SEARCH) return alternative;
+        return source;
+    }
+
+    /** Turns a transcoding endpoint into the URL behind it, as some client. */
+    interface StreamResolver {
+        String resolve(String endpoint) throws Exception;
+    }
+
+    /** Reads the streams of a track response, whichever client asked for it. */
+    static TrackSource sourceOfTrack(String trackId, JSONObject track, StreamResolver resolver) throws Exception {
+        TrackSource.Status restriction = restrictionOf(track);
+        if (restriction != null) {
+            Logger.printInfo(() -> "Restricted track " + trackId + ": " + restriction);
+            return TrackSource.unavailable(restriction);
         }
 
-        JSONObject progressive = findProgressiveTranscoding(track.optJSONObject("media"));
-        if (progressive == null) {
-            Logger.printInfo(() -> "No progressive stream available for " + trackId);
-            return null;
+        // Every transcoding is tried in turn: the ones a client may not use answer with HTTP 404.
+        org.json.JSONArray transcodings = track.optJSONObject("media") == null
+                ? null : track.optJSONObject("media").optJSONArray("transcodings");
+        if (transcodings == null) return TrackSource.unavailable(TrackSource.Status.REQUIRES_PROFILE_SEARCH);
+
+        boolean drmSeen = false;
+        for (JSONObject transcoding : orderedTranscodings(transcodings)) {
+            JSONObject format = transcoding.optJSONObject("format");
+            String protocol = format == null ? "" : format.optString("protocol");
+            String mimeType = format == null ? null : format.optString("mime_type");
+
+            String url = resolver.resolve(transcoding.optString("url"));
+            if (url == null) continue;
+            if ("progressive".equals(protocol)) return TrackSource.progressive(url);
+
+            // A playlist locked by FairPlay or Widevine hands out its key only to a licence server.
+            if (HlsDownloader.isDrmProtected(url)) {
+                drmSeen = true;
+                Logger.printInfo(() -> "DRM protected stream for " + trackId + ": " + protocol);
+                continue;
+            }
+            return TrackSource.hls(url, mimeType);
         }
 
-        String endpoint = progressive.optString("url");
-        if (endpoint.isEmpty()) return null;
+        if (drmSeen) return TrackSource.unavailable(TrackSource.Status.DRM_PROTECTED);
+        Logger.printInfo(() -> "No stream of this client for " + trackId);
+        return TrackSource.unavailable(TrackSource.Status.REQUIRES_PROFILE_SEARCH);
+    }
+
+    /** One file first, then a plain playlist, then the encrypted ones; the best quality of each kind first. */
+    private static java.util.List<JSONObject> orderedTranscodings(org.json.JSONArray transcodings) {
+        java.util.List<JSONObject> ordered = new java.util.ArrayList<>();
+        for (int i = 0; i < transcodings.length(); i++) {
+            JSONObject transcoding = transcodings.optJSONObject(i);
+            if (transcoding == null) continue;
+            JSONObject format = transcoding.optJSONObject("format");
+            if (format == null || !format.optString("mime_type").startsWith("audio/")) continue;
+            ordered.add(transcoding);
+        }
+        java.util.Collections.sort(ordered, (left, right) -> rank(left) - rank(right));
+        return ordered;
+    }
+
+    private static int rank(JSONObject transcoding) {
+        JSONObject format = transcoding.optJSONObject("format");
+        String protocol = format == null ? "" : format.optString("protocol");
+        int kind = "progressive".equals(protocol) ? 0 : "hls".equals(protocol) ? 2 : 4;
+        // "hq" and "sq" carry more than "lq", so the low quality copy is left for last.
+        return kind + ("lq".equals(transcoding.optString("quality")) ? 1 : 0);
+    }
+
+    /** Turns the transcoding endpoint into the URL of the file or playlist behind it. */
+    static String resolveStreamUrl(String endpoint) throws Exception {
+        if (endpoint == null || endpoint.isEmpty()) return null;
         String[] streamResponse = apiGet(endpoint);
         if (streamResponse[1] == null) return null;
         String streamUrl = new JSONObject(streamResponse[1]).optString("url");
@@ -313,29 +468,20 @@ public final class DownloadTrackPatch {
         return connection;
     }
 
-    /** Prefer a single progressive MP3/AAC file; HLS is intentionally not saved as a playlist. */
-    private static JSONObject findProgressiveTranscoding(JSONObject media) {
-        if (media == null) return null;
-        org.json.JSONArray transcodings = media.optJSONArray("transcodings");
-        if (transcodings == null) return null;
-
-        for (int i = 0; i < transcodings.length(); i++) {
-            JSONObject transcoding = transcodings.optJSONObject(i);
-            if (transcoding == null) continue;
-            JSONObject format = transcoding.optJSONObject("format");
-            if (format == null || !"progressive".equals(format.optString("protocol"))) continue;
-            String mimeType = format.optString("mime_type");
-            if (mimeType.startsWith("audio/")) return transcoding;
-        }
-        return null;
-    }
-
-    /** Keeps the patch within the user's existing free, full-track playback entitlement. */
-    private static boolean isRestrictedTrack(JSONObject track) {
+    /**
+     * Keeps the patch within the user's existing free, full-track playback entitlement.
+     *
+     * @return Why the track is not downloaded, or null if nothing restricts it.
+     */
+    private static TrackSource.Status restrictionOf(JSONObject track) {
         String policy = track.optString("policy").toUpperCase(Locale.US);
         String monetization = track.optString("monetization_model").toUpperCase(Locale.US);
-        return policy.contains("SNIP") || policy.contains("BLOCK") || policy.contains("SUB")
-                || monetization.contains("SUB") || monetization.contains("GO_PLUS");
+        if (policy.contains("SNIP")) return TrackSource.Status.AUDIO_ONLY_PREVIEW;
+        if (policy.contains("SUB") || monetization.contains("SUB") || monetization.contains("GO_PLUS")) {
+            return TrackSource.Status.SUBSCRIPTION_REQUIRED;
+        }
+        if (policy.contains("BLOCK")) return TrackSource.Status.UNAVAILABLE;
+        return null;
     }
 
     private static void enqueue(Context context, String trackId, String fileUrl) {
@@ -361,15 +507,22 @@ public final class DownloadTrackPatch {
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         manager.enqueue(request);
 
-        Set<String> tracks = new HashSet<>(getDownloadedTracks());
-        tracks.add(trackId);
-        getPreferences().edit()
-                .putStringSet(DOWNLOADED_TRACKS, tracks)
-                .putString(TRACK_FILE_PREFIX + trackId, fileName)
-                .apply();
+        rememberDownload(trackId, fileName);
         DownloadProgress.onStarted(trackId, playlistId);
 
         if (notify) showToast(context, text("Скачивание началось: Музыка/Arsound", "Downloading to Music/Arsound"));
+    }
+
+    /** Marks the track as downloaded and remembers which file in Music/Arsound belongs to it. */
+    private static void rememberDownload(String trackId, String fileName) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+        Set<String> tracks = new HashSet<>(getDownloadedTracks());
+        tracks.add(trackId);
+        preferences.edit()
+                .putStringSet(DOWNLOADED_TRACKS, tracks)
+                .putString(TRACK_FILE_PREFIX + trackId, fileName)
+                .apply();
     }
 
     /**
@@ -406,6 +559,8 @@ public final class DownloadTrackPatch {
      * Tracks downloaded before the file name was remembered count as downloaded: their file cannot be checked.
      */
     public static DownloadState getDownloadState(Context context, String trackId) {
+        // An HLS track has no file until its segments are packed.
+        if (DownloadProgress.isAssembling(trackId)) return DownloadState.IN_PROGRESS;
         if (getDownloadedFile(trackId) != null) return DownloadState.DOWNLOADED;
         if (!getDownloadedTracks().contains(trackId)) return DownloadState.NOT_DOWNLOADED;
 
@@ -428,6 +583,59 @@ public final class DownloadTrackPatch {
             Logger.printException(() -> "Could not check running downloads", ex);
         }
         return DownloadState.NOT_DOWNLOADED;
+    }
+
+    /**
+     * Deletes the file of a downloaded track and forgets it.
+     * <p>
+     * Tracks imported from the phone are not touched: they are not downloads, and the user removes
+     * them one by one themselves.
+     *
+     * @return True if the track is no longer downloaded.
+     */
+    public static boolean deleteDownload(Context context, String trackId) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || trackId == null) return false;
+
+        String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+        boolean deleted = true;
+        if (fileName != null) deleted = deleteFile(context, fileName);
+
+        Set<String> tracks = new HashSet<>(getDownloadedTracks());
+        tracks.remove(trackId);
+        preferences.edit()
+                .putStringSet(DOWNLOADED_TRACKS, tracks)
+                .remove(TRACK_FILE_PREFIX + trackId)
+                .apply();
+        return deleted;
+    }
+
+    /**
+     * Since Android 10 a file in Music/Arsound can only be removed through the media store unless the
+     * app created it itself, so both ways are tried.
+     */
+    private static boolean deleteFile(Context context, String fileName) {
+        java.io.File file = new java.io.File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound/" + fileName);
+        if (file.isFile() && file.delete()) return true;
+
+        try {
+            int removed = context.getContentResolver().delete(
+                    android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    android.provider.MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                            + android.provider.MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?",
+                    new String[]{fileName, "%Music/Arsound%"});
+            if (removed > 0) return true;
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not delete " + fileName + " through the media store: " + ex);
+        }
+        // Nothing to delete is the same result as a deleted file: the track is not downloaded any more.
+        return !file.exists();
+    }
+
+    /** Whether the track was downloaded by Arsound, so a "delete" row makes sense for it. */
+    public static boolean isDownloaded(String trackId) {
+        return trackId != null && getDownloadedTracks().contains(trackId);
     }
 
     public static java.io.File getDownloadedFile(String trackId) {

@@ -32,25 +32,25 @@ import app.revanced.extension.shared.Utils;
 @SuppressWarnings("unused")
 public final class DownloadPlaylistPatch {
     private static final String ROW_TAG = "arsound_playlist_download_row";
+    private static final String DELETE_ROW_TAG = "arsound_playlist_delete_row";
     private static final Pattern PLAYLIST_ID = Pattern.compile("^soundcloud:playlists:(\\d+)$");
     private static final int TRACKS_PER_REQUEST = 50;
 
     private static final class TrackInfo {
         final String id;
         final String title;
-        /** The file URL found by the check. */
-        final String url;
-        final long resolvedAt = System.currentTimeMillis();
+        /** The source found by the check. Stream links expire, so a stale one is resolved again. */
+        final TrackSource source;
 
-        TrackInfo(String id, String title, String url) {
+        TrackInfo(String id, String title, TrackSource source) {
             this.id = id;
             this.title = title;
-            this.url = url;
+            this.source = source;
         }
 
-        /** Stream links expire, so a link from a dialog left open for long is resolved again. */
-        String freshUrl() {
-            return System.currentTimeMillis() - resolvedAt < 5 * 60_000 ? url : null;
+        /** Whether the track is packed by the app instead of the download manager. */
+        boolean needsAssembly() {
+            return source.status == TrackSource.Status.REQUIRES_HLS_PROCESSING;
         }
     }
 
@@ -131,6 +131,80 @@ public final class DownloadPlaylistPatch {
 
         menuItems.addView(row, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ViewGroup deleteRow = DownloadTrackPatch.createMenuRow(context,
+                text("Удалить скачанные треки", "Delete downloaded tracks"), "ic_actions_delete", v -> {
+                    Context activityContext = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
+                    dialog.dismiss();
+                    confirmDelete(activityContext, playlistId);
+                });
+        deleteRow.setTag(DELETE_ROW_TAG);
+        menuItems.addView(deleteRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    /**
+     * Asks before removing the files of the playlist tracks Arsound downloaded.
+     * Music imported from the phone is not a download and is never touched here.
+     */
+    private static void confirmDelete(Context context, String playlistId) {
+        DownloadTrackPatch.showToast(context, text("Считаю скачанные треки…", "Counting downloaded tracks…"));
+
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                List<String> downloaded = downloadedTracksOf(playlistId);
+                if (downloaded.isEmpty()) {
+                    DownloadTrackPatch.showToast(context,
+                            text("В этом плейлисте нет скачанных треков", "No downloaded tracks in this playlist"));
+                    return;
+                }
+
+                Utils.runOnMainThread(() -> new AlertDialog.Builder(context)
+                        .setTitle(text("Удалить скачанные треки?", "Delete downloaded tracks?"))
+                        .setMessage(text("Будут удалены файлы " + downloaded.size() + " треков из папки Музыка/Arsound. "
+                                        + "Импортированные с телефона треки останутся.",
+                                "The files of " + downloaded.size() + " tracks will be removed from Music/Arsound. "
+                                        + "Music imported from the phone stays."))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(text("Удалить " + downloaded.size(), "Delete " + downloaded.size()),
+                                (d, which) -> deleteAll(context.getApplicationContext(), downloaded))
+                        .show());
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not count downloaded tracks", ex);
+                DownloadTrackPatch.showToast(context,
+                        text("Не удалось посчитать скачанные треки", "Could not count the downloaded tracks"));
+            }
+        });
+    }
+
+    /** The tracks of the playlist that Arsound downloaded. */
+    private static List<String> downloadedTracksOf(String playlistId) throws Exception {
+        List<String> downloaded = new ArrayList<>();
+        String[] playlist = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/playlists/" + playlistId);
+        if (playlist[1] == null) return downloaded;
+
+        JSONArray tracks = new JSONObject(playlist[1]).getJSONArray("tracks");
+        for (int i = 0; i < tracks.length(); i++) {
+            String id = String.valueOf(tracks.getJSONObject(i).getLong("id"));
+            if (DownloadTrackPatch.isDownloaded(id)) downloaded.add(id);
+        }
+        return downloaded;
+    }
+
+    private static void deleteAll(Context context, List<String> trackIds) {
+        Utils.runOnBackgroundThread(() -> {
+            int deleted = 0;
+            for (String trackId : trackIds) {
+                if (DownloadTrackPatch.deleteDownload(context, trackId)) deleted++;
+            }
+            int count = deleted;
+            int failed = trackIds.size() - deleted;
+            DownloadTrackPatch.showToast(context, failed == 0
+                    ? text("Удалено треков: " + count, "Deleted " + count + " tracks")
+                    : text("Удалено: " + count + ", не удалось: " + failed,
+                    "Deleted " + count + ", could not delete " + failed));
+            DownloadProgress.onDownloadsDeleted();
+        });
     }
 
     private static void checkPlaylist(Context context, String playlistId) {
@@ -176,14 +250,18 @@ public final class DownloadPlaylistPatch {
                             default:
                                 // The track data does not show region blocks: only the file link does. The check
                                 // asks for it now, so "can be downloaded" means the download will really start.
-                                String url = null;
+                                TrackSource source = null;
                                 try {
-                                    url = DownloadTrackPatch.resolveDownloadUrl(id);
+                                    source = DownloadTrackPatch.resolveSource(id);
                                 } catch (Exception ex) {
                                     Logger.printInfo(() -> "No file link for " + id + ": " + ex);
                                 }
-                                if (url != null) downloadable.add(new TrackInfo(id, track.optString("title"), url));
-                                else unavailableTitles.add(track.optString("title"));
+                                if (source != null && source.isDownloadable()) {
+                                    downloadable.add(new TrackInfo(id, track.optString("title"), source));
+                                } else {
+                                    unavailableTitles.add(track.optString("title")
+                                            + (source == null ? "" : " (" + source.reason() + ")"));
+                                }
                         }
                     }
                 }
@@ -225,7 +303,12 @@ public final class DownloadPlaylistPatch {
         }
 
         summary.append('\n').append(text("Будут скачаны:", "Will be downloaded:")).append('\n');
-        for (TrackInfo track : downloadable) summary.append("• ").append(track.title).append('\n');
+        for (TrackInfo track : downloadable) {
+            summary.append("• ").append(track.title);
+            // Such a track is assembled from its stream by the app, which takes a few seconds of CPU time.
+            if (track.needsAssembly()) summary.append(text(" (фоновая обработка)", " (background processing)"));
+            summary.append('\n');
+        }
 
         builder.setTitle(text("Можно скачать ещё " + downloadable.size(), downloadable.size() + " more can be downloaded"))
                 .setMessage(summary.toString().trim())
@@ -244,7 +327,7 @@ public final class DownloadPlaylistPatch {
                     // Checked again: the dialog may have stayed open while the same track was downloaded elsewhere.
                     if (DownloadTrackPatch.getDownloadState(appContext, track.id)
                             != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) continue;
-                    if (DownloadTrackPatch.downloadSilently(appContext, track.id, track.freshUrl(), playlistId)) started++;
+                    if (DownloadTrackPatch.downloadSilently(appContext, track.id, track.source, playlistId)) started++;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Download failure for track " + track.id, ex);
                 }
