@@ -117,6 +117,8 @@ public class Logger {
         // Do not include "revanced:" prefix in clipboard logs.
         String managerToastString = className + ": " + logText;
         LogBufferManager.appendToLogBuffer(managerToastString);
+        // Kept on disk as well, so a problem that shows up once in days can still be looked at.
+        app.revanced.extension.shared.debug.LogFile.append(logLevel.name(), className, logText);
 
         String logTag = REVANCED_LOG_TAG_PREFIX + className;
         switch (logLevel) {

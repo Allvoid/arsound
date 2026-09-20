@@ -3,7 +3,9 @@ package app.arsound.patches.soundcloud
 import app.arsound.patches.all.misc.packagename.changePackageNamePatch
 import app.arsound.patches.soundcloud.ads.playbackAdsPatch
 import app.arsound.patches.soundcloud.analytics.disableTelemetryPatch
+import app.arsound.patches.soundcloud.debug.playerBarLogPatch
 import app.arsound.patches.soundcloud.download.downloadTrackPatch
+import app.arsound.patches.soundcloud.library.hideImportBannerPatch
 import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
 import app.arsound.patches.soundcloud.misc.appname.appNamePatch
@@ -55,6 +57,7 @@ val arsoundBaseGroup = arsoundGroup(
     "Меню «Arsound» в настройках SoundCloud, своя иконка, выключенная телеметрия, проверка обновлений. " +
         "Ставится рядом с оригинальным SoundCloud.",
     disableTelemetryPatch,
+    playerBarLogPatch,
 )
 
 @Suppress("unused")
@@ -63,6 +66,7 @@ val arsoundNoAdsGroup = arsoundGroup(
     "Нет рекламы между треками, баннеров и полноэкранной рекламы; нет предложений подписки Go и Go+.",
     playbackAdsPatch,
     hideSubscriptionOffersPatch,
+    hideImportBannerPatch,
 )
 
 @Suppress("unused")

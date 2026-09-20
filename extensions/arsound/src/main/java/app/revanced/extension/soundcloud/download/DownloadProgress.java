@@ -33,6 +33,8 @@ public final class DownloadProgress {
 
     /** Track ids currently downloading. Replaced as a whole, read from any thread. */
     private static volatile Set<String> downloading = Collections.emptySet();
+    /** Track ids the app downloads and packs itself, which the download manager does not know about. */
+    private static volatile Set<String> assembling = Collections.emptySet();
     /** Playlist id to the track ids started from its "Check track downloads" dialog. */
     private static final Map<String, Set<String>> playlistTracks = new HashMap<>();
 
@@ -55,6 +57,30 @@ public final class DownloadProgress {
         }
     }
 
+    public static boolean isAssembling(String trackId) {
+        return trackId != null && assembling.contains(trackId);
+    }
+
+    /** Called when the app starts to download and pack an HLS track itself. */
+    static void onAssemblyStarted(String trackId, String playlistId) {
+        Set<String> updated = new HashSet<>(assembling);
+        updated.add(trackId);
+        assembling = updated;
+        onStarted(trackId, playlistId);
+    }
+
+    /** Called when an HLS track is packed, or when packing failed. */
+    static void onAssemblyFinished(String trackId) {
+        Set<String> updated = new HashSet<>(assembling);
+        updated.remove(trackId);
+        assembling = updated;
+
+        Set<String> stillDownloading = new HashSet<>(downloading);
+        stillDownloading.remove(trackId);
+        downloading = stillDownloading;
+        Utils.runOnMainThread(() -> redrawLists(resumed.get()));
+    }
+
     /** Called when a download is queued. */
     static void onStarted(String trackId, String playlistId) {
         Set<String> updated = new HashSet<>(downloading);
@@ -71,6 +97,11 @@ public final class DownloadProgress {
             redrawLists(resumed.get());
             startPolling();
         });
+    }
+
+    /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
+    static void onDownloadsDeleted() {
+        Utils.runOnMainThread(() -> redrawLists(resumed.get()));
     }
 
     public static void onActivityResumed(Activity activity) {
@@ -95,6 +126,8 @@ public final class DownloadProgress {
         Context context = activity.getApplicationContext();
         Utils.runOnBackgroundThread(() -> {
             Set<String> current = queryDownloading(context);
+            // Tracks packed by the app are not known to the download manager, so they are kept.
+            current.addAll(assembling);
             boolean changed = !current.equals(downloading);
             downloading = current;
             Utils.runOnMainThread(() -> {

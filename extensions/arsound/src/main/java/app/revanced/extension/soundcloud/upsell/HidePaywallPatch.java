@@ -51,6 +51,8 @@ public final class HidePaywallPatch {
      * @return The tabs without the Upgrade tab if it is hidden, otherwise the original list.
      */
     public static List<?> filterNavigationTabs(List<?> tabs) {
+        Logger.printDebug(() -> "Bottom bar tabs before: " + names(tabs)
+                + ", hiding the Upgrade tab: " + Settings.isHideUpgradeTabEnabled());
         if (tabs == null || !Settings.isHideUpgradeTabEnabled()) return tabs;
 
         List<Object> filtered = new ArrayList<>(tabs.size());
@@ -63,7 +65,66 @@ public final class HidePaywallPatch {
             }
             filtered.add(tab);
         }
+        Logger.printDebug(() -> "Bottom bar tabs after: " + names(filtered));
         return filtered;
+    }
+
+    /**
+     * Injection point. Called when a bottom bar tab is tapped, before the screen is switched.
+     * <p>
+     * SoundCloud addresses a tab by its position in the tab list, so this records which position was
+     * tapped and which tab it landed on. A tab that opens the screen of another one shows up here.
+     */
+    public static void logNavigationTap(Object navigationView, android.view.MenuItem item) {
+        try {
+            int tapped = item == null ? -1 : item.getItemId();
+            CharSequence title = item == null ? "" : item.getTitle();
+            int selected = selectedItemId(navigationView);
+            Logger.printDebug(() -> "Bottom bar tap: position " + tapped + " (" + title + ")"
+                    + ", position now selected " + selected);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not log the bottom bar tap", ex);
+        }
+    }
+
+    /** The bottom bar keeps the selected tab as the position it had when the bar was built. */
+    private static int selectedItemId(Object mainNavigationView) throws Exception {
+        if (mainNavigationView == null) return -1;
+
+        java.lang.reflect.Field field = mainNavigationView.getClass().getDeclaredField("navigationView");
+        field.setAccessible(true);
+        Object bar = field.get(mainNavigationView);
+        if (bar == null) return -1;
+
+        return (int) bar.getClass().getMethod("getSelectedItemId").invoke(bar);
+    }
+
+    private static String name(Object target) {
+        return target == null ? "none" : target.getClass().getSimpleName();
+    }
+
+    private static String names(List<?> tabs) {
+        if (tabs == null) return "none";
+
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < tabs.size(); i++) {
+            if (i != 0) text.append(", ");
+            text.append(i).append('=').append(name(tabs.get(i)));
+        }
+        return text.toString();
+    }
+
+    /**
+     * Injection point. Called with SoundCloud's answer to whether the library may show its
+     * "Get SoundCloud Go+" banner.
+     *
+     * @return False while subscription offers are hidden, otherwise the original answer.
+     */
+    public static boolean filterUpsellBanner(boolean canDisplay) {
+        if (!canDisplay || !Settings.isHideSubscriptionOffersEnabled()) return canDisplay;
+
+        Logger.printDebug(() -> "Hiding the subscription banner in the library");
+        return false;
     }
 
     /**

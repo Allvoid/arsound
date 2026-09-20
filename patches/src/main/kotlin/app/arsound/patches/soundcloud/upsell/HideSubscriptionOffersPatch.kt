@@ -5,6 +5,7 @@ import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
+import app.revanced.patcher.extensions.instructions
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
@@ -54,6 +55,29 @@ internal val BytecodePatchContext.setupNavigationModelMethod by gettingFirstMeth
     parameterTypes("Lcom/soundcloud/android/architecture/view/RootActivity;", "Ljava/util/List;")
 }
 
+/**
+ * Called when a bottom bar tab is tapped. Used only to record which position was tapped,
+ * to catch the rare case of a tab opening the screen of another one.
+ */
+internal val BytecodePatchContext.navigationItemSelectedMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/ui/main/MainNavigationView;")
+    name("createOnNavigationItemSelectedListener\$lambda\$0")
+    returnType("Z")
+    parameterTypes(
+        "Lcom/soundcloud/android/ui/main/MainNavigationView;",
+        "Lcom/soundcloud/android/architecture/view/RootActivity;",
+        "Landroid/view/MenuItem;",
+    )
+}
+
+/** Decides whether the library may show its own "Get SoundCloud Go+" banner. */
+internal val BytecodePatchContext.canDisplayUpsellBannerMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/upsell/InlineUpsellOperations;")
+    name("canDisplayBanner")
+    returnType("Z")
+    parameterTypes("Lcom/soundcloud/android/foundation/upsell/UpsellContext;")
+}
+
 internal val BytecodePatchContext.showInAppMessageMethod by gettingFirstMethodDeclaratively("Failed to show in-app message") {
     definingClass("Lcom/soundcloud/android/moengage/DefaultMoEngageSdk;")
 }
@@ -76,15 +100,21 @@ private val emptyActivityPatch = resourcePatch {
             )
         }
 
-        // "Get Pro" in the title bar of the home screen. Nothing can be bought in a mod installed outside Google Play.
-        document("res/layout/upsell_creator_action_bar_title_layout.xml").use { document ->
-            val root = document.documentElement
-            root.setAttribute("android:layout_width", "0dp")
-            val button = document.getElementsByTagName("com.soundcloud.android.ui.components.text.SoundCloudTextView").item(0)
-                as org.w3c.dom.Element
-            button.setAttribute("android:layout_width", "0dp")
-            button.setAttribute("android:visibility", "gone")
-            button.setAttribute("android:text", "")
+        // "Get Pro" and "Upgrade" in the title bar. Nothing can be bought in a mod installed outside Google Play,
+        // and the buttons do nothing once the paywall is gone.
+        listOf(
+            "res/layout/upsell_creator_action_bar_title_layout.xml",
+            "res/layout/upsell_consumer_action_bar_title_layout.xml",
+        ).forEach { layout ->
+            document(layout).use { document ->
+                val root = document.documentElement
+                root.setAttribute("android:layout_width", "0dp")
+                val button = document.getElementsByTagName("com.soundcloud.android.ui.components.text.SoundCloudTextView").item(0)
+                    as org.w3c.dom.Element
+                button.setAttribute("android:layout_width", "0dp")
+                button.setAttribute("android:visibility", "gone")
+                button.setAttribute("android:text", "")
+            }
         }
     }
 }
@@ -159,6 +189,36 @@ val hideSubscriptionOffersPatch = bytecodePatch {
             """
                 invoke-static { p2 }, $EXTENSION_CLASS_DESCRIPTOR->filterNavigationTabs(Ljava/util/List;)Ljava/util/List;
                 move-result-object p2
+            """,
+        )
+
+        // The library has a banner of its own, next to the server-driven blocks above.
+        // The answer is replaced at every exit, reusing the register that already holds it.
+        canDisplayUpsellBannerMethod.apply {
+            instructions
+                .withIndex()
+                .filter { (_, instruction) -> instruction.opcode == Opcode.RETURN }
+                .map { (index, _) -> index }
+                .reversed()
+                .forEach { returnIndex ->
+                    val register = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+
+                    addInstructions(
+                        returnIndex,
+                        """
+                            invoke-static/range { v$register .. v$register }, $EXTENSION_CLASS_DESCRIPTOR->filterUpsellBanner(Z)Z
+                            move-result v$register
+                        """,
+                    )
+                }
+        }
+
+        // Records every tab tap in the log. The bottom bar addresses a tab by its position in the tab
+        // list, so a stale position shows up here as a tap that lands on the wrong screen.
+        navigationItemSelectedMethod.addInstructions(
+            0,
+            """
+                invoke-static { p0, p2 }, $EXTENSION_CLASS_DESCRIPTOR->logNavigationTap(Ljava/lang/Object;Landroid/view/MenuItem;)V
             """,
         )
 

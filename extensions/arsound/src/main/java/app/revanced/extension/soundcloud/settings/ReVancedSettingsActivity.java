@@ -309,6 +309,15 @@ public final class ReVancedSettingsActivity extends Activity {
                 Settings.isHideUpgradeTabEnabled(),
                 (button, checked) -> Settings.setHideUpgradeTabEnabled(checked)
         ));
+        list.addView(createToggleRow(
+                text("Скрыть баннер импорта плейлистов", "Hide the playlist import banner"),
+                text("Убирает из библиотеки баннер «Transfer your gems». Кнопка «закрыть» у него временная: "
+                                + "через несколько дней баннер возвращается сам. Применится после перезапуска.",
+                        "Removes the \"Transfer your gems\" banner from the library. Its close button only hides it "
+                                + "for a few days, after which it comes back. Applies after a restart."),
+                Settings.isHideImportBannerEnabled(),
+                (button, checked) -> Settings.setHideImportBannerEnabled(checked)
+        ));
     }
 
     private void addRecommendationsSection(LinearLayout list) {
@@ -623,6 +632,102 @@ public final class ReVancedSettingsActivity extends Activity {
         );
         delayDescription[0] = (TextView) ((ViewGroup) delayRow).getChildAt(1);
         container.addView(delayRow);
+
+        addLogOptions(container);
+    }
+
+    /**
+     * The rare bugs of this mod show up once in a few days, so logcat is of no use: it needs a computer
+     * and is wiped on reboot. With this on, the log is kept in a file that can be saved and read later.
+     */
+    private void addLogOptions(LinearLayout container) {
+        TextView[] logDescription = new TextView[1];
+
+        container.addView(createToggleRow(
+                text("Журнал в файл", "Write the log to a file"),
+                text("Пишет подробный журнал работы мода в файл внутри приложения. Нужен, чтобы поймать редкую "
+                                + "поломку: включите и пользуйтесь как обычно, а когда баг повторится — сохраните журнал. "
+                                + "Журнал занимает не больше 2 МБ: самые старые записи затираются новыми.",
+                        "Writes a detailed log of the mod into a file inside the app. Use it to catch a rare bug: "
+                                + "turn it on, keep using the app, and save the log once the bug shows up again. "
+                                + "The log never grows past 2 MB: the oldest lines are dropped."),
+                Settings.isFileLoggingEnabled(),
+                (button, checked) -> {
+                    Settings.setFileLoggingEnabled(checked);
+                    // Without this the detailed lines are never written at all.
+                    app.revanced.extension.shared.settings.BaseSettings.DEBUG.save(checked);
+                    if (logDescription[0] != null) logDescription[0].setText(logSizeDescription());
+                }
+        ));
+
+        View saveRow = createActionRow(
+                text("Сохранить журнал", "Save the log"),
+                logSizeDescription(),
+                v -> saveLogToDownloads()
+        );
+        logDescription[0] = (TextView) ((ViewGroup) saveRow).getChildAt(1);
+        container.addView(saveRow);
+
+        container.addView(createActionRow(
+                text("Очистить журнал", "Clear the log"),
+                text("Удаляет накопленные записи. Делайте это перед тем, как ловить баг заново.",
+                        "Deletes what was written so far. Do this before trying to catch a bug again."),
+                v -> {
+                    app.revanced.extension.shared.debug.LogFile.clear();
+                    if (logDescription[0] != null) logDescription[0].setText(logSizeDescription());
+                    Toast.makeText(this, text("Журнал очищен", "The log is cleared"), Toast.LENGTH_SHORT).show();
+                }
+        ));
+    }
+
+    private String logSizeDescription() {
+        long size = app.revanced.extension.shared.debug.LogFile.size();
+        if (size == 0) {
+            return text("Журнал пуст.", "The log is empty.");
+        }
+        String kilobytes = (size / 1024) + " " + text("КБ", "KB");
+        return text("Записано " + kilobytes + ". Нажмите, чтобы сохранить файл в Загрузки.",
+                kilobytes + " written. Tap to save the file to Downloads.");
+    }
+
+    private void saveLogToDownloads() {
+        Utils.runOnBackgroundThread(() -> {
+            String log = app.revanced.extension.shared.debug.LogFile.read();
+            if (log.isEmpty()) {
+                Utils.runOnMainThread(() -> Toast.makeText(this,
+                        text("Журнал пуст", "The log is empty"), Toast.LENGTH_SHORT).show());
+                return;
+            }
+
+            String name = "arsound-log-"
+                    + new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US)
+                    .format(new java.util.Date()) + ".txt";
+            try {
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                        android.os.Environment.DIRECTORY_DOWNLOADS);
+
+                android.net.Uri uri = getContentResolver().insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) throw new java.io.IOException("The file could not be created");
+
+                try (java.io.OutputStream output = getContentResolver().openOutputStream(uri)) {
+                    if (output == null) throw new java.io.IOException("The file could not be opened");
+                    output.write(log.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+
+                Utils.runOnMainThread(() -> Toast.makeText(this,
+                        text("Сохранено: Загрузки/" + name, "Saved to Downloads/" + name),
+                        Toast.LENGTH_LONG).show());
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not save the log", ex);
+                Utils.runOnMainThread(() -> Toast.makeText(this,
+                        text("Не удалось сохранить журнал", "Could not save the log"),
+                        Toast.LENGTH_LONG).show());
+            }
+        });
     }
 
     private String networkDelayDescription() {
