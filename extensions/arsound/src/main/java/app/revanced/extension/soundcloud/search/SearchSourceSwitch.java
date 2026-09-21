@@ -130,6 +130,8 @@ public final class SearchSourceSwitch {
         final int textColor;
         final TextView soundCloudButton;
         final TextView arsoundButton;
+        final LinearLayout arsoundSegment;
+        final TextView help;
         final FrameLayout results;
         final LinearLayout list;
         final TextView status;
@@ -149,7 +151,6 @@ public final class SearchSourceSwitch {
             bar.setOrientation(LinearLayout.HORIZONTAL);
             bar.setGravity(Gravity.CENTER_VERTICAL);
             // Same side margin as the search field; the help button sits under the cast button.
-            bar.setPadding(dp(context, 16), dp(context, 4), 0, dp(context, 8));
 
             LinearLayout toggle = new LinearLayout(context);
             toggle.setOrientation(LinearLayout.HORIZONTAL);
@@ -161,26 +162,29 @@ public final class SearchSourceSwitch {
             soundCloudButton = segment("SoundCloud");
             arsoundButton = segment("Arsound");
             toggle.addView(soundCloudButton, new LinearLayout.LayoutParams(0, dp(context, 38), 1));
-            toggle.addView(arsoundButton, new LinearLayout.LayoutParams(0, dp(context, 38), 1));
             soundCloudButton.setOnClickListener(v -> select(false));
-            arsoundButton.setOnClickListener(v -> select(true));
-            bar.addView(toggle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-            TextView help = new TextView(context);
+            // The Arsound half holds its name and a small "?" that explains the search.
+            arsoundSegment = new LinearLayout(context);
+            arsoundSegment.setOrientation(LinearLayout.HORIZONTAL);
+            arsoundSegment.setGravity(Gravity.CENTER);
+            arsoundSegment.setOnClickListener(v -> select(true));
+            arsoundSegment.addView(arsoundButton);
+            help = new TextView(context);
             help.setText("?");
             help.setGravity(Gravity.CENTER);
-            help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+            help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
             help.setTypeface(Typeface.DEFAULT_BOLD);
-            help.setTextColor(textColor);
-            GradientDrawable circle = new GradientDrawable();
-            circle.setShape(GradientDrawable.OVAL);
-            circle.setStroke(dp(context, 1.5f), withAlpha(textColor, 0x80));
-            help.setBackground(circle);
+            help.setIncludeFontPadding(false);
             help.setContentDescription(text("Что такое поиск Arsound", "What Arsound search is"));
             help.setOnClickListener(v -> showHelp(context));
-            FrameLayout helpBox = new FrameLayout(context);
-            helpBox.addView(help, new FrameLayout.LayoutParams(dp(context, 30), dp(context, 30), Gravity.CENTER));
-            bar.addView(helpBox, new LinearLayout.LayoutParams(dp(context, 64), dp(context, 44)));
+            LinearLayout.LayoutParams helpParams = new LinearLayout.LayoutParams(dp(context, 17), dp(context, 17));
+            helpParams.leftMargin = dp(context, 6);
+            arsoundSegment.addView(help, helpParams);
+            toggle.addView(arsoundSegment, new LinearLayout.LayoutParams(0, dp(context, 38), 1));
+            // As wide as the search field, which ends before the cast button.
+            bar.setPadding(dp(context, 16), dp(context, 4), dp(context, 64), dp(context, 8));
+            bar.addView(toggle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             coordinator.addView(bar, 1, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -247,20 +251,26 @@ public final class SearchSourceSwitch {
 
         /** Shows the results of the selected source. */
         void apply() {
-            style(soundCloudButton, !arsoundSelected);
-            style(arsoundButton, arsoundSelected);
+            style(soundCloudButton, soundCloudButton, !arsoundSelected);
+            style(arsoundSegment, arsoundButton, arsoundSelected);
+            int helpColor = arsoundSelected ? inverse(textColor) : withAlpha(textColor, 0xB0);
+            help.setTextColor(helpColor);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setStroke(dp(context, 1.2f), helpColor);
+            help.setBackground(circle);
             soundCloudResults.setVisibility(arsoundSelected ? View.GONE : View.VISIBLE);
             results.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
             if (arsoundSelected) search();
         }
 
-        void style(TextView segment, boolean selected) {
+        void style(View segment, TextView label, boolean selected) {
             GradientDrawable fill = new GradientDrawable();
             fill.setCornerRadius(dp(context, 10));
             fill.setColor(selected ? withAlpha(textColor, 0xFF) : Color.TRANSPARENT);
             segment.setBackground(fill);
             // The selected half is filled with the text color, so its label takes the page color.
-            segment.setTextColor(selected ? inverse(textColor) : withAlpha(textColor, 0xB0));
+            label.setTextColor(selected ? inverse(textColor) : withAlpha(textColor, 0xB0));
         }
 
         void search() {
@@ -290,12 +300,16 @@ public final class SearchSourceSwitch {
                 }
                 List<OtherSource.Track> tracks = found;
                 boolean failed = error != null;
+                boolean blocked = isRegionBlock(error);
                 handler.post(() -> {
                     if (current != generation) return;
                     spinner.setVisibility(View.GONE);
                     if (failed || tracks.isEmpty()) {
                         status.setVisibility(View.VISIBLE);
-                        status.setText(failed
+                        status.setText(blocked
+                                ? text("Российский IP — поиск Arsound отключён (Настройки → Arsound → сеть).",
+                                "Russian IP: the Arsound search is off (Settings → Arsound → network).")
+                                : failed
                                 ? text("Не получилось найти: проверьте интернет.", "Search failed: check the connection.")
                                 : text("Ничего не нашлось.", "Nothing found."));
                         if (failed) shownQuery = null;
@@ -461,7 +475,8 @@ public final class SearchSourceSwitch {
                 handler.post(() -> {
                     if (!url.equals(playingUrl)) return;
                     stopPreview();
-                    toast(context, text("Не получилось включить трек.", "Could not play the track."));
+                    toast(context, isRegionBlock(ex) ? REGION_BLOCKED_TEXT
+                            : text("Не получилось включить трек.", "Could not play the track."));
                 });
             }
         });
@@ -546,7 +561,7 @@ public final class SearchSourceSwitch {
                 handler.post(() -> {
                     downloading.remove(url);
                     refreshScreen();
-                    toast(context, refused(ex)
+                    toast(context, isRegionBlock(ex) ? REGION_BLOCKED_TEXT : refused(ex)
                             ? text("YouTube не отдал файл: похоже, VPN шлёт запросы с разных адресов.",
                             "YouTube refused the file: the VPN seems to use different addresses.")
                             : text("Не получилось скачать «" + track.title + "».",
@@ -554,6 +569,16 @@ public final class SearchSourceSwitch {
                 });
             }
         });
+    }
+
+    private static final String REGION_BLOCKED_TEXT = text("Российский IP — поиск Arsound отключён.",
+            "Russian IP: the Arsound search is off.");
+
+    private static boolean isRegionBlock(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof app.revanced.extension.soundcloud.network.RegionGuard.BlockedException) return true;
+        }
+        return false;
     }
 
     private static boolean refused(Throwable error) {

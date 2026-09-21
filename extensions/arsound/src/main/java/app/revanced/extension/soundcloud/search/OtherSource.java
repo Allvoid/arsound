@@ -128,6 +128,7 @@ public final class OtherSource {
      * without a range, so every read asks for its part with the {@code range} parameter.
      */
     public static byte[] readPart(String url, long position, int length) throws IOException {
+        app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlockedAnyHost();
         HttpURLConnection connection = (HttpURLConnection) new URL(
                 url + "&range=" + position + "-" + (position + length - 1)).openConnection();
         connection.setConnectTimeout(15_000);
@@ -221,6 +222,7 @@ public final class OtherSource {
     private static final class HttpDownloader extends Downloader {
         @Override
         public Response execute(Request request) throws IOException {
+            app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlockedAnyHost();
             HttpURLConnection connection = (HttpURLConnection) new URL(request.url()).openConnection();
             connection.setConnectTimeout(15_000);
             connection.setReadTimeout(30_000);
