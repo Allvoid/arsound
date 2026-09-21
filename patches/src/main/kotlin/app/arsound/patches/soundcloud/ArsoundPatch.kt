@@ -8,6 +8,7 @@ import app.arsound.patches.soundcloud.download.downloadTrackPatch
 import app.arsound.patches.soundcloud.library.hideImportBannerPatch
 import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
+import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatch
 import app.arsound.patches.soundcloud.misc.appname.appNamePatch
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
@@ -36,6 +37,7 @@ private val basePatch = bytecodePatch {
     dependsOn(
         settingsPatch,
         accountTypePatch,
+        removePhonePermissionPatch,
         appNamePatch,
         brandingPatch,
         // Renames the package after every other patch.
