@@ -182,8 +182,7 @@ public final class SearchSourceSwitch {
             helpParams.leftMargin = dp(context, 6);
             arsoundSegment.addView(help, helpParams);
             toggle.addView(arsoundSegment, new LinearLayout.LayoutParams(0, dp(context, 38), 1));
-            // As wide as the search field, which ends before the cast button.
-            bar.setPadding(dp(context, 16), dp(context, 4), dp(context, 64), dp(context, 8));
+            bar.setPadding(dp(context, 16), dp(context, 4), dp(context, 16), dp(context, 8));
             bar.addView(toggle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
             coordinator.addView(bar, 1, new LinearLayout.LayoutParams(
