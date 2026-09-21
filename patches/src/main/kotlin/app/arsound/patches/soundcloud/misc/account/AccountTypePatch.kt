@@ -6,6 +6,8 @@ import org.w3c.dom.Element
 
 private const val ORIGINAL_ACCOUNT_TYPE = "com.soundcloud.android.account"
 private const val REVANCED_ACCOUNT_TYPE = "com.soundcloud.android.revanced.account"
+private const val ORIGINAL_AUTHORITY = "com.soundcloud.android.provider.ScContentProvider"
+private const val REVANCED_AUTHORITY = "com.soundcloud.android.revanced.provider.ScContentProvider"
 
 /** Change account type: Uses a separate Android account type, so the app can sign in while the original SoundCloud app is installed. Required with "Change package name". Part of the "Arsound" patch, not shown on its own. */
 val accountTypePatch = resourcePatch {
@@ -19,6 +21,15 @@ val accountTypePatch = resourcePatch {
                 .first { it.getAttribute("name") == "account_type" }
                 .apply {
                     if (textContent == ORIGINAL_ACCOUNT_TYPE) textContent = REVANCED_ACCOUNT_TYPE
+                }
+
+            // The sync adapter reads its content authority from this string. "Change package name" renames the
+            // provider authority in the manifest, so without this the periodic account sync never finds its provider.
+            document.getElementsByTagName("string").asSequence()
+                .map { it as Element }
+                .firstOrNull { it.getAttribute("name") == "account_authority" }
+                ?.apply {
+                    if (textContent == ORIGINAL_AUTHORITY) textContent = REVANCED_AUTHORITY
                 }
         }
     }
