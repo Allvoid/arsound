@@ -48,7 +48,7 @@ public final class RegionGuard {
     private static final long BLOCKED_RESPONSE_DELAY_MS = 1_500;
 
     private static volatile long lastFailedCheck;
-    /** A blocked or failed result is re-checked in the background this often, so a new IP on the same network is noticed. */
+    /** The known answer is re-checked in the background this often, so a new IP on the same network is noticed. */
     private static final long BLOCKED_RECHECK_MS = 30_000;
     private static volatile long checkedAt;
     private static volatile boolean recheckRunning;
@@ -57,17 +57,34 @@ public final class RegionGuard {
     public static boolean shouldBlock(String host) {
         if (!Settings.isRegionGuardEnabled() || host == null) return false;
         if (!isSoundCloudHost(host)) return false;
+        return isBlockedNow();
+    }
 
+    /** Requests that bypass the host check: the Arsound search sends them to YouTube, not SoundCloud. */
+    public static void throwIfBlockedAnyHost() throws IOException {
+        if (Settings.isRegionGuardEnabled() && isBlockedNow()) {
+            throw new BlockedException("Arsound: requests are blocked from a Russian IP address");
+        }
+    }
+
+    /** Thrown instead of sending a request while the app is on a Russian IP or the country is unknown. */
+    public static final class BlockedException extends IOException {
+        BlockedException(String message) {
+            super(message);
+        }
+    }
+
+    private static boolean isBlockedNow() {
         listenForNetworkChanges();
         String current = country;
         if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) {
             current = check();
         }
         boolean blocked = current == null || BLOCKED_COUNTRY.equals(current);
-        if (blocked) {
-            recheckIfStale();
-            showBlockedToast(current);
-        }
+        // An allowed answer is checked again too: a VPN that loses its tunnel on a bad network can send
+        // requests directly without the network changing, and the old answer would let them through.
+        recheckIfStale();
+        if (blocked) showBlockedToast(current);
         return blocked;
     }
 
@@ -78,7 +95,7 @@ public final class RegionGuard {
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
-            throw new IOException("Arsound: requests to SoundCloud are blocked from a Russian IP address");
+            throw new BlockedException("Arsound: requests to SoundCloud are blocked from a Russian IP address");
         }
     }
 
@@ -127,11 +144,16 @@ public final class RegionGuard {
         Utils.runOnBackgroundThread(() -> {
             try {
                 String previous = country;
-                // The known answer stays in use until a new one arrives; a failed check changes nothing.
                 String fresh = fetchCountry();
                 if (fresh != null) {
                     country = fresh;
                     if (!fresh.equals(previous)) toastShown = false;
+                } else if (previous != null && !BLOCKED_COUNTRY.equals(previous)) {
+                    // A failed check on an allowed network means the route is unstable, and a VPN may be
+                    // reconnecting. Requests wait for a successful check instead of trusting the old answer.
+                    country = null;
+                    lastFailedCheck = System.currentTimeMillis();
+                    toastShown = false;
                 }
             } finally {
                 recheckRunning = false;

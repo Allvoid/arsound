@@ -203,11 +203,14 @@ public final class ReVancedSettingsActivity extends Activity {
         checkNetwork(network);
         list.addView(createToggleRow(
                 text("Не выходить в сеть с российского IP", "Stay offline on a Russian IP"),
-                text("Если приложение выходит в интернет с российского IP, оно не обращается к SoundCloud. "
-                                + "Играют скачанные и импортированные треки. Страна определяется через Cloudflare "
-                                + "и проверяется заново при смене сети.",
-                        "On a Russian IP the app does not contact SoundCloud; downloaded and imported tracks still play. "
-                                + "The country is checked through Cloudflare, again whenever the network changes."),
+                text("Если приложение выходит в интернет с российского IP, оно не обращается ни к SoundCloud, "
+                                + "ни к поиску Arsound. Играют скачанные и импортированные треки. Страна определяется "
+                                + "через Cloudflare, проверяется заново при смене сети и раз в 30 секунд, пока идут запросы; "
+                                + "если проверка не прошла, запросы ждут следующей.",
+                        "On a Russian IP the app contacts neither SoundCloud nor the Arsound search; downloaded and "
+                                + "imported tracks still play. The country is checked through Cloudflare, again whenever "
+                                + "the network changes and every 30 seconds while requests go; after a failed check "
+                                + "requests wait for the next one."),
                 Settings.isRegionGuardEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.REGION_GUARD, checked)
         ));
