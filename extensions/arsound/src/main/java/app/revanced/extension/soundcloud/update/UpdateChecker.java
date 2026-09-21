@@ -73,6 +73,7 @@ public final class UpdateChecker {
                 app.revanced.extension.soundcloud.permissions.WelcomePermissions.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity);
+                app.revanced.extension.soundcloud.search.SearchSourceSwitch.onActivityResumed(activity);
             }
 
             @Override
@@ -80,6 +81,7 @@ public final class UpdateChecker {
                 if (resumedActivity.get() == activity) resumedActivity = new WeakReference<>(null);
                 app.revanced.extension.soundcloud.network.NetworkBanner.onActivityPaused(activity);
                 app.revanced.extension.soundcloud.download.DownloadProgress.onActivityPaused(activity);
+                app.revanced.extension.soundcloud.search.SearchSourceSwitch.onActivityPaused(activity);
             }
 
             @Override

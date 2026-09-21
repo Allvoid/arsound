@@ -23,6 +23,7 @@ retrofit = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 apksig = { group = "com.android.tools.build", name = "apksig", version.ref = "apksig" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protoc" }
+newpipe-extractor = { module = "com.github.TeamNewPipe:NewPipeExtractor", version = "v0.26.5" }
 protobuf-protoc = { module = "com.google.protobuf:protoc", version.ref = "protoc" }
 
 [plugins]

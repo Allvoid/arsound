@@ -150,6 +150,16 @@ public final class LocalMusic {
         return imported;
     }
 
+    /** A new file in the import directory, for a track downloaded from another source. */
+    public static File newImportFile(Context context, String name) {
+        return uniqueFile(directory(context), name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+    }
+
+    /** Makes a file written into the import directory show up in the imported playlist. */
+    public static void onFileAdded() {
+        LocalAdditions.clearLocalTrackCache();
+    }
+
     public static boolean delete(Track track) {
         LocalAdditions.clearLocalTrackCache();
         return track.file.delete();
