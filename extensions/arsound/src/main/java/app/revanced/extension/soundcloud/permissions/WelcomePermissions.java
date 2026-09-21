@@ -73,10 +73,12 @@ public final class WelcomePermissions {
         }
         items.add(new Item(MusicAccess.permission(),
                 text("Музыка и аудио", "Music and audio"),
-                text("треки, скачанные до переустановки Arsound, продолжают играть из файлов без интернета.",
-                        "tracks downloaded before Arsound was reinstalled keep playing from their files offline."),
-                text("новые скачивания работают, а старые после переустановки играют только из сети.",
-                        "new downloads work, but older ones only play from the network after a reinstall.")));
+                text("слушать без интернета треки, скачанные раньше, если Arsound удаляли и ставили заново. "
+                                + "Обычные обновления на это не влияют.",
+                        "play offline the tracks you downloaded earlier, if Arsound was removed and installed again. "
+                                + "Regular updates do not affect this."),
+                text("всё работает, но после удаления и новой установки старые скачанные треки будут играть только через интернет.",
+                        "everything works, but after removing and installing again, older downloads only play over the network.")));
         return items;
     }
 
