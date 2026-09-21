@@ -129,11 +129,8 @@ public final class WelcomePermissions {
         return view;
     }
 
-    private static ScrollView createContent(Context context, List<Item> items) {
-        LinearLayout list = new LinearLayout(context);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(context, 24), dp(context, 20), dp(context, 24), dp(context, 4));
-
+    /** The Arsound logo and name, the header of Arsound dialogs. */
+    public static LinearLayout createHeader(Context context) {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -146,7 +143,31 @@ public final class WelcomePermissions {
             header.addView(logo, logoParams);
         }
         header.addView(textView(context, "Arsound", 22, true));
-        list.addView(header);
+        return header;
+    }
+
+    /** A dialog body in the style of the greeting: logo, then paragraphs. */
+    public static ScrollView createDialogContent(Context context, CharSequence... paragraphs) {
+        LinearLayout list = new LinearLayout(context);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(context, 24), dp(context, 20), dp(context, 24), dp(context, 4));
+        list.addView(createHeader(context));
+        for (CharSequence paragraph : paragraphs) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            params.topMargin = dp(context, 16);
+            list.addView(textView(context, paragraph, 15, false), params);
+        }
+        ScrollView scroll = new ScrollView(context);
+        scroll.addView(list);
+        return scroll;
+    }
+
+    private static ScrollView createContent(Context context, List<Item> items) {
+        LinearLayout list = new LinearLayout(context);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(context, 24), dp(context, 20), dp(context, 24), dp(context, 4));
+        list.addView(createHeader(context));
 
         TextView greeting = textView(context, text(
                 "Привет, дорогой пользователь! Чтобы Arsound работал стабильно, мы попросим у вас несколько разрешений. "

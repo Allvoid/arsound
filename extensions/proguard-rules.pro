@@ -12,3 +12,11 @@
 -keep interface kotlin.jvm.functions.** {
   *;
 }
+# NewPipeExtractor and its libraries (moved into app.arsound.shaded) load parts of themselves by reflection.
+-keep class app.arsound.shaded.** {
+  *;
+}
+-dontwarn app.arsound.shaded.**
+-dontwarn java.beans.**
+-dontwarn javax.script.**
+-dontwarn jdk.dynalink.**
