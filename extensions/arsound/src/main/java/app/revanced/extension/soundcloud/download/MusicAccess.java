@@ -45,6 +45,8 @@ public final class MusicAccess {
     /** Called when an activity comes to the screen. Asks on the main screen, once per launch at most. */
     public static void onActivityResumed(Activity activity) {
         if (shownThisLaunch || !activity.getClass().getName().endsWith(".MainActivity")) return;
+        // The greeting already asks for this permission.
+        if (app.revanced.extension.soundcloud.permissions.WelcomePermissions.isShownThisLaunch()) return;
         if (isGranted(activity) || DownloadTrackPatch.getDownloadedTrackIds().isEmpty()) return;
 
         SharedPreferences preferences = activity.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);

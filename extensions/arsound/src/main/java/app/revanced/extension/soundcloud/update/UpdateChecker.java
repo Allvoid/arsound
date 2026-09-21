@@ -70,6 +70,7 @@ public final class UpdateChecker {
                 startCheckOnce();
                 showPendingRelease();
                 app.revanced.extension.soundcloud.network.NetworkBanner.onActivityResumed(activity);
+                app.revanced.extension.soundcloud.permissions.WelcomePermissions.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity);
             }
