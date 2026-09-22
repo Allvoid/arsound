@@ -192,17 +192,29 @@ public final class LocalAdditions {
      * @param playlistUrn The playlist {@code Urn}.
      */
     public static Object appendToTrackUrns(Object single, Object playlistUrn) {
+        return appendToTrackUrns(single, playlistUrn, false);
+    }
+
+    /** The same for playback: tracks deleted on SoundCloud are shown, but not queued. */
+    public static Object appendToPlaybackTrackUrns(Object single, Object playlistUrn) {
+        return appendToTrackUrns(single, playlistUrn, true);
+    }
+
+    private static Object appendToTrackUrns(Object single, Object playlistUrn, boolean playback) {
         String key = String.valueOf(playlistUrn);
         int count = getShownEntries(key).size();
         Logger.printInfo(() -> "Track urns requested for " + key + ", local additions: " + count);
-        if (count == 0 && !TrackOrder.hasOrder(key)) return single;
         try {
+            // Always mapped: the list is also watched for tracks that SoundCloud deleted.
             return Rx.mapSingle(single, value -> {
                 List<Object> urns = new ArrayList<>((List<?>) value);
+                ClassLoader loader = single.getClass().getClassLoader();
+                RemovedTracks.onTrackList(key, urns);
                 for (String entry : getShownEntries(key)) {
-                    Object urn = toUrn(single.getClass().getClassLoader(), entry);
+                    Object urn = toUrn(loader, entry);
                     if (urn != null && !urns.contains(urn)) urns.add(urn);
                 }
+                RemovedTracks.placeKept(key, urns, loader, !playback);
                 return TrackOrder.apply(key, urns);
             });
         } catch (Exception ex) {
@@ -211,7 +223,7 @@ public final class LocalAdditions {
         }
     }
 
-    private static Object toUrn(ClassLoader loader, String entry) {
+    static Object toUrn(ClassLoader loader, String entry) {
         try {
             if (entry.startsWith(FILE_PREFIX)) {
                 File file = new File(entry.substring(FILE_PREFIX.length()));
@@ -360,6 +372,8 @@ public final class LocalAdditions {
                 continue;
             }
             if (entries.contains(String.valueOf(urn))) continue;
+            // A track deleted on SoundCloud, kept here greyed out: the server would not accept it.
+            if (RemovedTracks.isKept(playlist, String.valueOf(urn))) continue;
             result.add(urn);
         }
         if (addedLocally) notifyPlaylistChanged(playlist);
@@ -607,6 +621,12 @@ public final class LocalAdditions {
             String playlist = String.valueOf(playlistUrn);
             String entry = entryOf(trackUrn);
             if (entry == null) return false;
+
+            if (RemovedTracks.removeKept(playlist, entry)) {
+                notifyPlaylistChanged(playlist);
+                Logger.printInfo(() -> "Removed deleted track " + entry + " from " + playlist);
+                return true;
+            }
 
             boolean local = getEntries(playlist).contains(entry);
             boolean saved = SavedPlaylist.isSavedPlaylist(playlist) && SavedPlaylist.getEntries().contains(entry);
