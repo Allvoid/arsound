@@ -31,6 +31,8 @@ public final class DragReorder {
     private final ViewGroup recycler;
     private final Predicate<Object> movable;
     private final Consumer<List<Object>> saver;
+    /** Called once when a drag ends, with the rows in their final order. */
+    private Consumer<List<Object>> dropped;
     private final ClassLoader loader;
     private Object touchHelper;
     private boolean active;
@@ -58,6 +60,11 @@ public final class DragReorder {
         });
     }
 
+    public DragReorder onDropped(Consumer<List<Object>> dropped) {
+        this.dropped = dropped;
+        return this;
+    }
+
     public void install() throws Exception {
         Class<?> hostType = Class.forName(
                 "com.soundcloud.android.libs.recyclerviewutils.touchhelpers.ItemDragCallback$DragHost", false, loader);
@@ -70,6 +77,13 @@ public final class DragReorder {
                     return null;
                 case "p":
                     save();
+                    if (dropped != null) {
+                        try {
+                            dropped.accept(items());
+                        } catch (Exception ex) {
+                            Logger.printException(() -> "Could not finish the move", ex);
+                        }
+                    }
                     return null;
                 default:
                     return defaultValue(method);
