@@ -50,6 +50,10 @@ public final class PlaylistPreloader {
                     app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
                 }
                 preload();
+                // Downloaded tracks deleted on SoundCloud before their playlists were watched.
+                if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
+                    app.revanced.extension.soundcloud.local.RemovedTracks.sweepDownloads();
+                }
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist preload failed", ex);
             }

@@ -140,7 +140,7 @@ private val BytecodePatchContext.playbackInitiatorConstructorMethod by gettingFi
 
 /** Local music: Adds importing audio files, playing them in the SoundCloud player and adding any track to any playlist on this device only. Part of the "Arsound" patch, not shown on its own. */
 val localMusicPatch = bytecodePatch {
-    dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch)
+    dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch, trackCellMarksPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
@@ -211,7 +211,11 @@ val localMusicPatch = bytecodePatch {
         }
 
         // Only the playlist screen and playback get the additions; editors keep the server track list.
-        listOf(playlistScreenTracksMethod, trackUrnsForPlaybackMethod).forEach { method ->
+        // Tracks deleted on SoundCloud are kept on the screen, but left out of playback.
+        listOf(
+            playlistScreenTracksMethod to "appendToTrackUrns",
+            trackUrnsForPlaybackMethod to "appendToPlaybackTrackUrns",
+        ).forEach { (method, hook) ->
             method.apply {
                 val callIndex = indexOfFirstInstructionOrThrow {
                     (this as? ReferenceInstruction)?.reference?.toString()?.contains("->playlistTrackUrns(") == true
@@ -221,7 +225,7 @@ val localMusicPatch = bytecodePatch {
                 addInstructions(
                     callIndex + 2,
                     """
-                        invoke-static { v$resultRegister, v$urnRegister }, $ADDITIONS_CLASS_DESCRIPTOR->appendToTrackUrns(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+                        invoke-static { v$resultRegister, v$urnRegister }, $ADDITIONS_CLASS_DESCRIPTOR->$hook(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
                         move-result-object v$resultRegister
                         check-cast v$resultRegister, Lio/reactivex/rxjava3/core/Single;
                     """,
