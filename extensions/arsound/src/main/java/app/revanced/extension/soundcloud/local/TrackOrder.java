@@ -82,7 +82,9 @@ public final class TrackOrder {
                     Logger.printInfo(() -> "Track order: no list found");
                     return;
                 }
-                new DragReorder((ViewGroup) list, TrackOrder::isTrackRow, TrackOrder::save).install();
+                new DragReorder((ViewGroup) list, TrackOrder::isTrackRow, TrackOrder::save)
+                        .onDropped(TrackOrder::reload)
+                        .install();
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not set up track rearranging", ex);
             }
@@ -112,6 +114,20 @@ public final class TrackOrder {
         SharedPreferences preferences = preferences();
         if (playlistUrn == null || preferences == null) return;
         preferences.edit().putString(ORDER_PREFIX + playlistUrn, order.toString()).apply();
+    }
+
+    /**
+     * The playlist screen keeps the track list it loaded before the drag. The next update of the screen
+     * (for example the playing track highlighted after a tap) is built from that list and puts the moved
+     * track back, so the list is reloaded in the saved order once the track is dropped.
+     */
+    private static void reload(List<Object> rows) {
+        for (Object item : rows) {
+            if (!isTrackRow(item)) continue;
+            String playlistUrn = String.valueOf(field(item, "c"));
+            Utils.runOnBackgroundThread(() -> LocalAdditions.notifyPlaylistChanged(playlistUrn));
+            return;
+        }
     }
 
     private static Object field(Object item, String name) {
