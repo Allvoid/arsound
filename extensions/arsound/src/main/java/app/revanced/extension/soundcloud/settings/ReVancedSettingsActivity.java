@@ -69,6 +69,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String SCREEN_PRIVACY = "privacy";
     private static final String SCREEN_UPDATES = "updates";
     private static final String SCREEN_DEVELOPER = "developer";
+    private static final String SCREEN_ACCOUNT = "account";
 
     /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
     private LinearLayout createScreen(LinearLayout[] listOut) {
@@ -150,6 +151,9 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Версия " + UpdateChecker.VERSION + ", проверка обновлений, сброс данных SoundCloud",
                         "Version " + UpdateChecker.VERSION + ", update check, SoundCloud data reset"),
                 SCREEN_UPDATES));
+        list.addView(openScreenRow(text("Аккаунт", "Account"),
+                text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
+                SCREEN_ACCOUNT));
         list.addView(openScreenRow(text("Для разработчика", "Developer"),
                 text("Инструменты для проверки и отладки", "Testing and debugging tools"),
                 SCREEN_DEVELOPER));
@@ -188,6 +192,10 @@ public final class ReVancedSettingsActivity extends Activity {
             case SCREEN_UPDATES:
                 list.addView(createTitle(text("Обновления и данные", "Updates and data"), false));
                 addUpdatesSection(list);
+                break;
+            case SCREEN_ACCOUNT:
+                list.addView(createTitle(text("Аккаунт", "Account"), false));
+                addAccountSection(list);
                 break;
             default:
                 list.addView(createTitle(text("Для разработчика", "Developer"), false));
@@ -465,6 +473,53 @@ public final class ReVancedSettingsActivity extends Activity {
                                 + "downloaded tracks and order are kept."),
                 v -> confirmReset()
         ));
+    }
+
+    private void addAccountSection(LinearLayout list) {
+        boolean signedIn = app.revanced.extension.soundcloud.search.YouTubeAccount.isSignedIn();
+        list.addView(createActionRow(
+                text("Аккаунт YouTube Music", "YouTube Music account"),
+                signedIn
+                        ? text("Вход выполнен. Нажмите, чтобы выйти.", "Signed in. Tap to sign out.")
+                        : text("Не указан. Нажмите, чтобы войти.", "Not set. Tap to sign in."),
+                v -> {
+                    if (app.revanced.extension.soundcloud.search.YouTubeAccount.isSignedIn()) {
+                        app.revanced.extension.soundcloud.search.YouTubeAccount.signOut();
+                        Toast.makeText(this, text("Вы вышли из YouTube Music", "Signed out of YouTube Music"),
+                                Toast.LENGTH_SHORT).show();
+                        recreate();
+                    } else {
+                        app.revanced.extension.soundcloud.search.YouTubeLoginActivity.start(this);
+                    }
+                }
+        ));
+        list.addView(createActionRow(
+                text("Зачем это? (?)", "What is it for? (?)"),
+                text("Необязательно. Без входа всё работает, кроме треков с возрастным ограничением.",
+                        "Optional. Everything works without it, except age-restricted tracks."),
+                v -> new android.app.AlertDialog.Builder(this)
+                        .setView(app.revanced.extension.soundcloud.permissions.WelcomePermissions.createDialogContent(this,
+                                text("Поиск Arsound берёт треки из YouTube Music. Часть треков YouTube отдаёт только "
+                                                + "после входа в аккаунт: у них возрастное ограничение 18+.",
+                                        "The Arsound search takes tracks from YouTube Music. YouTube gives some tracks only "
+                                                + "to signed-in listeners: they are age-restricted (18+)."),
+                                text("Вход нужен только для них и указывается по желанию. Пароль вводится на странице "
+                                                + "Google, Arsound его не видит. Сессия хранится только на этом телефоне "
+                                                + "и отправляется только в YouTube.",
+                                        "Signing in is only for them, and optional. The password is typed into Google's page; "
+                                                + "Arsound does not see it. The session stays on this phone and goes only to YouTube."),
+                                text("Аккаунт должен быть совершеннолетним по данным Google.",
+                                        "Google must know the account as adult.")))
+                        .setPositiveButton(text("Понятно", "Got it"), null)
+                        .show()
+        ));
+    }
+
+    @Override
+    protected void onRestart() {
+        super.onRestart();
+        // The account screen shows the state after returning from the sign-in page.
+        if (SCREEN_ACCOUNT.equals(getIntent().getStringExtra(EXTRA_SCREEN))) recreate();
     }
 
     private void addDeveloperSection(LinearLayout list) {
