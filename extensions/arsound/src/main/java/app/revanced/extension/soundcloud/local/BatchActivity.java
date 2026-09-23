@@ -15,10 +15,10 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.revanced.extension.shared.Logger;
@@ -33,8 +33,8 @@ import app.revanced.extension.soundcloud.search.OtherSource;
  * </pre>
  * Each line of the list is {@code artist<TAB>title}. Only a result by the same artist with a matching
  * title is downloaded. Progress goes to {@code list.txt.report}; lines already reported as done are
- * skipped, so a run can be repeated. With a playlist title, the files are added to the opened playlist
- * with that title, in list order.
+ * skipped, so a run can be repeated. With a playlist title, the playlist gets the files in list order
+ * (the opened playlist with that title); a track missing from the search is taken from the imported files.
  * <p>
  * The list is read only from the app's own external folder, which other apps cannot write to.
  */
@@ -82,24 +82,34 @@ public final class BatchActivity extends Activity {
             if (playlistUrn == null) throw new IllegalStateException("Open the playlist once: " + playlistTitle);
         }
 
-        Set<String> done = new HashSet<>();
+        // Lines done in an earlier run, with the file they got.
+        Map<String, File> done = new HashMap<>();
         if (reportFile.isFile()) {
             for (String line : readLines(reportFile)) {
-                if (line.startsWith("OK\t")) done.add(line.split("\t")[1]);
+                String[] parts = line.split("\t");
+                if (parts[0].equals("OK") && parts.length >= 5) done.put(parts[1], new File(parts[4]));
             }
         }
+        List<String> ordered = new ArrayList<>();
 
         try (Writer report = new OutputStreamWriter(new FileOutputStream(reportFile, true), StandardCharsets.UTF_8)) {
             for (String line : readLines(list)) {
                 String[] parts = line.split("\t");
-                if (parts.length < 2 || done.contains(line.trim().replace('\t', ' '))) continue;
+                if (parts.length < 2) continue;
                 String key = line.trim().replace('\t', ' ');
+                File earlier = done.get(key);
+                if (earlier != null && earlier.isFile()) {
+                    ordered.add(LocalAdditions.fileEntry(earlier));
+                    continue;
+                }
                 String artist = parts[0].trim();
                 String title = parts[1].trim();
                 String result;
                 Logger.printInfo(() -> "Batch: " + key);
                 try {
-                    result = downloadOne(context, artist, title, playlistUrn);
+                    File[] file = new File[1];
+                    result = downloadOne(context, artist, title, file);
+                    if (file[0] != null) ordered.add(LocalAdditions.fileEntry(file[0]));
                 } catch (Throwable ex) {
                     Logger.printException(() -> "Batch: could not get " + key, ex);
                     result = "FAIL\t" + key + "\t" + ex;
@@ -108,6 +118,13 @@ public final class BatchActivity extends Activity {
                 report.flush();
             }
             report.write("END\n");
+        }
+        if (playlistUrn != null && !SavedPlaylist.isSavedPlaylist(playlistUrn)) {
+            // The playlist follows the list: its tracks first in list order, entries added by hand after them.
+            List<String> entries = new ArrayList<>(ordered);
+            for (String entry : LocalAdditions.getEntries(playlistUrn)) if (!entries.contains(entry)) entries.add(entry);
+            LocalAdditions.setEntries(playlistUrn, entries);
+            TrackOrder.clear(playlistUrn);
         }
         String urn = playlistUrn;
         Utils.runOnMainThread(() -> {
@@ -118,7 +135,8 @@ public final class BatchActivity extends Activity {
         });
     }
 
-    private static String downloadOne(Context context, String artist, String title, String playlistUrn) throws Exception {
+    /** Downloads one track, or finds it among the imported files; the file goes to {@code result[0]}. */
+    private static String downloadOne(Context context, String artist, String title, File[] result) throws Exception {
         String key = artist + " " + title;
         OtherSource.Track match = null;
         for (OtherSource.Track track : OtherSource.search(artist + " " + title)) {
@@ -127,7 +145,20 @@ public final class BatchActivity extends Activity {
                 break;
             }
         }
-        if (match == null) return "MISS\t" + key;
+        if (match == null) {
+            // Not on YouTube Music: a file imported earlier (for example a track removed from SoundCloud) will do.
+            for (File existing : LocalMusic.getFiles(context)) {
+                String name = existing.getName();
+                int dot = name.lastIndexOf('.');
+                String wanted = normalize(title.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
+                // Only a file name holding the whole title: a short name must not match a longer title.
+                if (!wanted.isEmpty() && normalize(dot > 0 ? name.substring(0, dot) : name).contains(wanted)) {
+                    result[0] = existing;
+                    return "OK\t" + key + "\t" + name + "\timported\t" + existing.getPath();
+                }
+            }
+            return "MISS\t" + key;
+        }
 
         // A track downloaded earlier is reused instead of downloading a copy.
         File file = null;
@@ -150,10 +181,8 @@ public final class BatchActivity extends Activity {
             }
         }
         LocalMusic.onFileAdded();
-        if (playlistUrn != null && !SavedPlaylist.isSavedPlaylist(playlistUrn)) {
-            LocalAdditions.add(playlistUrn, LocalAdditions.fileEntry(file));
-        }
-        return "OK\t" + key + "\t" + match.title + "\t" + match.url;
+        result[0] = file;
+        return "OK\t" + key + "\t" + match.title + "\t" + match.url + "\t" + file.getPath();
     }
 
     /** The title without the translation in brackets, compared by letters and digits only. */

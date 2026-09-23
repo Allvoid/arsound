@@ -642,6 +642,10 @@ public final class SearchSourceSwitch {
                 handler.post(() -> {
                     if (!url.equals(playingUrl)) return;
                     stopPreview();
+                    if (needsSignIn(ex)) {
+                        offerSignIn();
+                        return;
+                    }
                     toast(context, isRegionBlock(ex) ? REGION_BLOCKED_TEXT
                             : text("Не получилось включить трек.", "Could not play the track."));
                 });
@@ -728,6 +732,10 @@ public final class SearchSourceSwitch {
                 handler.post(() -> {
                     downloading.remove(url);
                     refreshScreen();
+                    if (needsSignIn(ex)) {
+                        offerSignIn();
+                        return;
+                    }
                     toast(context, isRegionBlock(ex) ? REGION_BLOCKED_TEXT : refused(ex)
                             ? text("YouTube не отдал файл: похоже, VPN шлёт запросы с разных адресов.",
                             "YouTube refused the file: the VPN seems to use different addresses.")
@@ -755,6 +763,39 @@ public final class SearchSourceSwitch {
             if (cause instanceof app.revanced.extension.soundcloud.network.RegionGuard.BlockedException) return true;
         }
         return false;
+    }
+
+    private static boolean needsSignIn(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof YouTubeAccount.SignInRequiredException) return true;
+        }
+        return false;
+    }
+
+    private static boolean signInOffered;
+
+    /** An age-restricted track without an account: offers to sign in, once at a time. */
+    private static void offerSignIn() {
+        Activity current = activity.get();
+        if (current == null || current.isFinishing() || signInOffered) return;
+        signInOffered = true;
+        try {
+            new AlertDialog.Builder(current)
+                    .setView(WelcomePermissions.createDialogContent(current,
+                            text("У трека возрастное ограничение: YouTube отдаёт его только после входа в аккаунт.",
+                                    "The track is age-restricted: YouTube gives it only to signed-in listeners."),
+                            text("Войти в YouTube Music? Это по желанию: пароль вводится на странице Google, "
+                                            + "а выйти можно в Настройках → Arsound → Аккаунт.",
+                                    "Sign in to YouTube Music? It is optional: the password is typed into Google's page, "
+                                            + "and you can sign out in Settings → Arsound → Account.")))
+                    .setPositiveButton(text("Войти", "Sign in"), (dialog, which) -> YouTubeLoginActivity.start(current))
+                    .setNegativeButton(text("Не сейчас", "Not now"), null)
+                    .setOnDismissListener(dialog -> signInOffered = false)
+                    .show();
+        } catch (Exception ex) {
+            signInOffered = false;
+            Logger.printException(() -> "Could not offer the sign-in", ex);
+        }
     }
 
     private static boolean refused(Throwable error) {

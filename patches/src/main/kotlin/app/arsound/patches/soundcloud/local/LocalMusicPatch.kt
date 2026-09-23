@@ -46,6 +46,14 @@ private val importActivityPatch = resourcePatch {
                     setAttribute("android:excludeFromRecents", "true")
                 },
             )
+            // Google's sign-in page for the optional YouTube Music account of the Arsound search.
+            document.getNode("application").appendChild(
+                document.createElement("activity").apply {
+                    setAttribute("android:name", "app.revanced.extension.soundcloud.search.YouTubeLoginActivity")
+                    setAttribute("android:exported", "false")
+                    setAttribute("android:theme", "@android:style/Theme.Material.NoActionBar")
+                },
+            )
             // Batch downloads started from a computer over adb; reads lists from the app's own folder only.
             document.getNode("application").appendChild(
                 document.createElement("activity").apply {
