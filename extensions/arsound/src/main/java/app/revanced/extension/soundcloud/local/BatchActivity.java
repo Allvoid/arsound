@@ -147,14 +147,13 @@ public final class BatchActivity extends Activity {
         }
         if (match == null) {
             // Not on YouTube Music: a file imported earlier (for example a track removed from SoundCloud) will do.
-            for (File existing : LocalMusic.getFiles(context)) {
-                String name = existing.getName();
-                int dot = name.lastIndexOf('.');
-                String wanted = normalize(title.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
-                // Only a file name holding the whole title: a short name must not match a longer title.
-                if (!wanted.isEmpty() && normalize(dot > 0 ? name.substring(0, dot) : name).contains(wanted)) {
-                    result[0] = existing;
-                    return "OK\t" + key + "\t" + name + "\timported\t" + existing.getPath();
+            String wanted = normalize(title.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
+            // The title from the file tags (the file name may be a SoundCloud id). Only a title holding the
+            // whole wanted one: a short title must not match a longer one.
+            for (LocalMusic.Track existing : LocalMusic.getTracks(context)) {
+                if (!wanted.isEmpty() && normalize(existing.title).contains(wanted)) {
+                    result[0] = existing.file;
+                    return "OK\t" + key + "\t" + existing.title + "\timported\t" + existing.file.getPath();
                 }
             }
             return "MISS\t" + key;

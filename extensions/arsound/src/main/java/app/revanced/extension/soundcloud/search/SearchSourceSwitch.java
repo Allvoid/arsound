@@ -48,6 +48,7 @@ import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.local.LocalMusic;
 import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
+import app.revanced.extension.soundcloud.shared.HelpBadge;
 
 /**
  * A switch under the search field of the Search tab: SoundCloud (the usual search) or Arsound.
@@ -172,17 +173,8 @@ public final class SearchSourceSwitch {
             arsoundSegment.setGravity(Gravity.CENTER);
             arsoundSegment.setOnClickListener(v -> select(true));
             arsoundSegment.addView(arsoundButton);
-            help = new TextView(context);
-            help.setText("?");
-            help.setGravity(Gravity.CENTER);
-            help.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            help.setTypeface(Typeface.DEFAULT_BOLD);
-            help.setIncludeFontPadding(false);
-            help.setContentDescription(text("Что такое поиск Arsound", "What Arsound search is"));
-            help.setOnClickListener(v -> showHelp(context));
-            LinearLayout.LayoutParams helpParams = new LinearLayout.LayoutParams(dp(context, 17), dp(context, 17));
-            helpParams.leftMargin = dp(context, 6);
-            arsoundSegment.addView(help, helpParams);
+            help = HelpBadge.create(context, textColor, text("Что такое поиск Arsound", "What Arsound search is"), HELP);
+            arsoundSegment.addView(help, HelpBadge.layoutParams(context));
             toggle.addView(arsoundSegment, new LinearLayout.LayoutParams(0, dp(context, 38), 1));
             bar.setPadding(dp(context, 16), dp(context, 4), dp(context, 16), dp(context, 8));
             bar.addView(toggle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -254,12 +246,7 @@ public final class SearchSourceSwitch {
         void apply() {
             style(soundCloudButton, soundCloudButton, !arsoundSelected);
             style(arsoundSegment, arsoundButton, arsoundSelected);
-            int helpColor = arsoundSelected ? inverse(textColor) : withAlpha(textColor, 0xB0);
-            help.setTextColor(helpColor);
-            GradientDrawable circle = new GradientDrawable();
-            circle.setShape(GradientDrawable.OVAL);
-            circle.setStroke(dp(context, 1.2f), helpColor);
-            help.setBackground(circle);
+            HelpBadge.setColor(help, arsoundSelected ? inverse(textColor) : withAlpha(textColor, 0xB0));
             soundCloudResults.setVisibility(arsoundSelected ? View.GONE : View.VISIBLE);
             results.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
             if (arsoundSelected) search();
@@ -805,10 +792,7 @@ public final class SearchSourceSwitch {
         return false;
     }
 
-    private static void showHelp(Context context) {
-        try {
-            new AlertDialog.Builder(context)
-                    .setView(WelcomePermissions.createDialogContent(context,
+    private static final CharSequence[] HELP = {
                             text("Поиск Arsound нужен, чтобы скачивать треки, которые в SoundCloud скачать нельзя: "
                                             + "их там нет, они только для подписчиков, это отрывок или трек защищён.",
                                     "Arsound search is for downloading tracks that SoundCloud does not let you download: "
@@ -818,13 +802,7 @@ public final class SearchSourceSwitch {
                                     "Tracks are searched on YouTube Music. Tap a track to listen and check it is the right one; "
                                             + "tap again to stop. The button on the right downloads it."),
                             text("Скачанное появляется в плейлисте «Импортированные» — оттуда трек можно добавить в любой плейлист.",
-                                    "Downloads appear in the \"Imported\" playlist, and can be added to any playlist from there.")))
-                    .setPositiveButton(text("Понятно", "Got it"), null)
-                    .show();
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not show the search help", ex);
-        }
-    }
+                                    "Downloads appear in the \"Imported\" playlist, and can be added to any playlist from there.")};
 
     private static void toast(Context context, String message) {
         android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show();
