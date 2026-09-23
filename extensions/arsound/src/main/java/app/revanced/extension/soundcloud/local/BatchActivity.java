@@ -1,0 +1,178 @@
+package app.revanced.extension.soundcloud.local;
+
+import android.app.Activity;
+import android.content.Context;
+import android.os.Bundle;
+import android.widget.Toast;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
+import app.revanced.extension.shared.Logger;
+import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.search.OtherSource;
+
+/**
+ * Downloads a list of tracks through the Arsound search, for filling a playlist from a computer:
+ * <pre>
+ * adb push list.txt /sdcard/Android/data/PACKAGE/files/batch/list.txt
+ * adb shell am start -n PACKAGE/app.revanced.extension.soundcloud.local.BatchActivity --es file list.txt --es playlist "Title"
+ * </pre>
+ * Each line of the list is {@code artist<TAB>title}. Only a result by the same artist with a matching
+ * title is downloaded. Progress goes to {@code list.txt.report}; lines already reported as done are
+ * skipped, so a run can be repeated. With a playlist title, the files are added to the opened playlist
+ * with that title, in list order.
+ * <p>
+ * The list is read only from the app's own external folder, which other apps cannot write to.
+ */
+@SuppressWarnings("unused")
+public final class BatchActivity extends Activity {
+    private static volatile boolean running;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        finish();
+        String name = getIntent().getStringExtra("file");
+        String playlistTitle = getIntent().getStringExtra("playlist");
+        Context context = getApplicationContext();
+        File folder = context.getExternalFilesDir("batch");
+        if (name == null || folder == null || name.contains("/") || running) return;
+        File list = new File(folder, name);
+        if (!list.isFile()) return;
+        running = true;
+        Toast.makeText(context, "Arsound: batch " + name, Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                run(context, list, new File(folder, name + ".report"), playlistTitle);
+            } catch (Throwable ex) {
+                Logger.printException(() -> "Batch failed", ex);
+                try (Writer report = new OutputStreamWriter(new FileOutputStream(new File(folder, name + ".report"), true), StandardCharsets.UTF_8)) {
+                    report.write("ERROR\t" + android.util.Log.getStackTraceString(ex) + "\n");
+                } catch (Exception ignored) {
+                }
+            } finally {
+                running = false;
+            }
+        }).start();
+    }
+
+    private static void run(Context context, File list, File reportFile, String playlistTitle) throws Exception {
+        String playlistUrn = null;
+        if (playlistTitle != null) {
+            for (String[] playlist : LocalAdditions.readRecentPlaylists()) {
+                if (playlist[1].equalsIgnoreCase(playlistTitle)) {
+                    playlistUrn = playlist[0];
+                    break;
+                }
+            }
+            if (playlistUrn == null) throw new IllegalStateException("Open the playlist once: " + playlistTitle);
+        }
+
+        Set<String> done = new HashSet<>();
+        if (reportFile.isFile()) {
+            for (String line : readLines(reportFile)) {
+                if (line.startsWith("OK\t")) done.add(line.split("\t")[1]);
+            }
+        }
+
+        try (Writer report = new OutputStreamWriter(new FileOutputStream(reportFile, true), StandardCharsets.UTF_8)) {
+            for (String line : readLines(list)) {
+                String[] parts = line.split("\t");
+                if (parts.length < 2 || done.contains(line.trim().replace('\t', ' '))) continue;
+                String key = line.trim().replace('\t', ' ');
+                String artist = parts[0].trim();
+                String title = parts[1].trim();
+                String result;
+                Logger.printInfo(() -> "Batch: " + key);
+                try {
+                    result = downloadOne(context, artist, title, playlistUrn);
+                } catch (Throwable ex) {
+                    Logger.printException(() -> "Batch: could not get " + key, ex);
+                    result = "FAIL\t" + key + "\t" + ex;
+                }
+                report.write(result + "\n");
+                report.flush();
+            }
+            report.write("END\n");
+        }
+        String urn = playlistUrn;
+        Utils.runOnMainThread(() -> {
+            if (urn != null) LocalAdditions.notifyPlaylistChanged(urn);
+            String saved = SavedPlaylist.getUrn();
+            if (saved != null) LocalAdditions.notifyPlaylistChanged(saved);
+            Toast.makeText(context, "Arsound: batch done", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private static String downloadOne(Context context, String artist, String title, String playlistUrn) throws Exception {
+        String key = artist + " " + title;
+        OtherSource.Track match = null;
+        for (OtherSource.Track track : OtherSource.search(artist + " " + title)) {
+            if (normalize(track.artist).contains(normalize(artist)) && titleMatches(track.title, title)) {
+                match = track;
+                break;
+            }
+        }
+        if (match == null) return "MISS\t" + key;
+
+        // A track downloaded earlier is reused instead of downloading a copy.
+        File file = null;
+        String prefix = (match.artist + " - " + match.title).replaceAll("[\\\\/:*?\"<>|]", "_") + ".";
+        for (File existing : LocalMusic.getFiles(context)) {
+            if (existing.getName().startsWith(prefix)) file = existing;
+        }
+        for (int attempt = 1; file == null; attempt++) {
+            AudioStream stream = OtherSource.bestAudio(match.url);
+            file = LocalMusic.newImportFile(context, match.artist + " - " + match.title + "." + OtherSource.extensionOf(stream));
+            try (OutputStream output = new FileOutputStream(file)) {
+                OtherSource.download(stream.getContent(), output, value -> {
+                });
+                break;
+            } catch (Exception ex) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+                file = null;
+                if (!(ex instanceof OtherSource.RefusedException) || attempt >= 3) throw ex;
+            }
+        }
+        LocalMusic.onFileAdded();
+        if (playlistUrn != null && !SavedPlaylist.isSavedPlaylist(playlistUrn)) {
+            LocalAdditions.add(playlistUrn, LocalAdditions.fileEntry(file));
+        }
+        return "OK\t" + key + "\t" + match.title + "\t" + match.url;
+    }
+
+    /** The title without the translation in brackets, compared by letters and digits only. */
+    private static boolean titleMatches(String found, String wanted) {
+        String a = normalize(found);
+        String b = normalize(wanted.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
+        return !b.isEmpty() && (a.contains(b) || b.contains(a) && !a.isEmpty());
+    }
+
+    private static String normalize(String text) {
+        return text.toLowerCase(Locale.ROOT).replace('ё', 'е').replaceAll("[^\\p{L}\\p{N}]", "");
+    }
+
+    private static List<String> readLines(File file) throws Exception {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) if (!line.trim().isEmpty()) lines.add(line);
+        }
+        return lines;
+    }
+}

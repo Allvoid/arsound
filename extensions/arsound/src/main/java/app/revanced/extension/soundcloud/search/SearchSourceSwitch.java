@@ -61,6 +61,8 @@ public final class SearchSourceSwitch {
 
     private static final Handler handler = new Handler(Looper.getMainLooper());
     private static final ExecutorService network = Executors.newFixedThreadPool(3);
+    /** Album and artist searches, run next to the track search without taking its threads. */
+    private static final ExecutorService extra = Executors.newFixedThreadPool(2);
     /** Track URL → download percent, while downloading. Survives leaving and opening the tab again. */
     private static final Map<String, Integer> downloading = new HashMap<>();
     private static final Set<String> downloaded = new HashSet<>();
@@ -282,13 +284,19 @@ public final class SearchSourceSwitch {
             if (query.isEmpty()) {
                 spinner.setVisibility(View.GONE);
                 status.setVisibility(View.VISIBLE);
-                status.setText(text("Введите название трека — найдём то, что не скачивается в SoundCloud.",
-                        "Type a track name to find what SoundCloud does not let download."));
+                status.setText(text("Введите трек, альбом или исполнителя — найдём то, что не скачивается в SoundCloud.",
+                        "Type a track, album or artist to find what SoundCloud does not let download."));
                 return;
             }
+            back.clear();
             status.setVisibility(View.GONE);
             spinner.setVisibility(View.VISIBLE);
             network.execute(() -> {
+                // Albums and artists are asked for at the same time as tracks; their failure only hides them.
+                java.util.concurrent.Future<List<OtherSource.Album>> albums =
+                        extra.submit(() -> OtherSource.searchAlbums(query));
+                java.util.concurrent.Future<List<OtherSource.Artist>> artists =
+                        extra.submit(() -> OtherSource.searchArtists(query));
                 List<OtherSource.Track> found = null;
                 Exception error = null;
                 try {
@@ -297,13 +305,15 @@ public final class SearchSourceSwitch {
                     error = ex;
                     Logger.printException(() -> "Arsound search failed", ex);
                 }
-                List<OtherSource.Track> tracks = found;
+                List<OtherSource.Album> foundAlbums = resultOrEmpty(albums);
+                List<OtherSource.Artist> foundArtists = resultOrEmpty(artists);
+                List<OtherSource.Track> tracks = error != null ? new java.util.ArrayList<>() : found;
                 boolean failed = error != null;
                 boolean blocked = isRegionBlock(error);
                 handler.post(() -> {
                     if (current != generation) return;
                     spinner.setVisibility(View.GONE);
-                    if (failed || tracks.isEmpty()) {
+                    if (tracks.isEmpty() && foundAlbums.isEmpty() && foundArtists.isEmpty()) {
                         status.setVisibility(View.VISIBLE);
                         status.setText(blocked
                                 ? text("Российский IP — поиск Arsound отключён (Настройки → Arsound → сеть).",
@@ -314,13 +324,171 @@ public final class SearchSourceSwitch {
                         if (failed) shownQuery = null;
                         return;
                     }
-                    for (OtherSource.Track track : tracks) {
-                        Row row = new Row(this, track);
-                        rows.put(track.url, row);
-                        list.addView(row.view);
-                    }
+                    root = () -> showResults(foundArtists, foundAlbums, tracks);
+                    root.run();
                 });
             });
+        }
+
+        /** Pages opened from the results: the page to return to is on top. */
+        final java.util.ArrayDeque<Runnable> back = new java.util.ArrayDeque<>();
+        Runnable root;
+        Runnable shown;
+
+        void clearList() {
+            list.removeAllViews();
+            rows.clear();
+            status.setVisibility(View.GONE);
+            spinner.setVisibility(View.GONE);
+        }
+
+        void showResults(List<OtherSource.Artist> artists, List<OtherSource.Album> albums, List<OtherSource.Track> tracks) {
+            shown = root;
+            clearList();
+            if (!artists.isEmpty()) {
+                list.addView(header(text("Исполнители", "Artists")));
+                for (int i = 0; i < Math.min(3, artists.size()); i++) {
+                    OtherSource.Artist artist = artists.get(i);
+                    list.addView(linkRow(artist.name, text("Исполнитель · альбомы", "Artist · albums"),
+                            () -> open(() -> showArtist(artist))));
+                }
+            }
+            if (!albums.isEmpty()) {
+                list.addView(header(text("Альбомы", "Albums")));
+                for (int i = 0; i < Math.min(6, albums.size()); i++) addAlbumRow(albums.get(i));
+            }
+            if (!tracks.isEmpty()) {
+                if (!artists.isEmpty() || !albums.isEmpty()) list.addView(header(text("Треки", "Tracks")));
+                addTracks(tracks);
+            }
+        }
+
+        void addAlbumRow(OtherSource.Album album) {
+            String count = album.trackCount > 0 ? album.trackCount + " " + text("тр.", "tracks") : "";
+            String subtitle = album.artist.isEmpty() ? count : count.isEmpty() ? album.artist : album.artist + " · " + count;
+            list.addView(linkRow(album.title, subtitle, () -> open(() -> showAlbum(album))));
+        }
+
+        void addTracks(List<OtherSource.Track> tracks) {
+            for (OtherSource.Track track : tracks) {
+                Row row = new Row(this, track);
+                rows.put(track.url, row);
+                list.addView(row.view);
+            }
+        }
+
+        /** Opens a page; the back row returns to the page shown now. */
+        void open(Runnable page) {
+            if (shown != null) back.push(shown);
+            page.run();
+        }
+
+        void goBack() {
+            Runnable previous = back.poll();
+            if (previous != null) previous.run();
+        }
+
+        /** Shows a page title with a back row, then loads the page content off the main thread. */
+        <T> void loadPage(Runnable self, String title, java.util.concurrent.Callable<T> load,
+                          java.util.function.Consumer<T> show) {
+            shown = self;
+            int current = ++generation;
+            clearList();
+            list.addView(linkRow("←  " + text("Назад", "Back"), null, this::goBack));
+            list.addView(header(title));
+            spinner.setVisibility(View.VISIBLE);
+            network.execute(() -> {
+                T value = null;
+                Exception error = null;
+                try {
+                    value = load.call();
+                } catch (Exception ex) {
+                    error = ex;
+                    Logger.printException(() -> "Could not open " + title, ex);
+                }
+                T loaded = value;
+                boolean failed = error != null;
+                handler.post(() -> {
+                    if (current != generation) return;
+                    spinner.setVisibility(View.GONE);
+                    if (failed) {
+                        list.addView(note(text("Не получилось открыть: проверьте интернет.",
+                                "Could not open: check the connection.")));
+                        return;
+                    }
+                    show.accept(loaded);
+                });
+            });
+        }
+
+        void showArtist(OtherSource.Artist artist) {
+            loadPage(() -> showArtist(artist), artist.name, () -> OtherSource.artistAlbums(artist), albums -> {
+                if (albums.isEmpty()) list.addView(note(text("Альбомов не нашлось.", "No albums found.")));
+                for (OtherSource.Album album : albums) addAlbumRow(album);
+            });
+        }
+
+        void showAlbum(OtherSource.Album album) {
+            loadPage(() -> showAlbum(album), album.title, () -> OtherSource.albumTracks(album), tracks -> {
+                if (tracks.isEmpty()) {
+                    list.addView(note(text("В альбоме нет треков.", "The album has no tracks.")));
+                    return;
+                }
+                list.addView(linkRow(text("Скачать всё", "Download all") + " (" + tracks.size() + ")",
+                        text("В плейлист «Импортированные»", "To the imported music"), () -> {
+                            for (Row row : new java.util.ArrayList<>(rows.values())) startDownload(row);
+                        }));
+                addTracks(tracks);
+            });
+        }
+
+        TextView header(String label) {
+            TextView view = new TextView(context);
+            view.setText(label);
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+            view.setTypeface(Typeface.DEFAULT_BOLD);
+            view.setTextColor(textColor);
+            view.setPadding(dp(context, 16), dp(context, 16), dp(context, 16), dp(context, 4));
+            return view;
+        }
+
+        TextView note(String label) {
+            TextView view = new TextView(context);
+            view.setText(label);
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            view.setTextColor(withAlpha(textColor, 0xB0));
+            view.setPadding(dp(context, 16), dp(context, 16), dp(context, 16), dp(context, 16));
+            return view;
+        }
+
+        /** A row that opens something: a title and an optional grey line under it. */
+        LinearLayout linkRow(String title, String subtitle, Runnable onClick) {
+            LinearLayout view = new LinearLayout(context);
+            view.setOrientation(LinearLayout.VERTICAL);
+            view.setGravity(Gravity.CENTER_VERTICAL);
+            view.setMinimumHeight(dp(context, 56));
+            view.setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8));
+            TypedValue ripple = new TypedValue();
+            context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
+            view.setBackgroundResource(ripple.resourceId);
+            view.setOnClickListener(v -> onClick.run());
+            TextView first = new TextView(context);
+            first.setText(title);
+            first.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            first.setTextColor(textColor);
+            first.setSingleLine(true);
+            first.setEllipsize(TextUtils.TruncateAt.END);
+            view.addView(first);
+            if (subtitle != null && !subtitle.isEmpty()) {
+                TextView second = new TextView(context);
+                second.setText(subtitle);
+                second.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+                second.setTextColor(withAlpha(textColor, 0xA0));
+                second.setSingleLine(true);
+                second.setEllipsize(TextUtils.TruncateAt.END);
+                view.addView(second);
+            }
+            return view;
         }
 
         void refreshRows() {
@@ -572,6 +740,15 @@ public final class SearchSourceSwitch {
 
     private static final String REGION_BLOCKED_TEXT = text("Российский IP — поиск Arsound отключён.",
             "Russian IP: the Arsound search is off.");
+
+    private static <T> List<T> resultOrEmpty(java.util.concurrent.Future<List<T>> future) {
+        try {
+            return future.get();
+        } catch (Exception ex) {
+            Logger.printException(() -> "Arsound album or artist search failed", ex);
+            return new java.util.ArrayList<>();
+        }
+    }
 
     private static boolean isRegionBlock(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {

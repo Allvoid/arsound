@@ -137,7 +137,7 @@ public final class LocalAdditions {
     }
 
     /** Remembers opened playlists, so they can be picked as a target. Newest first: urn and title. */
-    private static synchronized List<String[]> readRecentPlaylists() {
+    static synchronized List<String[]> readRecentPlaylists() {
         List<String[]> result = new ArrayList<>();
         SharedPreferences preferences = preferences();
         if (preferences == null) return result;
