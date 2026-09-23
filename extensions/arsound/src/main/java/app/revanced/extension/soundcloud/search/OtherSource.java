@@ -12,6 +12,15 @@ import java.util.List;
 import java.util.Map;
 
 import app.arsound.shaded.newpipe.extractor.InfoItem;
+import app.arsound.shaded.newpipe.extractor.ListExtractor;
+import app.arsound.shaded.newpipe.extractor.Page;
+import app.arsound.shaded.newpipe.extractor.channel.ChannelInfo;
+import app.arsound.shaded.newpipe.extractor.channel.ChannelInfoItem;
+import app.arsound.shaded.newpipe.extractor.channel.tabs.ChannelTabInfo;
+import app.arsound.shaded.newpipe.extractor.channel.tabs.ChannelTabs;
+import app.arsound.shaded.newpipe.extractor.linkhandler.ListLinkHandler;
+import app.arsound.shaded.newpipe.extractor.playlist.PlaylistInfo;
+import app.arsound.shaded.newpipe.extractor.playlist.PlaylistInfoItem;
 import app.arsound.shaded.newpipe.extractor.NewPipe;
 import app.arsound.shaded.newpipe.extractor.ServiceList;
 import app.arsound.shaded.newpipe.extractor.StreamingService;
@@ -75,6 +84,110 @@ public final class OtherSource {
             if (!tracks.isEmpty()) break;
         }
         return tracks;
+    }
+
+    public static final class Album {
+        public final String url;
+        public final String title;
+        public final String artist;
+        public final long trackCount;
+
+        Album(String url, String title, String artist, long trackCount) {
+            this.url = url;
+            this.title = title;
+            this.artist = artist;
+            this.trackCount = trackCount;
+        }
+    }
+
+    public static final class Artist {
+        public final String url;
+        public final String name;
+
+        Artist(String url, String name) {
+            this.url = url;
+            this.name = name;
+        }
+    }
+
+    private static List<InfoItem> searchItems(String query, String filter) throws Exception {
+        StreamingService service = service();
+        return SearchInfo.getInfo(service,
+                service.getSearchQHFactory().fromQuery(query, Collections.singletonList(filter), "")).getRelatedItems();
+    }
+
+    private static String artistName(String name) {
+        if (name == null) return "";
+        return name.endsWith(" - Topic") ? name.substring(0, name.length() - 8) : name;
+    }
+
+    private static Album toAlbum(InfoItem item, String fallbackArtist) {
+        if (!(item instanceof PlaylistInfoItem)) return null;
+        PlaylistInfoItem playlist = (PlaylistInfoItem) item;
+        String artist = artistName(playlist.getUploaderName());
+        return new Album(playlist.getUrl(), playlist.getName(), artist.isEmpty() ? fallbackArtist : artist,
+                playlist.getStreamCount());
+    }
+
+    /** Albums and singles of YouTube Music. */
+    public static List<Album> searchAlbums(String query) throws Exception {
+        List<Album> albums = new ArrayList<>();
+        for (InfoItem item : searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS)) {
+            Album album = toAlbum(item, "");
+            if (album != null) albums.add(album);
+        }
+        return albums;
+    }
+
+    public static List<Artist> searchArtists(String query) throws Exception {
+        List<Artist> artists = new ArrayList<>();
+        for (InfoItem item : searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS)) {
+            if (item instanceof ChannelInfoItem) artists.add(new Artist(item.getUrl(), item.getName()));
+        }
+        return artists;
+    }
+
+    /** The tracks of an album, in album order. */
+    public static List<Track> albumTracks(Album album) throws Exception {
+        StreamingService service = service();
+        PlaylistInfo info = PlaylistInfo.getInfo(service, album.url);
+        List<StreamInfoItem> items = new ArrayList<>(info.getRelatedItems());
+        Page page = info.getNextPage();
+        while (Page.isValid(page) && items.size() < 500) {
+            ListExtractor.InfoItemsPage<StreamInfoItem> more = PlaylistInfo.getMoreItems(service, album.url, page);
+            items.addAll(more.getItems());
+            page = more.getNextPage();
+        }
+        List<Track> tracks = new ArrayList<>();
+        for (StreamInfoItem stream : items) {
+            String artist = artistName(stream.getUploaderName());
+            tracks.add(new Track(stream.getUrl(), stream.getName(), artist.isEmpty() ? album.artist : artist,
+                    stream.getDuration()));
+        }
+        return tracks;
+    }
+
+    /** Albums and singles of an artist, from the releases tab of the artist's channel. */
+    public static List<Album> artistAlbums(Artist artist) throws Exception {
+        StreamingService service = service();
+        ChannelInfo channel = ChannelInfo.getInfo(service, artist.url);
+        List<Album> albums = new ArrayList<>();
+        for (ListLinkHandler tab : channel.getTabs()) {
+            if (!tab.getContentFilters().contains(ChannelTabs.ALBUMS)) continue;
+            ChannelTabInfo info = ChannelTabInfo.getInfo(service, tab);
+            List<InfoItem> items = new ArrayList<>(info.getRelatedItems());
+            Page page = info.getNextPage();
+            while (Page.isValid(page) && items.size() < 300) {
+                ListExtractor.InfoItemsPage<InfoItem> more = ChannelTabInfo.getMoreItems(service, tab, page);
+                items.addAll(more.getItems());
+                page = more.getNextPage();
+            }
+            for (InfoItem item : items) {
+                Album album = toAlbum(item, artist.name);
+                if (album != null) albums.add(album);
+            }
+        }
+        return albums;
     }
 
     /** The best audio stream that Android stores as .m4a, or the best of any kind. */

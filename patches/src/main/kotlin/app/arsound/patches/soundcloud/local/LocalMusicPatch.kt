@@ -46,6 +46,15 @@ private val importActivityPatch = resourcePatch {
                     setAttribute("android:excludeFromRecents", "true")
                 },
             )
+            // Batch downloads started from a computer over adb; reads lists from the app's own folder only.
+            document.getNode("application").appendChild(
+                document.createElement("activity").apply {
+                    setAttribute("android:name", "app.revanced.extension.soundcloud.local.BatchActivity")
+                    setAttribute("android:exported", "true")
+                    setAttribute("android:theme", "@android:style/Theme.Translucent.NoTitleBar")
+                    setAttribute("android:excludeFromRecents", "true")
+                },
+            )
         }
     }
 }
