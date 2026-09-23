@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.search;
 
+import android.net.Uri;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,6 +29,7 @@ import app.arsound.shaded.newpipe.extractor.StreamingService;
 import app.arsound.shaded.newpipe.extractor.downloader.Downloader;
 import app.arsound.shaded.newpipe.extractor.downloader.Request;
 import app.arsound.shaded.newpipe.extractor.downloader.Response;
+import app.arsound.shaded.newpipe.extractor.exceptions.AgeRestrictedContentException;
 import app.arsound.shaded.newpipe.extractor.search.SearchInfo;
 import app.arsound.shaded.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory;
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
@@ -192,7 +195,13 @@ public final class OtherSource {
 
     /** The best audio stream that Android stores as .m4a, or the best of any kind. */
     public static AudioStream bestAudio(String url) throws Exception {
-        StreamInfo info = StreamInfo.getInfo(service(), url);
+        StreamInfo info;
+        try {
+            info = StreamInfo.getInfo(service(), url);
+        } catch (AgeRestrictedContentException ex) {
+            // Anonymous requests cannot get age-restricted tracks; a signed-in account can.
+            return YouTubeAccount.audio(Uri.parse(url).getQueryParameter("v"));
+        }
         AudioStream best = null;
         AudioStream bestM4a = null;
         for (AudioStream stream : info.getAudioStreams()) {

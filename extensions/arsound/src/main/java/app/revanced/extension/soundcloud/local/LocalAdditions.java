@@ -126,6 +126,13 @@ public final class LocalAdditions {
         return true;
     }
 
+    /** Replaces the added entries of a playlist, keeping the given order. */
+    static void setEntries(String playlistUrn, List<String> entries) {
+        Map<String, List<String>> additions = readAdditions();
+        additions.put(playlistUrn, new ArrayList<>(entries));
+        writeAdditions(additions);
+    }
+
     public static void remove(String playlistUrn, String entry) {
         Map<String, List<String>> additions = readAdditions();
         List<String> entries = additions.get(playlistUrn);

@@ -38,6 +38,12 @@ public final class TrackOrder {
         return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
     }
 
+    /** Forgets the manual order of a playlist, so it follows the order of its entries again. */
+    static void clear(String playlistUrn) {
+        SharedPreferences preferences = preferences();
+        if (preferences != null) preferences.edit().remove(ORDER_PREFIX + playlistUrn).apply();
+    }
+
     static boolean hasOrder(String playlistUrn) {
         SharedPreferences preferences = preferences();
         return Settings.isPlaylistOrderEnabled() && preferences != null && preferences.contains(ORDER_PREFIX + playlistUrn);
