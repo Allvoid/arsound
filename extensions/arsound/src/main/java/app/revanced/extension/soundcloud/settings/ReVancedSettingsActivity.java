@@ -21,6 +21,7 @@ import java.util.Locale;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
 
 /**
@@ -129,6 +130,10 @@ public final class ReVancedSettingsActivity extends Activity {
         LinearLayout list = holder[0];
         list.addView(createTitle("Arsound", true));
 
+        list.addView(openScreenRow(text("Аккаунт", "Account"),
+                text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
+                SCREEN_ACCOUNT));
+
         list.addView(openScreenRow(text("Сеть", "Network"),
                 text("Российский IP, свой DNS, статус сети, проверка устройства", "Russian IP, custom DNS, network status, device check"),
                 SCREEN_NETWORK));
@@ -151,9 +156,6 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Версия " + UpdateChecker.VERSION + ", проверка обновлений, сброс данных SoundCloud",
                         "Version " + UpdateChecker.VERSION + ", update check, SoundCloud data reset"),
                 SCREEN_UPDATES));
-        list.addView(openScreenRow(text("Аккаунт", "Account"),
-                text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
-                SCREEN_ACCOUNT));
         list.addView(openScreenRow(text("Для разработчика", "Developer"),
                 text("Инструменты для проверки и отладки", "Testing and debugging tools"),
                 SCREEN_DEVELOPER));
@@ -482,6 +484,19 @@ public final class ReVancedSettingsActivity extends Activity {
                 signedIn
                         ? text("Вход выполнен. Нажмите, чтобы выйти.", "Signed in. Tap to sign out.")
                         : text("Не указан. Нажмите, чтобы войти.", "Not set. Tap to sign in."),
+                HelpBadge.create(this, createText("H4.Primary", "").getCurrentTextColor(),
+                        text("Зачем аккаунт YouTube Music", "What the YouTube Music account is for"),
+                        text("Поиск Arsound берёт треки из YouTube Music. Часть треков YouTube отдаёт только "
+                                        + "после входа в аккаунт: у них возрастное ограничение 18+.",
+                                "The Arsound search takes tracks from YouTube Music. YouTube gives some tracks only "
+                                        + "to signed-in listeners: they are age-restricted (18+)."),
+                        text("Вход нужен только для них и указывается по желанию. Пароль вводится на странице "
+                                        + "Google, Arsound его не видит. Сессия хранится только на этом телефоне "
+                                        + "и отправляется только в YouTube.",
+                                "Signing in is only for them, and optional. The password is typed into Google's page; "
+                                        + "Arsound does not see it. The session stays on this phone and goes only to YouTube."),
+                        text("Аккаунт должен быть совершеннолетним по данным Google.",
+                                "Google must know the account as adult.")),
                 v -> {
                     if (app.revanced.extension.soundcloud.search.YouTubeAccount.isSignedIn()) {
                         app.revanced.extension.soundcloud.search.YouTubeAccount.signOut();
@@ -492,26 +507,6 @@ public final class ReVancedSettingsActivity extends Activity {
                         app.revanced.extension.soundcloud.search.YouTubeLoginActivity.start(this);
                     }
                 }
-        ));
-        list.addView(createActionRow(
-                text("Зачем это? (?)", "What is it for? (?)"),
-                text("Необязательно. Без входа всё работает, кроме треков с возрастным ограничением.",
-                        "Optional. Everything works without it, except age-restricted tracks."),
-                v -> new android.app.AlertDialog.Builder(this)
-                        .setView(app.revanced.extension.soundcloud.permissions.WelcomePermissions.createDialogContent(this,
-                                text("Поиск Arsound берёт треки из YouTube Music. Часть треков YouTube отдаёт только "
-                                                + "после входа в аккаунт: у них возрастное ограничение 18+.",
-                                        "The Arsound search takes tracks from YouTube Music. YouTube gives some tracks only "
-                                                + "to signed-in listeners: they are age-restricted (18+)."),
-                                text("Вход нужен только для них и указывается по желанию. Пароль вводится на странице "
-                                                + "Google, Arsound его не видит. Сессия хранится только на этом телефоне "
-                                                + "и отправляется только в YouTube.",
-                                        "Signing in is only for them, and optional. The password is typed into Google's page; "
-                                                + "Arsound does not see it. The session stays on this phone and goes only to YouTube."),
-                                text("Аккаунт должен быть совершеннолетним по данным Google.",
-                                        "Google must know the account as adult.")))
-                        .setPositiveButton(text("Понятно", "Got it"), null)
-                        .show()
         ));
     }
 
@@ -943,14 +938,24 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private View createActionRow(String title, String description, View.OnClickListener listener) {
+        return createActionRow(title, description, null, listener);
+    }
+
+    /** @param help A {@link HelpBadge} shown right after the title, or null. */
+    private View createActionRow(String title, String description, View help, View.OnClickListener listener) {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
         container.setPadding(0, dimen("spacing_s"), 0, dimen("spacing_s"));
 
+        LinearLayout titleLine = new LinearLayout(this);
+        titleLine.setOrientation(LinearLayout.HORIZONTAL);
+        titleLine.setGravity(Gravity.CENTER_VERTICAL);
+        titleLine.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dp(4));
         TextView titleView = createText("H4.Primary", title);
-        titleView.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dp(4));
-        container.addView(titleView);
+        titleLine.addView(titleView);
+        if (help != null) titleLine.addView(help, HelpBadge.layoutParams(this));
+        container.addView(titleLine);
 
         TextView descriptionView = createText("Body.Secondary", description);
         descriptionView.setPadding(dimen("spacing_m"), 0, dp(72), 0);
