@@ -119,6 +119,8 @@ public class Logger {
         LogBufferManager.appendToLogBuffer(managerToastString);
         // Kept on disk as well, so a problem that shows up once in days can still be looked at.
         app.revanced.extension.shared.debug.LogFile.append(logLevel.name(), className, logText);
+        // Our own lines (retries, file playback, waits) explain slow track switches, so they go there too.
+        app.revanced.extension.shared.debug.PlaybackLog.append("arsound/" + className, logText);
 
         String logTag = REVANCED_LOG_TAG_PREFIX + className;
         switch (logLevel) {

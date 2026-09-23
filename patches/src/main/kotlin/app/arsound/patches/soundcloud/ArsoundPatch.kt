@@ -3,6 +3,7 @@ package app.arsound.patches.soundcloud
 import app.arsound.patches.all.misc.packagename.changePackageNamePatch
 import app.arsound.patches.soundcloud.ads.playbackAdsPatch
 import app.arsound.patches.soundcloud.analytics.disableTelemetryPatch
+import app.arsound.patches.soundcloud.debug.playbackTimelinePatch
 import app.arsound.patches.soundcloud.debug.playerBarLogPatch
 import app.arsound.patches.soundcloud.download.downloadTrackPatch
 import app.arsound.patches.soundcloud.library.hideImportBannerPatch
@@ -60,6 +61,7 @@ val arsoundBaseGroup = arsoundGroup(
         "Ставится рядом с оригинальным SoundCloud.",
     disableTelemetryPatch,
     playerBarLogPatch,
+    playbackTimelinePatch,
 )
 
 @Suppress("unused")
