@@ -28,8 +28,8 @@ import app.revanced.extension.shared.Utils;
  * tracks; with the account's cookies the player answers as for a signed-in listener.
  * <p>
  * The cookies stay in the app's private storage and go only to youtube.com. NewPipe asks YouTube as the
- * Android app, which ignores cookies, so age-restricted tracks are asked for here as the TV app, the
- * client that accepts a signed-in web session without extra tokens.
+ * Android app, which ignores cookies, so age-restricted tracks are asked for here as the apps that
+ * accept a signed-in web session (TV, YouTube Music web, YouTube web).
  */
 public final class YouTubeAccount {
     private static final String PREFERENCES_NAME = "arsound_youtube_account";
@@ -96,46 +96,123 @@ public final class YouTubeAccount {
     }
 
     /** The header Google's web apps use to prove the session: SHA-1 of time, SAPISID and origin. */
-    private static String authorization(String cookies) throws Exception {
+    private static String authorization(String cookies, String origin) throws Exception {
         String sapisid = cookie(cookies, "SAPISID");
         long time = System.currentTimeMillis() / 1000;
         byte[] hash = MessageDigest.getInstance("SHA-1")
-                .digest((time + " " + sapisid + " " + ORIGIN).getBytes(StandardCharsets.UTF_8));
+                .digest((time + " " + sapisid + " " + origin).getBytes(StandardCharsets.UTF_8));
         StringBuilder hex = new StringBuilder();
         for (byte b : hash) hex.append(String.format(Locale.ROOT, "%02x", b));
         return "SAPISIDHASH " + time + "_" + hex;
     }
+
+    /** A YouTube app the player request pretends to be. */
+    private static final class Client {
+        final String name;
+        final String id;
+        final String version;
+        final String userAgent;
+
+        Client(String name, String id, String version, String userAgent) {
+            this.name = name;
+            this.id = id;
+            this.version = version;
+            this.userAgent = userAgent;
+        }
+    }
+
+    private static final String DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
+    /**
+     * Apps that accept a signed-in web session, tried in turn: YouTube changes which of them answer an
+     * age-restricted track, so the first that gives audio wins.
+     */
+    private static final Client[] CLIENTS = {
+            new Client("TVHTML5", "7", TV_CLIENT_VERSION, TV_USER_AGENT),
+            new Client("WEB_REMIX", "67", "1.20260121.03.00", DESKTOP_USER_AGENT),
+            new Client("WEB", "1", "2.20260120.01.00", DESKTOP_USER_AGENT),
+            new Client("MWEB", "2", "2.20260120.01.00",
+                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"),
+    };
 
     /** The best audio of an age-restricted track, asked for with the account. */
     static AudioStream audio(String videoId) throws Exception {
         String cookies = cookies();
         if (cookies == null || cookie(cookies, "SAPISID") == null) throw new SignInRequiredException();
 
+        IOException last = null;
+        for (Client client : CLIENTS) {
+            try {
+                return audio(videoId, cookies, client);
+            } catch (IOException ex) {
+                Logger.printInfo(() -> "Signed-in player " + client.name + ": " + ex.getMessage());
+                last = ex;
+            }
+        }
+        throw last;
+    }
+
+    /**
+     * The TV app answers "the page needs to be reloaded" unless the request carries the visitor id and
+     * client version of its own start page, like a real TV does.
+     */
+    private static String[] tvPage(String cookies) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(ORIGIN + "/tv").openConnection();
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        connection.setRequestProperty("User-Agent", TV_USER_AGENT);
+        connection.setRequestProperty("Cookie", cookies);
+        String html;
+        try (InputStream input = connection.getInputStream()) {
+            html = read(input);
+        }
+        java.util.regex.Matcher visitor = java.util.regex.Pattern.compile("\"VISITOR_DATA\"\\s*:\\s*\"([^\"]+)\"").matcher(html);
+        java.util.regex.Matcher version = java.util.regex.Pattern.compile("\"INNERTUBE_CLIENT_VERSION\"\\s*:\\s*\"([^\"]+)\"").matcher(html);
+        return new String[]{visitor.find() ? visitor.group(1) : null, version.find() ? version.group(1) : null};
+    }
+
+    private static AudioStream audio(String videoId, String cookies, Client client) throws Exception {
+        String visitorData = null;
+        String version = client.version;
+        if (client.name.equals("TVHTML5")) {
+            String[] page = tvPage(cookies);
+            visitorData = page[0];
+            if (page[1] != null) version = page[1];
+            String found = visitorData;
+            String foundVersion = version;
+            Logger.printInfo(() -> "TV page: visitor " + (found != null) + ", version " + foundVersion);
+        }
+        JSONObject clientContext = new JSONObject()
+                .put("clientName", client.name)
+                .put("clientVersion", version)
+                .put("hl", "en");
+        if (visitorData != null) clientContext.put("visitorData", visitorData);
         JSONObject body = new JSONObject()
                 .put("videoId", videoId)
                 .put("contentCheckOk", true)
                 .put("racyCheckOk", true)
-                .put("context", new JSONObject().put("client", new JSONObject()
-                        .put("clientName", "TVHTML5")
-                        .put("clientVersion", TV_CLIENT_VERSION)
-                        .put("hl", "en")))
+                .put("context", new JSONObject().put("client", clientContext))
                 .put("playbackContext", new JSONObject().put("contentPlaybackContext", new JSONObject()
                         .put("signatureTimestamp", YoutubeJavaScriptPlayerManager.getSignatureTimestamp(videoId))));
 
+        String origin = client.name.equals("WEB_REMIX") ? "https://music.youtube.com" : ORIGIN;
         HttpURLConnection connection = (HttpURLConnection)
-                new URL(ORIGIN + "/youtubei/v1/player?prettyPrint=false").openConnection();
+                new URL(origin + "/youtubei/v1/player?prettyPrint=false").openConnection();
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(30_000);
         connection.setDoOutput(true);
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("User-Agent", TV_USER_AGENT);
-        connection.setRequestProperty("Origin", ORIGIN);
-        connection.setRequestProperty("X-Origin", ORIGIN);
-        connection.setRequestProperty("X-YouTube-Client-Name", "7");
-        connection.setRequestProperty("X-YouTube-Client-Version", TV_CLIENT_VERSION);
+        connection.setRequestProperty("User-Agent", client.userAgent);
+        connection.setRequestProperty("Origin", origin);
+        connection.setRequestProperty("X-Origin", origin);
+        connection.setRequestProperty("X-Goog-AuthUser", "0");
+        connection.setRequestProperty("X-YouTube-Client-Name", client.id);
+        connection.setRequestProperty("X-YouTube-Client-Version", version);
+        if (visitorData != null) connection.setRequestProperty("X-Goog-Visitor-Id", visitorData);
         connection.setRequestProperty("Cookie", cookies);
-        connection.setRequestProperty("Authorization", authorization(cookies));
+        connection.setRequestProperty("Authorization", authorization(cookies, origin));
         try (OutputStream output = connection.getOutputStream()) {
             output.write(body.toString().getBytes(StandardCharsets.UTF_8));
         }
@@ -149,9 +226,9 @@ public final class YouTubeAccount {
         String status = playability == null ? "" : playability.optString("status");
         if (!"OK".equalsIgnoreCase(status)) {
             String reason = playability == null ? "" : playability.optString("reason");
-            Logger.printInfo(() -> "Signed-in player: " + status + " " + reason);
             throw new IOException("YouTube refused the signed-in request: " + status + " " + reason);
         }
+        if (!response.has("streamingData")) throw new IOException("No streaming data");
 
         JSONArray formats = response.getJSONObject("streamingData").optJSONArray("adaptiveFormats");
         JSONObject best = null;
