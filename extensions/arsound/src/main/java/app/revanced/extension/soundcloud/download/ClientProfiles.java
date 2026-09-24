@@ -25,7 +25,7 @@ import app.revanced.extension.shared.Logger;
  * This only widens the search for tracks the user may already play in full: tracks the web player
  * calls a preview or a subscription track are refused here as well, and DRM streams are left alone.
  */
-final class ClientProfiles {
+public final class ClientProfiles {
     private static final long CLIENT_ID_LIFETIME_MS = 24 * 60 * 60 * 1000L;
     private static final Pattern CLIENT_ID = Pattern.compile("client_id\\s*[:=]\\s*\"([A-Za-z0-9]{20,})\"");
     private static final Pattern SCRIPT = Pattern.compile("<script[^>]+src=\"(https://[^\"]+\\.js)\"");
@@ -74,6 +74,45 @@ final class ClientProfiles {
             }
         }
         return found;
+    }
+
+    /** A track found by the web search. */
+    public static final class FoundTrack {
+        public final String id;
+        public final String title;
+        public final String user;
+        /** ALLOW, MONETIZE, SNIP (preview only) or BLOCK. */
+        public final String policy;
+
+        FoundTrack(String id, String title, String user, String policy) {
+            this.id = id;
+            this.title = title;
+            this.user = user;
+            this.policy = policy;
+        }
+
+        /** Playable in full, not just a preview. */
+        public boolean isFull() {
+            return "ALLOW".equals(policy) || "MONETIZE".equals(policy);
+        }
+    }
+
+    /** Searches SoundCloud tracks the way the web site does. Blocks: call it off the main thread. */
+    public static List<FoundTrack> searchTracks(String query) throws Exception {
+        String clientId = clientId();
+        if (clientId == null) throw new java.io.IOException("No web client id");
+        String body = get("https://api-v2.soundcloud.com/search/tracks?limit=20&q="
+                + java.net.URLEncoder.encode(query, "UTF-8") + "&client_id=" + clientId, USER_AGENTS[0]);
+        if (body == null) throw new java.io.IOException("SoundCloud search failed");
+        org.json.JSONArray collection = new JSONObject(body).optJSONArray("collection");
+        List<FoundTrack> tracks = new ArrayList<>();
+        for (int i = 0; collection != null && i < collection.length(); i++) {
+            JSONObject track = collection.getJSONObject(i);
+            JSONObject user = track.optJSONObject("user");
+            tracks.add(new FoundTrack(String.valueOf(track.optLong("id")), track.optString("title"),
+                    user == null ? "" : user.optString("username"), track.optString("policy")));
+        }
+        return tracks;
     }
 
     /** Asks the web player's endpoint for the file or playlist behind a transcoding. */
