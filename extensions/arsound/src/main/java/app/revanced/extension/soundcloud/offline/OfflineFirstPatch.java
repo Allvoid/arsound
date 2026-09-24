@@ -80,16 +80,37 @@ public final class OfflineFirstPatch {
      * @param syncIfMissing The original {@code tracks(urns, SYNC_MISSING)} observable.
      */
     public static Object localTracksFirst(Object repository, Object urns, Object syncIfMissing) {
+        return localFirst(repository, "com.soundcloud.android.foundation.domain.tracks.TrackRepository", "tracks",
+                Iterable.class, urns, syncIfMissing);
+    }
+
+    /**
+     * Point 3 for profiles, such as the ones on the Following screen. Replaces the call
+     * {@code UserRepository.users(urns, strategy)}.
+     *
+     * @return The stored profiles right away, then the result with profiles loaded from the server.
+     */
+    public static Object localUsersFirst(Object repository, Object urns, Object strategy) throws Exception {
+        ClassLoader loader = repository.getClass().getClassLoader();
+        Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
+        Class<?> repositoryClass = Class.forName("com.soundcloud.android.foundation.domain.users.UserRepository", false, loader);
+        Object requested = repositoryClass.getMethod("users", java.util.Set.class, strategyClass).invoke(repository, urns, strategy);
+        return localFirst(repository, repositoryClass.getName(), "users", java.util.Set.class, urns, requested);
+    }
+
+    /** Emits {@code repository.method(urns, LOCAL_ONLY)} until {@code syncIfMissing} answers. */
+    private static Object localFirst(Object repository, String repositoryName, String methodName, Class<?> urnsType,
+                                     Object urns, Object syncIfMissing) {
         if (!isEnabled()) return syncIfMissing;
         try {
             ClassLoader loader = repository.getClass().getClassLoader();
             Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
-            Class<?> repositoryClass = Class.forName("com.soundcloud.android.foundation.domain.tracks.TrackRepository", false, loader);
-            Method tracks = repositoryClass.getMethod("tracks", Iterable.class, strategyClass);
-            Object local = tracks.invoke(repository, urns, strategyClass.getField("LOCAL_ONLY").get(null));
+            Class<?> repositoryClass = Class.forName(repositoryName, false, loader);
+            Method method = repositoryClass.getMethod(methodName, urnsType, strategyClass);
+            Object local = method.invoke(repository, urns, strategyClass.getField("LOCAL_ONLY").get(null));
             return Rx.localUntilRemote(local, syncIfMissing);
         } catch (Exception ex) {
-            Logger.printException(() -> "Could not show local tracks first", ex);
+            Logger.printException(() -> "Could not show stored " + methodName + " first", ex);
             return syncIfMissing;
         }
     }
