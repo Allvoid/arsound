@@ -229,7 +229,8 @@ public final class BatchActivity extends Activity {
     }
 
     private static final String[] VARIANTS = {"speed up", "sped up", "speedup", "slowed", "reverb", "remix",
-            "nightcore", "cover", "karaoke", "instrumental", "минус", "ускор", "замедл", "ремикс", "кавер"};
+            "nightcore", "cover", "karaoke", "instrumental", "минус", "ускор", "замедл", "ремикс", "кавер",
+            "censored", "clean version", "radio edit", "цензур"};
 
     private static final String[] SNIPPETS = {"snippet", "сниппет", "отрывок", "preview", "teaser", "тизер"};
 
@@ -243,7 +244,7 @@ public final class BatchActivity extends Activity {
         return false;
     }
 
-    /** A sped-up, slowed, remixed or covered version, unless the wanted title names it. */
+    /** A sped-up, slowed, remixed, covered or censored version, unless the wanted title names it. */
     private static boolean isVariant(String found, String wanted) {
         String lowerFound = found.toLowerCase(Locale.ROOT);
         String lowerWanted = wanted.toLowerCase(Locale.ROOT);
@@ -265,7 +266,16 @@ public final class BatchActivity extends Activity {
     /** The found title holds the whole wanted one: "вата" must not stand for "сахарная вата". */
     private static boolean holdsTitle(String found, String wanted) {
         String b = normalize(wanted.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
-        return !b.isEmpty() && normalize(found).contains(b);
+        if (b.isEmpty()) return false;
+        // A short title such as "17" must be the whole title, or "17 ножевых" would pass for it.
+        if (b.length() < 8) {
+            // "CUPSIZE - 17" and "no drama - cupsize, эмпи": the artist may be on either side of a dash.
+            for (String part : found.replaceAll("\\([^)]*\\)|\\[[^]]*]", " ").split("\\s[-—–]\\s")) {
+                if (normalize(part).equals(b)) return true;
+            }
+            return false;
+        }
+        return normalize(found).contains(b);
     }
 
     /** Downloads one track, or finds it among the imported files; the file goes to {@code result[0]}. */
