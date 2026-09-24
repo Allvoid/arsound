@@ -33,6 +33,18 @@ private val BytecodePatchContext.fetchAndSyncPlaylistMethod by gettingFirstMetho
     definingClass(FUNCTION_CLASS)
 }
 
+private const val SYNC_FUNCTION_CLASS =
+    "Lcom/soundcloud/android/playlists/DataSourceProvider\$syncIfNotOwnedOrNotFound\$1;"
+
+/**
+ * Runs once the stored playlist is looked up. A playlist missing locally or with no tracks is
+ * requested from the server and the screen waits for it.
+ */
+private val BytecodePatchContext.syncIfNotOwnedMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass(SYNC_FUNCTION_CLASS)
+}
+
 /**
  * Builds the playlist screen streams. Its track list waits for a full playlist sync when the
  * last sync is older than 24 hours.
@@ -87,6 +99,26 @@ val offlineFirstPatch = bytecodePatch {
                 return-object v0
             """,
             ExternalLabel("original", fetchAndSyncPlaylistMethod.getInstruction(0)),
+        )
+
+        // A playlist that is empty on the server always waited for the server copy, so a playlist made
+        // only of tracks added on this device showed "No internet connection" offline.
+        syncIfNotOwnedMethod.addInstructionsWithLabels(
+            0,
+            """
+                iget-object v0, p0, $SYNC_FUNCTION_CLASS->b:Lcom/soundcloud/android/foundation/domain/Urn;
+                invoke-static { p1, v0 }, $EXTENSION_CLASS_DESCRIPTOR->hasOnlyLocalTracks(Ljava/lang/Object;Ljava/lang/Object;)Z
+                move-result v0
+                if-eqz v0, :original
+                iget-object v0, p0, $SYNC_FUNCTION_CLASS->a:Lcom/soundcloud/android/playlists/DataSourceProvider;
+                iget-object v0, v0, Lcom/soundcloud/android/playlists/DataSourceProvider;->c:Lcom/soundcloud/android/foundation/domain/playlists/PlaylistWithTracksRepository;
+                iget-object v1, p0, $SYNC_FUNCTION_CLASS->b:Lcom/soundcloud/android/foundation/domain/Urn;
+                invoke-static { v0, v1 }, $EXTENSION_CLASS_DESCRIPTOR->syncInBackground(Ljava/lang/Object;Ljava/lang/Object;)V
+                invoke-static { p1 }, Lio/reactivex/rxjava3/core/Single;->n(Ljava/lang/Object;)Lio/reactivex/rxjava3/internal/operators/single/SingleJust;
+                move-result-object v0
+                return-object v0
+            """,
+            ExternalLabel("original", syncIfNotOwnedMethod.getInstruction(0)),
         )
 
         playlistScreenStreamsMethod.apply {

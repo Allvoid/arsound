@@ -28,6 +28,36 @@ public final class OfflineFirstPatch {
     }
 
     /**
+     * A playlist stored on the device whose server copy has no tracks, but which has tracks added on
+     * this device. SoundCloud would wait for the server for it; the stored copy is enough.
+     *
+     * @param response The {@code SingleItemResponse} of the stored playlist with its tracks.
+     * @param urn      The playlist {@code Urn}.
+     */
+    public static boolean hasOnlyLocalTracks(Object response, Object urn) {
+        if (!isEnabled() || !isFound(response)) return false;
+        try {
+            Object playlist = response.getClass().getMethod("getItem").invoke(response);
+            java.util.List<?> tracks = (java.util.List<?>) playlist.getClass().getMethod("getTracks").invoke(playlist);
+            if (!tracks.isEmpty()) return false;
+            boolean local = !app.revanced.extension.soundcloud.local.LocalAdditions.getEntries(String.valueOf(urn)).isEmpty();
+            if (local) Logger.printInfo(() -> "Playlist with only local tracks shown from storage: " + urn);
+            return local;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not check the stored playlist", ex);
+            return false;
+        }
+    }
+
+    /** {@code SingleItemResponse.Found} comes as its subclasses, such as {@code Found.Fresh}. */
+    private static boolean isFound(Object response) {
+        for (Class<?> type = response.getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getName().endsWith("SingleItemResponse$Found")) return true;
+        }
+        return false;
+    }
+
+    /**
      * Point 1.
      *
      * @param repository A {@code PlaylistWithTracksRepository}.
