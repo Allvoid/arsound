@@ -162,7 +162,9 @@ public final class LocalMusic {
 
     public static boolean delete(Track track) {
         LocalAdditions.clearLocalTrackCache();
-        return track.file.delete();
+        boolean deleted = track.file.delete();
+        if (deleted) LocalCovers.onDeleted(track.file);
+        return deleted;
     }
 
     private static String displayName(ContentResolver resolver, Uri uri) {

@@ -243,12 +243,31 @@ public final class SavedPlaylist {
     }
 
     /**
-     * The saved playlist has no tracks on the server, which makes SoundCloud load it from the network
-     * every time. Its tracks are local, so the stored playlist is used as is.
+     * A playlist with no tracks on the server makes SoundCloud load it from the network every time, and
+     * show "No internet connection" offline. The saved playlist, and any playlist whose tracks were all
+     * added on this device, are complete in storage, so the stored playlist is used as is.
      */
     public static boolean useStoredPlaylist(Object urn, Object response) {
-        return response != null && response.getClass().getName().endsWith("SingleItemResponse$Found")
-                && isSavedPlaylist(urn);
+        if (response == null || !isFound(response)) return false;
+        if (isSavedPlaylist(urn)) return true;
+        try {
+            Object playlist = response.getClass().getMethod("getItem").invoke(response);
+            List<?> tracks = (List<?>) playlist.getClass().getMethod("getTracks").invoke(playlist);
+            boolean localOnly = tracks.isEmpty() && !LocalAdditions.getEntries(String.valueOf(urn)).isEmpty();
+            if (localOnly) Logger.printInfo(() -> "Playlist with only local tracks shown from storage: " + urn);
+            return localOnly;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not check the stored playlist", ex);
+            return false;
+        }
+    }
+
+    /** {@code SingleItemResponse.Found} comes as its subclasses, such as {@code Found.Fresh}. */
+    private static boolean isFound(Object response) {
+        for (Class<?> type = response.getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getName().endsWith("SingleItemResponse$Found")) return true;
+        }
+        return false;
     }
 
     private static final String EXCLUDED = "saved_playlist_excluded";
