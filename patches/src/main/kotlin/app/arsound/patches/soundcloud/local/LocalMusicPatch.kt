@@ -187,6 +187,17 @@ val localMusicPatch = bytecodePatch {
                     move-result-object v$pictureRegister
                 """,
             )
+
+            // Track lists load artwork by URL, so the track also gets the address of its cover file.
+            val trackIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_DIRECT_RANGE &&
+                    (this as ReferenceInstruction).reference.toString().startsWith("Lcom/soundcloud/android/foundation/domain/tracks/Track;-><init>")
+            }
+            val trackRegister = getInstruction<RegisterRangeInstruction>(trackIndex).startRegister
+            addInstruction(
+                trackIndex + 1,
+                "invoke-static/range { v$trackRegister .. v$trackRegister }, Lapp/revanced/extension/soundcloud/local/LocalCovers;->addCoverUrl(Ljava/lang/Object;)V",
+            )
         }
 
         // Manual playlist order: applied after SoundCloud's sorting, rearranged on the library screen.

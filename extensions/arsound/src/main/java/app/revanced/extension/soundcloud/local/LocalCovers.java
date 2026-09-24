@@ -75,6 +75,30 @@ public final class LocalCovers {
         }
     }
 
+    /**
+     * Track lists load artwork by URL only; the embedded picture reaches just the player screen. A
+     * local track with a stored cover gets the address of that one file, shared by the whole album.
+     *
+     * @param track The {@code Track} made from a local file.
+     */
+    public static void addCoverUrl(Object track) {
+        try {
+            Object urn = track.getClass().getMethod("getTrackUrn").invoke(track);
+            File audio = (File) urn.getClass().getMethod("getFile").invoke(urn);
+            SharedPreferences preferences = preferences();
+            File directory = directory();
+            String hash = preferences == null || directory == null ? null : preferences.getString(audio.getName(), null);
+            if (hash == null) return;
+            File cover = new File(directory, hash + ".jpg");
+            if (!cover.isFile()) return;
+            java.lang.reflect.Field field = track.getClass().getDeclaredField("imageUrlTemplate");
+            field.setAccessible(true);
+            if (field.get(track) == null) field.set(track, android.net.Uri.fromFile(cover).toString());
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not set the cover address", ex);
+        }
+    }
+
     private static synchronized byte[] read(String hash) throws Exception {
         byte[] bytes = memory.get(hash);
         if (bytes != null) return bytes;
@@ -114,6 +138,7 @@ public final class LocalCovers {
                 }
             }
             preferences.edit().putString(audio.getName(), hash).apply();
+            Logger.printInfo(() -> "Cover saved for " + audio.getName() + ": " + hash + ", " + bytes.length + " bytes");
             LocalAdditions.clearLocalTrackCache();
         } catch (Exception ex) {
             Logger.printException(() -> "Could not save the cover of " + audio, ex);
