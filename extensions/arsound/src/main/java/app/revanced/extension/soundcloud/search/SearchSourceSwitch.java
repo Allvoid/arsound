@@ -140,7 +140,7 @@ public final class SearchSourceSwitch {
         final TextView status;
         final ProgressBar spinner;
         final Map<String, Row> rows = new HashMap<>();
-        final android.widget.HorizontalScrollView tabsScroll;
+        final LinearLayout tabsBar;
         final LinearLayout tabs;
         String shownQuery;
         int generation;
@@ -205,30 +205,36 @@ public final class SearchSourceSwitch {
                     Gravity.TOP | Gravity.CENTER_HORIZONTAL);
             spinnerParams.topMargin = dp(context, 48);
             results.addView(spinner, spinnerParams);
-            tabsScroll = new android.widget.HorizontalScrollView(context);
-            tabsScroll.setHorizontalScrollBarEnabled(false);
+            // The same tabs as SoundCloud's own search results: text, a line under the selected one and
+            // a thin line under the row. SoundCloud draws them in Compose, so they are made here the same
+            // way, with its labels (the app has no Russian translation of them).
+            tabsBar = new LinearLayout(context);
+            tabsBar.setOrientation(LinearLayout.VERTICAL);
             tabs = new LinearLayout(context);
             tabs.setOrientation(LinearLayout.HORIZONTAL);
-            tabs.setPadding(dp(context, 12), 0, dp(context, 12), dp(context, 8));
-            String[] labels = {text("Всё", "All"), text("Треки", "Tracks"), text("Исполнители", "Artists"),
-                    text("Альбомы", "Albums")};
+            String[] labels = {"All", "Tracks", "Profiles", "Albums"};
             for (int i = 0; i < labels.length; i++) {
                 int index = i;
-                TextView chip = new TextView(context);
-                chip.setText(labels[i]);
-                chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-                chip.setTypeface(Typeface.DEFAULT_BOLD);
-                chip.setGravity(Gravity.CENTER);
-                chip.setPadding(dp(context, 16), 0, dp(context, 16), 0);
-                chip.setOnClickListener(v -> selectTab(index));
-                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, dp(context, 34));
-                chipParams.leftMargin = dp(context, 4);
-                chipParams.rightMargin = dp(context, 4);
-                tabs.addView(chip, chipParams);
+                LinearLayout tabView = new LinearLayout(context);
+                tabView.setOrientation(LinearLayout.VERTICAL);
+                tabView.setGravity(Gravity.CENTER_HORIZONTAL);
+                tabView.setOnClickListener(v -> selectTab(index));
+                TextView label = new TextView(context);
+                label.setText(labels[i]);
+                label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+                label.setTypeface(Typeface.DEFAULT_BOLD);
+                label.setGravity(Gravity.CENTER);
+                tabView.addView(label, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+                View indicator = new View(context);
+                indicator.setBackgroundColor(textColor);
+                tabView.addView(indicator, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 2)));
+                tabs.addView(tabView, new LinearLayout.LayoutParams(0, dp(context, 52), 1));
             }
-            tabsScroll.addView(tabs);
-            coordinator.addView(tabsScroll, new LinearLayout.LayoutParams(
+            tabsBar.addView(tabs);
+            View divider = new View(context);
+            divider.setBackgroundColor(withAlpha(textColor, 0x26));
+            tabsBar.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 1)));
+            coordinator.addView(tabsBar, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             styleTabs();
             coordinator.addView(results, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -277,7 +283,7 @@ public final class SearchSourceSwitch {
             HelpBadge.setColor(help, arsoundSelected ? inverse(textColor) : withAlpha(textColor, 0xB0));
             soundCloudResults.setVisibility(arsoundSelected ? View.GONE : View.VISIBLE);
             results.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
-            tabsScroll.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
+            tabsBar.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
             if (arsoundSelected) search();
         }
 
@@ -372,13 +378,10 @@ public final class SearchSourceSwitch {
 
         void styleTabs() {
             for (int i = 0; i < tabs.getChildCount(); i++) {
-                TextView chip = (TextView) tabs.getChildAt(i);
-                GradientDrawable fill = new GradientDrawable();
-                fill.setCornerRadius(dp(context, 17));
+                LinearLayout tabView = (LinearLayout) tabs.getChildAt(i);
                 boolean selected = i == tab;
-                fill.setColor(selected ? withAlpha(textColor, 0xFF) : withAlpha(textColor, 0x1A));
-                chip.setBackground(fill);
-                chip.setTextColor(selected ? inverse(textColor) : textColor);
+                ((TextView) tabView.getChildAt(0)).setTextColor(selected ? textColor : withAlpha(textColor, 0xA0));
+                tabView.getChildAt(1).setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
             }
         }
 

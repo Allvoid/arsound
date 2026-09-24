@@ -146,7 +146,8 @@ public final class BatchActivity extends Activity {
                     result = "FAIL\t" + key + "\t" + ex;
                 }
                 // An entry of an earlier run keeps its place even if this run could not reach the network.
-                if (entry[0] == null && earlier != null) {
+                // A search that found nothing drops it: the earlier match may have been a wrong one.
+                if (entry[0] == null && earlier != null && result.startsWith("FAIL")) {
                     entry[0] = earlier;
                     if (!result.startsWith("OK")) result = "OK\t" + key + "\tkept\tearlier\t" + earlier;
                 }
@@ -195,15 +196,19 @@ public final class BatchActivity extends Activity {
      */
     private static String findOne(Context context, String artist, String title, String[] entry) throws Exception {
         String key = artist + " " + title;
+        ClientProfiles.FoundTrack snippet = null;
         try {
             for (ClientProfiles.FoundTrack track : ClientProfiles.searchTracks(artist + " " + title)) {
                 boolean byArtist = normalize(track.user).contains(normalize(artist))
                         || normalize(track.title).contains(normalize(artist));
-                if (byArtist && track.isFull() && holdsTitle(stripArtist(track.title, artist), title)
-                        && !isVariant(track.title, title)) {
-                    entry[0] = "soundcloud:tracks:" + track.id;
-                    return "OK\t" + key + "\t" + track.title + "\tsoundcloud\t" + entry[0];
+                if (!byArtist || !track.isFull() || !holdsTitle(stripArtist(track.title, artist), title)
+                        || isVariant(track.title, title)) continue;
+                if (isSnippet(track.title, title)) {
+                    if (snippet == null) snippet = track;
+                    continue;
                 }
+                entry[0] = "soundcloud:tracks:" + track.id;
+                return "OK\t" + key + "\t" + track.title + "\tsoundcloud\t" + entry[0];
             }
         } catch (Exception ex) {
             // YouTube Music is still worth asking.
@@ -211,12 +216,32 @@ public final class BatchActivity extends Activity {
         }
         File[] file = new File[1];
         String result = downloadOne(context, artist, title, file);
-        if (file[0] != null) entry[0] = LocalAdditions.fileEntry(file[0]);
+        if (file[0] != null) {
+            entry[0] = LocalAdditions.fileEntry(file[0]);
+            return result;
+        }
+        // A snippet only when the full track is nowhere: better than nothing for unreleased songs.
+        if (snippet != null) {
+            entry[0] = "soundcloud:tracks:" + snippet.id;
+            return "OK\t" + key + "\t" + snippet.title + "\tsoundcloud\t" + entry[0];
+        }
         return result;
     }
 
     private static final String[] VARIANTS = {"speed up", "sped up", "speedup", "slowed", "reverb", "remix",
             "nightcore", "cover", "karaoke", "instrumental", "минус", "ускор", "замедл", "ремикс", "кавер"};
+
+    private static final String[] SNIPPETS = {"snippet", "сниппет", "отрывок", "preview", "teaser", "тизер"};
+
+    /** A short piece of a track, unless the wanted title names it. */
+    private static boolean isSnippet(String found, String wanted) {
+        String lowerFound = found.toLowerCase(Locale.ROOT);
+        String lowerWanted = wanted.toLowerCase(Locale.ROOT);
+        for (String word : SNIPPETS) {
+            if (lowerFound.contains(word) && !lowerWanted.contains(word)) return true;
+        }
+        return false;
+    }
 
     /** A sped-up, slowed, remixed or covered version, unless the wanted title names it. */
     private static boolean isVariant(String found, String wanted) {
@@ -247,7 +272,7 @@ public final class BatchActivity extends Activity {
         String key = artist + " " + title;
         OtherSource.Track match = null;
         for (OtherSource.Track track : OtherSource.search(artist + " " + title)) {
-            if (normalize(track.artist).contains(normalize(artist)) && titleMatches(track.title, title)) {
+            if (normalize(track.artist).contains(normalize(artist)) && holdsTitle(track.title, title) && !isVariant(track.title, title)) {
                 match = track;
                 break;
             }
@@ -290,13 +315,6 @@ public final class BatchActivity extends Activity {
         LocalMusic.onFileAdded();
         result[0] = file;
         return "OK\t" + key + "\t" + match.title + "\t" + match.url + "\t" + file.getPath();
-    }
-
-    /** The title without the translation in brackets, compared by letters and digits only. */
-    private static boolean titleMatches(String found, String wanted) {
-        String a = normalize(found);
-        String b = normalize(wanted.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
-        return !b.isEmpty() && (a.contains(b) || b.contains(a) && !a.isEmpty());
     }
 
     private static String normalize(String text) {
