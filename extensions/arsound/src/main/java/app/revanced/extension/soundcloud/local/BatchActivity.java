@@ -41,6 +41,8 @@ import app.revanced.extension.soundcloud.search.OtherSource;
 @SuppressWarnings("unused")
 public final class BatchActivity extends Activity {
     private static volatile boolean running;
+    private static final int TRACK_LIMIT_MINUTES = 3;
+    private static java.util.concurrent.ExecutorService worker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -98,7 +100,8 @@ public final class BatchActivity extends Activity {
                 if (parts.length < 2) continue;
                 String key = line.trim().replace('\t', ' ');
                 File earlier = done.get(key);
-                if (earlier != null && earlier.isFile()) {
+                // A file without a cover goes through the search again to get one; it is not downloaded twice.
+                if (earlier != null && earlier.isFile() && LocalCovers.hasCover(earlier)) {
                     ordered.add(LocalAdditions.fileEntry(earlier));
                     continue;
                 }
@@ -106,14 +109,32 @@ public final class BatchActivity extends Activity {
                 String title = parts[1].trim();
                 String result;
                 Logger.printInfo(() -> "Batch: " + key);
+                File[] file = new File[1];
                 try {
-                    File[] file = new File[1];
-                    result = downloadOne(context, artist, title, file);
-                    if (file[0] != null) ordered.add(LocalAdditions.fileEntry(file[0]));
+                    // A DNS lookup on a broken network ignores connection timeouts and can hang for good:
+                    // one track gets a hard limit, then the batch goes on.
+                    java.util.concurrent.Future<String> task = worker.submit(() -> downloadOne(context, artist, title, file));
+                    try {
+                        result = task.get(TRACK_LIMIT_MINUTES, java.util.concurrent.TimeUnit.MINUTES);
+                    } catch (java.util.concurrent.TimeoutException ex) {
+                        task.cancel(true);
+                        worker.shutdownNow();
+                        worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+                        file[0] = null;
+                        throw new java.io.IOException("No answer in " + TRACK_LIMIT_MINUTES + " minutes");
+                    } catch (java.util.concurrent.ExecutionException ex) {
+                        throw ex.getCause();
+                    }
                 } catch (Throwable ex) {
-                    Logger.printException(() -> "Batch: could not get " + key, ex);
+                    Logger.printInfo(() -> "Batch: could not get " + key + ": " + ex);
                     result = "FAIL\t" + key + "\t" + ex;
                 }
+                // A file of an earlier run keeps its place even if this run could not reach the network.
+                if (file[0] == null && earlier != null && earlier.isFile()) {
+                    file[0] = earlier;
+                    if (!result.startsWith("OK")) result = "OK\t" + key + "\tkept\tearlier\t" + earlier.getPath();
+                }
+                if (file[0] != null) ordered.add(LocalAdditions.fileEntry(file[0]));
                 report.write(result + "\n");
                 report.flush();
             }
@@ -179,6 +200,7 @@ public final class BatchActivity extends Activity {
                 if (!(ex instanceof OtherSource.RefusedException) || attempt >= 3) throw ex;
             }
         }
+        if (!LocalCovers.hasCover(file)) LocalCovers.save(file, match.coverUrl);
         LocalMusic.onFileAdded();
         result[0] = file;
         return "OK\t" + key + "\t" + match.title + "\t" + match.url + "\t" + file.getPath();

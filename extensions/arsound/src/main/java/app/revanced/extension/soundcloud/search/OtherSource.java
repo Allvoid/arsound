@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import app.arsound.shaded.newpipe.extractor.Image;
 import app.arsound.shaded.newpipe.extractor.InfoItem;
 import app.arsound.shaded.newpipe.extractor.ListExtractor;
 import app.arsound.shaded.newpipe.extractor.Page;
@@ -53,13 +54,28 @@ public final class OtherSource {
         public final String title;
         public final String artist;
         public final long durationSeconds;
+        /** The album cover, or null. */
+        public final String coverUrl;
 
-        Track(String url, String title, String artist, long durationSeconds) {
+        Track(String url, String title, String artist, long durationSeconds, String coverUrl) {
             this.url = url;
             this.title = title;
             this.artist = artist;
             this.durationSeconds = durationSeconds;
+            this.coverUrl = coverUrl;
         }
+    }
+
+    /**
+     * The largest picture. YouTube Music covers are square and can be asked for in any size: 544 px
+     * is what its own player shows. Video thumbnails are 16:9 frames and stay as they are.
+     */
+    private static String coverUrl(List<Image> images) {
+        Image best = null;
+        for (Image image : images) if (best == null || image.getHeight() > best.getHeight()) best = image;
+        if (best == null) return null;
+        String url = best.getUrl();
+        return url.contains("googleusercontent.com") ? url.replaceAll("=w\\d+-h\\d+[^/]*$", "=w544-h544") : url;
     }
 
     private static synchronized StreamingService service() {
@@ -82,7 +98,8 @@ public final class OtherSource {
                 StreamInfoItem stream = (StreamInfoItem) item;
                 String artist = stream.getUploaderName();
                 if (artist != null && artist.endsWith(" - Topic")) artist = artist.substring(0, artist.length() - 8);
-                tracks.add(new Track(stream.getUrl(), stream.getName(), artist == null ? "" : artist, stream.getDuration()));
+                tracks.add(new Track(stream.getUrl(), stream.getName(), artist == null ? "" : artist, stream.getDuration(),
+                        coverUrl(stream.getThumbnails())));
             }
             if (!tracks.isEmpty()) break;
         }
@@ -164,8 +181,10 @@ public final class OtherSource {
         List<Track> tracks = new ArrayList<>();
         for (StreamInfoItem stream : items) {
             String artist = artistName(stream.getUploaderName());
+            // Tracks of an album share its cover.
+            String cover = coverUrl(info.getThumbnails());
             tracks.add(new Track(stream.getUrl(), stream.getName(), artist.isEmpty() ? album.artist : artist,
-                    stream.getDuration()));
+                    stream.getDuration(), cover != null ? cover : coverUrl(stream.getThumbnails())));
         }
         return tracks;
     }
