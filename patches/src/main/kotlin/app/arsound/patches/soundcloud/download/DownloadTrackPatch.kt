@@ -6,6 +6,10 @@ import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.extensions.fieldReference
 import app.revanced.patcher.patch.bytecodePatch
+import app.revanced.patcher.patch.BytecodePatchContext
+import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.name
+import app.revanced.patcher.definingClass
 import app.revanced.patcher.patch.resourcePatch
 import app.arsound.util.getNode
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
@@ -47,12 +51,39 @@ private const val PLAYLIST_EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/download/DownloadPlaylistPatch;"
 
 /** Download tracks: Adds a "Download file" button to the track menu and a download check to the playlist menu, for tracks whose artist enabled free downloads. Part of the "Arsound" patch, not shown on its own. */
+/** The step of the Downloads screen that keeps only downloaded tracks and playlists. */
+private val BytecodePatchContext.downloadsFilterMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/features/library/downloads/DownloadsDataSource${'$'}loadTracksAndPlaylists${'$'}2;")
+}
+
 val downloadTrackPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadPermissionPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // The Downloads screen lists the tracks downloaded by Arsound, as downloaded.
+        downloadsFilterMethod.apply {
+            val stateIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                        .reference.toString().endsWith("->toOfflineState(Lcom/soundcloud/android/foundation/domain/Urn;)Lcom/soundcloud/android/foundation/domain/offline/OfflineState;")
+            }
+            val urnRegister = getInstruction<com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction>(stateIndex).registerD
+            val stateRegister = getInstruction<OneRegisterInstruction>(stateIndex + 1).registerA
+            addInstructions(
+                stateIndex + 2,
+                """
+                    invoke-static { v$stateRegister }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->stateOnScreen(Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$stateRegister
+                    check-cast v$stateRegister, Lcom/soundcloud/android/foundation/domain/offline/OfflineState;
+                """,
+            )
+            // The urn register receives the state, so the urn is kept before the call.
+            addInstruction(stateIndex, "invoke-static { v$urnRegister }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->beforeState(Ljava/lang/Object;)V")
+            addInstruction(0, "invoke-static { p1 }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->addArsoundTracks(Ljava/lang/Object;)V")
+        }
         // Keep the OAuth helper to authorize the download request.
         oAuthConstructorMethod.apply {
             val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID)
