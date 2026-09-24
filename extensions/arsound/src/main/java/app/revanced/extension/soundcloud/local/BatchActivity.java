@@ -250,7 +250,8 @@ public final class BatchActivity extends Activity {
         for (String variant : VARIANTS) {
             if (lowerFound.contains(variant) && !lowerWanted.contains(variant)) return true;
         }
-        return false;
+        // A speed multiplier such as "1.10x" or "0,8x".
+        return lowerFound.matches(".*\\b\\d+[.,]\\d+\\s*x\\b.*") && !lowerWanted.matches(".*\\b\\d+[.,]\\d+\\s*x\\b.*");
     }
 
     /** "CUPSIZE - title" and "title" name the same track. */
