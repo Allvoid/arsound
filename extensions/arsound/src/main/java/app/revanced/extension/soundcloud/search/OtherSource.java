@@ -36,6 +36,7 @@ import app.arsound.shaded.newpipe.extractor.services.youtube.linkHandler.Youtube
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.arsound.shaded.newpipe.extractor.stream.StreamInfo;
 import app.arsound.shaded.newpipe.extractor.stream.StreamInfoItem;
+import app.revanced.extension.shared.Logger;
 
 /**
  * Search and audio streams from YouTube Music, through NewPipeExtractor.

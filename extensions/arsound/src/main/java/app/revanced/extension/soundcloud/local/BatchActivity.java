@@ -51,6 +51,8 @@ public final class BatchActivity extends Activity {
         String name = getIntent().getStringExtra("file");
         String playlistTitle = getIntent().getStringExtra("playlist");
         Context context = getApplicationContext();
+        // Started over adb, the app may have no screen yet: the stores of playlists and covers need the context.
+        if (Utils.getContext() == null) Utils.setContext(context);
         File folder = context.getExternalFilesDir("batch");
         if (name == null || folder == null || name.contains("/") || running) return;
         File list = new File(folder, name);
