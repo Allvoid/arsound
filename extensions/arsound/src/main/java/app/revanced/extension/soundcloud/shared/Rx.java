@@ -94,6 +94,20 @@ public final class Rx {
         return merge.invoke(null, filteredLocal, markedRemote);
     }
 
+    /**
+     * Ends the observable quietly instead of failing: {@code onErrorResumeNext(error -> empty())}. Used for
+     * a server answer that may fail while stored data is already on the screen.
+     */
+    public static Object ignoreErrors(Object source) throws Exception {
+        ClassLoader loader = source.getClass().getClassLoader();
+        Class<?> observable = type(loader, CORE + "Observable");
+        Object empty = type(loader, "io.reactivex.rxjava3.internal.operators.observable.ObservableEmpty")
+                .getField("a").get(null);
+        Object toEmpty = function(loader, "Function", args -> empty);
+        return find(observable, false, "ObservableOnErrorNext", type(loader, FUNCTIONS + "Function"))
+                .invoke(source, toEmpty);
+    }
+
     /** Several static (ObservableSource, ObservableSource) methods exist; merge is the one that interleaves. */
     private static boolean isMerge(Method method) {
         // In the 2026.09.02 build merge is "F". Concat and ambiguity helpers are named differently.
