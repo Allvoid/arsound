@@ -704,6 +704,7 @@ public final class SearchSourceSwitch {
                         if (attempt >= 3) throw ex;
                     }
                 }
+                app.revanced.extension.soundcloud.local.LocalCovers.save(file, track.coverUrl);
                 LocalMusic.onFileAdded();
                 handler.post(() -> {
                     downloading.remove(url);
