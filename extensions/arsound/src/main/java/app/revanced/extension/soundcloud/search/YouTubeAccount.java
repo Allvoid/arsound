@@ -18,7 +18,6 @@ import java.security.MessageDigest;
 import java.util.Locale;
 
 import app.arsound.shaded.newpipe.extractor.MediaFormat;
-import app.arsound.shaded.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager;
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -28,16 +27,14 @@ import app.revanced.extension.shared.Utils;
  * tracks; with the account's cookies the player answers as for a signed-in listener.
  * <p>
  * The cookies stay in the app's private storage and go only to youtube.com. NewPipe asks YouTube as the
- * Android app, which ignores cookies, so age-restricted tracks are asked for here as the apps that
- * accept a signed-in web session (TV, YouTube Music web, YouTube web).
+ * Android app, which ignores cookies, so age-restricted tracks are asked for here as the YouTube Music
+ * web player ({@link PoTokenWebView} for its tokens, {@link PlayerCipher} for its stream links).
  */
 public final class YouTubeAccount {
     private static final String PREFERENCES_NAME = "arsound_youtube_account";
     private static final String COOKIES = "cookies";
     private static final String NAME = "name";
     private static final String ORIGIN = "https://www.youtube.com";
-    private static final String TV_CLIENT_VERSION = "7.20250923.13.00";
-    private static final String TV_USER_AGENT = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version";
 
     private YouTubeAccount() {
     }
@@ -106,85 +103,33 @@ public final class YouTubeAccount {
         return "SAPISIDHASH " + time + "_" + hex;
     }
 
-    /** A YouTube app the player request pretends to be. */
-    private static final class Client {
-        final String name;
-        final String id;
-        final String version;
-        final String userAgent;
-
-        Client(String name, String id, String version, String userAgent) {
-            this.name = name;
-            this.id = id;
-            this.version = version;
-            this.userAgent = userAgent;
-        }
-    }
-
+    private static final String MUSIC_ORIGIN = "https://music.youtube.com";
+    private static final String WEB_REMIX_VERSION = "1.20260121.03.00";
     private static final String DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
     /**
-     * Apps that accept a signed-in web session, tried in turn: YouTube changes which of them answer an
-     * age-restricted track, so the first that gives audio wins.
+     * The best audio of an age-restricted track, asked for with the account, the way the YouTube Music
+     * site does it (and Metrolist, whose approach this follows): the web player with the session
+     * cookies, a proof-of-origin token from Google's BotGuard for the player request and another one
+     * for the stream, and the stream link deciphered by YouTube's own player script.
      */
-    private static final Client[] CLIENTS = {
-            new Client("TVHTML5", "7", TV_CLIENT_VERSION, TV_USER_AGENT),
-            new Client("WEB_REMIX", "67", "1.20260121.03.00", DESKTOP_USER_AGENT),
-            new Client("WEB", "1", "2.20260120.01.00", DESKTOP_USER_AGENT),
-            new Client("MWEB", "2", "2.20260120.01.00",
-                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"),
-    };
-
-    /** The best audio of an age-restricted track, asked for with the account. */
     static AudioStream audio(String videoId) throws Exception {
         String cookies = cookies();
         if (cookies == null || cookie(cookies, "SAPISID") == null) throw new SignInRequiredException();
+        Context context = Utils.getContext();
+        if (context == null) throw new IOException("No context");
 
-        IOException last = null;
-        for (Client client : CLIENTS) {
-            try {
-                return audio(videoId, cookies, client);
-            } catch (IOException ex) {
-                Logger.printInfo(() -> "Signed-in player " + client.name + ": " + ex.getMessage());
-                last = ex;
-            }
-        }
-        throw last;
-    }
+        String[] page = musicPage(cookies);
+        String visitorData = page[0];
+        String version = page[2] != null ? page[2] : WEB_REMIX_VERSION;
+        // A signed-in session is bound to the account's data sync id, an anonymous one to the visitor.
+        String session = page[1] != null ? page[1] : visitorData;
+        if (session == null) throw new IOException("YouTube Music gave no session data");
+        String[] tokens = PoTokenWebView.tokens(context, session, videoId);
 
-    /**
-     * The TV app answers "the page needs to be reloaded" unless the request carries the visitor id and
-     * client version of its own start page, like a real TV does.
-     */
-    private static String[] tvPage(String cookies) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(ORIGIN + "/tv").openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
-        connection.setRequestProperty("User-Agent", TV_USER_AGENT);
-        connection.setRequestProperty("Cookie", cookies);
-        String html;
-        try (InputStream input = connection.getInputStream()) {
-            html = read(input);
-        }
-        java.util.regex.Matcher visitor = java.util.regex.Pattern.compile("\"VISITOR_DATA\"\\s*:\\s*\"([^\"]+)\"").matcher(html);
-        java.util.regex.Matcher version = java.util.regex.Pattern.compile("\"INNERTUBE_CLIENT_VERSION\"\\s*:\\s*\"([^\"]+)\"").matcher(html);
-        return new String[]{visitor.find() ? visitor.group(1) : null, version.find() ? version.group(1) : null};
-    }
-
-    private static AudioStream audio(String videoId, String cookies, Client client) throws Exception {
-        String visitorData = null;
-        String version = client.version;
-        if (client.name.equals("TVHTML5")) {
-            String[] page = tvPage(cookies);
-            visitorData = page[0];
-            if (page[1] != null) version = page[1];
-            String found = visitorData;
-            String foundVersion = version;
-            Logger.printInfo(() -> "TV page: visitor " + (found != null) + ", version " + foundVersion);
-        }
         JSONObject clientContext = new JSONObject()
-                .put("clientName", client.name)
+                .put("clientName", "WEB_REMIX")
                 .put("clientVersion", version)
                 .put("hl", "en");
         if (visitorData != null) clientContext.put("visitorData", visitorData);
@@ -193,26 +138,26 @@ public final class YouTubeAccount {
                 .put("contentCheckOk", true)
                 .put("racyCheckOk", true)
                 .put("context", new JSONObject().put("client", clientContext))
+                .put("serviceIntegrityDimensions", new JSONObject().put("poToken", tokens[0]))
                 .put("playbackContext", new JSONObject().put("contentPlaybackContext", new JSONObject()
-                        .put("signatureTimestamp", YoutubeJavaScriptPlayerManager.getSignatureTimestamp(videoId))));
+                        .put("signatureTimestamp", PlayerCipher.signatureTimestamp(context))));
 
-        String origin = client.name.equals("WEB_REMIX") ? "https://music.youtube.com" : ORIGIN;
         HttpURLConnection connection = (HttpURLConnection)
-                new URL(origin + "/youtubei/v1/player?prettyPrint=false").openConnection();
+                new URL(MUSIC_ORIGIN + "/youtubei/v1/player?prettyPrint=false").openConnection();
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(30_000);
         connection.setDoOutput(true);
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("User-Agent", client.userAgent);
-        connection.setRequestProperty("Origin", origin);
-        connection.setRequestProperty("X-Origin", origin);
+        connection.setRequestProperty("User-Agent", DESKTOP_USER_AGENT);
+        connection.setRequestProperty("Origin", MUSIC_ORIGIN);
+        connection.setRequestProperty("X-Origin", MUSIC_ORIGIN);
         connection.setRequestProperty("X-Goog-AuthUser", "0");
-        connection.setRequestProperty("X-YouTube-Client-Name", client.id);
+        connection.setRequestProperty("X-YouTube-Client-Name", "67");
         connection.setRequestProperty("X-YouTube-Client-Version", version);
         if (visitorData != null) connection.setRequestProperty("X-Goog-Visitor-Id", visitorData);
         connection.setRequestProperty("Cookie", cookies);
-        connection.setRequestProperty("Authorization", authorization(cookies, origin));
+        connection.setRequestProperty("Authorization", authorization(cookies, MUSIC_ORIGIN));
         try (OutputStream output = connection.getOutputStream()) {
             output.write(body.toString().getBytes(StandardCharsets.UTF_8));
         }
@@ -239,23 +184,8 @@ public final class YouTubeAccount {
         }
         if (best == null) throw new IOException("No m4a audio for " + videoId);
 
-        String url = best.optString("url", null);
-        if (url == null) {
-            // Protected links carry the signature apart; the player script turns it into the real one.
-            String cipher = best.getString("signatureCipher");
-            String s = null, sp = "signature", base = null;
-            for (String part : cipher.split("&")) {
-                int equals = part.indexOf('=');
-                String key = part.substring(0, equals);
-                String value = java.net.URLDecoder.decode(part.substring(equals + 1), "UTF-8");
-                if (key.equals("s")) s = value;
-                else if (key.equals("sp")) sp = value;
-                else if (key.equals("url")) base = value;
-            }
-            url = base + "&" + sp + "=" + java.net.URLEncoder.encode(
-                    YoutubeJavaScriptPlayerManager.deobfuscateSignature(videoId, s), "UTF-8");
-        }
-        url = YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(videoId, url);
+        String url = PlayerCipher.decipherUrl(context, best.optString("signatureCipher", null), best.optString("url", null));
+        url += (url.contains("?") ? "&" : "?") + "pot=" + java.net.URLEncoder.encode(tokens[1], "UTF-8");
 
         return new AudioStream.Builder()
                 .setId(String.valueOf(best.optInt("itag")))
@@ -263,6 +193,30 @@ public final class YouTubeAccount {
                 .setMediaFormat(MediaFormat.M4A)
                 .setAverageBitrate(best.optInt("averageBitrate", best.optInt("bitrate")) / 1000)
                 .build();
+    }
+
+    /** Visitor data, data sync id and client version from the YouTube Music page of the account. */
+    private static String[] musicPage(String cookies) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(MUSIC_ORIGIN + "/").openConnection();
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        connection.setRequestProperty("User-Agent", DESKTOP_USER_AGENT);
+        connection.setRequestProperty("Cookie", cookies);
+        String html;
+        try (InputStream input = connection.getInputStream()) {
+            html = read(input);
+        }
+        String visitor = find(html, "VISITOR_DATA");
+        String dataSync = find(html, "DATASYNC_ID");
+        if (dataSync != null && dataSync.contains("||")) dataSync = dataSync.substring(0, dataSync.indexOf("||"));
+        if (dataSync != null && dataSync.isEmpty()) dataSync = null;
+        return new String[]{visitor, dataSync, find(html, "INNERTUBE_CLIENT_VERSION")};
+    }
+
+    private static String find(String html, String key) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"").matcher(html);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static String read(InputStream input) throws IOException {

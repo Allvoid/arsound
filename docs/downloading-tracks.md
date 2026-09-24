@@ -17,6 +17,14 @@
 >   только совпавшее по исполнителю и названию и дописывает в открывавшийся ранее плейлист:
 >   `adb shell am start -n <пакет>/app.revanced.extension.soundcloud.local.BatchActivity --es file list.txt --es playlist "Название"`.
 >   Итог по каждой строке — в `list.txt.report` (OK / MISS / FAIL); повторный запуск пропускает скачанное.
+> - **Треки 18+ (аккаунт YouTube Music).** Анонимно YouTube их не отдаёт, а Android-клиент NewPipe
+>   cookies не принимает. Поэтому после входа такой трек запрашивается как веб-плеер YouTube Music
+>   (`WEB_REMIX`) с cookies аккаунта, как это делает Metrolist: токен BotGuard для запроса плеера и
+>   второй — для потока (`search/PoTokenWebView.java`, перенос из Metrolist, GPLv3, изначально NewPipe),
+>   сессия привязана к `DATASYNC_ID` со страницы YouTube Music. Ссылку расшифровывает сам скрипт плеера
+>   YouTube (`search/PlayerCipher.java`): `base.js` нужной версии выполняется в скрытом WebView с двумя
+>   экспортами, выражения для них берутся из `player_configs.json` проекта zemer-cipher — как в
+>   innertubex. TV-клиент отвечает `UNPLAYABLE`, от него отказались.
 > - **Куда скачивается.** Не через `DownloadManager`, а прямо в папку импортированной музыки:
 >   трек сразу в плейлисте «Импортированные» и играет в плеере SoundCloud. Файл `.m4a` (AAC, itag 140).
 > - **Библиотека.** NewPipeExtractor v0.26.5 с JitPack, модуль `extensions/arsound/newpipe`:
