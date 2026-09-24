@@ -7,6 +7,7 @@ import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
@@ -50,6 +51,24 @@ private val BytecodePatchContext.hotTracksMethod by gettingFirstMethodDeclarativ
     definingClass("Lcom/soundcloud/android/tracks/DefaultTrackItemRepository;")
 }
 
+/** The Following screen of the library: loads the followed profiles page by page from the server. */
+private val BytecodePatchContext.hotPagedFollowingsMethod by gettingFirstMethodDeclaratively {
+    name("hotPagedFollowings")
+    definingClass("Lcom/soundcloud/android/profile/data/UserProfileOperations;")
+}
+
+/** Profiles with their follow and block state. Uses SYNC_MISSING, which waits for the server. */
+private val BytecodePatchContext.hotUsersMethod by gettingFirstMethodDeclaratively {
+    name("hotUsers")
+    definingClass("Lcom/soundcloud/android/user/data/DefaultUserItemRepository;")
+}
+
+/** Follow states of profiles. Syncs the followings with the server first, which never ends offline. */
+private val BytecodePatchContext.followingStatusesMethod by gettingFirstMethodDeclaratively {
+    name("followingStatuses")
+    definingClass("Lcom/soundcloud/android/collections/data/followings/FollowingStateProvider;")
+}
+
 /** The library playlists source, captured to preload their contents. */
 private val BytecodePatchContext.myPlaylistOperationsConstructorMethod by gettingFirstMethodDeclaratively {
     name("<init>")
@@ -69,6 +88,55 @@ val offlineFirstPatch = bytecodePatch {
                 indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
                 "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/offline/PlaylistPreloader;->setMyPlaylistOperations(Ljava/lang/Object;)V",
             )
+        }
+
+        // Following shows the stored profiles first; the server answer replaces them, and its failure changes nothing.
+        hotPagedFollowingsMethod.apply {
+            val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
+            val register = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+            addInstructions(
+                returnIndex,
+                """
+                    invoke-static { v$register }, Lapp/revanced/extension/soundcloud/offline/FollowingsCache;->wrap(Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$register
+                    check-cast v$register, Lio/reactivex/rxjava3/core/Observable;
+                """,
+            )
+            // The arguments are overwritten by the end of the method, so they are kept first.
+            addInstruction(
+                0,
+                "invoke-static { p0, p1, p2 }, Lapp/revanced/extension/soundcloud/offline/FollowingsCache;->begin(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+            )
+        }
+
+        // Stored follow states right away; the ones after the sync follow when it comes.
+        followingStatusesMethod.apply {
+            val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
+            val register = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+            addInstructions(
+                returnIndex,
+                """
+                    invoke-static { v$register }, Lapp/revanced/extension/soundcloud/offline/FollowingsCache;->wrapStatuses(Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$register
+                    check-cast v$register, Lio/reactivex/rxjava3/core/Observable;
+                """,
+            )
+            addInstruction(0, "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/offline/FollowingsCache;->beginStatuses(Ljava/lang/Object;)V")
+        }
+
+        // Profiles stored on the device are shown without waiting for the server.
+        hotUsersMethod.apply {
+            val usersIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_INTERFACE &&
+                    (this as ReferenceInstruction).reference.toString().contains("UserRepository;->users(")
+            }
+            val call = getInstruction<FiveRegisterInstruction>(usersIndex)
+            replaceInstruction(
+                usersIndex,
+                "invoke-static { v${call.registerC}, v${call.registerD}, v${call.registerE} }, $EXTENSION_CLASS_DESCRIPTOR->localUsersFirst(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            )
+            val resultRegister = getInstruction<OneRegisterInstruction>(usersIndex + 1).registerA
+            addInstruction(usersIndex + 2, "check-cast v$resultRegister, Lio/reactivex/rxjava3/core/Observable;")
         }
 
         fetchAndSyncPlaylistMethod.addInstructionsWithLabels(
