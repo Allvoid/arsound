@@ -728,7 +728,7 @@ public final class DownloadTrackPatch {
         return new HashSet<>(getDownloadedTracks());
     }
 
-    private static Set<String> getDownloadedTracks() {
+    static Set<String> getDownloadedTracks() {
         SharedPreferences preferences = getPreferences();
         return preferences == null ? new HashSet<>() : preferences.getStringSet(DOWNLOADED_TRACKS, new HashSet<>());
     }
