@@ -156,12 +156,39 @@ private val BytecodePatchContext.playbackInitiatorConstructorMethod by gettingFi
 }
 
 /** Local music: Adds importing audio files, playing them in the SoundCloud player and adding any track to any playlist on this device only. Part of the "Arsound" patch, not shown on its own. */
+/** Reads a local file for the player: title, artist, duration and the picture embedded in it. */
+private val BytecodePatchContext.localTrackMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/data/track/LocalFileAwareTrackRepository${'$'}track${'$'}2;")
+}
+
 val localMusicPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch, trackCellMarksPatch)
 
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
+        // Imported files without an embedded picture get their stored cover (one file per album).
+        localTrackMethod.apply {
+            val pictureIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as ReferenceInstruction).reference.toString().endsWith("->getEmbeddedPicture()[B")
+            }
+            val pictureRegister = getInstruction<OneRegisterInstruction>(pictureIndex + 1).registerA
+            val fileIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as ReferenceInstruction).reference.toString().endsWith("LocalTrackUrn;->getFile()Ljava/io/File;")
+            }
+            val fileRegister = getInstruction<OneRegisterInstruction>(fileIndex + 1).registerA
+            addInstructions(
+                pictureIndex + 2,
+                """
+                    invoke-static { v$pictureRegister, v$fileRegister }, Lapp/revanced/extension/soundcloud/local/LocalCovers;->coverOr([BLjava/io/File;)[B
+                    move-result-object v$pictureRegister
+                """,
+            )
+        }
+
         // Manual playlist order: applied after SoundCloud's sorting, rearranged on the library screen.
         filterAndSortPlaylistsMethod.apply {
             val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
