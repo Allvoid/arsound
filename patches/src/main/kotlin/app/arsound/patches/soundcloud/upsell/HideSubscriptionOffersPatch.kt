@@ -15,6 +15,7 @@ import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.returnType
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.getNode
+import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.arsound.util.indexOfFirstInstructionReversedOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod
@@ -133,6 +134,15 @@ private val BytecodePatchContext.bannerAdPlaceholderRenderMethod by gettingFirst
 }
 
 /** Hide subscription offers: Adds an option to remove the SoundCloud Go and Go+ offer screen and marketing popups. Part of the "Arsound" patch, not shown on its own. */
+/**
+ * The Downloads row of the library. Without a subscription it opens the offer of one instead of the
+ * screen; the offer is replaced by an empty screen, so the row did nothing.
+ */
+private val BytecodePatchContext.libraryDownloadsClickMethod by gettingFirstMethodDeclaratively {
+    name("accept")
+    definingClass("Lcom/soundcloud/android/features/library/LibraryPresenter${'$'}attachView${'$'}14;")
+}
+
 val hideSubscriptionOffersPatch = bytecodePatch {
     dependsOn(settingsPatch, emptyActivityPatch)
 
@@ -170,6 +180,17 @@ val hideSubscriptionOffersPatch = bytecodePatch {
         factoryPaywallIntentMethod.filterReturnedIntent()
 
         // Fallback, in case the offer screen is opened some other way.
+        // The Downloads row opens the downloads screen, as with a subscription.
+        libraryDownloadsClickMethod.apply {
+            val checkIndex = indexOfFirstInstructionOrThrow {
+                (opcode == Opcode.INVOKE_INTERFACE || opcode == Opcode.INVOKE_VIRTUAL) &&
+                    (this as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                        .reference.toString().endsWith("->isOfflineContentEnabled()Z")
+            }
+            val register = getInstruction<OneRegisterInstruction>(checkIndex + 1).registerA
+            addInstructions(checkIndex + 2, "const/4 v$register, 0x1")
+        }
+
         paywallSetupUiMethod.apply {
             addInstructionsWithLabels(
                 0,
