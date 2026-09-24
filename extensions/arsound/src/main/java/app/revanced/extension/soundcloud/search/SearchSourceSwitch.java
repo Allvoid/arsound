@@ -140,6 +140,8 @@ public final class SearchSourceSwitch {
         final TextView status;
         final ProgressBar spinner;
         final Map<String, Row> rows = new HashMap<>();
+        final android.widget.HorizontalScrollView tabsScroll;
+        final LinearLayout tabs;
         String shownQuery;
         int generation;
 
@@ -203,6 +205,32 @@ public final class SearchSourceSwitch {
                     Gravity.TOP | Gravity.CENTER_HORIZONTAL);
             spinnerParams.topMargin = dp(context, 48);
             results.addView(spinner, spinnerParams);
+            tabsScroll = new android.widget.HorizontalScrollView(context);
+            tabsScroll.setHorizontalScrollBarEnabled(false);
+            tabs = new LinearLayout(context);
+            tabs.setOrientation(LinearLayout.HORIZONTAL);
+            tabs.setPadding(dp(context, 12), 0, dp(context, 12), dp(context, 8));
+            String[] labels = {text("Всё", "All"), text("Треки", "Tracks"), text("Исполнители", "Artists"),
+                    text("Альбомы", "Albums")};
+            for (int i = 0; i < labels.length; i++) {
+                int index = i;
+                TextView chip = new TextView(context);
+                chip.setText(labels[i]);
+                chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+                chip.setTypeface(Typeface.DEFAULT_BOLD);
+                chip.setGravity(Gravity.CENTER);
+                chip.setPadding(dp(context, 16), 0, dp(context, 16), 0);
+                chip.setOnClickListener(v -> selectTab(index));
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, dp(context, 34));
+                chipParams.leftMargin = dp(context, 4);
+                chipParams.rightMargin = dp(context, 4);
+                tabs.addView(chip, chipParams);
+            }
+            tabsScroll.addView(tabs);
+            coordinator.addView(tabsScroll, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            styleTabs();
             coordinator.addView(results, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
             edit.addTextChangedListener(new TextWatcher() {
@@ -249,6 +277,7 @@ public final class SearchSourceSwitch {
             HelpBadge.setColor(help, arsoundSelected ? inverse(textColor) : withAlpha(textColor, 0xB0));
             soundCloudResults.setVisibility(arsoundSelected ? View.GONE : View.VISIBLE);
             results.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
+            tabsScroll.setVisibility(arsoundSelected ? View.VISIBLE : View.GONE);
             if (arsoundSelected) search();
         }
 
@@ -329,25 +358,52 @@ public final class SearchSourceSwitch {
             spinner.setVisibility(View.GONE);
         }
 
+        /** The selected tab: all, tracks, artists or albums. */
+        int tab;
+
+        void selectTab(int index) {
+            if (tab == index) return;
+            tab = index;
+            styleTabs();
+            // Opened albums and artists belong to the results of the previous tab.
+            back.clear();
+            if (root != null) root.run();
+        }
+
+        void styleTabs() {
+            for (int i = 0; i < tabs.getChildCount(); i++) {
+                TextView chip = (TextView) tabs.getChildAt(i);
+                GradientDrawable fill = new GradientDrawable();
+                fill.setCornerRadius(dp(context, 17));
+                boolean selected = i == tab;
+                fill.setColor(selected ? withAlpha(textColor, 0xFF) : withAlpha(textColor, 0x1A));
+                chip.setBackground(fill);
+                chip.setTextColor(selected ? inverse(textColor) : textColor);
+            }
+        }
+
         void showResults(List<OtherSource.Artist> artists, List<OtherSource.Album> albums, List<OtherSource.Track> tracks) {
             shown = root;
             clearList();
-            if (!artists.isEmpty()) {
-                list.addView(header(text("Исполнители", "Artists")));
-                for (int i = 0; i < Math.min(3, artists.size()); i++) {
+            // "All" shows a few of each; a tab shows everything of its kind.
+            boolean all = tab == 0;
+            if ((all || tab == 2) && !artists.isEmpty()) {
+                if (all) list.addView(header(text("Исполнители", "Artists")));
+                for (int i = 0; i < (all ? Math.min(3, artists.size()) : artists.size()); i++) {
                     OtherSource.Artist artist = artists.get(i);
                     list.addView(linkRow(artist.name, text("Исполнитель · альбомы", "Artist · albums"),
                             () -> open(() -> showArtist(artist))));
                 }
             }
-            if (!albums.isEmpty()) {
-                list.addView(header(text("Альбомы", "Albums")));
-                for (int i = 0; i < Math.min(6, albums.size()); i++) addAlbumRow(albums.get(i));
+            if ((all || tab == 3) && !albums.isEmpty()) {
+                if (all) list.addView(header(text("Альбомы", "Albums")));
+                for (int i = 0; i < (all ? Math.min(6, albums.size()) : albums.size()); i++) addAlbumRow(albums.get(i));
             }
-            if (!tracks.isEmpty()) {
-                if (!artists.isEmpty() || !albums.isEmpty()) list.addView(header(text("Треки", "Tracks")));
+            if ((all || tab == 1) && !tracks.isEmpty()) {
+                if (all && (!artists.isEmpty() || !albums.isEmpty())) list.addView(header(text("Треки", "Tracks")));
                 addTracks(tracks);
             }
+            if (list.getChildCount() == 0) list.addView(note(text("Здесь ничего не нашлось.", "Nothing here.")));
         }
 
         void addAlbumRow(OtherSource.Album album) {
