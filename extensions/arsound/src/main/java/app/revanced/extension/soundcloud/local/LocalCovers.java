@@ -124,7 +124,7 @@ public final class LocalCovers {
                 byte[] buffer = new byte[16 * 1024];
                 int read;
                 while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-                bytes = output.toByteArray();
+                bytes = square(output.toByteArray());
             }
             String hash = hash(bytes);
             File directory = directory();
@@ -143,6 +143,21 @@ public final class LocalCovers {
         } catch (Exception ex) {
             Logger.printException(() -> "Could not save the cover of " + audio, ex);
         }
+    }
+
+    /**
+     * Covers are shown in square cells. A video thumbnail is a 16:9 frame with the art in the middle
+     * and black bars around it, so it is cut to the centre square.
+     */
+    private static byte[] square(byte[] image) {
+        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(image, 0, image.length);
+        if (bitmap == null || bitmap.getWidth() == bitmap.getHeight()) return image;
+        int side = Math.min(bitmap.getWidth(), bitmap.getHeight());
+        android.graphics.Bitmap cut = android.graphics.Bitmap.createBitmap(bitmap,
+                (bitmap.getWidth() - side) / 2, (bitmap.getHeight() - side) / 2, side, side);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        cut.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, output);
+        return output.toByteArray();
     }
 
     public static boolean hasCover(File audio) {
