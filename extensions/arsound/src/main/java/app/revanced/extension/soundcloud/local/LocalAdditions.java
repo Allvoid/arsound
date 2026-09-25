@@ -219,10 +219,16 @@ public final class LocalAdditions {
                 List<Object> urns = new ArrayList<>((List<?>) value);
                 ClassLoader loader = single.getClass().getClassLoader();
                 RemovedTracks.onTrackList(key, urns);
+                List<String> skipped = new ArrayList<>();
                 for (String entry : getShownEntries(key)) {
                     Object urn = toUrn(loader, entry);
-                    if (urn != null && !urns.contains(urn)) urns.add(urn);
+                    if (urn != null && !urns.contains(urn)) {
+                        urns.add(urn);
+                    } else {
+                        skipped.add(entry + (urn == null ? " (no file)" : " (already in the list)"));
+                    }
                 }
+                if (!skipped.isEmpty()) Logger.printInfo(() -> "Local additions of " + key + " not shown: " + skipped);
                 RemovedTracks.placeKept(key, urns, loader, !playback);
                 Object ordered = TrackOrder.apply(key, urns);
                 if (!playback) PlaylistHeader.onScreenTracks(key, (List<?>) ordered);
@@ -483,7 +489,7 @@ public final class LocalAdditions {
      */
     private static void addPlaylistCoverRows(Dialog dialog, LinearLayout menuItems, String playlistUrn) {
         boolean hasCover = LocalCovers.hasPlaylistCover(playlistUrn);
-        if (!hasCover && !PlaylistHeader.hasOnlyImportedTracks(playlistUrn)) return;
+        if (!hasCover && !PlaylistTracks.hasOnlyImportedTracks(playlistUrn)) return;
         Context context = dialog.getContext();
         ViewGroup row = DownloadTrackPatch.createMenuRow(context,
                 hasCover ? text("Сменить обложку", "Change cover") : text("Задать обложку", "Set cover"),
@@ -705,7 +711,7 @@ public final class LocalAdditions {
 
     /** Tells the open playlists that show an imported file to load its track again, with a new cover. */
     public static void notifyTrackChanged(File audio) {
-        for (String playlist : PlaylistHeader.playlistsWithImportedTracks()) notifyPlaylistChanged(playlist);
+        for (String playlist : PlaylistTracks.playlistsWithImportedTracks()) notifyPlaylistChanged(playlist);
     }
 
     private static String entryOf(Object trackUrn) {

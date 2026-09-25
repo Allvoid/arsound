@@ -75,6 +75,35 @@ public final class DownloadsScreen {
         }
     }
 
+    private static volatile Object offlinePropertiesProvider;
+
+    /** Injection point: the constructor of {@code DefaultOfflinePropertiesProvider}. */
+    public static void setOfflinePropertiesProvider(Object provider) {
+        offlinePropertiesProvider = provider;
+    }
+
+    /**
+     * Makes an open Downloads screen filter its list again, after Arsound downloaded or deleted files.
+     * The screen listens to the offline states: the last state is sent again, which changes nothing
+     * but lets the screen ask Arsound anew.
+     */
+    public static void refresh() {
+        Object provider = offlinePropertiesProvider;
+        if (provider == null) return;
+        try {
+            Object latest = provider.getClass().getMethod("latest").invoke(provider);
+            for (java.lang.reflect.Field field : provider.getClass().getDeclaredFields()) {
+                if (!field.getType().getName().endsWith(".BehaviorSubject")) continue;
+                field.setAccessible(true);
+                Object subject = field.get(provider);
+                subject.getClass().getMethod("onNext", Object.class).invoke(subject, latest);
+                return;
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not refresh the Downloads screen", ex);
+        }
+    }
+
     private static boolean isDownloadedByArsound(String urn) {
         if (urn.startsWith("soundcloud:playlists:")) {
             return DownloadPlaylistPatch.isPlaylistDownloaded(urn.substring("soundcloud:playlists:".length()));

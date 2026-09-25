@@ -57,6 +57,12 @@ private val BytecodePatchContext.downloadsFilterMethod by gettingFirstMethodDecl
     definingClass("Lcom/soundcloud/android/features/library/downloads/DownloadsDataSource${'$'}loadTracksAndPlaylists${'$'}2;")
 }
 
+/** Holds the offline states the Downloads screen listens to. */
+private val BytecodePatchContext.offlinePropertiesProviderConstructorMethod by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/offline/DefaultOfflinePropertiesProvider;")
+}
+
 val downloadTrackPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadPermissionPatch)
 
@@ -83,6 +89,13 @@ val downloadTrackPatch = bytecodePatch {
             // The urn register receives the state, so the urn is kept before the call.
             addInstruction(stateIndex, "invoke-static { v$urnRegister }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->beforeState(Ljava/lang/Object;)V")
             addInstruction(0, "invoke-static { p1 }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->addArsoundTracks(Ljava/lang/Object;)V")
+        }
+        // Kept so the Downloads screen can be told to filter its list again after Arsound downloads change.
+        offlinePropertiesProviderConstructorMethod.apply {
+            addInstruction(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->setOfflinePropertiesProvider(Ljava/lang/Object;)V",
+            )
         }
         // Keep the OAuth helper to authorize the download request.
         oAuthConstructorMethod.apply {

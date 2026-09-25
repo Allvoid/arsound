@@ -49,6 +49,14 @@ public final class PlaylistPreloader {
                 if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
                     app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
                 }
+                // The library cells show how many tracks each playlist has and how many play from a file.
+                // Read from the database only, before the slower preload.
+                List<String> library = new ArrayList<>();
+                for (Object item : libraryItems("LOCAL_ONLY")) {
+                    library.add(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)));
+                }
+                app.revanced.extension.soundcloud.local.PlaylistTracks.recordAll(library);
+                app.revanced.extension.soundcloud.download.DownloadProgress.redrawNow();
                 preload();
                 // Downloaded tracks deleted on SoundCloud before their playlists were watched.
                 if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {

@@ -15,10 +15,15 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.revanced.extension.shared.Logger;
@@ -96,6 +101,8 @@ public final class BatchActivity extends Activity {
 
         // Lines done in an earlier run, with the playlist entry they got: a SoundCloud track or a file.
         Map<String, String> done = new HashMap<>();
+        // The title each earlier line was matched to: a match an improved check rejects is searched again.
+        Map<String, String> doneTitles = new HashMap<>();
         // Every entry any run put into the playlist: the ones this run does not keep are dropped from it.
         java.util.Set<String> batchEntries = new java.util.HashSet<>();
         if (reportFile.isFile()) {
@@ -103,6 +110,7 @@ public final class BatchActivity extends Activity {
                 String[] parts = line.split("\t");
                 if (parts[0].equals("OK") && parts.length >= 5) {
                     done.put(parts[1], parts[4]);
+                    doneTitles.put(parts[1], parts[2]);
                     String entry = entryOf(parts[4]);
                     if (entry != null) batchEntries.add(entry);
                 }
@@ -116,6 +124,10 @@ public final class BatchActivity extends Activity {
                 if (parts.length < 2) continue;
                 String key = line.trim().replace('\t', ' ');
                 String earlier = entryOf(done.get(key));
+                String earlierTitle = doneTitles.get(key);
+                if (earlierTitle != null && !earlierTitle.equals("kept") && !namesVersion(earlierTitle, parts[1].trim())) {
+                    earlier = null;
+                }
                 // A file without a cover goes through the search again to get one; it is not downloaded twice.
                 if (earlier != null && !refresh && isComplete(earlier)) {
                     ordered.add(earlier);
@@ -263,10 +275,32 @@ public final class BatchActivity extends Activity {
         return found;
     }
 
+    /** Words in brackets at the end of a title that name a version of the song, not a guest. */
+    private static final Pattern VERSION = Pattern.compile(
+            "(?iu).*(version|mix|edit|slow|sped|speed|acoustic|live|demo|instrumental|версия|акуст|живое|замедл|ускор).*");
+    private static final Pattern NOTE = Pattern.compile("\\(([^)]*)\\)\\s*$");
+    /** Words of such a note that the found title does not have to repeat. */
+    private static final Set<String> VERSION_FILLER = new HashSet<>(Arrays.asList("version", "ver", "the", "версия"));
+
+    /**
+     * "В окно с тобой (Slow Version)" is another recording than "В окно с тобой": when the wanted title
+     * names a version, the found one must name it too.
+     */
+    private static boolean namesVersion(String found, String wanted) {
+        Matcher note = NOTE.matcher(wanted);
+        if (!note.find() || !VERSION.matcher(note.group(1)).matches()) return true;
+        String foundText = normalize(found);
+        for (String word : note.group(1).split("\\s+")) {
+            String part = normalize(word);
+            if (!part.isEmpty() && !VERSION_FILLER.contains(part) && !foundText.contains(part)) return false;
+        }
+        return true;
+    }
+
     /** The found title holds the whole wanted one: "вата" must not stand for "сахарная вата". */
     private static boolean holdsTitle(String found, String wanted) {
         String b = normalize(wanted.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
-        if (b.isEmpty()) return false;
+        if (b.isEmpty() || !namesVersion(found, wanted)) return false;
         // A short title such as "17" must be the whole title, or "17 ножевых" would pass for it.
         if (b.length() < 8) {
             // "CUPSIZE - 17" and "no drama - cupsize, эмпи": the artist may be on either side of a dash.
@@ -294,7 +328,7 @@ public final class BatchActivity extends Activity {
             // The title from the file tags (the file name may be a SoundCloud id). Only a title holding the
             // whole wanted one: a short title must not match a longer one.
             for (LocalMusic.Track existing : LocalMusic.getTracks(context)) {
-                if (!wanted.isEmpty() && normalize(existing.title).contains(wanted)) {
+                if (!wanted.isEmpty() && normalize(existing.title).contains(wanted) && namesVersion(existing.title, title)) {
                     result[0] = existing.file;
                     return "OK\t" + key + "\t" + existing.title + "\timported\t" + existing.file.getPath();
                 }
