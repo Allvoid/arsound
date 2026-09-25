@@ -162,6 +162,21 @@ private val BytecodePatchContext.localTrackMethod by gettingFirstMethodDeclarati
     definingClass("Lcom/soundcloud/android/data/track/LocalFileAwareTrackRepository${'$'}track${'$'}2;")
 }
 
+/** The playlist picture: the header of the playlist screen and the library cards load it by this address. */
+private val BytecodePatchContext.playlistArtworkMethod by gettingFirstMethodDeclaratively {
+    name("getArtworkImageUrl")
+    definingClass("Lcom/soundcloud/android/foundation/domain/playlists/Playlist;")
+}
+
+/** Fills the header of the playlist screen: title, author and the meta line with the number of tracks. */
+private val BytecodePatchContext.playlistHeaderBindMethod by gettingFirstMethodDeclaratively {
+    name("bindItem")
+    definingClass(
+        "Lcom/soundcloud/android/playlist/view/renderers/PlaylistDetailsSmallerArtworkHeaderRenderer" +
+            "${'$'}PlaylistDetailsSmallerArtworkHeaderViewHolder;",
+    )
+}
+
 val localMusicPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch, trackCellMarksPatch)
 
@@ -197,6 +212,37 @@ val localMusicPatch = bytecodePatch {
             addInstruction(
                 trackIndex + 1,
                 "invoke-static/range { v$trackRegister .. v$trackRegister }, Lapp/revanced/extension/soundcloud/local/LocalCovers;->addCoverUrl(Ljava/lang/Object;)V",
+            )
+        }
+
+        // A playlist without SoundCloud tracks can get a picture from the gallery, on this device only.
+        // The getter has no spare register, so it is replaced; the extension reads the original field.
+        playlistArtworkMethod.addInstructions(
+            0,
+            """
+                invoke-static { p0 }, Lapp/revanced/extension/soundcloud/local/LocalCovers;->playlistArtwork(Ljava/lang/Object;)Ljava/lang/String;
+                move-result-object p0
+                return-object p0
+            """,
+        )
+
+        // The meta line of the header gets the number of tracks that play from a file.
+        playlistHeaderBindMethod.apply {
+            val stateIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_STATIC &&
+                    methodReference?.definingClass == "Lcom/soundcloud/android/playlists/PlaylistDetailsMetadataKt;"
+            }
+            val metadataRegister = getInstruction<FiveRegisterInstruction>(stateIndex).registerC
+            val bindIndex = indexOfFirstInstructionOrThrow(stateIndex) {
+                opcode == Opcode.INVOKE_STATIC &&
+                    methodReference?.definingClass == "Lcom/soundcloud/android/ui/components/listviews/BindingAdaptersKt;"
+            }
+            val bind = getInstruction<FiveRegisterInstruction>(bindIndex)
+            addInstruction(
+                bindIndex + 1,
+                "invoke-static { v${bind.registerC}, v$metadataRegister, v${bind.registerE} }, " +
+                    "Lapp/revanced/extension/soundcloud/local/PlaylistHeader;->addDownloadedCount(" +
+                    "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
             )
         }
 
