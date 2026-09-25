@@ -137,15 +137,14 @@ public final class DownloadTrackPatch {
     /**
      * Injection point. Called when a playlist cell builds its download icon.
      *
-     * @return The spinning icon while tracks started from this playlist are downloading, the downloaded
-     * icon for a playlist downloaded by Arsound, otherwise the original.
+     * @return The spinning icon while tracks started from this playlist are downloading, otherwise the
+     * original. The number of downloaded tracks is shown next to the number of tracks instead of an icon.
      */
     public static Object getPlaylistDownloadIcon(Object icon, Object playlist) {
         try {
             Object urn = playlist.getClass().getMethod("getUrn").invoke(playlist);
             String id = parseTrackId(urn);
-            if (DownloadProgress.isPlaylistDownloading(id)) return iconState("DOWNLOADING");
-            return DownloadPlaylistPatch.isPlaylistDownloaded(id) ? iconState("DOWNLOADED") : icon;
+            return DownloadProgress.isPlaylistDownloading(id) ? iconState("DOWNLOADING") : icon;
         } catch (Exception ex) {
             Logger.printException(() -> "getPlaylistDownloadIcon failure", ex);
             return icon;
@@ -463,6 +462,13 @@ public final class DownloadTrackPatch {
         try (java.io.OutputStream output = connection.getOutputStream()) {
             output.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
+        return connection.getResponseCode();
+    }
+
+    /** @return The response code of an authorized DELETE request to the SoundCloud API. */
+    public static int apiDelete(String url) throws Exception {
+        HttpURLConnection connection = openApiConnection(url);
+        connection.setRequestMethod("DELETE");
         return connection.getResponseCode();
     }
 
