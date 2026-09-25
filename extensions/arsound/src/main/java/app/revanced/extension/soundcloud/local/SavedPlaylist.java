@@ -87,6 +87,8 @@ public final class SavedPlaylist {
             if (!"404".equals(response[0])) {
                 renameIfNeeded(preferences, urn);
                 hideOtherCopies(preferences, urn);
+                deleteEmptyCopies(preferences, urn);
+                forgetDeletedCopies();
                 return;
             }
             Logger.printInfo(() -> "Saved tracks playlist was deleted, creating it again");
@@ -132,7 +134,7 @@ public final class SavedPlaylist {
     /** Titles this playlist had in any language and version. */
     private static final java.util.Set<String> KNOWN_TITLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "Импортированные", "Imported", "Скачанные и импортированные", "Downloaded and imported"));
-    /** Extra copies created by older versions after a reinstall. Hidden from lists, not deleted. */
+    /** Extra copies created by older versions after a reinstall. Hidden from lists, then deleted. */
     private static final String DUPLICATES = "saved_playlist_duplicates";
 
     /**
@@ -166,6 +168,112 @@ public final class SavedPlaylist {
         preferences.edit().putStringSet(DUPLICATES, new java.util.HashSet<>(found)).apply();
         Logger.printInfo(() -> "Hidden copies of the saved tracks playlist: " + found.size());
     }
+
+    private static final String COPIES_DELETED = "saved_playlist_copies_deleted_v2";
+
+    /**
+     * Older versions created a new playlist after each reinstall; the empty copies stayed on the profile.
+     * Each copy is deleted on SoundCloud once it is confirmed to be one: a known title, no tracks on the
+     * server and none added on this phone, and not the playlist in use.
+     */
+    private static void deleteEmptyCopies(SharedPreferences preferences, String urn) {
+        if (preferences.getBoolean(COPIES_DELETED, false)) return;
+        try {
+            String[] me = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
+            if (me[1] == null) {
+                Logger.printInfo(() -> "Copies of the saved tracks playlist not checked: HTTP " + me[0]);
+                return;
+            }
+            long userId = new org.json.JSONObject(me[1]).getLong("id");
+            String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/users/" + userId
+                    + "/playlists_without_albums?limit=200");
+            if (response[1] == null) {
+                Logger.printInfo(() -> "Copies of the saved tracks playlist not checked: HTTP " + response[0]);
+                return;
+            }
+            org.json.JSONArray playlists = new org.json.JSONObject(response[1]).getJSONArray("collection");
+            int deleted = 0, failed = 0;
+            List<String> copies = new ArrayList<>();
+            for (int i = 0; i < playlists.length(); i++) {
+                org.json.JSONObject playlist = playlists.getJSONObject(i);
+                String copy = "soundcloud:playlists:" + playlist.getLong("id");
+                boolean isCopy = !copy.equals(urn)
+                        && KNOWN_TITLES.contains(playlist.optString("title"))
+                        && playlist.optInt("track_count", -1) == 0
+                        && LocalAdditions.getEntries(copy).isEmpty();
+                String title = playlist.optString("title");
+                int tracks = playlist.optInt("track_count", -1);
+                Logger.printInfo(() -> "Own playlist " + copy + " \"" + title + "\", " + tracks + " tracks, a copy: " + isCopy);
+                if (!isCopy) continue;
+                copies.add(copy);
+                int code = DownloadTrackPatch.apiDelete("https://api-v2.soundcloud.com/playlists/" + playlist.getLong("id"));
+                Logger.printInfo(() -> "Deleted the empty copy " + copy + " of the saved tracks playlist: HTTP " + code);
+                if (code / 100 == 2 || code == 404) deleted++; else failed++;
+            }
+            // Until the library syncs, the stored rows of the deleted copies stay hidden.
+            java.util.Set<String> hidden = new java.util.HashSet<>(preferences.getStringSet(DUPLICATES, new java.util.HashSet<>()));
+            hidden.addAll(copies);
+            SharedPreferences.Editor editor = preferences.edit().putStringSet(DUPLICATES, hidden);
+            if (deleted > 0 && failed == 0) editor.putBoolean(COPIES_DELETED, true);
+            editor.apply();
+            int count = deleted;
+            Logger.printInfo(() -> "Empty copies of the saved tracks playlist deleted: " + count);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not delete the copies of the saved tracks playlist", ex);
+        }
+    }
+
+    private static volatile Object postsStorage;
+
+    /** Injection point: the constructor of {@code PostsStorage}, the stored posts of the user. */
+    public static void setPostsStorage(Object instance) {
+        boolean first = postsStorage == null;
+        postsStorage = instance;
+        if (!first) return;
+        // After the sign-in, like the check of the saved playlist.
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                Thread.sleep(12_000);
+                forgetDeletedCopies();
+            } catch (InterruptedException ignored) {
+            }
+        });
+    }
+
+    /**
+     * The own profile lists the user's playlists from the stored posts, which keep a deleted playlist
+     * until the library is synced. Posted playlists that SoundCloud no longer has are removed from the
+     * stored posts; the server is not touched. Checked once per start.
+     */
+    private static synchronized void forgetDeletedCopies() {
+        Object storage = postsStorage;
+        SharedPreferences preferences = preferences();
+        if (storage == null || preferences == null || postsChecked) return;
+        postsChecked = true;
+        try {
+            ClassLoader loader = storage.getClass().getClassLoader();
+            Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
+            java.util.Set<String> copies = new java.util.LinkedHashSet<>(preferences.getStringSet(DUPLICATES, Collections.emptySet()));
+            Object posted = Rx.blockingFirst(storage.getClass().getMethod("loadPostedPlaylists", Integer.class)
+                    .invoke(storage, (Object) null), 20, java.util.concurrent.TimeUnit.SECONDS);
+            if (posted instanceof List) {
+                for (Object post : (List<?>) posted) copies.add(String.valueOf(post.getClass().getMethod("getUrn").invoke(post)));
+            }
+            copies.remove(getUrn());
+            for (String copy : copies) {
+                String id = copy.substring(copy.lastIndexOf(':') + 1);
+                String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/playlists/" + id);
+                if (!"404".equals(response[0])) continue;
+                Object urn = urnClass.getMethod("forPlaylist", String.class).invoke(null, id);
+                storage.getClass().getMethod("removePlaylistPost", urnClass).invoke(storage, urn);
+                Logger.printInfo(() -> "Removed the deleted playlist " + copy + " from the stored posts");
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not remove the deleted copies from the stored posts", ex);
+        }
+    }
+
+    private static volatile boolean postsChecked;
 
     private static List<String> findCopies(List<Object> items) {
         List<String> urns = new ArrayList<>();

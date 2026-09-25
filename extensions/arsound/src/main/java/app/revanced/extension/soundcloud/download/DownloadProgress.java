@@ -78,7 +78,7 @@ public final class DownloadProgress {
         Set<String> stillDownloading = new HashSet<>(downloading);
         stillDownloading.remove(trackId);
         downloading = stillDownloading;
-        Utils.runOnMainThread(() -> redrawLists(resumed.get()));
+        recountAndRedraw();
     }
 
     /** Called when a download is queued. */
@@ -101,7 +101,21 @@ public final class DownloadProgress {
 
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
     static void onDownloadsDeleted() {
+        recountAndRedraw();
+    }
+
+    /** Draws the lists on screen again, for example after new numbers were counted. */
+    public static void redrawNow() {
         Utils.runOnMainThread(() -> redrawLists(resumed.get()));
+    }
+
+    /** The playlists count their tracks playing from a file again, then the lists are drawn again. */
+    private static void recountAndRedraw() {
+        Utils.runOnBackgroundThread(() -> {
+            app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
+            DownloadsScreen.refresh();
+            Utils.runOnMainThread(() -> redrawLists(resumed.get()));
+        });
     }
 
     public static void onActivityResumed(Activity activity) {
@@ -130,6 +144,11 @@ public final class DownloadProgress {
             current.addAll(assembling);
             boolean changed = !current.equals(downloading);
             downloading = current;
+            // A finished download changes the numbers of files in the playlists.
+            if (changed) {
+                app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
+                DownloadsScreen.refresh();
+            }
             Utils.runOnMainThread(() -> {
                 if (changed) redrawLists(resumed.get());
                 if (!current.isEmpty()) startPolling();

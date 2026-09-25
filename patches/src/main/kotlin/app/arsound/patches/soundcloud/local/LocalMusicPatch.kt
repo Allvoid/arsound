@@ -8,6 +8,7 @@ import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
+import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
@@ -177,6 +178,32 @@ private val BytecodePatchContext.playlistHeaderBindMethod by gettingFirstMethodD
     )
 }
 
+/** Builds the meta line of a playlist cell: type, number of tracks, download icon. */
+private val BytecodePatchContext.playlistCellMetaLabelMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/uievo/statemappers/MetaLabelsKt;")
+    name("c")
+    parameterTypes(
+        "Lcom/soundcloud/android/foundation/domain/playlists/Playlist;",
+        "Landroid/content/res/Resources;",
+        "Z",
+        "Lcom/soundcloud/android/foundation/domain/offline/OfflineState;",
+    )
+}
+
+/** Turns a meta line state into its items, for the View and the Compose meta line alike. */
+private val BytecodePatchContext.metaLabelItemsMethod by gettingFirstMethodDeclaratively {
+    name("a")
+    definingClass("Lcom/soundcloud/android/ui/utils/MetaLabelUtilsKt;")
+}
+
+/** The stored posts of the user: the own profile lists its playlists from them. */
+private val BytecodePatchContext.postsStorageConstructorMethod by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/collections/data/posts/PostsStorage;")
+}
+
+private const val TRACKS_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/local/PlaylistTracks;"
+
 val localMusicPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch, trackCellMarksPatch)
 
@@ -244,6 +271,42 @@ val localMusicPatch = bytecodePatch {
                     "Lapp/revanced/extension/soundcloud/local/PlaylistHeader;->addDownloadedCount(" +
                     "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
             )
+        }
+
+        // Library cells: the number of tracks includes the local additions, and the number of tracks
+        // playing from a file follows it. The state is tagged with its playlist for the second step; the
+        // playlist register gets the state, so the playlist is kept when its tracks are counted.
+        playlistCellMetaLabelMethod.apply {
+            val countIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.name == "getTracksCount"
+            }
+            val countRegister = getInstruction<OneRegisterInstruction>(countIndex + 1).registerA
+            val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
+            val stateRegister = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+            addInstruction(
+                returnIndex,
+                "invoke-static { v$stateRegister }, $TRACKS_CLASS_DESCRIPTOR->tagCell(Ljava/lang/Object;)V",
+            )
+            addInstructions(
+                countIndex + 2,
+                """
+                    invoke-static { p0, v$countRegister }, $TRACKS_CLASS_DESCRIPTOR->cellTracksCount(Ljava/lang/Object;I)I
+                    move-result v$countRegister
+                """,
+            )
+        }
+        // The state register is reused before the items are returned, so it is kept at the start.
+        metaLabelItemsMethod.apply {
+            val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_OBJECT)
+            val itemsRegister = getInstruction<OneRegisterInstruction>(returnIndex).registerA
+            addInstructions(
+                returnIndex,
+                """
+                    invoke-static { v$itemsRegister }, $TRACKS_CLASS_DESCRIPTOR->withDownloadedCount(Ljava/util/List;)Ljava/util/List;
+                    move-result-object v$itemsRegister
+                """,
+            )
+            addInstruction(0, "invoke-static { p1 }, $TRACKS_CLASS_DESCRIPTOR->beforeItems(Ljava/lang/Object;)V")
         }
 
         // Manual playlist order: applied after SoundCloud's sorting, rearranged on the library screen.
@@ -354,6 +417,13 @@ val localMusicPatch = bytecodePatch {
             """,
             ExternalLabel("original", localFileAwareTracksMethod.getInstruction(0)),
         )
+
+        postsStorageConstructorMethod.apply {
+            addInstruction(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0 }, $SAVED_CLASS_DESCRIPTOR->setPostsStorage(Ljava/lang/Object;)V",
+            )
+        }
 
         playlistOperationsConstructorMethod.apply {
             addInstruction(

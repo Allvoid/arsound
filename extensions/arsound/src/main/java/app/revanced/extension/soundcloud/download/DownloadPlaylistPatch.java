@@ -32,8 +32,8 @@ import app.revanced.extension.shared.Utils;
  * It finds playable, non-subscription tracks and offers to download them all. Each task prefers
  * the author-provided file, then falls back to the official progressive stream.
  * <p>
- * Playlists downloaded this way are remembered on this device: the Downloads screen lists them and
- * their cells show the downloaded icon, until their downloaded tracks are deleted.
+ * Playlists downloaded this way are remembered on this device: the Downloads screen lists them until
+ * their downloaded tracks are deleted.
  */
 @SuppressWarnings("unused")
 public final class DownloadPlaylistPatch {
@@ -94,6 +94,7 @@ public final class DownloadPlaylistPatch {
             preferences.edit().remove(playlistId).apply();
         }
         Logger.printInfo(() -> "Playlist " + playlistId + (downloaded ? " is downloaded" : " is no longer downloaded"));
+        DownloadsScreen.refresh();
     }
 
     // endregion
