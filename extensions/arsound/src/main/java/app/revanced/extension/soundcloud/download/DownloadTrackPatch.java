@@ -73,6 +73,12 @@ public final class DownloadTrackPatch {
      */
     public static void onTrackMenu(Dialog dialog, Object trackUrn) {
         try {
+            // An imported file: nothing to download, but its cover can be picked.
+            java.io.File imported = app.revanced.extension.soundcloud.local.LocalAdditions.importedFileOf(trackUrn);
+            if (imported != null) {
+                Utils.runOnMainThread(() -> app.revanced.extension.soundcloud.local.LocalAdditions.addTrackCoverRow(dialog, imported));
+                return;
+            }
             String trackId = parseTrackId(trackUrn);
             if (trackId == null) return;
 
@@ -131,13 +137,15 @@ public final class DownloadTrackPatch {
     /**
      * Injection point. Called when a playlist cell builds its download icon.
      *
-     * @return The spinning icon while tracks started from this playlist are downloading, otherwise the original.
+     * @return The spinning icon while tracks started from this playlist are downloading, the downloaded
+     * icon for a playlist downloaded by Arsound, otherwise the original.
      */
     public static Object getPlaylistDownloadIcon(Object icon, Object playlist) {
         try {
             Object urn = playlist.getClass().getMethod("getUrn").invoke(playlist);
             String id = parseTrackId(urn);
-            return DownloadProgress.isPlaylistDownloading(id) ? iconState("DOWNLOADING") : icon;
+            if (DownloadProgress.isPlaylistDownloading(id)) return iconState("DOWNLOADING");
+            return DownloadPlaylistPatch.isPlaylistDownloaded(id) ? iconState("DOWNLOADED") : icon;
         } catch (Exception ex) {
             Logger.printException(() -> "getPlaylistDownloadIcon failure", ex);
             return icon;
