@@ -28,6 +28,13 @@ public final class ImportActivity extends Activity {
     private static final String EXTRA_COVER_PLAYLIST = "arsound_cover_playlist";
     private static final int REQUEST_PICK = 1;
     private static final int REQUEST_COVER = 2;
+    private static final int REQUEST_FOLDER = 3;
+    private static final String EXTRA_WATCH_FOLDER = "arsound_watch_folder";
+
+    /** Opens the folder picker for the watched folder. */
+    public static void pickWatchFolder(Context context) {
+        startForCover(context, EXTRA_WATCH_FOLDER, "1");
+    }
 
     /**
      * Opens the file picker.
@@ -79,6 +86,15 @@ public final class ImportActivity extends Activity {
         if (savedInstanceState != null) return;
         if (isCoverPick()) {
             openGallery();
+            return;
+        }
+        if (getIntent().hasExtra(EXTRA_WATCH_FOLDER)) {
+            try {
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQUEST_FOLDER);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not open the folder picker", ex);
+                finish();
+            }
             return;
         }
         try {
@@ -142,6 +158,17 @@ public final class ImportActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         finish();
+        if (requestCode == REQUEST_FOLDER) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+            Uri folder = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(folder, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not keep the folder access", ex);
+            }
+            WatchFolder.setFolder(getApplicationContext(), folder);
+            return;
+        }
         if (requestCode == REQUEST_COVER) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) onCoverPicked(data.getData());
             return;
