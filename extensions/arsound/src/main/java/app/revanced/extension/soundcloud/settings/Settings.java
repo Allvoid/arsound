@@ -158,6 +158,26 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).apply();
     }
 
+    public static boolean getBoolean(String key, boolean defaultValue) {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
+    }
+
+    public static long getLong(String key, long defaultValue) {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? defaultValue : preferences.getLong(key, defaultValue);
+    }
+
+    public static void putLong(String key, long value) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences != null) preferences.edit().putLong(key, value).apply();
+    }
+
+    /** Size of SoundCloud's stream cache in bytes; 0 keeps SoundCloud's own size. */
+    public static final String STREAM_CACHE_SIZE = "stream_cache_size";
+    /** Days a cached stream part is kept after its last use; 0 keeps it until the cache is full. */
+    public static final String STREAM_CACHE_DAYS = "stream_cache_days";
+
     public static final String PLAYLIST_PRELOAD = "playlist_preload";
 
     /** Saves the contents of all library playlists ahead of time, as text. On by default. */
