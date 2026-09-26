@@ -248,7 +248,7 @@ public final class DownloadPlaylistPatch {
         for (int i = 0; i < tracks.length(); i++) ids.add(String.valueOf(tracks.getJSONObject(i).getLong("id")));
 
         // Tracks added on the phone are not on the server: without them a playlist made of them looks empty.
-        for (String entry : app.revanced.extension.soundcloud.local.LocalAdditions.getEntries("soundcloud:playlists:" + playlistId)) {
+        for (String entry : app.revanced.extension.soundcloud.local.LocalAdditions.getShownEntries("soundcloud:playlists:" + playlistId)) {
             if (entry.startsWith("file:")) {
                 if (imported != null) imported[0]++;
                 continue;
