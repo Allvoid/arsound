@@ -16,6 +16,7 @@ import app.arsound.patches.soundcloud.network.networkPatch
 import app.arsound.patches.soundcloud.offline.downloadedPlaybackPatch
 import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
+import app.arsound.patches.soundcloud.player.streamCachePatch
 import app.arsound.patches.soundcloud.recommendations.duplicateFilterPatch
 import app.arsound.patches.soundcloud.upsell.hideSubscriptionOffersPatch
 import app.revanced.patcher.patch.Patch
@@ -106,4 +107,11 @@ val arsoundRecommendationsGroup = arsoundGroup(
     "Arsound: без дубликатов",
     "Скрывает перезаливы одного и того же трека в рекомендациях и на главной.",
     duplicateFilterPatch,
+)
+
+@Suppress("unused")
+val arsoundPlayerGroup = arsoundGroup(
+    "Arsound: плеер",
+    "Размер и срок хранения кэша потоков.",
+    streamCachePatch,
 )

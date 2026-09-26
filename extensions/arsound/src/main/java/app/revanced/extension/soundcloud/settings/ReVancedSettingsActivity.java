@@ -289,6 +289,50 @@ public final class ReVancedSettingsActivity extends Activity {
                 Settings.isPlaybackRetryEnabled(),
                 (button, checked) -> Settings.setPlaybackRetryEnabled(checked)
         ));
+        addStreamCacheOptions(list);
+    }
+
+    private void addStreamCacheOptions(LinearLayout list) {
+        list.addView(createSubHeading(text("Кэш потоков", "Stream cache")));
+        long megabyte = 1024L * 1024;
+        long gigabyte = 1024 * megabyte;
+        list.addView(createChoiceRow(text("Размер кэша", "Cache size"),
+                text("Сюда SoundCloud сохраняет части треков, которые вы слушали из сети, чтобы при повторе не качать их "
+                                + "снова. Скачанные треки сюда не входят. Применится после перезапуска.",
+                        "SoundCloud keeps parts of the tracks you streamed here, so a replay does not download them again. "
+                                + "Downloaded tracks are not in it. Applies after a restart."),
+                Settings.STREAM_CACHE_SIZE, 0,
+                new long[]{0, 250 * megabyte, 500 * megabyte, gigabyte, 2 * gigabyte, 5 * gigabyte, 10 * gigabyte, 20 * gigabyte},
+                new String[]{text("Как в SoundCloud (120–500 МБ)", "SoundCloud default (120–500 MB)"),
+                        text("250 МБ", "250 MB"), text("500 МБ", "500 MB"), text("1 ГБ", "1 GB"), text("2 ГБ", "2 GB"),
+                        text("5 ГБ", "5 GB"), text("10 ГБ", "10 GB"), text("20 ГБ", "20 GB")},
+                null));
+        list.addView(createChoiceRow(text("Срок хранения", "Keep for"),
+                text("Части треков, которые вы не слушали столько дней, удаляются при запуске.",
+                        "Parts of tracks you have not played for this many days are removed at start."),
+                Settings.STREAM_CACHE_DAYS, 0,
+                new long[]{0, 1, 7, 30, 90},
+                new String[]{text("Пока хватает места", "Until the cache is full"), text("1 день", "1 day"),
+                        text("7 дней", "7 days"), text("30 дней", "30 days"), text("90 дней", "90 days")},
+                null));
+        TextView[] used = new TextView[1];
+        View clearRow = createActionRow(text("Очистить кэш", "Clear cache"), "", v -> {
+            Settings.putBoolean(app.revanced.extension.soundcloud.player.StreamCache.CLEAR_REQUESTED, true);
+            used[0].setText(text("Кэш очистится при следующем запуске SoundCloud.",
+                    "The cache is cleared the next time SoundCloud starts."));
+        });
+        used[0] = (TextView) ((ViewGroup) clearRow).getChildAt(1);
+        used[0].setText(text("Считаю…", "Counting…"));
+        Utils.runOnBackgroundThread(() -> {
+            long bytes = app.revanced.extension.soundcloud.player.StreamCache.usedBytes();
+            boolean pending = Settings.getBoolean(app.revanced.extension.soundcloud.player.StreamCache.CLEAR_REQUESTED, false);
+            String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
+            Utils.runOnMainThread(() -> used[0].setText(pending
+                    ? text("Кэш очистится при следующем запуске SoundCloud.", "The cache is cleared the next time SoundCloud starts.")
+                    : text("Сейчас занято: " + size + ". Очистится при следующем запуске.",
+                    "Now used: " + size + ". Cleared at the next start.")));
+        });
+        list.addView(clearRow);
     }
 
     private void addAdsSection(LinearLayout list) {
@@ -939,6 +983,39 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private View createActionRow(String title, String description, View.OnClickListener listener) {
         return createActionRow(title, description, null, listener);
+    }
+
+    /**
+     * A row that picks one of several values of a long setting. The description shows the chosen value.
+     *
+     * @param explanation Shown under the chosen value, may be null.
+     */
+    private View createChoiceRow(String title, String explanation, String key, long defaultValue,
+                                 long[] values, String[] labels, Runnable onChange) {
+        TextView[] description = new TextView[1];
+        View row = createActionRow(title, "", v -> new android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(labels, indexOf(values, Settings.getLong(key, defaultValue)), (dialog, which) -> {
+                    Settings.putLong(key, values[which]);
+                    description[0].setText(choiceDescription(key, defaultValue, values, labels, explanation));
+                    dialog.dismiss();
+                    if (onChange != null) onChange.run();
+                })
+                .show());
+        description[0] = (TextView) ((ViewGroup) row).getChildAt(1);
+        description[0].setText(choiceDescription(key, defaultValue, values, labels, explanation));
+        return row;
+    }
+
+    private static String choiceDescription(String key, long defaultValue, long[] values, String[] labels, String explanation) {
+        int index = indexOf(values, Settings.getLong(key, defaultValue));
+        String chosen = index >= 0 ? labels[index] : String.valueOf(Settings.getLong(key, defaultValue));
+        return explanation == null ? chosen : chosen + "\n" + explanation;
+    }
+
+    private static int indexOf(long[] values, long value) {
+        for (int i = 0; i < values.length; i++) if (values[i] == value) return i;
+        return -1;
     }
 
     /** @param help A {@link HelpBadge} shown right after the title, or null. */
