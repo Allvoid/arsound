@@ -290,7 +290,7 @@ public final class LocalCovers {
     private static String firstTrackCover(String playlistUrn) {
         SharedPreferences preferences = preferences();
         if (preferences == null) return null;
-        java.util.List<String> entries = LocalAdditions.getEntries(playlistUrn);
+        java.util.List<String> entries = LocalAdditions.getShownEntries(playlistUrn);
         if (entries.isEmpty()) return null;
         String first = entries.get(0);
         String saved = preferences.getString(FIRST_TRACK_PREFIX + playlistUrn, null);
