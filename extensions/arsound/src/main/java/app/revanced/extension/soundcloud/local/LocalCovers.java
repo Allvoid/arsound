@@ -265,11 +265,81 @@ public final class LocalCovers {
                 artworkField = artwork;
             }
             Map<String, String> covers = playlistCovers();
-            String cover = covers.isEmpty() ? null : covers.get(String.valueOf(urnField.get(playlist)));
-            return cover != null ? cover : (String) artworkField.get(playlist);
+            String urn = String.valueOf(urnField.get(playlist));
+            String cover = covers.isEmpty() ? null : covers.get(urn);
+            if (cover != null) return cover;
+            String artwork = (String) artworkField.get(playlist);
+            return artwork != null && !artwork.isEmpty() ? artwork : firstTrackCover(urn);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not give the playlist cover", ex);
             return null;
+        }
+    }
+
+    /** Marks the cover of a playlist taken from its first track added on the phone: entry, then address. */
+    private static final String FIRST_TRACK_PREFIX = "first:";
+    private static final Set<String> firstTrackRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * SoundCloud gives a playlist the artwork of its first track, but only for tracks on the server.
+     * A playlist made of tracks added on the phone gets the cover of its first such track instead.
+     * The address is found once in the background and remembered.
+     *
+     * @return The remembered address, or null until it is found.
+     */
+    private static String firstTrackCover(String playlistUrn) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return null;
+        java.util.List<String> entries = LocalAdditions.getEntries(playlistUrn);
+        if (entries.isEmpty()) return null;
+        String first = entries.get(0);
+        String saved = preferences.getString(FIRST_TRACK_PREFIX + playlistUrn, null);
+        int separator = saved == null ? -1 : saved.indexOf('\n');
+        String address = separator > 0 ? saved.substring(separator + 1) : null;
+        // A cover file of an imported track goes away with its album.
+        boolean present = address != null && (!address.startsWith("file:")
+                || new File(android.net.Uri.parse(address).getPath()).isFile());
+        if (present && saved.substring(0, separator).equals(first)) return address;
+        if (firstTrackRequests.add(playlistUrn + '\n' + first)) {
+            Utils.runOnBackgroundThread(() -> findFirstTrackCover(preferences, playlistUrn, first));
+        }
+        return present ? address : null;
+    }
+
+    private static void findFirstTrackCover(SharedPreferences preferences, String playlistUrn, String entry) {
+        try {
+            String address = null;
+            if (entry.startsWith("file:")) {
+                String hash = preferences.getString(new File(entry.substring(5)).getName(), null);
+                File directory = directory();
+                if (hash != null && directory != null && new File(directory, hash + ".jpg").isFile()) {
+                    address = android.net.Uri.fromFile(new File(directory, hash + ".jpg")).toString();
+                }
+            } else {
+                String id = app.revanced.extension.soundcloud.download.DownloadTrackPatch.parseTrackId(entry);
+                String[] response = id == null ? null
+                        : app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id);
+                if (response != null && response[1] != null) {
+                    org.json.JSONObject track = new org.json.JSONObject(response[1]);
+                    String url = track.optString("artwork_url", "");
+                    if (url.isEmpty() || "null".equals(url)) {
+                        org.json.JSONObject user = track.optJSONObject("user");
+                        url = user == null ? "" : user.optString("avatar_url", "");
+                    }
+                    // SoundCloud loads artwork by a template with the size left open.
+                    if (!url.isEmpty() && !"null".equals(url)) address = url.replace("-large.", "-{size}.");
+                }
+            }
+            if (address == null) {
+                Logger.printInfo(() -> "No cover for the first track of " + playlistUrn);
+                return;
+            }
+            String found = address;
+            preferences.edit().putString(FIRST_TRACK_PREFIX + playlistUrn, entry + '\n' + address).apply();
+            Logger.printInfo(() -> "Playlist " + playlistUrn + " takes the cover of its first track: " + found);
+            Utils.runOnMainThread(() -> LocalAdditions.notifyPlaylistChanged(playlistUrn));
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not find the first track cover of " + playlistUrn, ex);
         }
     }
 
