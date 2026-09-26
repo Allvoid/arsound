@@ -48,6 +48,7 @@ rem The "Arsound: ..." groups include every patch of this project, with the opti
   -e "Arsound: мгновенные плейлисты" ^
   -e "Arsound: сеть и батарея" ^
   -e "Arsound: без дубликатов" ^
+  -e "Arsound: плеер" ^
   --keystore "%KEYSTORE%" %KEYSTORE_ARGS% -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" || exit /b 1
 
