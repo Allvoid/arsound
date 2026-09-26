@@ -292,6 +292,55 @@ public final class ReVancedSettingsActivity extends Activity {
         addStreamCacheOptions(list);
     }
 
+    private void addWatchFolderOptions(LinearLayout list) {
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.VERTICAL);
+        list.addView(createToggleRow(
+                text("Следить за папкой", "Watch a folder"),
+                text("Новые аудиофайлы из выбранной папки на телефоне сами импортируются, когда вы открываете SoundCloud. "
+                                + "Удаление файла из папки импортированный трек не трогает.",
+                        "New audio files in the chosen phone folder are imported by themselves when you open SoundCloud. "
+                                + "Removing a file from the folder does not remove the imported track."),
+                app.revanced.extension.soundcloud.local.WatchFolder.isEnabled(),
+                (button, checked) -> {
+                    if (checked && app.revanced.extension.soundcloud.local.WatchFolder.getFolder() == null) {
+                        app.revanced.extension.soundcloud.local.ImportActivity.pickWatchFolder(this);
+                    }
+                    app.revanced.extension.soundcloud.local.WatchFolder.setEnabled(checked);
+                    options.setVisibility(checked ? View.VISIBLE : View.GONE);
+                }
+        ));
+        options.setVisibility(app.revanced.extension.soundcloud.local.WatchFolder.isEnabled() ? View.VISIBLE : View.GONE);
+        list.addView(options);
+        TextView[] folder = new TextView[1];
+        View folderRow = createActionRow(text("Папка", "Folder"), "",
+                v -> app.revanced.extension.soundcloud.local.ImportActivity.pickWatchFolder(this));
+        folder[0] = (TextView) ((ViewGroup) folderRow).getChildAt(1);
+        options.addView(folderRow);
+        options.addView(createActionRow(text("Проверить сейчас", "Check now"),
+                text("Импортировать новые файлы из папки, не дожидаясь следующего запуска.",
+                        "Import new files from the folder without waiting for the next start."),
+                v -> app.revanced.extension.soundcloud.local.WatchFolder.check(getApplicationContext(), true)));
+        // The folder is picked in another screen: the name is shown again when this one comes back.
+        folderNameViews.add(folder[0]);
+        updateFolderNames();
+    }
+
+    private final java.util.List<TextView> folderNameViews = new java.util.ArrayList<>();
+
+    private void updateFolderNames() {
+        String name = app.revanced.extension.soundcloud.local.WatchFolder.folderName();
+        for (TextView view : folderNameViews) {
+            view.setText(name != null ? name : text("Не выбрана — нажмите, чтобы выбрать", "Not chosen, tap to choose"));
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateFolderNames();
+    }
+
     private void addStreamCacheOptions(LinearLayout list) {
         list.addView(createSubHeading(text("Кэш потоков", "Stream cache")));
         long megabyte = 1024L * 1024;
@@ -411,6 +460,7 @@ public final class ReVancedSettingsActivity extends Activity {
                 v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
                         .putExtra(EXTRA_SCREEN, SCREEN_LOCAL_MUSIC))
         ));
+        addWatchFolderOptions(list);
         LinearLayout savedOptions = new LinearLayout(this);
         savedOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
