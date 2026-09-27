@@ -163,6 +163,11 @@ public final class Settings {
         return preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
     }
 
+    public static String getString(String key, String defaultValue) {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? defaultValue : preferences.getString(key, defaultValue);
+    }
+
     public static long getLong(String key, long defaultValue) {
         SharedPreferences preferences = getPreferences();
         return preferences == null ? defaultValue : preferences.getLong(key, defaultValue);
