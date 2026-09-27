@@ -28,7 +28,9 @@ public final class DuplicateFilter {
     private static final Pattern BRACKETS = Pattern.compile("[\\(\\[\\{][^\\)\\]\\}]*[\\)\\]\\}]");
     private static final Pattern FEATURING = Pattern.compile("\\b(feat|ft|prod|featuring)\\b\\.?.*$");
     private static final Pattern NOISE = Pattern.compile("\\b(free download|free dl|official audio|official video|lyrics|audio|hq|hd|clean|explicit)\\b");
-    private static final Pattern EDIT_MARKERS = Pattern.compile("\\b(slowed|reverb|sped up|speed up|nightcore|remix|edit|cover|live|instrumental|acapella|bass boosted)\\b");
+    private static final Pattern EDIT_MARKERS = Pattern.compile("\\b(slowed|slow|reverb|sped up|speed up|speed|nightcore|remix|edit|cover|live|instrumental|acapella|bass boosted|pitched|8d)\\b");
+    /** A playback speed written as a number: "0.9x", "x1.25", "1,1 speed". */
+    private static final Pattern SPEED = Pattern.compile("(\\b\\d(?:[.,]\\d+)?\\s*x\\b|\\bx\\s*\\d(?:[.,]\\d+)?\\b|\\b\\d(?:[.,]\\d+)?\\s*(?=speed\\b))");
     private static final Pattern NON_WORD = Pattern.compile("[^\\p{L}\\p{N}]+");
 
     /** Songs recently queued by autoplay, so a later refill does not bring back another copy. */
@@ -58,7 +60,9 @@ public final class DuplicateFilter {
         if (!Settings.isMergeEditedVersions()) {
             java.util.regex.Matcher matcher = EDIT_MARKERS.matcher(value);
             while (matcher.find()) markers.append(' ').append(matcher.group(1));
+            if (SPEED.matcher(value).find()) markers.append(" speed");
         }
+        value = SPEED.matcher(value).replaceAll(" ");
         value = BRACKETS.matcher(value).replaceAll(" ");
         value = FEATURING.matcher(value).replaceAll(" ");
         value = NOISE.matcher(value).replaceAll(" ");
@@ -73,15 +77,30 @@ public final class DuplicateFilter {
     private static final class Song {
         final String key;
         final long duration;
+        /** Slowed, sped up, remixed and similar: another speed changes the duration. */
+        final boolean edited;
 
-        Song(String key, long duration) {
+        Song(String key, long duration, boolean edited) {
             this.key = key;
             this.duration = duration;
+            this.edited = edited;
         }
 
         boolean sameAs(Song other) {
-            return !key.isEmpty() && key.equals(other.key) && Math.abs(duration - other.duration) <= DURATION_TOLERANCE_MS;
+            if (key.isEmpty() || !key.equals(other.key)) return false;
+            // Merged versions have the same key; their durations differ with the speed.
+            if ((edited || other.edited) && Settings.isMergeEditedVersions()) return true;
+            return Math.abs(duration - other.duration) <= DURATION_TOLERANCE_MS;
         }
+    }
+
+    static boolean isEdited(String title) {
+        String value = title == null ? "" : title.toLowerCase(Locale.ROOT);
+        return EDIT_MARKERS.matcher(value).find() || SPEED.matcher(value).find();
+    }
+
+    private static Song song(String title, long duration) {
+        return new Song(songKey(title), duration, isEdited(title));
     }
 
     private static Object urnOf(Object track) {
@@ -96,10 +115,10 @@ public final class DuplicateFilter {
         try {
             String title = (String) track.getClass().getMethod("getTitle").invoke(track);
             long duration = (long) track.getClass().getMethod("getFullDuration").invoke(track);
-            Song song = new Song(songKey(title), duration);
+            Song song = song(title, duration);
             Object urn = track.getClass().getMethod("getUrn").invoke(track);
             synchronized (knownTracks) {
-                knownTracks.put(String.valueOf(urn), new Object[]{song.key, song.duration});
+                knownTracks.put(String.valueOf(urn), new Object[]{title, song.duration});
             }
             return song;
         } catch (Exception ex) {
@@ -194,7 +213,7 @@ public final class DuplicateFilter {
             synchronized (knownTracks) {
                 seed = knownTracks.get(String.valueOf(seedUrn).replace("soundcloud:sounds:", "soundcloud:tracks:"));
             }
-            if (seed != null) kept.add(new Song((String) seed[0], (long) seed[1]));
+            if (seed != null) kept.add(song((String) seed[0], (long) seed[1]));
 
             int removed = 0;
             for (Object track : apiTracks) {
@@ -233,6 +252,77 @@ public final class DuplicateFilter {
     private static void rememberQueued(Song song) {
         synchronized (autoplayMemory) {
             autoplayMemory.put(song.key, song.duration);
+        }
+    }
+
+    /**
+     * Playlists SoundCloud makes for the user (Your Mix, Daily Drops, Weekly Wave): duplicates and
+     * disliked tracks are taken out of the track list. Own and other people's playlists are not touched.
+     * Blocks: titles unknown so far are asked from SoundCloud, one request per 50 tracks.
+     *
+     * @param urns The track urns of the playlist, changed in place.
+     */
+    public static void filterSystemPlaylist(String playlistUrn, List<Object> urns) {
+        boolean duplicates = Settings.isDuplicateFilterEnabled();
+        if (!playlistUrn.contains(":system-playlists:") || !duplicates && !TrackDislikes.isActive()) return;
+        try {
+            if (duplicates) learnTitles(urns);
+            List<Song> kept = new ArrayList<>();
+            int before = urns.size();
+            for (java.util.Iterator<Object> iterator = urns.iterator(); iterator.hasNext(); ) {
+                String urn = String.valueOf(iterator.next());
+                if (TrackDislikes.isDisliked(urn)) {
+                    iterator.remove();
+                    continue;
+                }
+                if (!duplicates) continue;
+                Object[] known;
+                synchronized (knownTracks) {
+                    known = knownTracks.get(urn);
+                }
+                if (known == null) continue;
+                Song song = song((String) known[0], (long) known[1]);
+                if (containsSame(kept, song)) {
+                    iterator.remove();
+                } else {
+                    kept.add(song);
+                }
+            }
+            int removed = before - urns.size();
+            Logger.printInfo(() -> "System playlist " + playlistUrn + " checked: " + before + " tracks, hidden: " + removed);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not filter system playlist " + playlistUrn, ex);
+        }
+    }
+
+    private static void learnTitles(List<Object> urns) {
+        List<String> missing = new ArrayList<>();
+        synchronized (knownTracks) {
+            for (Object urn : urns) {
+                String value = String.valueOf(urn);
+                if (!knownTracks.containsKey(value) && value.startsWith("soundcloud:tracks:")) {
+                    missing.add(value.substring("soundcloud:tracks:".length()));
+                }
+            }
+        }
+        for (int start = 0; start < missing.size(); start += 50) {
+            try {
+                String[] response = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet(
+                        "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", missing.subList(start, Math.min(missing.size(), start + 50))));
+                if (response[1] == null) return;
+                org.json.JSONArray array = new org.json.JSONArray(response[1]);
+                synchronized (knownTracks) {
+                    for (int i = 0; i < array.length(); i++) {
+                        org.json.JSONObject track = array.getJSONObject(i);
+                        knownTracks.put("soundcloud:tracks:" + track.getLong("id"),
+                                new Object[]{track.optString("title"), track.optLong("full_duration", track.optLong("duration"))});
+                    }
+                }
+            } catch (Exception ex) {
+                // Offline: the playlist is shown as it is.
+                Logger.printInfo(() -> "No titles for the system playlist check: " + ex);
+                return;
+            }
         }
     }
 
