@@ -60,9 +60,13 @@ public final class PlaybackTimeline extends Timber.Tree {
     }
 
     /** Injection point. Called at the start of the application. */
+    /** The setting of the playback log; applies at the next start. */
+    public static final String ENABLED = "playback_log";
+
     public static void plant() {
-        if (planted) return;
+        if (planted || !app.revanced.extension.soundcloud.settings.Settings.getBoolean(ENABLED, false)) return;
         planted = true;
+        PlaybackLog.enabled = true;
         try {
             Class<?> timber = Class.forName("timber.log.Timber");
             Object forest = null;

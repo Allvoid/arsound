@@ -1027,6 +1027,18 @@ public final class ReVancedSettingsActivity extends Activity {
         delayDescription[0] = (TextView) ((ViewGroup) delayRow).getChildAt(1);
         container.addView(delayRow);
 
+        container.addView(createToggleRow(
+                text("Журнал воспроизведения", "Playback log"),
+                text("Записывает каждый старт трека: сколько он ждал и почему, состояние сети, ошибки. Нужен, чтобы "
+                                + "разобраться, почему трек запускается медленно. Файлы за два дня лежат в "
+                                + "Android/data/<пакет>/files/playback-log. Применится после перезапуска.",
+                        "Writes every track start: how long it waited and why, the network, errors. Helps find out why a "
+                                + "track starts slowly. Files of two days are kept in Android/data/<package>/files/playback-log. "
+                                + "Applies after a restart."),
+                Settings.getBoolean(app.revanced.extension.soundcloud.debug.PlaybackTimeline.ENABLED, false),
+                (button, checked) -> Settings.putBoolean(app.revanced.extension.soundcloud.debug.PlaybackTimeline.ENABLED, checked)
+        ));
+
         addLogOptions(container);
     }
 

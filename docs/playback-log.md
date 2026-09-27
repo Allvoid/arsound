@@ -1,6 +1,6 @@
-# Playback log (personal build only)
+# Playback log
 
-This branch is not for releases. It records why a track starts slowly.
+Off by default: Settings → Arsound → Developer → Playback log, applies after a restart. It records why a track starts slowly.
 
 - SoundCloud logs every playback step through Timber. The release app plants no tree, so the lines are lost.
   `PlaybackTimeline` plants one at app start and writes playback lines, all warnings and errors,
