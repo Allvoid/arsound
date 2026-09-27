@@ -85,6 +85,7 @@ public final class DownloadTrackPatch {
             Utils.runOnMainThread(() -> {
                 addDownloadRow(dialog, trackId);
                 app.revanced.extension.soundcloud.local.LocalAdditions.addTrackMenuRow(dialog, trackUrn);
+                app.revanced.extension.soundcloud.recommendations.TrackDislikes.addTrackMenuRow(dialog, trackUrn);
             });
         } catch (Exception ex) {
             Logger.printException(() -> "onTrackMenu failure", ex);
