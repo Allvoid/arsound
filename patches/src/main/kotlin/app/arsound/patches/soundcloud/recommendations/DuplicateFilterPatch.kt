@@ -1,6 +1,7 @@
 package app.arsound.patches.soundcloud.recommendations
 
 import app.revanced.patcher.definingClass
+import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
@@ -36,19 +37,10 @@ private val BytecodePatchContext.autoplayItemsMethod by gettingFirstMethodDeclar
     definingClass(AUTOPLAY_CLASS)
 }
 
-/** Constructors of server-driven home screen views that hold a list of items. */
-private val BytecodePatchContext.homeCarouselConstructor by gettingFirstMethodDeclaratively {
-    name("<init>")
-    definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Carousel;")
-}
-private val BytecodePatchContext.homeGalleryConstructor by gettingFirstMethodDeclaratively {
-    name("<init>")
-    definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Gallery;")
-}
-private val BytecodePatchContext.homeSuggestionsConstructor by gettingFirstMethodDeclaratively {
-    name("<init>")
-    definingClass("Lcom/soundcloud/android/sdui/components/SDUIView\$Suggestions;")
-}
+/** Server-driven home screen views that hold lists of items. */
+private val HOME_LIST_VIEWS = listOf(
+    "Carousel", "Gallery", "Suggestions", "ListPreview", "ContentWall", "Pair", "RepostsCarousel", "UpdateCarousel",
+).map { "Lcom/soundcloud/android/sdui/components/SDUIView\$$it;" }
 
 /** Hide duplicate recommendations: Adds an option to hide re-uploads of the same song in home sections and autoplay. Part of the "Arsound" patch, not shown on its own. */
 val duplicateFilterPatch = bytecodePatch {
@@ -57,14 +49,23 @@ val duplicateFilterPatch = bytecodePatch {
     compatibleWith("com.soundcloud.android"("2026.09.02-release"))
 
     apply {
-        // Home screen (server-driven UI): the item list is filtered in place before the view object keeps it.
-        listOf(homeCarouselConstructor, homeGalleryConstructor, homeSuggestionsConstructor).forEach { constructor ->
-            // p1 is the first parameter.
-            val parameter = constructor.parameterTypes.indexOfFirst { it.toString() == "Ljava/util/ArrayList;" } + 1
-            constructor.addInstructions(
-                0,
-                "invoke-static { p$parameter }, Lapp/revanced/extension/soundcloud/recommendations/DuplicateFilter;->filterHomeViews(Ljava/util/ArrayList;)V",
-            )
+        // Home screen (server-driven UI): every item list is filtered in place before the view object keeps it.
+        HOME_LIST_VIEWS.forEach { type ->
+            firstClassDef(type).methods.filter { it.name == "<init>" }.forEach { constructor ->
+                // p1 is the first parameter; long and double take two registers.
+                var register = 1
+                constructor.parameterTypes.forEach { parameter ->
+                    val name = parameter.toString()
+                    if (name == "Ljava/util/ArrayList;") {
+                        // Range calls reach registers above v15 in constructors with many locals.
+                        constructor.addInstructions(
+                            0,
+                            "invoke-static/range { p$register .. p$register }, $EXTENSION_CLASS_DESCRIPTOR->filterHomeViews(Ljava/util/ArrayList;)V",
+                        )
+                    }
+                    register += if (name == "J" || name == "D") 2 else 1
+                }
+            }
         }
 
         sectionItemsMethod.apply {

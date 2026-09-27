@@ -83,7 +83,7 @@ public final class LocalMusic {
         return tracks;
     }
 
-    private static Track readTrack(File file) {
+    public static Track readTrack(File file) {
         String name = file.getName();
         int dot = name.lastIndexOf('.');
         String title = dot > 0 ? name.substring(0, dot) : name;

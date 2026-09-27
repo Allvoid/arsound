@@ -84,6 +84,14 @@ public final class DuplicateFilter {
         }
     }
 
+    private static Object urnOf(Object track) {
+        try {
+            return track.getClass().getMethod("getUrn").invoke(track);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     private static Song songOf(Object track) {
         try {
             String title = (String) track.getClass().getMethod("getTitle").invoke(track);
@@ -110,14 +118,19 @@ public final class DuplicateFilter {
      * @param entities {@code List<SectionEntity>}.
      */
     public static List<?> filterSectionEntities(List<?> entities) {
-        if (!Settings.isDuplicateFilterEnabled() || entities == null) return entities;
+        boolean duplicates = Settings.isDuplicateFilterEnabled();
+        if (!duplicates && !TrackDislikes.isActive() || entities == null) return entities;
         try {
             List<Object> result = new ArrayList<>(entities.size());
             List<Song> kept = new ArrayList<>();
             int removed = 0;
             for (Object entity : entities) {
                 Object track = trackItemOf(entity);
-                Song song = track == null ? null : songOf(track);
+                if (track != null && TrackDislikes.isDisliked(urnOf(track))) {
+                    removed++;
+                    continue;
+                }
+                Song song = track == null || !duplicates ? null : songOf(track);
                 if (song != null && containsSame(kept, song)) {
                     removed++;
                     continue;
@@ -126,7 +139,7 @@ public final class DuplicateFilter {
                 result.add(entity);
             }
             int count = removed, total = entities.size();
-            Logger.printInfo(() -> "Home section checked: " + total + " items, duplicates hidden: " + count);
+            Logger.printInfo(() -> "Home section checked: " + total + " items, hidden: " + count);
             return result;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not filter section duplicates", ex);
@@ -139,7 +152,7 @@ public final class DuplicateFilter {
      * called from the constructors of carousel, gallery and suggestion views. Filters the list in place.
      */
     public static void filterHomeViews(java.util.ArrayList<Object> views) {
-        if (!Settings.isDuplicateFilterEnabled() || views == null) return;
+        if (!Settings.isDuplicateFilterEnabled() && !TrackDislikes.isActive() || views == null) return;
         List<?> filtered = filterSectionEntities(views);
         if (filtered.size() == views.size()) return;
         views.clear();
@@ -149,11 +162,17 @@ public final class DuplicateFilter {
     private static Object trackItemOf(Object entity) throws IllegalAccessException {
         if (entity == null) return null;
         String name = entity.getClass().getName();
-        if (!name.endsWith("SectionTrackEntity") && !name.endsWith("SDUIView$Track")) return null;
+        if (!name.endsWith("SectionTrackEntity") && !name.endsWith("SDUIView$Track") && !name.endsWith("SDUIView$Repost$Track")) return null;
         for (Field field : entity.getClass().getDeclaredFields()) {
-            if (field.getType().getName().endsWith(".TrackItem")) {
+            String type = field.getType().getName();
+            if (type.endsWith(".TrackItem")) {
                 field.setAccessible(true);
                 return field.get(entity);
+            }
+            // A repost holds the reposted track view.
+            if (type.endsWith("SDUIView$Track")) {
+                field.setAccessible(true);
+                return trackItemOf(field.get(entity));
             }
         }
         return null;
@@ -166,7 +185,8 @@ public final class DuplicateFilter {
      * @param seedUrn   The track the recommendations are for.
      */
     public static Iterator<?> filterAutoplay(Iterable<?> apiTracks, Object seedUrn) {
-        if (!Settings.isDuplicateFilterEnabled()) return apiTracks.iterator();
+        boolean duplicates = Settings.isDuplicateFilterEnabled();
+        if (!duplicates && !TrackDislikes.isActive()) return apiTracks.iterator();
         List<Object> result = new ArrayList<>();
         try {
             List<Song> kept = new ArrayList<>();
@@ -178,7 +198,11 @@ public final class DuplicateFilter {
 
             int removed = 0;
             for (Object track : apiTracks) {
-                Song song = songOf(track);
+                if (TrackDislikes.isDisliked(urnOf(track))) {
+                    removed++;
+                    continue;
+                }
+                Song song = duplicates ? songOf(track) : null;
                 boolean duplicate = song != null && (containsSame(kept, song) || recentlyQueued(song));
                 if (duplicate) {
                     removed++;
@@ -191,7 +215,7 @@ public final class DuplicateFilter {
                 result.add(track);
             }
             int count = removed;
-            Logger.printInfo(() -> "Autoplay checked, duplicates hidden: " + count);
+            Logger.printInfo(() -> "Autoplay checked, hidden: " + count);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not filter autoplay duplicates", ex);
             return apiTracks.iterator();
