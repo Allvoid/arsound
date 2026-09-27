@@ -44,8 +44,12 @@ public final class PlaybackLog {
     private PlaybackLog() {
     }
 
+    /** Off unless the user turned the playback log on: then nothing is written. */
+    public static volatile boolean enabled;
+
     /** Appends one line. Never throws and never blocks the calling thread. */
     public static void append(String tag, String message) {
+        if (!enabled) return;
         try {
             long now = System.currentTimeMillis();
             writer.execute(() -> write(now, tag, message));
