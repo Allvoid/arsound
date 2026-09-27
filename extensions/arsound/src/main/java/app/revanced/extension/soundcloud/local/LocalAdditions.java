@@ -219,6 +219,7 @@ public final class LocalAdditions {
                 List<Object> urns = new ArrayList<>((List<?>) value);
                 ClassLoader loader = single.getClass().getClassLoader();
                 RemovedTracks.onTrackList(key, urns);
+                app.revanced.extension.soundcloud.recommendations.DuplicateFilter.filterSystemPlaylist(key, urns);
                 List<String> skipped = new ArrayList<>();
                 for (String entry : getShownEntries(key)) {
                     Object urn = toUrn(loader, entry);

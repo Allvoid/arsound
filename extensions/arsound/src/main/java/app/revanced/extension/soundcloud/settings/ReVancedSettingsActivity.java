@@ -636,8 +636,8 @@ public final class ReVancedSettingsActivity extends Activity {
         duplicateOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
                 text("Скрывать дубликаты", "Hide duplicates"),
-                text("Один и тот же трек, перезалитый разными людьми, показывается на главной и в автовоспроизведении "
-                                + "один раз. Одинаковыми считаются треки с тем же названием и длительностью (разница до 2 с). "
+                text("Один и тот же трек, перезалитый разными людьми, показывается на главной, в автовоспроизведении "
+                                + "и в подборках, которые SoundCloud собрал для вас (Your Mix, Daily Drops, Weekly Wave), один раз. Одинаковыми считаются треки с тем же названием и длительностью (разница до 2 с). "
                                 + "Лайки, плейлисты и профили не меняются.",
                         "The same song re-uploaded by different users appears once on the home screen and in autoplay. "
                                 + "Tracks with the same title and duration (within 2 s) count as the same."),
@@ -650,7 +650,10 @@ public final class ReVancedSettingsActivity extends Activity {
         duplicateOptions.setVisibility(Settings.isDuplicateFilterEnabled() ? View.VISIBLE : View.GONE);
         duplicateOptions.addView(createToggleRow(
                 text("Считать slowed, sped up и ремиксы тем же треком", "Treat slowed, sped up and remixes as the same song"),
-                text("Если выключено, такие версии показываются отдельно.", "When off, these versions are shown separately."),
+                text("Версии с другой скоростью («0.9 speed», «1.2x», slowed) и ремиксы считаются тем же треком, "
+                                + "даже если длительность отличается. Если выключено, такие версии показываются отдельно.",
+                        "Versions at another speed (\"0.9 speed\", \"1.2x\", slowed) and remixes count as the same song, "
+                                + "even with another duration. When off, these versions are shown separately."),
                 Settings.isMergeEditedVersions(),
                 (button, checked) -> Settings.putBoolean(Settings.MERGE_EDITED_VERSIONS, checked)
         ));
@@ -663,8 +666,8 @@ public final class ReVancedSettingsActivity extends Activity {
         disliked.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
                 text("«Не нравится» у треков", "\"Not for me\" on tracks"),
-                text("В меню «⋮» трека появляется «Не нравится — не рекомендовать». Такой трек пропадает с главной и из "
-                                + "автовоспроизведения. Лайки, плейлисты и поиск не меняются; список хранится на телефоне.",
+                text("В меню «⋮» трека появляется «Не нравится — не рекомендовать». Такой трек пропадает с главной, из "
+                                + "автовоспроизведения и из подборок SoundCloud (Your Mix, Daily Drops). Лайки, плейлисты и поиск не меняются; список хранится на телефоне.",
                         "The track menu gets \"Not for me: don't recommend\". Such a track disappears from the home screen and "
                                 + "autoplay. Likes, playlists and search stay as they are; the list is kept on the phone."),
                 app.revanced.extension.soundcloud.recommendations.TrackDislikes.isEnabled(),
