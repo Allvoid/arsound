@@ -24,12 +24,14 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * answers (filtered or throttled), the player stayed in "buffering" forever although the file was
  * on the phone, and switching tracks queued up behind the stuck request.
  * <p>
- * Now a downloaded track gets its playback item straight from the file, and the metadata gets at
- * most {@link #METADATA_WAIT_MS} before playback starts without it.
+ * Now a downloaded track gets its playback item straight from the file, and playback does not wait
+ * for the metadata at all. The metadata takes about 1.5 s even on a good connection (and never comes
+ * offline), and it is set on the notification by itself when it arrives, so waiting for it only
+ * delayed the sound.
  */
 @SuppressWarnings("unused")
 public final class InstantFilePlayback {
-    private static final long METADATA_WAIT_MS = 2_000;
+    private static final long METADATA_WAIT_MS = 0;
     private static final Handler handler = new Handler(Looper.getMainLooper());
 
     private InstantFilePlayback() {
@@ -123,7 +125,7 @@ public final class InstantFilePlayback {
         }
     }
 
-    /** An ObservableSource that emits one item after {@link #METADATA_WAIT_MS} and completes. */
+    /** An ObservableSource that emits one item after {@link #METADATA_WAIT_MS} (on the next main loop turn) and completes. */
     private static Object delayedItem(ClassLoader loader, Class<?> sourceClass, Object value) throws Exception {
         Class<?> disposableClass = type(loader, "io.reactivex.rxjava3.disposables.Disposable");
         Class<?> observerClass = type(loader, "io.reactivex.rxjava3.core.Observer");
@@ -146,7 +148,7 @@ public final class InstantFilePlayback {
             handler.postDelayed(() -> {
                 if (disposed.getAndSet(true)) return;
                 try {
-                    Logger.printInfo(() -> "Metadata is late, starting the downloaded file without it");
+                    Logger.printInfo(() -> "Starting the downloaded file without waiting for the metadata");
                     onNext.invoke(observer, value);
                     onComplete.invoke(observer);
                 } catch (Exception ex) {
