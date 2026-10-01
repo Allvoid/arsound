@@ -73,6 +73,7 @@ public final class UpdateChecker {
                 app.revanced.extension.soundcloud.permissions.WelcomePermissions.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity);
+                app.revanced.extension.soundcloud.download.ProgressPill.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.search.SearchSourceSwitch.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.local.WatchFolder.onActivityResumed(activity);
             }

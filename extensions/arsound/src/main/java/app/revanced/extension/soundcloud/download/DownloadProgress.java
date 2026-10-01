@@ -78,6 +78,7 @@ public final class DownloadProgress {
         Set<String> stillDownloading = new HashSet<>(downloading);
         stillDownloading.remove(trackId);
         downloading = stillDownloading;
+        ProgressPill.onDownloadsChanged();
         recountAndRedraw();
     }
 
@@ -150,7 +151,10 @@ public final class DownloadProgress {
                 DownloadsScreen.refresh();
             }
             Utils.runOnMainThread(() -> {
-                if (changed) redrawLists(resumed.get());
+                if (changed) {
+                    redrawLists(resumed.get());
+                    ProgressPill.onDownloadsChanged();
+                }
                 if (!current.isEmpty()) startPolling();
             });
         });
