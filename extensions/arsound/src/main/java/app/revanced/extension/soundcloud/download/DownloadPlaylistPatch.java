@@ -20,6 +20,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,6 +44,8 @@ public final class DownloadPlaylistPatch {
     private static final String DELETE_ROW_TAG = "arsound_playlist_delete_row";
     private static final Pattern PLAYLIST_ID = Pattern.compile("^soundcloud:playlists:(\\d+)$");
     private static final int TRACKS_PER_REQUEST = 50;
+    /** File links resolved at the same time during a check. */
+    private static final int PARALLEL_CHECKS = 4;
     private static final String PREFERENCES_NAME = "arsound_downloaded_playlists";
 
     private static final class TrackInfo {
@@ -279,13 +284,15 @@ public final class DownloadPlaylistPatch {
     }
 
     private static void checkPlaylist(Context context, String playlistId) {
-        DownloadTrackPatch.showToast(context, text("Проверяю треки…", "Checking tracks…"));
+        // The progress counter at the bottom shows the check, a toast would cover it.
+        ProgressPill.onCheckLoading();
 
         Utils.runOnBackgroundThread(() -> {
             try {
                 int[] imported = {0};
                 List<String> ids = trackIdsOf(playlistId, imported);
                 if (ids == null) {
+                    ProgressPill.onCheckFinished();
                     DownloadTrackPatch.showToast(context, text("Не удалось получить треки, ошибка " + lastError,
                             "Could not load the tracks, error " + lastError));
                     return;
@@ -296,42 +303,83 @@ public final class DownloadPlaylistPatch {
                 List<TrackInfo> downloadable = new ArrayList<>();
                 List<String> unavailableTitles = new ArrayList<>();
                 int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
+                ProgressPill.onCheckStarted(ids.size());
+
+                // Tracks on the phone are counted at once; the rest wait for their file links below.
+                List<JSONObject> toResolve = new ArrayList<>();
+                int[] checked = {0};
                 for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
                     List<String> chunk = ids.subList(start, Math.min(ids.size(), start + TRACKS_PER_REQUEST));
                     String[] tracks = DownloadTrackPatch.apiGet(
                             "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", chunk));
-                    if (tracks[1] == null) continue;
-
-                    JSONArray array = new JSONArray(tracks[1]);
-                    for (int i = 0; i < array.length(); i++) {
-                        JSONObject track = array.getJSONObject(i);
-                        if (!track.optBoolean("streamable", true) || !isNotRestricted(track)) continue;
-                        String id = String.valueOf(track.getLong("id"));
-                        switch (DownloadTrackPatch.getDownloadState(context, id)) {
-                            case DOWNLOADED:
-                                alreadyDownloaded[0]++;
-                                break;
-                            case IN_PROGRESS:
-                                alreadyDownloaded[1]++;
-                                break;
-                            default:
-                                // The track data does not show region blocks: only the file link does. The check
-                                // asks for it now, so "can be downloaded" means the download will really start.
-                                TrackSource source = null;
-                                try {
-                                    source = DownloadTrackPatch.resolveSource(id);
-                                } catch (Exception ex) {
-                                    Logger.printInfo(() -> "No file link for " + id + ": " + ex);
-                                }
-                                if (source != null && source.isDownloadable()) {
-                                    downloadable.add(new TrackInfo(id, track.optString("title"), source));
-                                } else {
-                                    unavailableTitles.add(track.optString("title")
-                                            + (source == null ? "" : " (" + source.reason() + ")"));
-                                }
+                    int answered = 0;
+                    if (tracks[1] != null) {
+                        JSONArray array = new JSONArray(tracks[1]);
+                        answered = array.length();
+                        for (int i = 0; i < array.length(); i++) {
+                            JSONObject track = array.getJSONObject(i);
+                            if (!track.optBoolean("streamable", true) || !isNotRestricted(track)) {
+                                checked[0]++;
+                                continue;
+                            }
+                            String id = String.valueOf(track.getLong("id"));
+                            switch (DownloadTrackPatch.getDownloadState(context, id)) {
+                                case DOWNLOADED:
+                                    alreadyDownloaded[0]++;
+                                    checked[0]++;
+                                    break;
+                                case IN_PROGRESS:
+                                    alreadyDownloaded[1]++;
+                                    checked[0]++;
+                                    break;
+                                default:
+                                    toResolve.add(track);
+                            }
                         }
                     }
+                    // Tracks missing from the answer count as checked.
+                    checked[0] += chunk.size() - answered;
+                    ProgressPill.onChecked(checked[0]);
                 }
+
+                // The track data does not show region blocks: only the file link does. The check asks for
+                // it now, so "can be downloaded" means the download will really start. One link can take
+                // many requests, so a few tracks are asked at once.
+                TrackInfo[] found = new TrackInfo[toResolve.size()];
+                String[] unavailable = new String[toResolve.size()];
+                ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL_CHECKS, toResolve.size())));
+                for (int i = 0; i < toResolve.size(); i++) {
+                    int index = i;
+                    pool.execute(() -> {
+                        JSONObject track = toResolve.get(index);
+                        String id = String.valueOf(track.optLong("id"));
+                        String title = track.optString("title");
+                        TrackSource source = UnavailableTracks.get(id);
+                        if (source == null) {
+                            try {
+                                source = DownloadTrackPatch.resolveSource(id);
+                                if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
+                            } catch (Exception ex) {
+                                Logger.printInfo(() -> "No file link for " + id + ": " + ex);
+                            }
+                        }
+                        if (source != null && source.isDownloadable()) {
+                            found[index] = new TrackInfo(id, title, source);
+                        } else {
+                            unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
+                        }
+                        synchronized (checked) {
+                            ProgressPill.onChecked(++checked[0]);
+                        }
+                    });
+                }
+                pool.shutdown();
+                pool.awaitTermination(1, TimeUnit.HOURS);
+                for (int i = 0; i < found.length; i++) {
+                    if (found[i] != null) downloadable.add(found[i]);
+                    else if (unavailable[i] != null) unavailableTitles.add(unavailable[i]);
+                }
+                ProgressPill.onCheckFinished();
 
                 Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, imported " + imported[0]
                         + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download " + downloadable.size());
@@ -339,6 +387,7 @@ public final class DownloadPlaylistPatch {
                         downloadable, unavailableTitles));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
+                ProgressPill.onCheckFinished();
                 DownloadTrackPatch.showToast(context, text("Не удалось проверить треки", "Could not check the tracks"));
             }
         });
@@ -391,24 +440,31 @@ public final class DownloadPlaylistPatch {
     private static void downloadAll(Context context, String playlistId, List<TrackInfo> tracks) {
         Context appContext = context.getApplicationContext();
         setPlaylistDownloaded(playlistId, true);
+        List<String> ids = new ArrayList<>();
+        for (TrackInfo track : tracks) ids.add(track.id);
+        ProgressPill.onDownloadsQueued(ids);
         Utils.runOnBackgroundThread(() -> {
             int started = 0;
             for (TrackInfo track : tracks) {
+                boolean ok = false;
                 try {
                     // Checked again: the dialog may have stayed open while the same track was downloaded elsewhere.
                     if (DownloadTrackPatch.getDownloadState(appContext, track.id)
                             != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) continue;
-                    if (DownloadTrackPatch.downloadSilently(appContext, track.id, track.source, playlistId)) started++;
+                    ok = DownloadTrackPatch.downloadSilently(appContext, track.id, track.source, playlistId);
+                    if (ok) started++;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Download failure for track " + track.id, ex);
+                } finally {
+                    ProgressPill.onDownloadStarted(track.id, ok);
                 }
             }
 
             int count = started;
             int failed = tracks.size() - started;
-            DownloadTrackPatch.showToast(appContext, failed == 0
-                    ? text("Скачивание началось: " + count + " в Музыка/Arsound", "Downloading " + count + " tracks to Music/Arsound")
-                    : text("Скачивание началось: " + count + ", не удалось начать: " + failed,
+            // The progress counter shows the downloads, a toast is left only for tracks that did not start.
+            if (failed > 0) DownloadTrackPatch.showToast(appContext, text(
+                    "Скачивание началось: " + count + ", не удалось начать: " + failed,
                     "Downloading " + count + " tracks, could not start " + failed));
         });
     }

@@ -400,10 +400,13 @@ public final class DownloadTrackPatch {
         if (transcodings == null) return TrackSource.unavailable(TrackSource.Status.REQUIRES_PROFILE_SEARCH);
 
         boolean drmSeen = false;
+        // Every quality of a protocol is locked the same way, so one locked playlist settles the protocol.
+        java.util.Set<String> lockedProtocols = new java.util.HashSet<>();
         for (JSONObject transcoding : orderedTranscodings(transcodings)) {
             JSONObject format = transcoding.optJSONObject("format");
             String protocol = format == null ? "" : format.optString("protocol");
             String mimeType = format == null ? null : format.optString("mime_type");
+            if (lockedProtocols.contains(protocol)) continue;
 
             String url = resolver.resolve(transcoding.optString("url"));
             if (url == null) continue;
@@ -412,6 +415,7 @@ public final class DownloadTrackPatch {
             // A playlist locked by FairPlay or Widevine hands out its key only to a licence server.
             if (HlsDownloader.isDrmProtected(url)) {
                 drmSeen = true;
+                lockedProtocols.add(protocol);
                 Logger.printInfo(() -> "DRM protected stream for " + trackId + ": " + protocol);
                 continue;
             }
