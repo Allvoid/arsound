@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home background of the Scarlet theme: the theme's near-black with a soft red glow at the top left (design 1a).
+     The glow fades out above the list, which SoundCloud paints with its own background. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="?themeColorSurface" />
+        </shape>
+    </item>
+    <item android:height="220dp" android:gravity="top|fill_horizontal">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.3"
+                android:centerY="0.25"
+                android:gradientRadius="150dp"
+                android:startColor="#73E0242F"
+                android:endColor="#00E0242F" />
+        </shape>
+    </item>
+</layer-list>

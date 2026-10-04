@@ -142,6 +142,21 @@ public final class ArsoundTheme {
         return value.startsWith("#") ? parse(value) : fallback;
     }
 
+    /**
+     * Injection point: the dark veil SoundCloud lays over the "Your likes" bar on the home screen, as Compose's
+     * ARGB long. A theme may set a lighter one ("shortcutScrim" in its decoration), so the bar shows its colours.
+     */
+    public static long shortcutScrim(long original) {
+        try {
+            JSONObject decor = appContext == null ? null : decor(appContext);
+            String value = decor == null ? "" : decor.optString("shortcutScrim");
+            if (value.startsWith("#")) return parse(value) & 0xFFFFFFFFL;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Theme: could not read the shortcut veil", ex);
+        }
+        return original;
+    }
+
     /** A colour written as in themes.json: #rrggbb or #rrggbbaa. */
     public static int color(String hex) {
         return parse(hex);

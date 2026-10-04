@@ -3,8 +3,9 @@ Icons of a theme: SoundCloud's icons redrawn with the Lucide icon set (ISC licen
 
 Each SoundCloud icon below gets a Lucide icon of the same meaning, as an Android vector drawable with the same name,
 size and colour as SoundCloud's own (the colour is read from SoundCloud's file, so tinting and the light, dark and
-active variants keep working). The files go to the theme's overrides folder, and their names are written into the
-theme's "resources" list in themes.json, so the theme patch puts them into the app and the theme swaps them in.
+active variants keep working). The files go to the theme's overrides folder. Then the theme's "resources" list in
+themes.json is written anew from everything in that folder (also hand-made files), so the theme patch puts them all
+into the app and the theme swaps them in: run the script after adding any file there.
 
 Run: python tools/branding/theme_icons.py <theme id> <lucide-static package folder>
 Needs the decoded SoundCloud resources in local/analysis/res-decoded (see BUILDING.md) and picosvg.
@@ -229,13 +230,14 @@ def main():
         (out / f"{name}.xml").write_text(xml, encoding="utf-8")
         written.append(f"drawable/{name}")
 
-    # The theme's "resources" list: its other files stay, the icons are listed anew.
+    # The theme's "resources" list.
     text = THEMES.read_text(encoding="utf-8")
     block = re.search(r'("id": "' + theme + r'".*?"resources": \[)([^\]]*)(\])', text, re.S)
     if not block:
         sys.exit(f'Theme {theme} has no "resources" list in themes.json')
-    others = [entry for entry in re.findall(r'"([^"]+)"', block.group(2)) if entry not in made]
-    entries = others + written
+    # Every file of the theme's overrides folder, so the list never misses a hand-made one.
+    folder = out.parent
+    entries = sorted(f"{file.parent.name}/{file.stem}" for file in folder.glob("*/*.xml"))
     lines = [[]]
     for entry in entries:
         if lines[-1] and sum(len(item) + 4 for item in lines[-1]) + len(entry) > 100:

@@ -2,12 +2,18 @@ package app.arsound.patches.soundcloud.misc.theme
 
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
 import app.revanced.patcher.definingClass
+import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.extensions.addInstruction
+import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.getInstruction
+import app.revanced.patcher.extensions.wideLiteral
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import org.w3c.dom.Element
 
 private const val THEME_RESOURCES = "soundcloud/theme"
@@ -16,6 +22,19 @@ private val BytecodePatchContext.themeApplicationOnCreateMethod by gettingFirstM
     name("onCreate")
     definingClass("Lcom/soundcloud/android/app/RealSoundCloudApplication;")
 }
+
+/** The dark veil over the "Your likes" bar on the home screen; two copies of that bar exist in SoundCloud. */
+private val BytecodePatchContext.shortcutHeaderStaticMethod by gettingFirstMethodDeclaratively {
+    name("<clinit>")
+    definingClass("Lcom/soundcloud/android/sdui/components/composables/shortcuts/ShortcutActionHeaderKt;")
+}
+private val BytecodePatchContext.sectionsShortcutsStaticMethod by gettingFirstMethodDeclaratively {
+    name("<clinit>")
+    definingClass("Lcom/soundcloud/android/sections/ui/components/ShortcutsKt;")
+}
+
+/** SoundCloud's veil colour: 70 % black. */
+private const val SHORTCUT_SCRIM = 0xb3000000L
 
 private class ThemeColors(val id: String, val darkSurface: String, val darkAccent: String, val lightSurface: String, val lightAccent: String)
 
@@ -128,5 +147,21 @@ val themePatch = bytecodePatch {
             "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/theme/ArsoundTheme;" +
                 "->onApplicationCreate(Landroid/app/Application;)V",
         )
+        // The theme may lighten the veil over the "Your likes" bar, so the bar shows the theme's colours.
+        for (method in listOf(shortcutHeaderStaticMethod, sectionsShortcutsStaticMethod)) {
+            method.apply {
+                val index = indexOfFirstInstructionOrThrow {
+                    opcode == Opcode.CONST_WIDE && wideLiteral == SHORTCUT_SCRIM
+                }
+                val register = getInstruction<OneRegisterInstruction>(index).registerA
+                addInstructions(
+                    index + 1,
+                    """
+                        invoke-static { v$register, v${register + 1} }, Lapp/revanced/extension/soundcloud/theme/ArsoundTheme;->shortcutScrim(J)J
+                        move-result-wide v$register
+                    """,
+                )
+            }
+        }
     }
 }
