@@ -49,6 +49,16 @@ private val BytecodePatchContext.playerStateChangedMethod by gettingFirstMethodD
 }
 
 /**
+ * Receives the notification metadata of the current queue item. On the first metadata it plays
+ * the current item if the player is playing: this is how a skip starts the next track. Downloaded
+ * tracks start before the metadata arrives, so the real metadata restarted them about 1.5 s in.
+ */
+private val BytecodePatchContext.currentQueueItemMetadataMethod by gettingFirstMethodDeclaratively {
+    name("accept")
+    definingClass("Lcom/soundcloud/android/playback/players/MediaService${'$'}CurrentQueueItemConsumer;")
+}
+
+/**
  * Builds what the player waits for before a queue item starts: the playback item and the
  * notification metadata. For tracks both waited for SoundCloud's repository without a timeout.
  */
@@ -155,6 +165,43 @@ val downloadedPlaybackPatch = bytecodePatch {
                     invoke-static { v$playerRegister, v$connectedRegister }, Lapp/revanced/extension/soundcloud/offline/PlaybackRetryPatch;->onPlaybackError(Ljava/lang/Object;Z)Z
                     move-result v$connectedRegister
                 """,
+            )
+        }
+
+        currentQueueItemMetadataMethod.apply {
+            // A skip only moves the queue: the next track starts here, on its first metadata, if the
+            // player is playing. Downloaded tracks get Arsound's own failure right away, so it counts as
+            // that first metadata (same steps as SoundCloud's own code below). Then the real metadata,
+            // about 1.5 s later, only updates the notification instead of replaying the track.
+            addInstructionsWithLabels(
+                0,
+                """
+                    invoke-static { p1 }, Lapp/revanced/extension/soundcloud/offline/InstantFilePlayback;->isStartWithoutMetadata(Ljava/lang/Object;)Z
+                    move-result v0
+                    if-eqz v0, :original
+                    iget-boolean v0, p0, Lcom/soundcloud/android/playback/players/MediaService${'$'}CurrentQueueItemConsumer;->a:Z
+                    if-nez v0, :done
+                    const/4 v0, 0x1
+                    iput-boolean v0, p0, Lcom/soundcloud/android/playback/players/MediaService${'$'}CurrentQueueItemConsumer;->a:Z
+                    iget-object v0, p0, Lcom/soundcloud/android/playback/players/MediaService${'$'}CurrentQueueItemConsumer;->b:Lcom/soundcloud/android/playback/players/MediaService;
+                    invoke-virtual { v0 }, Lcom/soundcloud/android/playback/players/MediaService;->m()Lcom/soundcloud/android/playback/players/playback/PlaybackManager;
+                    move-result-object v0
+                    iget-object v1, v0, Lcom/soundcloud/android/playback/players/playback/PlaybackManager;->d:Lcom/soundcloud/android/playback/players/playback/Playback;
+                    invoke-interface { v1 }, Lcom/soundcloud/android/playback/players/playback/Playback;->isPlaying()Z
+                    move-result v2
+                    if-nez v2, :replay
+                    invoke-interface { v1 }, Lcom/soundcloud/android/playback/players/playback/Playback;->h()Z
+                    move-result v2
+                    if-eqz v2, :done
+                    :replay
+                    const/4 v1, 0x0
+                    const/4 v2, 0x0
+                    const/4 v3, 0x7
+                    invoke-static { v0, v1, v2, v3 }, Lcom/soundcloud/android/playback/players/playback/PlaybackManager;->b(Lcom/soundcloud/android/playback/players/playback/PlaybackManager;ZLjava/lang/Long;I)V
+                    :done
+                    return-void
+                """,
+                ExternalLabel("original", getInstruction(0)),
             )
         }
 
