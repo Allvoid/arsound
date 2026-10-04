@@ -73,15 +73,17 @@ public final class SettingsEntry {
         );
     }
 
+    /** Injection point: the "Arsound" row at the top of SoundCloud's settings, its letter at the end. */
     public static void addEntry(Composer composer) {
+        Integer letter = iconStart();
         ActionListItemKt.a(
                 "Arsound",
                 OPEN_SETTINGS,
                 null,
                 false,
                 false,
-                iconStart(),
-                Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
+                null,
+                letter != null ? letter : Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
                 null,
                 null,
                 false,

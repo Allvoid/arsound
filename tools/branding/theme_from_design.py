@@ -265,7 +265,8 @@ def all_parts():
 
 def decor_of(tokens, hello):
     return {"settingsGlow": tokens["deep"], "settingsBadge": tokens["accent"],
-            "settingsStrips": [tokens["accent"], tokens["surface2"], tokens["surface2"]], "homeHelloColor": hello}
+            # One quiet colour for every row: the design's bright strip on every third row meant nothing.
+            "settingsStrips": [mix(tokens["surface2"], tokens["accent"], 0.45)], "homeHelloColor": hello}
 
 
 def derived(tokens, light_tokens=None):

@@ -12,7 +12,7 @@
       "radii": {"card": 4, "miniPlayer": 36},
       "tokens": {"bg": "#0E0809", "surface": "#1F1112", "surface2": "#3A1A1D", "deep": "#5A0D13", "border": "#3A1A1D", "accent": "#E0242F", "pink": "#FF8A90", "muted": "#C4A7A9", "text2": "#D8C2C3", "tabbar": "#170C0D", "mini": "#301013E5", "miniBorder": "#FF788047"},
       "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar"],
-      "decor": {"settingsGlow": "#5A0D13", "settingsBadge": "#E0242F", "settingsStrips": ["#E0242F", "#3A1A1D", "#3A1A1D"], "homeHelloColor": "#FF8A90", "shortcutScrim": "#00000040"},
+      "decor": {"settingsGlow": "#5A0D13", "settingsBadge": "#E0242F", "settingsStrips": ["#851E25"], "homeHelloColor": "#FF8A90", "shortcutScrim": "#00000040"},
       "colors": {"extended_palette_grey_950": "#1F1112", "extended_palette_grey_900": "#271415", "extended_palette_grey_800": "#3A1A1D", "extended_palette_grey_700": "#4F3033", "extended_palette_grey_600": "#5D3E41", "extended_palette_grey_500": "#795A5D", "extended_palette_grey_400": "#947678", "extended_palette_grey_300": "#C4A7A9", "extended_palette_grey_200": "#D8C2C3", "extended_palette_grey_100": "#F1E9EA", "extended_palette_grey_50": "#F8F4F4", "extended_palette_orange_900": "#E0242F", "sdui_blue": "#E0242F", "sdui_green": "#FF8A90", "sdui_magenta": "#E85B63", "sdui_orange": "#A81B23", "sdui_purple": "#C4A7A9", "sdui_red": "#E0242F", "sdui_teal": "#FF8A90", "sdui_violet": "#E85B63", "sdui_yellow": "#A81B23"}
     },
     {
@@ -26,8 +26,8 @@
       "tokens": {"bg": "#0D1117", "surface": "#161D27", "surface2": "#2E3643", "deep": "#234168", "border": "#2E3643", "accent": "#4C9AFF", "pink": "#9DC7FF", "muted": "#9AA8BC", "text2": "#BCC6D5", "tabbar": "#12171F", "mini": "#1B2A3DE6", "miniBorder": "#9DC7FF47"},
       "tokensLight": {"bg": "#F7F9FC", "surface": "#FFFFFF", "surface2": "#E0E5EC", "deep": "#D0E0F9", "border": "#D3D8E0", "accent": "#1F6FEB", "pink": "#1F6FEB", "muted": "#5A6678", "text2": "#3A4455", "tabbar": "#FBFCFE", "mini": "#EAF1FBEB", "miniBorder": "#1F6FEB40"},
       "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar"],
-      "decor": {"settingsGlow": "#234168", "settingsBadge": "#4C9AFF", "settingsStrips": ["#4C9AFF", "#2E3643", "#2E3643"], "homeHelloColor": "#9DC7FF", "shortcutScrim": "#00000040"},
-      "decorLight": {"settingsGlow": "#D0E0F9", "settingsBadge": "#1F6FEB", "settingsStrips": ["#1F6FEB", "#E0E5EC", "#E0E5EC"], "homeHelloColor": "#1F6FEB"},
+      "decor": {"settingsGlow": "#234168", "settingsBadge": "#4C9AFF", "settingsStrips": ["#3C6398"], "homeHelloColor": "#9DC7FF", "shortcutScrim": "#00000040"},
+      "decorLight": {"settingsGlow": "#D0E0F9", "settingsBadge": "#1F6FEB", "settingsStrips": ["#89B0EC"], "homeHelloColor": "#1F6FEB"},
       "colors": {"extended_palette_grey_950": "#161D27", "extended_palette_grey_900": "#1D242F", "extended_palette_grey_800": "#2E3643", "extended_palette_grey_700": "#3F4856", "extended_palette_grey_600": "#4A5362", "extended_palette_grey_500": "#5F6A7A", "extended_palette_grey_400": "#748092", "extended_palette_grey_300": "#9AA8BC", "extended_palette_grey_200": "#BCC6D5", "extended_palette_grey_100": "#E7EBF0", "extended_palette_grey_50": "#F3F5F8", "extended_palette_orange_900": "#4C9AFF", "sdui_blue": "#4C9AFF", "sdui_green": "#9DC7FF", "sdui_magenta": "#79B3FF", "sdui_orange": "#3974BF", "sdui_purple": "#9AA8BC", "sdui_red": "#4C9AFF", "sdui_teal": "#9DC7FF", "sdui_violet": "#79B3FF", "sdui_yellow": "#3974BF"}
     },
     {
@@ -41,8 +41,8 @@
       "tokens": {"bg": "#0D110F", "surface": "#151C18", "surface2": "#2D3631", "deep": "#1B5942", "border": "#2D3631", "accent": "#34E0A1", "pink": "#8FEECB", "muted": "#9DB0A5", "text2": "#BDCCC3", "tabbar": "#111614", "mini": "#183026E6", "miniBorder": "#8FEECB47"},
       "tokensLight": {"bg": "#F7FAF8", "surface": "#FFFFFF", "surface2": "#DFE7E2", "deep": "#CCE3DA", "border": "#D2DBD5", "accent": "#087A52", "pink": "#087A52", "muted": "#56685E", "text2": "#384940", "tabbar": "#FBFCFC", "mini": "#E9F2EEEB", "miniBorder": "#087A5240"},
       "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar"],
-      "decor": {"settingsGlow": "#1B5942", "settingsBadge": "#34E0A1", "settingsStrips": ["#34E0A1", "#2D3631", "#2D3631"], "homeHelloColor": "#8FEECB", "shortcutScrim": "#00000040"},
-      "decorLight": {"settingsGlow": "#CCE3DA", "settingsBadge": "#087A52", "settingsStrips": ["#087A52", "#DFE7E2", "#DFE7E2"], "homeHelloColor": "#087A52"},
+      "decor": {"settingsGlow": "#1B5942", "settingsBadge": "#34E0A1", "settingsStrips": ["#308263"], "homeHelloColor": "#8FEECB", "shortcutScrim": "#00000040"},
+      "decorLight": {"settingsGlow": "#CCE3DA", "settingsBadge": "#087A52", "settingsStrips": ["#7EB6A1"], "homeHelloColor": "#087A52"},
       "colors": {"extended_palette_grey_950": "#151C18", "extended_palette_grey_900": "#1C2420", "extended_palette_grey_800": "#2D3631", "extended_palette_grey_700": "#3E4943", "extended_palette_grey_600": "#4A554F", "extended_palette_grey_500": "#606E66", "extended_palette_grey_400": "#76857D", "extended_palette_grey_300": "#9DB0A5", "extended_palette_grey_200": "#BDCCC3", "extended_palette_grey_100": "#E8EDEA", "extended_palette_grey_50": "#F3F6F4", "extended_palette_orange_900": "#34E0A1", "sdui_blue": "#34E0A1", "sdui_green": "#8FEECB", "sdui_magenta": "#67E8B8", "sdui_orange": "#27A879", "sdui_purple": "#9DB0A5", "sdui_red": "#34E0A1", "sdui_teal": "#8FEECB", "sdui_violet": "#67E8B8", "sdui_yellow": "#27A879"}
     },
     {
@@ -56,8 +56,8 @@
       "tokens": {"bg": "#15121C", "surface": "#201A2A", "surface2": "#3B3445", "deep": "#673A55", "border": "#3B3445", "accent": "#FF85BE", "pink": "#FFBCDB", "muted": "#C3B5CC", "text2": "#DBCEDE", "tabbar": "#1A1623", "mini": "#362539E6", "miniBorder": "#FFBCDB47"},
       "tokensLight": {"bg": "#FFF7FA", "surface": "#FFFFFF", "surface2": "#F3E2EA", "deep": "#F8D6E6", "border": "#E6D5DF", "accent": "#D9418A", "pink": "#D9418A", "muted": "#7A6680", "text2": "#5A4760", "tabbar": "#FFFBFC", "mini": "#FDECF3EB", "miniBorder": "#D9418A40"},
       "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar"],
-      "decor": {"settingsGlow": "#673A55", "settingsBadge": "#FF85BE", "settingsStrips": ["#FF85BE", "#3B3445", "#3B3445"], "homeHelloColor": "#FFBCDB", "shortcutScrim": "#00000040"},
-      "decorLight": {"settingsGlow": "#F8D6E6", "settingsBadge": "#D9418A", "settingsStrips": ["#D9418A", "#F3E2EA", "#F3E2EA"], "homeHelloColor": "#D9418A"},
+      "decor": {"settingsGlow": "#673A55", "settingsBadge": "#FF85BE", "settingsStrips": ["#93587B"], "homeHelloColor": "#FFBCDB", "shortcutScrim": "#00000040"},
+      "decorLight": {"settingsGlow": "#F8D6E6", "settingsBadge": "#D9418A", "settingsStrips": ["#E79ABF"], "homeHelloColor": "#D9418A"},
       "colors": {"extended_palette_grey_950": "#201A2A", "extended_palette_grey_900": "#282232", "extended_palette_grey_800": "#3B3445", "extended_palette_grey_700": "#50485A", "extended_palette_grey_600": "#5E5568", "extended_palette_grey_500": "#796F83", "extended_palette_grey_400": "#94889D", "extended_palette_grey_300": "#C3B5CC", "extended_palette_grey_200": "#DBCEDE", "extended_palette_grey_100": "#F2EEF3", "extended_palette_grey_50": "#F9F6F9", "extended_palette_orange_900": "#FF85BE", "sdui_blue": "#FF85BE", "sdui_green": "#FFBCDB", "sdui_magenta": "#FFA4CE", "sdui_orange": "#BF648E", "sdui_purple": "#C3B5CC", "sdui_red": "#FF85BE", "sdui_teal": "#FFBCDB", "sdui_violet": "#FFA4CE", "sdui_yellow": "#BF648E"}
     },
     {
@@ -71,8 +71,8 @@
       "tokens": {"bg": "#100C18", "surface": "#1A1426", "surface2": "#352E46", "deep": "#436125", "border": "#352E46", "accent": "#A3FF3D", "pink": "#CCFF94", "muted": "#ABA3BD", "text2": "#C8C2D5", "tabbar": "#15101F", "mini": "#282C28E6", "miniBorder": "#CCFF9447"},
       "tokensLight": {"bg": "#F9F8FC", "surface": "#FFFFFF", "surface2": "#E3DFED", "deep": "#E0D3F6", "border": "#D6D2E0", "accent": "#6D28D9", "pink": "#6D28D9", "muted": "#615A72", "text2": "#433C52", "tabbar": "#FCFCFE", "mini": "#F1ECFAEB", "miniBorder": "#6D28D940"},
       "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar"],
-      "decor": {"settingsGlow": "#436125", "settingsBadge": "#A3FF3D", "settingsStrips": ["#A3FF3D", "#352E46", "#352E46"], "homeHelloColor": "#CCFF94", "shortcutScrim": "#00000040"},
-      "decorLight": {"settingsGlow": "#E0D3F6", "settingsBadge": "#6D28D9", "settingsStrips": ["#6D28D9", "#E3DFED", "#E3DFED"], "homeHelloColor": "#6D28D9"},
+      "decor": {"settingsGlow": "#436125", "settingsBadge": "#A3FF3D", "settingsStrips": ["#668C42"], "homeHelloColor": "#CCFF94", "shortcutScrim": "#00000040"},
+      "decorLight": {"settingsGlow": "#E0D3F6", "settingsBadge": "#6D28D9", "settingsStrips": ["#AE8DE4"], "homeHelloColor": "#6D28D9"},
       "colors": {"extended_palette_grey_950": "#1A1426", "extended_palette_grey_900": "#221C30", "extended_palette_grey_800": "#352E46", "extended_palette_grey_700": "#474058", "extended_palette_grey_600": "#534C64", "extended_palette_grey_500": "#6B647C", "extended_palette_grey_400": "#827A93", "extended_palette_grey_300": "#ABA3BD", "extended_palette_grey_200": "#C8C2D5", "extended_palette_grey_100": "#ECE9F0", "extended_palette_grey_50": "#F5F4F8", "extended_palette_orange_900": "#A3FF3D", "sdui_blue": "#A3FF3D", "sdui_green": "#CCFF94", "sdui_magenta": "#BAFF6E", "sdui_orange": "#7ABF2E", "sdui_purple": "#ABA3BD", "sdui_red": "#A3FF3D", "sdui_teal": "#CCFF94", "sdui_violet": "#BAFF6E", "sdui_yellow": "#7ABF2E"}
     }
   ]

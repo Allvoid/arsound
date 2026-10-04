@@ -1,20 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home background: the theme's background with a soft glow of its accent at the top left.
-     The glow fades out above the list, which SoundCloud paints with its own background. -->
+<!-- Home glow: a soft glow of the theme's accent at the top left, drawn over the screen (its foreground), so it lies
+     evenly on the bar and on the list scrolling under it; as a background it was cut off at the list's edge. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="?themeColorSurface" />
-        </shape>
-    </item>
-    <item android:height="220dp" android:gravity="top|fill_horizontal">
+    <item android:height="260dp" android:gravity="top|fill_horizontal">
         <shape android:shape="rectangle">
             <gradient
                 android:type="radial"
                 android:centerX="0.3"
-                android:centerY="0.25"
-                android:gradientRadius="150dp"
-                android:startColor="${accent@45}"
+                android:centerY="0.2"
+                android:gradientRadius="170dp"
+                android:startColor="${accent@38}"
                 android:endColor="${accent@0}" />
         </shape>
     </item>
