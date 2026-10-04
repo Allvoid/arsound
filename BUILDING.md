@@ -20,6 +20,7 @@ tools/branding/generate.py        Генерация иконок и анима�
 tools/branding/icons.py           Варианты иконки приложения (цвета и градиенты)
 tools/branding/theme_fonts.py     Шрифты тем оформления (статичные начертания из шрифтов Google Fonts)
 build-and-install.cmd             Сборка, патчинг и установка одной командой
+start-emulator.cmd                Запуск эмулятора Android для проверки без телефона
 local/                            Локальные файлы, в Git не попадают (см. ниже)
 ```
 
@@ -53,7 +54,7 @@ local/                            Локальные файлы, в Git не п�
 - **JDK 21**. Скрипт по умолчанию ищет Eclipse Temurin в `C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot`,
   другой путь задаётся переменной `JAVA_HOME`.
 - **Android SDK** (достаточно `platforms;android-34` и build-tools), путь в `ANDROID_HOME`.
-- **adb** и телефон с включённой отладкой по USB.
+- **adb** и телефон с включённой отладкой по USB или эмулятор (см. «Эмулятор» ниже).
 - **GitHub CLI** (`gh`), авторизованный с правом `read:packages`. Gradle-плагин ReVanced лежит в GitHub Packages,
   и без токена сборка не скачает его:
   ```bash
@@ -112,7 +113,50 @@ build-and-install.cmd
 ```
 
 Скрипт собирает патчи (`patches/build/libs/patches-<версия>.rvp`, версия — в `gradle.properties`), применяет их к APK, подписывает ключом
-из `local/` и ставит на подключённый телефон. Если телефона нет, готовый APK остаётся в `local/out/`.
+из `local/` и ставит на все подключённые устройства: телефон и запущенный эмулятор. Если устройств нет, готовый APK остаётся в `local/out/`.
+Поставить только на одно из них:
+
+```bash
+build-and-install.cmd phone
+build-and-install.cmd emu
+```
+
+## Эмулятор
+
+Чтобы проверять сборку без телефона, на компьютере работает эмулятор Android 16 с Google Play.
+Экран у него как у тестового телефона (720×1560, плотность 300), поэтому координаты нажатий из заметок подходят и ему.
+SoundCloud собран только под ARM, эмулятор переводит его код на x86 сам, это немного медленнее телефона.
+
+Запуск (первый раз — около минуты, дальше несколько секунд: эмулятор при закрытии сохраняет снимок):
+
+```bash
+start-emulator.cmd
+```
+
+Когда подключены и телефон, и эмулятор, команды `adb` нужно адресовать: `adb -s emulator-5554 …` для эмулятора.
+
+Эмулятор создаётся один раз. Нужны Android SDK Command-line Tools (`cmdline-tools/latest` в SDK) и включённая в Windows платформа низкоуровневой оболочки (WHPX):
+
+```bash
+cmdline-tools\latest\bin\android sdk install emulator system-images/android-36/google_apis_playstore/x86_64
+cmdline-tools\latest\bin\avdmanager create avd -n arsound -k "system-images;android-36;google_apis_playstore;x86_64" -d pixel_7
+```
+
+Затем в `%USERPROFILE%\.android\avd\arsound.avd\config.ini` поставить:
+
+```ini
+PlayStore.enabled=yes
+hw.gpu.mode=host
+hw.keyboard=yes
+hw.lcd.width=720
+hw.lcd.height=1560
+hw.lcd.density=300
+hw.ramSize=4096
+hw.cpu.ncore=4
+disk.dataPartition.size=16G
+```
+
+В SoundCloud на эмуляторе нужно войти заново: вход хранится в системных аккаунтах Android, а без root их с телефона не достать.
 
 Иконки и анимации пересобираются отдельно:
 

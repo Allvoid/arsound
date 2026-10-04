@@ -1,10 +1,16 @@
 @echo off
 rem Builds the patches, patches the SoundCloud APK and installs it next to the original app.
+rem Usage: build-and-install.cmd [phone or emu]. Without an argument the APK goes to every connected device.
 rem Local files (APK, tools, signing key) live in the "local" folder, which is not committed.
 setlocal
 rem The patch names are in Russian.
 chcp 65001 >nul
 cd /d "%~dp0"
+set "TARGET=%~1"
+if not "%TARGET%"=="" if /i not "%TARGET%"=="phone" if /i not "%TARGET%"=="emu" (
+  echo Unknown target "%TARGET%". Use phone, emu or nothing for every connected device.
+  exit /b 1
+)
 
 if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
@@ -52,5 +58,25 @@ rem The "Arsound: ..." groups include every patch of this project, with the opti
   --keystore "%KEYSTORE%" %KEYSTORE_ARGS% -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" || exit /b 1
 
+set "ADB=adb"
+if exist "%ANDROID_HOME%\platform-tools\adb.exe" set "ADB=%ANDROID_HOME%\platform-tools\adb.exe"
+set "INSTALLED="
+set "FAILED="
+for /f "skip=1 tokens=1,2" %%a in ('"%ADB%" devices') do if "%%b"=="device" call :install %%a
+if defined FAILED exit /b 1
+if not defined INSTALLED (
+  echo No connected device for this target. The APK is in %APK_OUT%.
+  exit /b 1
+)
+exit /b 0
+
+rem Installs the APK on one device, if it matches the target: "emu" is any emulator, "phone" is anything else.
+:install
+set "SERIAL=%~1"
+if /i "%TARGET%"=="emu" if /i not "%SERIAL:~0,9%"=="emulator-" exit /b 0
+if /i "%TARGET%"=="phone" if /i "%SERIAL:~0,9%"=="emulator-" exit /b 0
+echo Installing on %SERIAL%
 rem Install for the main user only, otherwise some firmwares also install a copy into a second profile.
-adb install -r --user 0 "%APK_OUT%"
+"%ADB%" -s %SERIAL% install -r --user 0 "%APK_OUT%" || set "FAILED=1"
+set "INSTALLED=1"
+exit /b 0
