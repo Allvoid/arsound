@@ -121,6 +121,96 @@ build-and-install.cmd phone
 build-and-install.cmd emu
 ```
 
+Иконки и анимации пересобираются отдельно:
+
+```bash
+python tools/branding/generate.py <папка экспорта иконки>
+```
+
+Варианты иконки для выбора в настройках описаны в проекте иконки (`palettes.py` и `fancy.py` там пишут
+`export/palettes/palettes.json`; иконки со свечением, неоном и рисунком — картинки WebP, остальные векторные) и переносятся в патчи так:
+
+```bash
+python tools/branding/icons.py <папка экспорта иконки>/palettes/palettes.json
+```
+
+Скрипт пишет векторные слои каждой иконки в ресурсы патча и списки вариантов
+(`misc/branding/AppIcons.kt`, `branding/AppIconList.java`); их руками не правят.
+
+### Темы оформления
+
+Темы описаны в `patches/src/main/resources/soundcloud/theme/themes.json`. Патч кладёт его и шрифты в `assets/arsound/`
+и делает заставку каждой темы; приложение подменяет ресурсы SoundCloud на лету, после выбора темы оно перезапускается.
+
+**Новая тема из макета Claude Design — одной командой.** Компонент телефона в макете хранит вид в объекте токенов
+`th` (bg, surface, surface2, deep, border, accent, pink, muted, text2, head, track, rc, coverBorder, mini, miniBorder,
+tabbar). Скрипт читает его из `.dc.html` или прямо из handoff-архива, выводит из токенов всю тему, скачивает шрифты с
+Google Fonts и пишет тему в `themes.json` (тема с тем же id заменяется, её название и описание сохраняются):
+
+```bash
+python tools/branding/theme_from_design.py "<макет-handoff.zip>" <id темы> --variant <вариант> --name-ru "<имя>" --name-en "<name>"
+```
+
+Вариант — имя условия в макете (`anime ? {...} : {...}`: `--variant anime` берёт первый объект, любое другое — второй).
+Дальше обычная сборка. Картинки макета (места под арты) скрипт пока не переносит.
+
+**Из чего состоит тема:**
+
+- `dark`, `light` — палитра SoundCloud (surface, primary, secondary, highlight, special, error, overlay, imageBorders,
+  dialog). У тёмной темы (`darkOnly`) светлая палитра красит только то, что SoundCloud держит светлым на тёмном (круглые
+  кнопки плеера); `darkOnly` держит приложение тёмным через тёмный режим приложения в Android 12+.
+- `fonts` — файлы шрифтов по местам Söhne; `radii` — скругления обложек и мини-плеера.
+- `colors` — любые другие цвета SoundCloud по имени: серая шкала в оттенке темы, цвет полосы «Твои лайки».
+- `tokens` и `parts` — цвета макета и части, которые тема берёт. Часть — папка `theme/parts/<часть>/<тип>/<имя>.xml`
+  с ресурсами, общими для всех тем: в файлах `${accent}`, `${mini}`, `${bg@85}` (85 % непрозрачности) и `${theme}`
+  заменяются значениями темы. Патч кладёт файл в приложение как `arsound_<тема>__<имя>`, приложение направляет на него
+  ресурс SoundCloud `<тип>/<имя>`. Части: `lucideIcons` (иконки), `tabBar`, `miniPlayer`, `playerButtons`,
+  `homeGreeting` (приветствие и свечение на главной) и другие в папке `parts`. Файлы только одной темы лежат в
+  `theme/overrides/<тема>/` и перекрывают файлы частей с тем же именем. Gradle сам пишет индекс файлов тем, списки
+  вручную не ведутся. В разметке нужно сохранить id и классы элементов, которые ищет код SoundCloud; файлы с именем
+  `arsound_...` — добавки, их используют другие файлы темы.
+- `decor` — украшения того, что рисует сам Arsound: экран настроек (`settingsGlow`, `settingsBadge`, `settingsStrips`),
+  цвет приветствия на главной (`homeHelloColor`, приветствие — класс `theme/HomeGreeting`) и вуаль над полосой
+  «Твои лайки» (`shortcutScrim` вместо 70 % чёрного SoundCloud).
+
+**Шрифты** режутся из файлов Google Fonts (лицензия OFL), переменных или статичных; набор берётся из `fonts` всех тем.
+Имя `<шрифт>_t<NN>_<вес>` — буквы на NN сотых em плотнее, так делаются плотные заголовки из макета. Пересобираются
+только шрифты, лежащие в папке (`theme_from_design.py` вызывает это сам):
+
+```bash
+python tools/branding/theme_fonts.py <папка с файлами шрифтов>
+```
+
+**Иконки** (часть `lucideIcons`) — набор Lucide (лицензия ISC) той же версии, что в макете, переведённый в векторные
+иконки Android с именами, размерами и цветами иконок SoundCloud:
+
+```bash
+python tools/branding/theme_icons.py <папка пакета lucide-static 0.460.0>
+```
+
+Русский перевод SoundCloud лежит в `patches/src/main/resources/soundcloud/translation/` (строки и множественные формы,
+которые SoundCloud переводит на другие языки).
+
+Нужны `pillow`, `picosvg`, `skia-pathops`, `resvg-py`, для шрифтов — `fonttools`. Заглушка обложки берётся из разобранного APK
+(`local/analysis/res-decoded`), если он есть.
+
+Патчинг на компьютере без Manager:
+
+```bash
+java -jar revanced-cli-6.0.0-all.jar patch -bp patches-<версия>.rvp soundcloud.apk
+```
+
+Все группы включены по умолчанию и сами подключают смену имени пакета с нужными опциями.
+
+### Файл для ReVanced Manager
+
+`patches.json` в корне репозитория — описание последней версии в формате ReVanced API. Manager подключает его
+по ссылке `https://raw.githubusercontent.com/Allvoid/arsound/main/patches.json` и сам проверяет обновления.
+При выпуске новой версии обновите в нём `version`, `created_at` и `download_url`.
+
+Классы патчей лежат в `app.arsound.*`, а расширения называются `arsound*.rve`: если взять имена ReVanced,
+Manager грузит оба набора в одно пространство, и наши копии ломают официальные ReVanced Patches.
+
 ## Эмулятор
 
 Чтобы проверять сборку без телефона, на компьютере работает эмулятор Android 16 с Google Play.
@@ -157,74 +247,6 @@ disk.dataPartition.size=16G
 ```
 
 В SoundCloud на эмуляторе нужно войти заново: вход хранится в системных аккаунтах Android, а без root их с телефона не достать.
-
-Иконки и анимации пересобираются отдельно:
-
-```bash
-python tools/branding/generate.py <папка экспорта иконки>
-```
-
-Варианты иконки для выбора в настройках описаны в проекте иконки (`palettes.py` и `fancy.py` там пишут
-`export/palettes/palettes.json`; иконки со свечением, неоном и рисунком — картинки WebP, остальные векторные) и переносятся в патчи так:
-
-```bash
-python tools/branding/icons.py <папка экспорта иконки>/palettes/palettes.json
-```
-
-Скрипт пишет векторные слои каждой иконки в ресурсы патча и списки вариантов
-(`misc/branding/AppIcons.kt`, `branding/AppIconList.java`); их руками не правят.
-
-Темы оформления описаны в `patches/src/main/resources/soundcloud/theme/themes.json` (палитры тёмной и светлой темы,
-шрифты, скругления; `darkOnly` держит приложение тёмным через собственный тёмный режим приложения в Android 12+). Патч кладёт его и шрифты в `assets/arsound/` и делает заставку каждой темы; приложение подменяет
-цвета, шрифты и анимацию загрузки на лету. Шрифты пересобираются из переменных шрифтов Google Fonts (лицензия OFL); пересобираются только шрифты, лежащие в папке:
-
-```bash
-python tools/branding/theme_fonts.py <папка с переменными шрифтами: GolosText.ttf, Onest.ttf, Manrope.ttf, ...>
-```
-
-Шрифт с плотностью (третье число у начертания в `theme_fonts.py`) сохраняется как `<шрифт>_tight_<вес>.ttf`:
-у него сдвинуты ширины букв, так «Алый» получает плотные заголовки, как в макете.
-
-Кроме цветов, тема может заменить любой цвет SoundCloud по имени (поле `colors`) и целые ресурсы (поле `resources`):
-файл `patches/src/main/resources/soundcloud/theme/overrides/<тема>/<тип>/<имя>.xml` патч кладёт в приложение как
-`arsound_<тема>__<имя>`, а приложение направляет на него ресурс SoundCloud `<тип>/<имя>`. Так подменяются иконки,
-фоны (мини-плеер), списки цветов (вкладки) и разметка экранов. В разметке нужно сохранить id и классы элементов,
-которые ищет код SoundCloud. Файлы с именем `arsound_...` — собственные добавки темы, их используют другие её файлы.
-
-Поле `decor` украшает то, что рисует сам Arsound: экран настроек (`settingsGlow`, `settingsBadge`, `settingsStrips`),
-приветствие на главной (`homeHelloColor`; само приветствие — класс `theme/HomeGreeting`, его ставит разметка главной из
-`overrides`) и вуаль над полосой «Твои лайки» (`shortcutScrim`, вместо 70 % чёрного SoundCloud).
-
-Иконки темы — набор Lucide (лицензия ISC), той же версии, что в макете. Скрипт переводит их в векторные иконки Android
-с именами, размерами и цветами иконок SoundCloud и заново пишет список `resources` темы по всем файлам её папки
-`overrides` — запускать его и после добавления любого файла туда:
-
-```bash
-python tools/branding/theme_icons.py scarlet <папка пакета lucide-static 0.460.0>
-```
-
-Русский перевод SoundCloud лежит в `patches/src/main/resources/soundcloud/translation/` (строки и множественные формы,
-которые SoundCloud переводит на другие языки).
-
-Нужны `pillow`, `picosvg`, `skia-pathops`, `resvg-py`, для шрифтов — `fonttools`. Заглушка обложки берётся из разобранного APK
-(`local/analysis/res-decoded`), если он есть.
-
-Патчинг на компьютере без Manager:
-
-```bash
-java -jar revanced-cli-6.0.0-all.jar patch -bp patches-<версия>.rvp soundcloud.apk
-```
-
-Все группы включены по умолчанию и сами подключают смену имени пакета с нужными опциями.
-
-### Файл для ReVanced Manager
-
-`patches.json` в корне репозитория — описание последней версии в формате ReVanced API. Manager подключает его
-по ссылке `https://raw.githubusercontent.com/Allvoid/arsound/main/patches.json` и сам проверяет обновления.
-При выпуске новой версии обновите в нём `version`, `created_at` и `download_url`.
-
-Классы патчей лежат в `app.arsound.*`, а расширения называются `arsound*.rve`: если взять имена ReVanced,
-Manager грузит оба набора в одно пространство, и наши копии ломают официальные ReVanced Patches.
 
 ## Нюансы
 
