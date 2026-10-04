@@ -74,6 +74,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String SCREEN_STATS = "stats";
     private static final String SCREEN_EQUALIZER = "equalizer";
     private static final String SCREEN_APP_ICON = "app_icon";
+    private static final String SCREEN_APPEARANCE = "appearance";
 
     /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
     private LinearLayout createScreen(LinearLayout[] listOut) {
@@ -137,9 +138,9 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
                 SCREEN_ACCOUNT));
 
-        list.addView(openScreenRow(text("Иконка приложения", "App icon"),
-                text("Цвет и градиент значка на рабочем столе", "Colour and gradient of the home screen icon"),
-                SCREEN_APP_ICON));
+        list.addView(openScreenRow(text("Оформление", "Appearance"),
+                text("Тема, иконка приложения, язык", "Theme, app icon, language"),
+                SCREEN_APPEARANCE));
 
         list.addView(openScreenRow(text("Сеть", "Network"),
                 text("Российский IP, свой DNS, статус сети, проверка устройства", "Russian IP, custom DNS, network status, device check"),
@@ -216,6 +217,10 @@ public final class ReVancedSettingsActivity extends Activity {
                 list.addView(createTitle(text("Статистика прослушиваний", "Listening statistics"), false));
                 addStatsSection(list);
                 break;
+            case SCREEN_APPEARANCE:
+                list.addView(createTitle(text("Оформление", "Appearance"), false));
+                addAppearanceSection(list);
+                break;
             case SCREEN_APP_ICON:
                 list.addView(createTitle(text("Иконка приложения", "App icon"), false));
                 addAppIconSection(list);
@@ -229,6 +234,98 @@ public final class ReVancedSettingsActivity extends Activity {
                 addDeveloperSection(list);
         }
         return root;
+    }
+
+    /** Theme, app icon and language. */
+    private void addAppearanceSection(LinearLayout list) {
+        list.addView(createSubHeading(text("Тема", "Theme")));
+        String current = app.revanced.extension.soundcloud.theme.ArsoundTheme.current();
+        boolean night = (getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        list.addView(createThemeRow(app.revanced.extension.soundcloud.theme.ArsoundTheme.SOUNDCLOUD,
+                text("SoundCloud", "SoundCloud"),
+                text("Стандартный вид SoundCloud: чёрно-белый с оранжевым.", "SoundCloud's own look: black and white with orange."),
+                night ? 0xFF121212 : 0xFFFFFFFF, 0xFFFF5500, current));
+        for (app.revanced.extension.soundcloud.theme.ArsoundTheme.Theme theme : app.revanced.extension.soundcloud.theme.ArsoundTheme.all(this)) {
+            list.addView(createThemeRow(theme.id, theme.name, theme.description, theme.surface(night), theme.accent(night), current));
+        }
+
+        list.addView(createSubHeading(text("Ещё", "More")));
+        list.addView(openScreenRow(text("Иконка приложения", "App icon"),
+                text("Цвет и градиент значка на рабочем столе", "Colour and gradient of the home screen icon"),
+                SCREEN_APP_ICON));
+        addLanguageRow(list);
+    }
+
+    /** A theme: a swatch of its background with its accent, the name and a short description. */
+    private View createThemeRow(String id, String name, String description, int surface, int accent, String current) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
+        row.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_s"));
+
+        android.graphics.drawable.GradientDrawable swatch = new android.graphics.drawable.GradientDrawable();
+        swatch.setColor(surface);
+        swatch.setCornerRadius(dp(12));
+        swatch.setStroke(dp(1), 0x33888888);
+        android.widget.FrameLayout tile = new android.widget.FrameLayout(this);
+        tile.setBackground(swatch);
+        View dot = new View(this);
+        android.graphics.drawable.GradientDrawable dotShape = new android.graphics.drawable.GradientDrawable();
+        dotShape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        dotShape.setColor(accent);
+        dot.setBackground(dotShape);
+        android.widget.FrameLayout.LayoutParams dotParams = new android.widget.FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER);
+        tile.addView(dot, dotParams);
+        LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(dp(44), dp(44));
+        tileParams.rightMargin = dp(14);
+        row.addView(tile, tileParams);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(createText("H4.Primary", name));
+        TextView descriptionView = createText("Body.Secondary", description);
+        texts.addView(descriptionView);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        android.widget.RadioButton radio = new android.widget.RadioButton(this);
+        radio.setChecked(id.equals(current));
+        radio.setClickable(false);
+        row.addView(radio);
+
+        row.setOnClickListener(v -> {
+            if (id.equals(app.revanced.extension.soundcloud.theme.ArsoundTheme.current())) return;
+            app.revanced.extension.soundcloud.theme.ArsoundTheme.setCurrent(this, id);
+            Toast.makeText(this, text("Тема: ", "Theme: ") + name, Toast.LENGTH_SHORT).show();
+            app.revanced.extension.soundcloud.theme.ArsoundTheme.restartApp(this);
+        });
+        return row;
+    }
+
+    /** The app language: as in the system, Russian or English. Android 13+ keeps it per app. */
+    private void addLanguageRow(LinearLayout list) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return;
+        android.app.LocaleManager manager = getSystemService(android.app.LocaleManager.class);
+        String[] tags = {"", "ru", "en"};
+        String[] labels = {text("Как в системе", "System default"), "Русский", "English"};
+        String chosen = manager.getApplicationLocales().isEmpty() ? "" : manager.getApplicationLocales().get(0).getLanguage();
+        int index = java.util.Arrays.asList(tags).indexOf(chosen);
+        View row = createActionRow(text("Язык приложения", "App language"), labels[Math.max(0, index)], v ->
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle(text("Язык приложения", "App language"))
+                        .setSingleChoiceItems(labels, Math.max(0, index), (dialog, which) -> {
+                            dialog.dismiss();
+                            manager.setApplicationLocales(tags[which].isEmpty()
+                                    ? android.os.LocaleList.getEmptyLocaleList()
+                                    : android.os.LocaleList.forLanguageTags(tags[which]));
+                            // Android redraws SoundCloud's screens by itself, but Arsound reads the language once
+                            // per start: a restart switches everything.
+                            app.revanced.extension.soundcloud.theme.ArsoundTheme.restartApp(this);
+                        })
+                        .show());
+        list.addView(row);
     }
 
     /** The app icon variants as a grid, grouped; tapping one switches the launcher icon. */
@@ -763,21 +860,28 @@ public final class ReVancedSettingsActivity extends Activity {
         options.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
                 text("Подбирать треки через Last.fm", "Pick tracks with Last.fm"),
-                text("Раз в день Arsound смотрит ваши лайки, плейлисты, импортированные треки и то, что вы слушаете чаще, "
+                text("Arsound смотрит ваши лайки, плейлисты, импортированные треки и то, что вы слушаете чаще, "
                                 + "спрашивает у Last.fm, что слушают вместе с ними, и кладёт новые для вас треки в плейлист «Для вас». "
-                                + "В Last.fm уходят только названия треков и исполнителей, без аккаунта. Треки берутся из SoundCloud, "
-                                + "поэтому обновление нужно запускать без российского IP.",
-                        "Once a day Arsound looks at your likes, playlists, imported tracks and what you play most, asks Last.fm "
+                                + "В Last.fm уходят только названия треков и исполнителей, без аккаунта.",
+                        "Arsound looks at your likes, playlists, imported tracks and what you play most, asks Last.fm "
                                 + "what people listen to along with them and puts tracks new to you into the \"For you\" playlist. "
-                                + "Only track and artist names go to Last.fm, no account. Tracks come from SoundCloud, so the update "
-                                + "needs a connection without a Russian IP."),
+                                + "Only track and artist names go to Last.fm, no account."),
                 app.revanced.extension.soundcloud.recommendations.ForYou.isEnabled(),
                 (button, checked) -> {
-                    Settings.putBoolean(app.revanced.extension.soundcloud.recommendations.ForYou.ENABLED, checked);
+                    app.revanced.extension.soundcloud.recommendations.ForYou.setEnabled(checked);
                     options.setVisibility(checked ? View.VISIBLE : View.GONE);
                 }
         ));
         options.setVisibility(app.revanced.extension.soundcloud.recommendations.ForYou.isEnabled() ? View.VISIBLE : View.GONE);
+        TextView schedule = createText("Body.Secondary", text(
+                "Плейлист обновляется каждый день в 00:00. Если в это время нет интернета или IP российский "
+                        + "(Last.fm и SoundCloud его не обслуживают — нужен VPN), обновление сработает при первой возможности. "
+                        + "Приложение для этого открывать не нужно; при низком заряде батареи обновление ждёт.",
+                "The playlist updates every day at 00:00. If there is no connection then, or the IP is Russian "
+                        + "(Last.fm and SoundCloud do not serve it, a VPN is needed), it updates at the first chance. "
+                        + "The app does not need to be open; on a low battery the update waits."));
+        schedule.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
+        options.addView(schedule);
         String status = app.revanced.extension.soundcloud.recommendations.ForYou.status();
         View refreshRow = createActionRow(text("Обновить сейчас", "Update now"),
                 status.isEmpty() ? text("Ещё не обновлялся", "Not updated yet") : text("Последнее обновление: ", "Last update: ") + status,
@@ -786,8 +890,11 @@ public final class ReVancedSettingsActivity extends Activity {
         refreshRow.setOnClickListener(v -> {
             if (app.revanced.extension.soundcloud.recommendations.ForYou.isRunning()) return;
             description.setText(text("Начинаю…", "Starting…"));
-            Utils.runOnBackgroundThread(() -> app.revanced.extension.soundcloud.recommendations.ForYou.refresh(
-                    message -> description.setText(message)));
+            Utils.runOnBackgroundThread(() -> app.revanced.extension.soundcloud.recommendations.ForYou.refresh(message ->
+                    // While it runs: the step; at the end: the time and the result, as when the screen opens.
+                    description.setText(app.revanced.extension.soundcloud.recommendations.ForYou.isRunning() ? message
+                            : text("Последнее обновление: ", "Last update: ")
+                            + app.revanced.extension.soundcloud.recommendations.ForYou.status())));
         });
         options.addView(refreshRow);
         list.addView(options);
@@ -932,6 +1039,12 @@ public final class ReVancedSettingsActivity extends Activity {
                                 Toast.LENGTH_SHORT).show();
                     }
                 })
+        ));
+        list.addView(createActionRow(
+                text("Arsound в Telegram", "Arsound on Telegram"),
+                text("Готовый APK каждой версии и новости — ", "The ready APK of every version and news: ")
+                        + UpdateChecker.TELEGRAM_URL.replace("https://", ""),
+                v -> UpdateChecker.openUrl(this, UpdateChecker.TELEGRAM_URL)
         ));
         list.addView(createActionRow(
                 text("Arsound на GitHub", "Arsound on GitHub"),

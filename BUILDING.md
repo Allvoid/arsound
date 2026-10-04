@@ -18,6 +18,7 @@ extensions/                       Код, который встраиваетс�
   arsound-shared/                 Общая библиотека расширений ReVanced
 tools/branding/generate.py        Генерация иконок и анимаций Arsound
 tools/branding/icons.py           Варианты иконки приложения (цвета и градиенты)
+tools/branding/theme_fonts.py     Шрифты тем оформления (статичные начертания из шрифтов Google Fonts)
 build-and-install.cmd             Сборка, патчинг и установка одной командой
 local/                            Локальные файлы, в Git не попадают (см. ниже)
 ```
@@ -35,7 +36,6 @@ local/                            Локальные файлы, в Git не п�
 | **Settings** | Пункт «Arsound» в настройках SoundCloud (Compose-строка `ActionListItemKt.a`), экран Arsound на обычных View с ресурсами SoundCloud, проверка обновлений через GitHub Releases. |
 | **Disable telemetry** | Отключение аналитики SoundCloud. |
 | **Download tracks** | Сначала авторский download (`/tracks/{id}/download`), затем поток `progressive` из `media.transcodings` через DownloadManager. HLS не сохраняется, Go/Go+ и preview отсекаются до запроса ссылки. Уже скачанные и скачивающиеся треки повторно не ставятся в очередь. |
-| **Control playback advertisements** | Флаг `no_audio_ads`, условия баннеров, реклама между треками и полноэкранная реклама при запуске. |
 | **Offline first playlists** | Сохранённая копия плейлиста отдаётся сразу, синхронизация уходит в фон; фоновое сохранение метаданных всех плейлистов библиотеки (`SyncInitiator`). |
 | **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`): элемент воспроизведения собирается сразу в `PlaybackMediaProvider.j`, без ожидания `TrackRepository` (`SYNC_MISSING`), метаданные уведомления ждут не больше 2 с. Таймаут обложки уведомления, повтор при сбое потока. Разрешение `READ_MEDIA_AUDIO` для файлов, скачанных до переустановки. |
 | **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, плашка статуса сети. |
@@ -44,7 +44,7 @@ local/                            Локальные файлы, в Git не п�
 | **Hide duplicate recommendations** | Фильтр перезаливов в автовоспроизведении и на серверной главной (`SDUIView`). |
 | **Hide subscription offers** | Экран покупки Go/Go+, окна MoEngage, вкладка Upgrade, серверные блоки главной `UpsellPlaceholder` и `BannerAdPlaceholder`, кнопка «Get Pro» в шапке. |
 | **Change account type** | Свой тип аккаунта Android, чтобы мод работал рядом с оригиналом. |
-| **Custom app name**, **Arsound branding** | Название, иконки (и 63 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
+| **Custom app name**, **Arsound branding** | Название, иконки (и 93 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
 | **Change package name** | Патч ReVanced: пакет `com.soundcloud.android.revanced`. |
 
 ## Что нужно для сборки
@@ -120,8 +120,8 @@ build-and-install.cmd
 python tools/branding/generate.py <папка экспорта иконки>
 ```
 
-Варианты иконки для выбора в настройках описаны в проекте иконки (`palettes.py` там пишет
-`export/palettes/palettes.json`) и переносятся в патчи так:
+Варианты иконки для выбора в настройках описаны в проекте иконки (`palettes.py` и `fancy.py` там пишут
+`export/palettes/palettes.json`; иконки со свечением, неоном и рисунком — картинки WebP, остальные векторные) и переносятся в патчи так:
 
 ```bash
 python tools/branding/icons.py <папка экспорта иконки>/palettes/palettes.json
@@ -130,7 +130,18 @@ python tools/branding/icons.py <папка экспорта иконки>/palett
 Скрипт пишет векторные слои каждой иконки в ресурсы патча и списки вариантов
 (`misc/branding/AppIcons.kt`, `branding/AppIconList.java`); их руками не правят.
 
-Нужны `pillow`, `picosvg`, `skia-pathops`, `resvg-py`. Заглушка обложки берётся из разобранного APK
+Темы оформления описаны в `patches/src/main/resources/soundcloud/theme/themes.json` (палитры тёмной и светлой темы,
+шрифты, скругления). Патч кладёт его и шрифты в `assets/arsound/` и делает заставку каждой темы; приложение подменяет
+цвета, шрифты и анимацию загрузки на лету. Шрифты пересобираются из переменных шрифтов Google Fonts (лицензия OFL):
+
+```bash
+python tools/branding/theme_fonts.py <папка с Onest.ttf, Manrope.ttf, Geologica.ttf, Nunito.ttf, Unbounded.ttf>
+```
+
+Русский перевод SoundCloud лежит в `patches/src/main/resources/soundcloud/translation/` (строки и множественные формы,
+которые SoundCloud переводит на другие языки).
+
+Нужны `pillow`, `picosvg`, `skia-pathops`, `resvg-py`, для шрифтов — `fonttools`. Заглушка обложки берётся из разобранного APK
 (`local/analysis/res-decoded`), если он есть.
 
 Патчинг на компьютере без Manager:
