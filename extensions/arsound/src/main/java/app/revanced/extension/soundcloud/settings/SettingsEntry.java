@@ -20,6 +20,8 @@ public final class SettingsEntry {
      * is cleared here, otherwise the passed icon is replaced by the default and never shows.
      */
     private static final int DEFAULT_PARAMETERS_MASK = 4028 & ~0x20;
+    /** For the Arsound row: the icon after the title (bit 0x80) and its description (0x100) are passed. */
+    private static final int ENTRY_PARAMETERS_MASK = 4028 & ~0x80 & ~0x100;
 
     private static final Function0<Unit> OPEN_SETTINGS = () -> {
         try {
@@ -73,9 +75,14 @@ public final class SettingsEntry {
         );
     }
 
-    /** Injection point: the "Arsound" row at the top of SoundCloud's settings, its letter at the end. */
+    /**
+     * Injection point: the "Arsound" row at the top of SoundCloud's settings. The letter stands right after the name
+     * (the row's icon after the title, with the app name as its description), the chevron stays at the end.
+     */
     public static void addEntry(Composer composer) {
         Integer letter = iconStart();
+        int appName = Utils.getResourceIdentifier(ResourceType.STRING, "app_name");
+        boolean withLetter = letter != null && appName != 0;
         ActionListItemKt.a(
                 "Arsound",
                 OPEN_SETTINGS,
@@ -83,16 +90,16 @@ public final class SettingsEntry {
                 false,
                 false,
                 null,
-                letter != null ? letter : Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
-                null,
-                null,
+                Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
+                withLetter ? letter : null,
+                withLetter ? appName : null,
                 false,
                 null,
                 null,
                 composer,
                 0,
                 0,
-                DEFAULT_PARAMETERS_MASK
+                ENTRY_PARAMETERS_MASK
         );
     }
 }
