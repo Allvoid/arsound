@@ -42,19 +42,21 @@ val settingsPatch = bytecodePatch {
     apply {
         settingsScreenContentMethod.apply {
             // The string resource ids are read from the R class of the settings module, not inlined as literals.
-            val helpCenterStringIndex = indexOfFirstInstructionOrThrow {
-                opcode == Opcode.SGET && fieldReference?.name == "more_help_center"
+            // The first row of the list is "Import my music" (settings_transfer_your_library_title).
+            val firstRowStringIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.SGET && fieldReference?.name == "settings_transfer_your_library_title"
             }
 
             // stringResource(id, composer, changed): the composer of the settings list is its second argument.
-            val stringResourceIndex = indexOfFirstInstructionOrThrow(helpCenterStringIndex) {
+            val stringResourceIndex = indexOfFirstInstructionOrThrow(firstRowStringIndex) {
                 opcode == Opcode.INVOKE_STATIC && methodReference?.name == "stringResource"
             }
             val composerRegister = getInstruction<FiveRegisterInstruction>(stringResourceIndex).registerD
 
-            // Add the ReVanced row right above "Help center".
+            // Add the Arsound row at the top of the list, before "Import my music". It goes after the title's
+            // move-result: a jump label sits on the sget above, and code inserted there would be jumped over.
             addInstruction(
-                helpCenterStringIndex,
+                stringResourceIndex + 2,
                 "invoke-static { v$composerRegister }, " +
                     "$SETTINGS_ENTRY_CLASS_DESCRIPTOR->addEntry(Landroidx/compose/runtime/Composer;)V",
             )
