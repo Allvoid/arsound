@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The player's previous button of the Scarlet theme: SoundCloud's drawing on a see-through dark red circle (design 1a). -->
+<!-- The player's previous button : SoundCloud's drawing on a see-through circle of the theme's background. -->
 <vector android:height="40.0dp" android:width="40.0dp" android:viewportWidth="40.0" android:viewportHeight="40.0"
   xmlns:android="http://schemas.android.com/apk/res/android">
-    <path android:fillColor="#D90E0809" android:pathData="M20,0L20,0A20,20 0,0 1,40 20L40,20A20,20 0,0 1,20 40L20,40A20,20 0,0 1,0 20L0,20A20,20 0,0 1,20 0z" />
+    <path android:fillColor="${bg@85}" android:pathData="M20,0L20,0A20,20 0,0 1,40 20L40,20A20,20 0,0 1,20 40L20,40A20,20 0,0 1,0 20L0,20A20,20 0,0 1,20 0z" />
     <path android:fillColor="@color/white" android:pathData="M15.5,18.634V12.25H14V27.75H15.5V21.366L25.347,27.633C25.578,27.78 25.871,27.789 26.111,27.657C26.351,27.526 26.5,27.274 26.5,27V13C26.5,12.726 26.351,12.474 26.111,12.342C25.871,12.211 25.578,12.22 25.347,12.367L15.5,18.634Z" />
 </vector>

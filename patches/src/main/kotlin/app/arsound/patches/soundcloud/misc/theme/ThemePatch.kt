@@ -56,12 +56,33 @@ private fun readThemes(json: String): List<ThemeColors> = json.split("\"id\":").
     )
 }
 
-/** Each theme id with the "type/name" entries of its "resources" list. */
-private fun readThemeResources(json: String): Map<String, List<String>> = json.split("\"id\":").drop(1).associate { block ->
+/** A theme's design tokens (the "tokens" object: name to #rrggbb or #rrggbbaa) and the parts it uses. */
+private class ThemeDesign(val id: String, val tokens: Map<String, String>, val parts: List<String>)
+
+private fun readThemeDesigns(json: String): List<ThemeDesign> = json.split("\"id\":").drop(1).map { block ->
     val id = Regex("\"(\\w+)\"").find(block)!!.groupValues[1]
-    val list = Regex("\"resources\":\\s*\\[([^\\]]*)]").find(block)?.groupValues?.get(1).orEmpty()
-    id to Regex("\"([\\w-]+/\\w+)\"").findAll(list).map { it.groupValues[1] }.toList()
+    val tokens = Regex("\"tokens\":\\s*\\{([^}]*)}").find(block)?.groupValues?.get(1).orEmpty()
+    val parts = Regex("\"parts\":\\s*\\[([^\\]]*)]").find(block)?.groupValues?.get(1).orEmpty()
+    ThemeDesign(
+        id,
+        Regex("\"(\\w+)\":\\s*\"(#[0-9A-Fa-f]{6,8})\"").findAll(tokens).associate { it.groupValues[1] to it.groupValues[2] },
+        Regex("\"(\\w+)\"").findAll(parts).map { it.groupValues[1] }.toList(),
+    )
 }
+
+/**
+ * A part's or a theme's file with the theme filled in: ${theme} is the theme id, ${token} a colour of the theme's
+ * tokens as Android's #aarrggbb, ${token@NN} the same colour with NN % opacity.
+ */
+private fun render(text: String, design: ThemeDesign, file: String): String =
+    Regex("\\$\\{(\\w+)(?:@(\\d{1,3}))?}").replace(text) { match ->
+        val name = match.groupValues[1]
+        if (name == "theme") return@replace design.id
+        val hex = design.tokens[name] ?: error("Theme ${design.id} has no token \"$name\" used by $file")
+        val color = androidColor(hex).removePrefix("#").let { if (it.length == 6) "FF$it" else it }
+        val alpha = match.groupValues[2]
+        if (alpha.isEmpty()) "#$color" else "#%02X%s".format(Math.round(alpha.toInt() * 2.55f), color.substring(2))
+    }
 
 /**
  * The files of the themes (description, fonts) as app assets, and a start screen per theme: the drawing letter
@@ -81,15 +102,31 @@ private val themeResourcesPatch = resourcePatch {
             .map { it.groupValues[1] }.toSet()
         fontNames.forEach { name -> resource("fonts/$name.ttf").use { fonts.resolve("$name.ttf").writeBytes(it.readBytes()) } }
 
-        // Whole resources a theme brings (drawables, colour lists, layouts), from overrides/<theme>/<type>/<name>.xml
-        // to res/<type>/arsound_<theme>__<name>.xml; the app points SoundCloud's resource of that name at it.
-        for ((theme, files) in readThemeResources(String(json))) {
-            for (file in files) {
-                val (type, name) = file.split("/", limit = 2)
-                val target = get("res").resolve(type).apply { mkdirs() }.resolve("arsound_${theme}__$name.xml")
-                resource("overrides/$theme/$type/$name.xml").use { target.writeBytes(it.readBytes()) }
+        // Whole resources a theme brings (drawables, colour lists, layouts): the files of the parts it lists
+        // (parts/<part>/<type>/<name>.xml, shared by themes and filled with each theme's tokens) and its own
+        // files (overrides/<theme>/<type>/<name>.xml) go to res/<type>/arsound_<theme>__<name>.xml. The app points
+        // SoundCloud's resource of that name at them; names starting with arsound_ are additions used by other files.
+        val index = resource("index.txt").use { String(it.readBytes()) }.lines().filter { it.endsWith(".xml") }
+        val replaced = StringBuilder("{")
+        for (design in readThemeDesigns(String(json))) {
+            // The theme's own files come last, so they win over a part's file of the same name.
+            val files = index.filter { path -> design.parts.any { path.startsWith("parts/$it/") } } +
+                index.filter { path -> path.startsWith("overrides/${design.id}/") }
+            for (part in design.parts) {
+                if (files.none { it.startsWith("parts/$part/") }) error("Theme ${design.id} uses an unknown part \"$part\"")
             }
+            val names = files.map { path ->
+                val (type, file) = path.split("/").takeLast(2)
+                val name = file.removeSuffix(".xml")
+                val text = resource(path).use { String(it.readBytes()) }
+                get("res").resolve(type).apply { mkdirs() }.resolve("arsound_${design.id}__$name.xml")
+                    .writeText(render(text, design, path))
+                "\"$type/$name\""
+            }
+            if (replaced.length > 1) replaced.append(",")
+            replaced.append("\n  \"${design.id}\": [${names.distinct().joinToString(", ")}]")
         }
+        assets.resolve("theme-resources.json").writeText(replaced.append("\n}\n").toString())
 
         val themes = readThemes(String(json))
         for ((folder, dark) in listOf("values" to false, "values-night" to true)) {

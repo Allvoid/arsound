@@ -328,9 +328,14 @@ public final class ArsoundTheme {
         }
 
         // Whole resources (drawables, colour lists, layouts): the theme's own copy, put into the app by the
-        // theme patch as arsound_<theme>__<name>, stands in for SoundCloud's. Files whose name starts with
-        // "arsound_" are the theme's additions, used by its other files.
-        JSONArray replaced = theme.json.optJSONArray("resources");
+        // theme patch as arsound_<theme>__<name> and listed in theme-resources.json, stands in for SoundCloud's.
+        // Files whose name starts with "arsound_" are the theme's additions, used by its other files.
+        JSONArray replaced = null;
+        try (InputStream input = context.getAssets().open(ASSETS + "theme-resources.json")) {
+            replaced = new JSONObject(new String(readAll(input), "UTF-8")).optJSONArray(theme.id);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Theme: could not read the theme resources", ex);
+        }
         if (replaced != null) {
             for (int i = 0; i < replaced.length(); i++) {
                 String[] typeAndName = replaced.optString(i).split("/", 2);

@@ -32,3 +32,22 @@ kotlin {
 }
 
 apply(from = "strings-processing.gradle.kts")
+
+// The theme patch cannot list the files inside its own jar, so the build writes an index of the themes folder:
+// every file of src/main/resources/soundcloud/theme, one relative path per line.
+val themeSources: File = file("src/main/resources/soundcloud/theme")
+val themeIndexDir: File = layout.buildDirectory.dir("generated/themeIndex").get().asFile
+val generateThemeIndex = tasks.register("generateThemeIndex") {
+    inputs.dir(themeSources)
+    outputs.dir(themeIndexDir)
+    doLast {
+        val index = themeIndexDir.resolve("soundcloud/theme/index.txt")
+        index.parentFile.mkdirs()
+        index.writeText(
+            themeSources.walkTopDown().filter { it.isFile }
+                .map { it.relativeTo(themeSources).invariantSeparatorsPath }.sorted().joinToString("\n"),
+        )
+    }
+}
+sourceSets["main"].resources.srcDir(themeIndexDir)
+tasks.named("processResources") { dependsOn(generateThemeIndex) }
