@@ -72,6 +72,11 @@ public final class HomeGreeting extends LinearLayout {
         title.setTypeface(font(context, "soehne_extrafett_900"));
         title.setTextColor(themeColor(context, "themeColorPrimary"));
         title.setIncludeFontPadding(false);
+        // Wide heading fonts (Unbounded) shrink to keep the question on one line.
+        title.setMaxLines(1);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            title.setAutoSizeTextTypeUniformWithConfiguration(20, 32, 1, TypedValue.COMPLEX_UNIT_SP);
+        }
         LayoutParams titleParams = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         titleParams.topMargin = dp(4);
         addView(title, titleParams);

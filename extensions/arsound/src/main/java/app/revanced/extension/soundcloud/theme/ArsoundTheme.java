@@ -133,7 +133,22 @@ public final class ArsoundTheme {
      */
     public static JSONObject decor(Context context) {
         Theme theme = currentTheme(context);
-        return theme == null ? null : theme.json.optJSONObject("decor");
+        JSONObject decor = theme == null ? null : theme.json.optJSONObject("decor");
+        // In the light look the values of "decorLight" win.
+        JSONObject light = theme == null ? null : theme.json.optJSONObject("decorLight");
+        boolean night = (context.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        if (decor == null || light == null || night) return decor;
+        try {
+            JSONObject merged = new JSONObject(decor.toString());
+            for (java.util.Iterator<String> keys = light.keys(); keys.hasNext(); ) {
+                String key = keys.next();
+                merged.put(key, light.get(key));
+            }
+            return merged;
+        } catch (Exception ex) {
+            return decor;
+        }
     }
 
     /** A colour of the decoration, or the fallback when the theme has none. */
