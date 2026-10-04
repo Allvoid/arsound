@@ -157,6 +157,26 @@ public final class ArsoundTheme {
         return original;
     }
 
+    /**
+     * Injection point: the icon in front of a row of the Library tab (SoundCloud shows none). A theme with the part
+     * "libraryIcons" has one per row, named arsound_<theme>__arsound_library_<row> after the row's view id
+     * library_header_<row>. 0 keeps the row without an icon.
+     */
+    public static int libraryRowIcon(android.view.View row) {
+        try {
+            Theme theme = appContext == null ? null : currentTheme(appContext);
+            if (theme == null || row.getId() == android.view.View.NO_ID) return 0;
+            Resources resources = row.getResources();
+            String name = resources.getResourceEntryName(row.getId()).replace("library_header_", "");
+            String icon = "arsound_" + theme.id + "__arsound_library_" + name;
+            int id = resources.getIdentifier(icon, "drawable", row.getContext().getPackageName());
+            return id != 0 ? id : resources.getIdentifier(icon, "drawable", "com.soundcloud.android");
+        } catch (Exception ex) {
+            Logger.printException(() -> "Theme: no library row icon", ex);
+            return 0;
+        }
+    }
+
     /** A colour written as in themes.json: #rrggbb or #rrggbbaa. */
     public static int color(String hex) {
         return parse(hex);

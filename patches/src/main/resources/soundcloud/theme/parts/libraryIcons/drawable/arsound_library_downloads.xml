@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "download" (ISC licence) in front of the Library row "downloads". Made by tools/branding/theme_icons.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M7,10L12,15L17,10" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M12,15L12,3" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

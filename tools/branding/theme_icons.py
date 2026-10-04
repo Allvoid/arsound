@@ -95,6 +95,11 @@ ICONS = {
 }
 # Variants of an icon that differ only in colour or size; they follow their icon unless listed themselves.
 MARK = "Made by tools/branding/theme_icons.py."
+# Rows of the Library tab (the end of their view ids, library_header_<row>) -> Lucide icon, as in the design.
+LIBRARY_ICONS = {
+    "likes": "heart", "playlists": "list-music", "albums": "disc-3", "following": "users", "stations": "radio",
+    "downloads": "download", "insights": "chart-column", "uploads": "folder-up",
+}
 VARIANTS = ("light", "dark", "primary", "secondary", "disabled", "small", "themed", "highlight", "large", "white", "black")
 
 
@@ -226,6 +231,21 @@ def main():
         (out / f"{name}.xml").write_text(xml, encoding="utf-8")
         written += 1
     print(f"{written} icons")
+
+    # Part "libraryIcons": icons in front of the rows of the Library tab, which SoundCloud shows without icons.
+    # The app looks for arsound_<theme>__arsound_library_<row> (ArsoundTheme.libraryRowIcon).
+    library = ROOT / "patches/src/main/resources/soundcloud/theme/parts/libraryIcons/drawable"
+    library.mkdir(parents=True, exist_ok=True)
+    for old in library.glob("*.xml"):
+        old.unlink()
+    for row, lucide in LIBRARY_ICONS.items():
+        paths = lucide_paths(nodes[lucide], "?colorDrawablePrimary", False).replace("        <path", "    <path")
+        (library / f"arsound_library_{row}.xml").write_text(
+            f'<?xml version="1.0" encoding="utf-8"?>\n'
+            f'<!-- Lucide "{lucide}" (ISC licence) in front of the Library row "{row}". {MARK} -->\n'
+            f'<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp"'
+            f' android:viewportWidth="24" android:viewportHeight="24">\n{paths}\n</vector>\n', encoding="utf-8")
+    print(f"{len(LIBRARY_ICONS)} library row icons")
 
 
 if __name__ == "__main__":
