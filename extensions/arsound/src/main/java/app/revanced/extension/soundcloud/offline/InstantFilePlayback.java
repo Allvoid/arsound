@@ -5,7 +5,6 @@ import android.os.Looper;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
@@ -28,11 +27,19 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * for the metadata at all. The metadata takes about 1.5 s even on a good connection (and never comes
  * offline), and it is set on the notification by itself when it arrives, so waiting for it only
  * delayed the sound.
+ * <p>
+ * Instead of the metadata, playback gets Arsound's own failure right away. SoundCloud also starts
+ * the current track on its first metadata if the player is playing (this is how a skip starts the
+ * next track), so the own failure counts as that first metadata. Otherwise the real metadata,
+ * arriving later, restarted the track that was already playing.
  */
 @SuppressWarnings("unused")
 public final class InstantFilePlayback {
     private static final long METADATA_WAIT_MS = 0;
     private static final Handler handler = new Handler(Looper.getMainLooper());
+
+    /** A failure of its own, so it can be told apart from SoundCloud's shared failure. */
+    private static volatile Object instantFailure;
 
     private InstantFilePlayback() {
     }
@@ -103,14 +110,7 @@ public final class InstantFilePlayback {
             if (downloadedFile(urn) == null) return metadata;
 
             ClassLoader loader = metadata.getClass().getClassLoader();
-            Class<?> failureClass = type(loader, "com.soundcloud.android.playback.players.queue.MediaMetadataFetchResult$Failure");
-            Object failure = null;
-            for (Field field : failureClass.getFields()) {
-                if (Modifier.isStatic(field.getModifiers()) && field.getType() == failureClass) {
-                    failure = field.get(null);
-                }
-            }
-            if (failure == null) return metadata;
+            Object failure = instantFailure(loader);
 
             Class<?> sourceClass = type(loader, "io.reactivex.rxjava3.core.ObservableSource");
             Object delayedFailure = delayedItem(loader, sourceClass, failure);
@@ -123,6 +123,29 @@ public final class InstantFilePlayback {
             Logger.printException(() -> "Could not limit the metadata wait", ex);
             return metadata;
         }
+    }
+
+    /**
+     * Injection point. Called with each notification metadata result of the current queue item.
+     *
+     * @param result A {@code MediaMetadataFetchResult}.
+     * @return Whether it is the failure a downloaded track starts with, which SoundCloud should treat
+     * as its first metadata.
+     */
+    public static boolean isStartWithoutMetadata(Object result) {
+        return result != null && result == instantFailure;
+    }
+
+    private static Object instantFailure(ClassLoader loader) throws Exception {
+        Object failure = instantFailure;
+        if (failure == null) {
+            Constructor<?> constructor = type(loader, "com.soundcloud.android.playback.players.queue.MediaMetadataFetchResult$Failure")
+                    .getDeclaredConstructor();
+            constructor.setAccessible(true);
+            failure = constructor.newInstance();
+            instantFailure = failure;
+        }
+        return failure;
     }
 
     /** An ObservableSource that emits one item after {@link #METADATA_WAIT_MS} (on the next main loop turn) and completes. */
