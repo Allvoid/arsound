@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The big round pause button of playlists and profiles: SoundCloud's drawing on an accent circle with a glow.
+     It stays 56dp, the most the button allows, so the circle is a little smaller than SoundCloud's 48dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp" android:height="56dp" android:viewportWidth="56" android:viewportHeight="56">
+    <path android:pathData="M28,2A28,28 0,1 1,28 58A28,28 0,1 1,28 2Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="28" android:centerY="30" android:gradientRadius="28">
+                <item android:offset="0.65" android:color="${accent@50}" />
+                <item android:offset="1" android:color="${accent@0}" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <group android:scaleX="0.9167" android:scaleY="0.9167" android:translateX="6" android:translateY="6">
+        <path android:fillColor="@color/shared_colors_special_action" android:pathData="M24,0L24,0A24,24 0,0 1,48 24L48,24A24,24 0,0 1,24 48L24,48A24,24 0,0 1,0 24L0,24A24,24 0,0 1,24 0z" />
+        <path android:fillColor="@color/white" android:pathData="M18.5,16.25C18.086,16.25 17.75,16.586 17.75,17V31C17.75,31.414 18.086,31.75 18.5,31.75H21.75C22.164,31.75 22.5,31.414 22.5,31V17C22.5,16.586 22.164,16.25 21.75,16.25H18.5Z" />
+        <path android:fillColor="@color/white" android:pathData="M26.25,16.25C25.836,16.25 25.5,16.586 25.5,17V31C25.5,31.414 25.836,31.75 26.25,31.75H29.5C29.914,31.75 30.25,31.414 30.25,31V17C30.25,16.586 29.914,16.25 29.5,16.25H26.25Z" />
+    </group>
+</vector>

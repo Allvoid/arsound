@@ -9,11 +9,16 @@ import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.wideLiteral
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
+import app.revanced.patcher.parameterTypes
+import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import org.w3c.dom.Element
 
 private const val THEME_RESOURCES = "soundcloud/theme"
@@ -31,6 +36,53 @@ private val BytecodePatchContext.shortcutHeaderStaticMethod by gettingFirstMetho
 private val BytecodePatchContext.sectionsShortcutsStaticMethod by gettingFirstMethodDeclaratively {
     name("<clinit>")
     definingClass("Lcom/soundcloud/android/sections/ui/components/ShortcutsKt;")
+}
+
+/** Builds the rows of the Library tab ("Your likes", "Playlists", ...), each without a leading icon. */
+private val BytecodePatchContext.libraryHeaderItemConstructorMethod by gettingFirstMethodDeclaratively {
+    name("<init>")
+    definingClass("Lcom/soundcloud/android/features/library/LibraryHeaderItem;")
+    parameterTypes("Landroid/content/Context;", "Landroid/util/AttributeSet;")
+}
+
+/** Binds the Library list; builds the Downloads row again. */
+private val BytecodePatchContext.libraryLinksBindMethod by gettingFirstMethodDeclaratively {
+    name("bindItem")
+    definingClass("Lcom/soundcloud/android/features/library/LibraryLinksViewHolder;")
+}
+
+/**
+ * Before each ActionListItem.ViewState(title, iconStart, iconEnd, ..., defaults) of the method, puts the theme's icon
+ * for the row (ArsoundTheme.libraryRowIcon with the row view, the one the state is given to right after) into the
+ * iconStart argument and clears bit 2 of the last argument, a mask of the arguments left at their defaults (in
+ * SoundCloud's code it marks the icon as default, so the icon would be dropped). Returns the number of rows.
+ */
+private fun addLibraryRowIcons(method: app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod): Int {
+    val instructions = method.implementation!!.instructions.toList()
+    val states = instructions.withIndex().filter { (_, instruction) ->
+        instruction.opcode == Opcode.INVOKE_DIRECT_RANGE && instruction.methodReference?.let {
+            it.definingClass.endsWith("ActionListItem\$ViewState;") && it.name == "<init>"
+        } == true
+    }.map { it.index }
+    for (index in states.reversed()) {
+        val range = instructions[index] as RegisterRangeInstruction
+        val icon = range.startRegister + 2
+        val mask = range.startRegister + range.registerCount - 1
+        // The row: the view the state is given to (ActionListItem.n) right after.
+        val give = instructions.drop(index + 1).first { it.methodReference?.name == "n" } as FiveRegisterInstruction
+        val defaults = instructions.subList(0, index).last {
+            it is NarrowLiteralInstruction && it is OneRegisterInstruction && it.registerA == mask
+        } as NarrowLiteralInstruction
+        method.addInstructions(
+            index,
+            """
+                invoke-static/range { v${give.registerC} .. v${give.registerC} }, Lapp/revanced/extension/soundcloud/theme/ArsoundTheme;->libraryRowIcon(Landroid/view/View;)I
+                move-result v$icon
+                const/16 v$mask, ${defaults.narrowLiteral and 2.inv()}
+            """,
+        )
+    }
+    return states.size
 }
 
 /** SoundCloud's veil colour: 70 % black. */
@@ -184,6 +236,10 @@ val themePatch = bytecodePatch {
             "invoke-static { p0 }, Lapp/revanced/extension/soundcloud/theme/ArsoundTheme;" +
                 "->onApplicationCreate(Landroid/app/Application;)V",
         )
+        // Each Library row asks the theme for a leading icon. The rows are built in LibraryHeaderItem; the Downloads
+        // row is built again when the list is bound (LibraryLinksViewHolder.bindItem).
+        val rows = addLibraryRowIcons(libraryHeaderItemConstructorMethod) + addLibraryRowIcons(libraryLinksBindMethod)
+        if (rows < 9) error("Library rows not found ($rows)")
         // The theme may lighten the veil over the "Your likes" bar, so the bar shows the theme's colours.
         for (method in listOf(shortcutHeaderStaticMethod, sectionsShortcutsStaticMethod)) {
             method.apply {

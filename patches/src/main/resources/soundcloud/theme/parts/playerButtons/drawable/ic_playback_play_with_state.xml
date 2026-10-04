@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The big round play button of playlists and profiles: SoundCloud's drawing on an accent circle with a glow.
+     It stays 56dp, the most the button allows, so the circle is a little smaller than SoundCloud's 48dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp" android:height="56dp" android:viewportWidth="56" android:viewportHeight="56">
+    <path android:pathData="M28,2A28,28 0,1 1,28 58A28,28 0,1 1,28 2Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="28" android:centerY="30" android:gradientRadius="28">
+                <item android:offset="0.65" android:color="${accent@50}" />
+                <item android:offset="1" android:color="${accent@0}" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <group android:scaleX="0.9167" android:scaleY="0.9167" android:translateX="6" android:translateY="6">
+        <path android:fillColor="@color/shared_colors_special_action" android:pathData="M24,0L24,0A24,24 0,0 1,48 24L48,24A24,24 0,0 1,24 48L24,48A24,24 0,0 1,0 24L0,24A24,24 0,0 1,24 0z" />
+        <path android:fillColor="@color/white" android:pathData="M31.653,23.367L20.653,16.367C20.422,16.22 20.129,16.211 19.889,16.343C19.649,16.474 19.5,16.726 19.5,17V31C19.5,31.274 19.649,31.526 19.889,31.657C20.129,31.789 20.422,31.78 20.653,31.633L31.653,24.633C31.869,24.495 32,24.256 32,24C32,23.744 31.869,23.505 31.653,23.367Z" />
+    </group>
+</vector>
