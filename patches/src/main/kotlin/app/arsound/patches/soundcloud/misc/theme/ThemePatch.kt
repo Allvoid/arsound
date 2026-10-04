@@ -108,16 +108,29 @@ private fun readThemes(json: String): List<ThemeColors> = json.split("\"id\":").
     )
 }
 
-/** A theme's design tokens (the "tokens" object: name to #rrggbb or #rrggbbaa) and the parts it uses. */
-private class ThemeDesign(val id: String, val tokens: Map<String, String>, val parts: List<String>)
+/**
+ * A theme's design tokens (the "tokens" object: name to #rrggbb or #rrggbbaa), the tokens of its light look
+ * ("tokensLight", empty for a theme that is always dark) and the parts it uses.
+ */
+private class ThemeDesign(
+    val id: String,
+    val tokens: Map<String, String>,
+    val tokensLight: Map<String, String>,
+    val parts: List<String>,
+)
+
+private fun tokenMap(block: String, key: String): Map<String, String> {
+    val body = Regex("\"$key\":\\s*\\{([^}]*)}").find(block)?.groupValues?.get(1).orEmpty()
+    return Regex("\"(\\w+)\":\\s*\"(#[0-9A-Fa-f]{6,8})\"").findAll(body).associate { it.groupValues[1] to it.groupValues[2] }
+}
 
 private fun readThemeDesigns(json: String): List<ThemeDesign> = json.split("\"id\":").drop(1).map { block ->
     val id = Regex("\"(\\w+)\"").find(block)!!.groupValues[1]
-    val tokens = Regex("\"tokens\":\\s*\\{([^}]*)}").find(block)?.groupValues?.get(1).orEmpty()
     val parts = Regex("\"parts\":\\s*\\[([^\\]]*)]").find(block)?.groupValues?.get(1).orEmpty()
     ThemeDesign(
         id,
-        Regex("\"(\\w+)\":\\s*\"(#[0-9A-Fa-f]{6,8})\"").findAll(tokens).associate { it.groupValues[1] to it.groupValues[2] },
+        tokenMap(block, "tokens"),
+        tokenMap(block, "tokensLight"),
         Regex("\"(\\w+)\"").findAll(parts).map { it.groupValues[1] }.toList(),
     )
 }
@@ -126,11 +139,11 @@ private fun readThemeDesigns(json: String): List<ThemeDesign> = json.split("\"id
  * A part's or a theme's file with the theme filled in: ${theme} is the theme id, ${token} a colour of the theme's
  * tokens as Android's #aarrggbb, ${token@NN} the same colour with NN % opacity.
  */
-private fun render(text: String, design: ThemeDesign, file: String): String =
+private fun render(text: String, design: ThemeDesign, tokens: Map<String, String>, file: String): String =
     Regex("\\$\\{(\\w+)(?:@(\\d{1,3}))?}").replace(text) { match ->
         val name = match.groupValues[1]
         if (name == "theme") return@replace design.id
-        val hex = design.tokens[name] ?: error("Theme ${design.id} has no token \"$name\" used by $file")
+        val hex = tokens[name] ?: error("Theme ${design.id} has no token \"$name\" used by $file")
         val color = androidColor(hex).removePrefix("#").let { if (it.length == 6) "FF$it" else it }
         val alpha = match.groupValues[2]
         if (alpha.isEmpty()) "#$color" else "#%02X%s".format(Math.round(alpha.toInt() * 2.55f), color.substring(2))
@@ -171,8 +184,19 @@ private val themeResourcesPatch = resourcePatch {
                 val (type, file) = path.split("/").takeLast(2)
                 val name = file.removeSuffix(".xml")
                 val text = resource(path).use { String(it.readBytes()) }
-                get("res").resolve(type).apply { mkdirs() }.resolve("arsound_${design.id}__$name.xml")
-                    .writeText(render(text, design, path))
+                fun write(folder: String, tokens: Map<String, String>) =
+                    get("res").resolve(folder).apply { mkdirs() }.resolve("arsound_${design.id}__$name.xml")
+                        .writeText(render(text, design, tokens, path))
+                // A theme with a light look gets each coloured file twice: light in res/<type>, dark in
+                // res/<type>-night, and Android picks the one of the phone's mode. A file marked arsound:one-look
+                // (the player, dark in every mode) keeps the dark colours.
+                val coloured = Regex("\\$\\{(?!theme})\\w+").containsMatchIn(text)
+                if (design.tokensLight.isNotEmpty() && coloured && !text.contains("arsound:one-look")) {
+                    write(type, design.tokensLight)
+                    write("$type-night", design.tokens)
+                } else {
+                    write(type, design.tokens)
+                }
                 "\"$type/$name\""
             }
             if (replaced.length > 1) replaced.append(",")

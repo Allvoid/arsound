@@ -10,7 +10,10 @@ fonts (downloaded from Google Fonts and cut by theme_fonts.py), the corners, the
 the theme parts (parts/<part>/), filled with the tokens by the theme patch.
 
 Run: python tools/branding/theme_from_design.py <design .dc.html or handoff .zip> <theme id>
-         [--variant <name>] [--name-ru <name>] [--name-en <name>] [--fonts-only]
+         [--variant <name>] [--name-ru <name>] [--name-en <name>]
+ or: python tools/branding/theme_from_design.py --from-palette <theme id>
+     (no design: a theme that has only SoundCloud's two palettes gets tokens for its dark and light look, the parts,
+     colours and decoration; its name, description, palettes, fonts and corners stay)
 A theme with this id in themes.json is replaced, otherwise a new one is added at the end.
 Then build as usual (build-and-install.cmd).
 """
@@ -243,25 +246,78 @@ def make_theme(text, theme_id, variant, name_ru, name_en):
     corner = re.match(r"(\d+)", th.get("rc", "4px"))
     radii = {"card": int(corner.group(1)) if corner else 4, "miniPlayer": 36}
 
+    theme = {
+        "id": theme_id,
+        "name": {"ru": name_ru, "en": name_en},
+        "description": {"ru": f"Из макета Claude Design, шрифт {head}. Всегда тёмная.",
+                        "en": f"From a Claude Design mock-up, {head} font. Always dark."},
+        "darkOnly": True, "dark": dark, "light": light, "fonts": fonts, "radii": radii,
+    }
+    theme.update(derived(tokens))
+    return theme, {body, head}
+
+
+def all_parts():
+    parts = sorted(part.name for part in PARTS.iterdir() if part.is_dir())
+    parts.sort(key=lambda part: part != "lucideIcons")
+    return parts
+
+
+def decor_of(tokens, hello):
+    return {"settingsGlow": tokens["deep"], "settingsBadge": tokens["accent"],
+            "settingsStrips": [tokens["accent"], tokens["surface2"], tokens["surface2"]], "homeHelloColor": hello}
+
+
+def derived(tokens, light_tokens=None):
+    """Everything that follows from the tokens: parts, SoundCloud colours, decoration (and their light look)."""
+    accent = tokens["accent"]
     colors = grey_scale(tokens)
     colors["extended_palette_orange_900"] = accent
     # Edges of the server's tiles (search genres and other sections): shades of the theme instead of a rainbow.
     shades = [accent, tokens["pink"], mix(accent, "#FFFFFF", 0.25), mix(accent, "#000000", 0.25), tokens["muted"]]
     for i, name in enumerate(("blue", "green", "magenta", "orange", "purple", "red", "teal", "violet", "yellow")):
         colors[f"sdui_{name}"] = shades[i % len(shades)]
-    decor = {"settingsGlow": tokens["deep"], "settingsBadge": accent,
-             "settingsStrips": [accent, tokens["surface2"], tokens["surface2"]],
-             "homeHelloColor": tokens["pink"], "shortcutScrim": "#00000040"}
-    parts = sorted(part.name for part in PARTS.iterdir() if part.is_dir())
-    parts.sort(key=lambda part: part != "lucideIcons")
-    return {
-        "id": theme_id,
-        "name": {"ru": name_ru, "en": name_en},
-        "description": {"ru": f"Из макета Claude Design, шрифт {head}. Всегда тёмная.",
-                        "en": f"From a Claude Design mock-up, {head} font. Always dark."},
-        "darkOnly": True, "dark": dark, "light": light, "fonts": fonts, "radii": radii,
-        "tokens": tokens, "parts": parts, "decor": decor, "colors": colors,
-    }, {body, head}
+    result = {"tokens": tokens}
+    if light_tokens:
+        result["tokensLight"] = light_tokens
+    result["parts"] = all_parts()
+    result["decor"] = dict(decor_of(tokens, tokens["pink"]), shortcutScrim="#00000040")
+    if light_tokens:
+        result["decorLight"] = decor_of(light_tokens, light_tokens["accent"])
+    result["colors"] = colors
+    return result
+
+
+def tokens_from_palette(palette, dark):
+    """Design tokens for a theme that has only SoundCloud's palette (the first themes): bg is the surface, cards
+    are the dialog colour, the rest is mixed from them, the text colours and the accent."""
+    bg, card, highlight = palette["surface"], palette["dialog"], palette["highlight"][:7]
+    accent, text, muted = palette["special"], palette["primary"], palette["secondary"]
+    surface2 = mix(highlight, text, 0.08 if dark else 0.04)
+    if dark:
+        mini = hex_of(*rgba(mix(card, accent, 0.1))[:3], 0.9)
+        return {"bg": bg, "surface": card, "surface2": surface2, "deep": mix(accent, bg, 0.65), "border": surface2,
+                "accent": accent, "pink": mix(accent, "#FFFFFF", 0.45), "muted": muted, "text2": mix(muted, text, 0.4),
+                "tabbar": mix(bg, card, 0.5), "mini": mini, "miniBorder": hex_of(*rgba(mix(accent, "#FFFFFF", 0.45))[:3], 0.28)}
+    mini = hex_of(*rgba(mix(bg, accent, 0.06))[:3], 0.92)
+    return {"bg": bg, "surface": card, "surface2": surface2, "deep": mix(bg, accent, 0.18),
+            "border": mix(highlight, text, 0.1), "accent": accent, "pink": accent, "muted": muted,
+            "text2": mix(muted, text, 0.4), "tabbar": mix(bg, "#FFFFFF", 0.5), "mini": mini,
+            "miniBorder": hex_of(*rgba(accent)[:3], 0.25)}
+
+
+def from_palette(theme_id):
+    """The theme as it is, with tokens, parts and the rest derived from its two palettes."""
+    themes = json.loads(THEMES.read_text(encoding="utf-8"))["themes"]
+    old = next((t for t in themes if t["id"] == theme_id), None)
+    if old is None:
+        sys.exit(f"No theme {theme_id} in themes.json")
+    keep = ("id", "name", "description", "darkOnly", "dark", "light", "fonts", "radii")
+    theme = {key: old[key] for key in keep if key in old}
+    dark_only = old.get("darkOnly", False)
+    theme.update(derived(tokens_from_palette(old["dark"], True),
+                         None if dark_only else tokens_from_palette(old["light"], False)))
+    return theme
 
 
 def theme_block(theme):
@@ -287,12 +343,20 @@ def write_theme(theme):
 
 def main():
     parser = argparse.ArgumentParser(description="A theme from a Claude Design file")
-    parser.add_argument("design", type=pathlib.Path)
-    parser.add_argument("id")
+    parser.add_argument("design", type=pathlib.Path, nargs="?")
+    parser.add_argument("id", nargs="?")
     parser.add_argument("--variant", default=None)
     parser.add_argument("--name-ru", default=None)
     parser.add_argument("--name-en", default=None)
+    parser.add_argument("--from-palette", metavar="ID", default=None,
+                        help="no design: put a theme of themes.json into the template from its own palettes")
     args = parser.parse_args()
+    if args.from_palette:
+        write_theme(from_palette(args.from_palette))
+        print(f"Theme {args.from_palette} put into the template. Build with build-and-install.cmd.")
+        return
+    if not args.design or not args.id:
+        parser.error("give the design file and the theme id, or --from-palette <id>")
     text = design_text(args.design)
     # A theme that is already there keeps its name and description unless new ones are given.
     old = next((t for t in json.loads(THEMES.read_text(encoding="utf-8"))["themes"] if t["id"] == args.id), None)
