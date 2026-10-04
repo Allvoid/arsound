@@ -90,6 +90,9 @@ def cut(source, variable, weight, tracking):
     subsetter.subset(font)
     if tracking:
         track(font, tracking)
+    # The same files every run, so git sees no change when nothing changed (fontTools would stamp the time).
+    font["head"].modified = font["head"].created
+    font.recalcTimestamp = False
     return font
 
 
