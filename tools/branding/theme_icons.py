@@ -94,6 +94,7 @@ ICONS = {
     "ic_album": "disc-3",
 }
 # Variants of an icon that differ only in colour or size; they follow their icon unless listed themselves.
+MARK = "Made by tools/branding/theme_icons.py."
 VARIANTS = ("light", "dark", "primary", "secondary", "disabled", "small", "themed", "highlight", "large", "white", "black")
 
 
@@ -196,7 +197,7 @@ def vector(name, lucide, nodes):
         body = lucide_paths(shapes, path_color(paths[0]), fill).replace("        <path", "    <path")
         viewport = 'android:viewportWidth="24" android:viewportHeight="24"'
     return (f'<?xml version="1.0" encoding="utf-8"?>\n'
-            f'<!-- Lucide "{lucide}" (ISC licence) in place of SoundCloud\'s {name}. Made by tools/branding/theme_icons.py. -->\n'
+            f'<!-- Lucide "{lucide}" (ISC licence) in place of SoundCloud\'s {name}. {MARK} -->\n'
             f'<vector xmlns:android="http://schemas.android.com/apk/res/android" {root} {viewport}>\n{body}\n</vector>\n')
 
 
@@ -207,8 +208,10 @@ def main():
     nodes = json.loads((lucide_dir / "icon-nodes.json").read_text(encoding="utf-8"))
     out = ROOT / f"patches/src/main/resources/soundcloud/theme/overrides/{theme}/drawable"
     out.mkdir(parents=True, exist_ok=True)
-    for old in out.glob("ic_*.xml"):
-        old.unlink()
+    # Only the icons this script made are replaced; hand-made files of the theme stay.
+    made = {f"drawable/{old.stem}" for old in out.glob("*.xml") if MARK in old.read_text(encoding="utf-8")}
+    for name in made:
+        (out / f"{name.split('/')[1]}.xml").unlink()
 
     names = {}
     for name, lucide in ICONS.items():
@@ -231,7 +234,7 @@ def main():
     block = re.search(r'("id": "' + theme + r'".*?"resources": \[)([^\]]*)(\])', text, re.S)
     if not block:
         sys.exit(f'Theme {theme} has no "resources" list in themes.json')
-    others = [entry for entry in re.findall(r'"([^"]+)"', block.group(2)) if not entry.startswith("drawable/ic_")]
+    others = [entry for entry in re.findall(r'"([^"]+)"', block.group(2)) if entry not in made]
     entries = others + written
     lines = [[]]
     for entry in entries:
