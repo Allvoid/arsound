@@ -35,6 +35,13 @@ private fun readThemes(json: String): List<ThemeColors> = json.split("\"id\":").
     )
 }
 
+/** Each theme id with the "type/name" entries of its "resources" list. */
+private fun readThemeResources(json: String): Map<String, List<String>> = json.split("\"id\":").drop(1).associate { block ->
+    val id = Regex("\"(\\w+)\"").find(block)!!.groupValues[1]
+    val list = Regex("\"resources\":\\s*\\[([^\\]]*)]").find(block)?.groupValues?.get(1).orEmpty()
+    id to Regex("\"([\\w-]+/\\w+)\"").findAll(list).map { it.groupValues[1] }.toList()
+}
+
 /**
  * The files of the themes (description, fonts) as app assets, and a start screen per theme: the drawing letter
  * in the theme's accent on the theme's background. Android shows the start screen before the app runs, so it
@@ -48,8 +55,20 @@ private val themeResourcesPatch = resourcePatch {
         val assets = get("assets").resolve("arsound").apply { mkdirs() }
         assets.resolve("themes.json").writeBytes(json)
         val fonts = assets.resolve("fonts").apply { mkdirs() }
-        val fontNames = Regex("\"(\\w+_\\d{3})\"").findAll(String(json)).map { it.groupValues[1] }.toSet()
+        val fontNames = Regex("\"fonts\":\\s*\\{([^}]*)}").findAll(String(json))
+            .flatMap { block -> Regex("\"(\\w+_\\d{3})\"").findAll(block.groupValues[1]) }
+            .map { it.groupValues[1] }.toSet()
         fontNames.forEach { name -> resource("fonts/$name.ttf").use { fonts.resolve("$name.ttf").writeBytes(it.readBytes()) } }
+
+        // Whole resources a theme brings (drawables, colour lists, layouts), from overrides/<theme>/<type>/<name>.xml
+        // to res/<type>/arsound_<theme>__<name>.xml; the app points SoundCloud's resource of that name at it.
+        for ((theme, files) in readThemeResources(String(json))) {
+            for (file in files) {
+                val (type, name) = file.split("/", limit = 2)
+                val target = get("res").resolve(type).apply { mkdirs() }.resolve("arsound_${theme}__$name.xml")
+                resource("overrides/$theme/$type/$name.xml").use { target.writeBytes(it.readBytes()) }
+            }
+        }
 
         val themes = readThemes(String(json))
         for ((folder, dark) in listOf("values" to false, "values-night" to true)) {

@@ -56,7 +56,15 @@ rem The "Arsound: ..." groups include every patch of this project, with the opti
   -e "Arsound: без дубликатов" ^
   -e "Arsound: плеер" ^
   --keystore "%KEYSTORE%" %KEYSTORE_ARGS% -t local\out\tmp ^
-  -o "%APK_OUT%" "%APK_IN%" || exit /b 1
+  -o "%APK_OUT%" "%APK_IN%" > local\out\patch.log 2>&1
+set "PATCH_EXIT=%errorlevel%"
+type local\out\patch.log
+if not "%PATCH_EXIT%"=="0" exit /b 1
+rem revanced-cli still saves the APK when some patches fail; such an APK must not be installed.
+findstr /c:"SEVERE:" local\out\patch.log >nul && (
+  echo Some patches failed, nothing is installed. See local\out\patch.log.
+  exit /b 1
+)
 
 set "ADB=adb"
 if exist "%ANDROID_HOME%\platform-tools\adb.exe" set "ADB=%ANDROID_HOME%\platform-tools\adb.exe"

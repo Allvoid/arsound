@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SoundCloud's tab bar (phones use this one) with the Scarlet background and tab colours;
+     same id and class, so SoundCloud's code finds it as before. -->
+<com.soundcloud.android.ui.components.navigations.BottomTabBarRestyle xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@id/navigation_control_view"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_gravity="bottom"
+    android:background="@drawable/arsound_scarlet__arsound_tab_bar"
+    app:itemIconTint="@color/arsound_scarlet__bottom_tab_bar_item_color"
+    app:itemTextColor="@color/arsound_scarlet__bottom_tab_bar_item_color" />

@@ -282,6 +282,28 @@ public final class ArsoundTheme {
         // The accent is one colour for both modes in SoundCloud; the night value overrides it in dark mode.
         ids.color(table, "shared_colors_special_action", theme.accent(false), theme.accent(true));
 
+        // Any other SoundCloud colour by name, such as the grey scale behind cards and the mini player's gradient.
+        JSONObject colors = theme.json.optJSONObject("colors");
+        if (colors != null) {
+            for (java.util.Iterator<String> names = colors.keys(); names.hasNext(); ) {
+                String name = names.next();
+                int color = parse(colors.optString(name));
+                ids.color(table, name, color, color);
+            }
+        }
+
+        // Whole resources (drawables, colour lists, layouts): the theme's own copy, put into the app by the
+        // theme patch as arsound_<theme>__<name>, stands in for SoundCloud's. Files whose name starts with
+        // "arsound_" are the theme's additions, used by its other files.
+        JSONArray replaced = theme.json.optJSONArray("resources");
+        if (replaced != null) {
+            for (int i = 0; i < replaced.length(); i++) {
+                String[] typeAndName = replaced.optString(i).split("/", 2);
+                if (typeAndName.length != 2 || typeAndName[1].startsWith("arsound_")) continue;
+                ids.alias(table, typeAndName[0], typeAndName[1], "arsound_" + theme.id + "__" + typeAndName[1]);
+            }
+        }
+
         JSONObject radii = theme.json.optJSONObject("radii");
         if (radii != null) {
             int card = radii.optInt("card", 6);
@@ -361,6 +383,15 @@ public final class ArsoundTheme {
         void dimen(ArscWriter table, String name, int dp) {
             int id = id("dimen", name);
             if (id != 0) table.put(id, "dimen", name, ArscWriter.Value.dp(dp), false);
+        }
+
+        /** Points SoundCloud's resource at another one of the same type, in both modes. */
+        void alias(ArscWriter table, String type, String name, String replacement) {
+            int id = id(type, name);
+            int target = id(type, replacement);
+            if (id == 0 || target == 0) return;
+            table.put(id, type, name, ArscWriter.Value.reference(target), false);
+            table.put(id, type, name, ArscWriter.Value.reference(target), true);
         }
 
         void file(ArscWriter table, String type, String name, String path) {
