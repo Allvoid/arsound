@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SoundCloud's home screen with the Scarlet greeting and red glow (design 1a). The ids and classes SoundCloud's
+     code looks for are the same as in SoundCloud's own layout. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/arsound_scarlet__arsound_home_glow"
+    android:orientation="vertical">
+
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@id/compose_view_home_alert_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+    <com.soundcloud.android.ui.components.toolbars.CollapsingAppBar
+        android:id="@id/appbar_id"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent" />
+
+    <app.revanced.extension.soundcloud.theme.HomeGreeting
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@id/main_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/scrollingview_content_bottom_padding_behavior" />
+</LinearLayout>
