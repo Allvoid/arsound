@@ -73,6 +73,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String SCREEN_ACCOUNT = "account";
     private static final String SCREEN_STATS = "stats";
     private static final String SCREEN_EQUALIZER = "equalizer";
+    private static final String SCREEN_APP_ICON = "app_icon";
 
     /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
     private LinearLayout createScreen(LinearLayout[] listOut) {
@@ -135,6 +136,10 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(openScreenRow(text("Аккаунт", "Account"),
                 text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
                 SCREEN_ACCOUNT));
+
+        list.addView(openScreenRow(text("Иконка приложения", "App icon"),
+                text("Цвет и градиент значка на рабочем столе", "Colour and gradient of the home screen icon"),
+                SCREEN_APP_ICON));
 
         list.addView(openScreenRow(text("Сеть", "Network"),
                 text("Российский IP, свой DNS, статус сети, проверка устройства", "Russian IP, custom DNS, network status, device check"),
@@ -211,6 +216,10 @@ public final class ReVancedSettingsActivity extends Activity {
                 list.addView(createTitle(text("Статистика прослушиваний", "Listening statistics"), false));
                 addStatsSection(list);
                 break;
+            case SCREEN_APP_ICON:
+                list.addView(createTitle(text("Иконка приложения", "App icon"), false));
+                addAppIconSection(list);
+                break;
             case SCREEN_ACCOUNT:
                 list.addView(createTitle(text("Аккаунт", "Account"), false));
                 addAccountSection(list);
@@ -220,6 +229,91 @@ public final class ReVancedSettingsActivity extends Activity {
                 addDeveloperSection(list);
         }
         return root;
+    }
+
+    /** The app icon variants as a grid, grouped; tapping one switches the launcher icon. */
+    private void addAppIconSection(LinearLayout list) {
+        TextView hint = createText("Body.Secondary", text(
+                "Значок обновится через несколько секунд. Некоторые рабочие столы убирают ярлык при смене — тогда добавьте его заново из списка приложений.",
+                "The icon updates in a few seconds. Some launchers remove the home screen shortcut when it changes; add it again from the app list."));
+        hint.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
+        list.addView(hint);
+
+        String current = app.revanced.extension.soundcloud.branding.AppIcons.current(this);
+        java.util.List<View> cells = new java.util.ArrayList<>();
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        final int columns = 4;
+        String group = null;
+        LinearLayout row = null;
+        int inRow = 0;
+        for (app.revanced.extension.soundcloud.branding.AppIcons.Icon icon : app.revanced.extension.soundcloud.branding.AppIcons.all()) {
+            if (!icon.group.equals(group)) {
+                if (row != null) fillRow(row, inRow, columns);
+                group = icon.group;
+                list.addView(createSubHeading(group));
+                row = null;
+            }
+            if (row == null || inRow == columns) {
+                if (row != null) fillRow(row, inRow, columns);
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setPadding(dp(8), 0, dp(8), dp(8));
+                list.addView(row);
+                inRow = 0;
+            }
+            View cell = createIconCell(icon);
+            cells.add(cell);
+            ids.add(icon.id);
+            cell.setSelected(icon.id.equals(current));
+            cell.setOnClickListener(v -> {
+                if (!app.revanced.extension.soundcloud.branding.AppIcons.apply(this, icon.id)) {
+                    Toast.makeText(this, text("Не удалось сменить иконку", "Could not change the icon"), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                for (int i = 0; i < cells.size(); i++) cells.get(i).setSelected(ids.get(i).equals(icon.id));
+                Toast.makeText(this, text("Иконка: ", "Icon: ") + icon.name, Toast.LENGTH_SHORT).show();
+            });
+            row.addView(cell, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            inRow++;
+        }
+        if (row != null) fillRow(row, inRow, columns);
+    }
+
+    /** Empty cells keep the last row of a group aligned with the full rows. */
+    private void fillRow(LinearLayout row, int inRow, int columns) {
+        for (int i = inRow; i < columns; i++) {
+            row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        }
+    }
+
+    private View createIconCell(app.revanced.extension.soundcloud.branding.AppIcons.Icon icon) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setPadding(dp(4), dp(8), dp(4), dp(8));
+        cell.setContentDescription(icon.name);
+
+        // The selected icon gets a ring in the accent colour.
+        android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
+        ring.setCornerRadius(dp(18));
+        ring.setStroke(dp(2), themeColor("themeColorHighlight"));
+        android.graphics.drawable.StateListDrawable background = new android.graphics.drawable.StateListDrawable();
+        background.addState(new int[]{android.R.attr.state_selected}, ring);
+        background.addState(new int[]{}, new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        android.graphics.drawable.RippleDrawable ripple = new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x22888888), background, null);
+        cell.setBackground(ripple);
+
+        android.widget.ImageView image = new android.widget.ImageView(this);
+        image.setImageDrawable(app.revanced.extension.soundcloud.branding.AppIcons.drawable(this, icon.id));
+        cell.addView(image, new LinearLayout.LayoutParams(dp(60), dp(60)));
+
+        TextView name = createText("Body.Secondary", icon.name);
+        name.setGravity(Gravity.CENTER_HORIZONTAL);
+        name.setMaxLines(2);
+        name.setPadding(0, dp(4), 0, 0);
+        cell.addView(name, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return cell;
     }
 
     private void addNetworkSection(LinearLayout list) {
