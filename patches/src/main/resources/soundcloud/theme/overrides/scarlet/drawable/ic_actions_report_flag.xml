@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "flag" (ISC licence) in place of SoundCloud's ic_actions_report_flag. Made by tools/branding/theme_icons.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="24.0dp" android:width="24.0dp" android:autoMirrored="true" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" android:strokeColor="?colorDrawableSecondary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M4,22L4,15" android:strokeColor="?colorDrawableSecondary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

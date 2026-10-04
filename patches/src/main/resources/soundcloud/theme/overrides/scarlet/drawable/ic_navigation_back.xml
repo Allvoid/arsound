@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "arrow-left" (ISC licence) in place of SoundCloud's ic_navigation_back. Made by tools/branding/theme_icons.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="32.0dp" android:width="32.0dp" android:autoMirrored="true" android:viewportWidth="32" android:viewportHeight="32">
+    <path android:fillColor="?colorDrawableBackground" android:pathData="M16,0L16,0A16,16 0,0 1,32 16L32,16A16,16 0,0 1,16 32L16,32A16,16 0,0 1,0 16L0,16A16,16 0,0 1,16 0z" />
+    <group android:scaleX="0.825" android:scaleY="0.825" android:translateX="5.6" android:translateY="6.1">
+        <path android:pathData="m12 19-7-7 7-7" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M19 12H5" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    </group>
+</vector>
