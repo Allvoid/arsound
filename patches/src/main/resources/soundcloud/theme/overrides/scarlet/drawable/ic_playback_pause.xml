@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The player's pause button of the Scarlet theme: SoundCloud's drawing on an accent circle with a red glow (design 1a). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="64dp" android:height="64dp" android:viewportWidth="64" android:viewportHeight="64">
+    <!-- Soft red glow, a little lower than the button, as its shadow in the design. -->
+    <path android:pathData="M32,3A32,32 0,1 1,32 67A32,32 0,1 1,32 3Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="32" android:centerY="35" android:gradientRadius="32">
+                <item android:offset="0.6" android:color="#80E0242F" />
+                <item android:offset="1" android:color="#00E0242F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <group android:translateX="8" android:translateY="8">
+        <path android:fillColor="@color/shared_colors_special_action" android:pathData="M24,0L24,0A24,24 0,0 1,48 24L48,24A24,24 0,0 1,24 48L24,48A24,24 0,0 1,0 24L0,24A24,24 0,0 1,24 0z" />
+        <path android:fillColor="@color/white" android:pathData="M18.5,16.25C18.086,16.25 17.75,16.586 17.75,17V31C17.75,31.414 18.086,31.75 18.5,31.75H21.75C22.164,31.75 22.5,31.414 22.5,31V17C22.5,16.586 22.164,16.25 21.75,16.25H18.5Z" />
+        <path android:fillColor="@color/white" android:pathData="M26.25,16.25C25.836,16.25 25.5,16.586 25.5,17V31C25.5,31.414 25.836,31.75 26.25,31.75H29.5C29.914,31.75 30.25,31.414 30.25,31V17C30.25,16.586 29.914,16.25 29.5,16.25H26.25Z" />
+    </group>
+</vector>

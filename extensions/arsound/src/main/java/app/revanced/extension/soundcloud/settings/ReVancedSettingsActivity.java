@@ -22,6 +22,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
+import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
 
 /**
@@ -116,6 +117,17 @@ public final class ReVancedSettingsActivity extends Activity {
             logo.setImageResource(logoId);
             LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(36), dp(36));
             logoParams.rightMargin = dp(12);
+            // A theme may put the letter on a rounded tile of its accent.
+            int badge = ArsoundTheme.decorColor(decor, "settingsBadge", 0);
+            if (badge != 0) {
+                android.graphics.drawable.GradientDrawable tile = new android.graphics.drawable.GradientDrawable();
+                tile.setColor(badge);
+                tile.setCornerRadius(dp(15));
+                logo.setBackground(tile);
+                logo.setPadding(dp(9), dp(9), dp(9), dp(9));
+                logoParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+                logoParams.rightMargin = dp(14);
+            }
             titleRow.addView(logo, logoParams);
         }
         titleRow.addView(createText("H1.Primary", title));
@@ -127,11 +139,55 @@ public final class ReVancedSettingsActivity extends Activity {
                 new android.content.Intent(this, ReVancedSettingsActivity.class).putExtra(EXTRA_SCREEN, screen)));
     }
 
+    /** The decoration of the chosen theme, or null. */
+    private final org.json.JSONObject decor = ArsoundTheme.decor(Utils.getContext());
+
+    /** A theme may put a thin colour strip before each section row: the colours of "settingsStrips" in turn. */
+    private void addStrips(LinearLayout list, int firstRow) {
+        org.json.JSONArray strips = decor == null ? null : decor.optJSONArray("settingsStrips");
+        if (strips == null || strips.length() == 0) return;
+        for (int i = firstRow; i < list.getChildCount(); i++) {
+            View row = list.getChildAt(i);
+            list.removeViewAt(i);
+            list.addView(withStrip(row, ArsoundTheme.color(strips.optString((i - firstRow) % strips.length()))), i);
+        }
+    }
+
+    private View withStrip(View row, int color) {
+        LinearLayout line = new LinearLayout(this);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        View strip = new View(this);
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(color);
+        shape.setCornerRadius(dp(2));
+        strip.setBackground(shape);
+        LinearLayout.LayoutParams stripParams = new LinearLayout.LayoutParams(dp(4), ViewGroup.LayoutParams.MATCH_PARENT);
+        stripParams.leftMargin = dimen("spacing_m");
+        stripParams.topMargin = dimen("spacing_s");
+        stripParams.bottomMargin = dimen("spacing_s");
+        line.addView(strip, stripParams);
+        line.addView(row, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return line;
+    }
+
     /** The main screen: one row per section, each section opens as its own screen. */
     private View createContent() {
         LinearLayout[] holder = new LinearLayout[1];
         LinearLayout root = createScreen(holder);
         LinearLayout list = holder[0];
+        // A theme may light the top of the main screen with its colour, fading into the background.
+        int glow = ArsoundTheme.decorColor(decor, "settingsGlow", 0);
+        if (glow != 0) {
+            android.graphics.drawable.GradientDrawable fade = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{glow, themeColor("themeColorSurface")});
+            android.graphics.drawable.LayerDrawable background = new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[]{
+                            new android.graphics.drawable.ColorDrawable(themeColor("themeColorSurface")), fade});
+            background.setLayerHeight(1, dp(280));
+            background.setLayerGravity(1, Gravity.TOP);
+            root.setBackground(background);
+        }
         list.addView(createTitle("Arsound", true));
 
         list.addView(openScreenRow(text("Аккаунт", "Account"),
@@ -173,6 +229,7 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(openScreenRow(text("Для разработчика", "Developer"),
                 text("Инструменты для проверки и отладки", "Testing and debugging tools"),
                 SCREEN_DEVELOPER));
+        addStrips(list, 1);
         return root;
     }
 

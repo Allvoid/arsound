@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The player's play button of the Scarlet theme: SoundCloud's drawing on an accent circle with a red glow (design 1a). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="64dp" android:height="64dp" android:viewportWidth="64" android:viewportHeight="64">
+    <!-- Soft red glow, a little lower than the button, as its shadow in the design. -->
+    <path android:pathData="M32,3A32,32 0,1 1,32 67A32,32 0,1 1,32 3Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="32" android:centerY="35" android:gradientRadius="32">
+                <item android:offset="0.6" android:color="#80E0242F" />
+                <item android:offset="1" android:color="#00E0242F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <group android:translateX="8" android:translateY="8">
+        <path android:fillColor="@color/shared_colors_special_action" android:pathData="M24,0L24,0A24,24 0,0 1,48 24L48,24A24,24 0,0 1,24 48L24,48A24,24 0,0 1,0 24L0,24A24,24 0,0 1,24 0z" />
+        <path android:fillColor="@color/white" android:pathData="M31.653,23.367L20.653,16.367C20.422,16.22 20.129,16.211 19.889,16.343C19.649,16.474 19.5,16.726 19.5,17V31C19.5,31.274 19.649,31.526 19.889,31.657C20.129,31.789 20.422,31.78 20.653,31.633L31.653,24.633C31.869,24.495 32,24.256 32,24C32,23.744 31.869,23.505 31.653,23.367Z" />
+    </group>
+</vector>

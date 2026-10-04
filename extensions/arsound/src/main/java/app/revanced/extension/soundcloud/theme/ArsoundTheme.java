@@ -127,6 +127,26 @@ public final class ArsoundTheme {
         return result;
     }
 
+    /**
+     * Decoration of Arsound's own screens by the chosen theme ("decor" in themes.json), or null:
+     * for example the colour strips of the settings rows and the greeting on the home screen.
+     */
+    public static JSONObject decor(Context context) {
+        Theme theme = currentTheme(context);
+        return theme == null ? null : theme.json.optJSONObject("decor");
+    }
+
+    /** A colour of the decoration, or the fallback when the theme has none. */
+    public static int decorColor(JSONObject decor, String name, int fallback) {
+        String value = decor == null ? "" : decor.optString(name);
+        return value.startsWith("#") ? parse(value) : fallback;
+    }
+
+    /** A colour written as in themes.json: #rrggbb or #rrggbbaa. */
+    public static int color(String hex) {
+        return parse(hex);
+    }
+
     /** The chosen theme id, {@link #SOUNDCLOUD} for the original look. */
     public static String current() {
         return Settings.getString(KEY, SOUNDCLOUD);
