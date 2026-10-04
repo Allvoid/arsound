@@ -5,8 +5,9 @@ Each theme replaces SoundCloud's font files (Söhne) slot by slot:
 regular (400), semibold (600), bold and extra bold (headings) and the numbers font (500).
 Only Latin, Cyrillic and punctuation are kept, so the files stay small.
 
-Run: python tools/branding/theme_fonts.py <folder with Onest.ttf, Manrope.ttf, Geologica.ttf, Nunito.ttf, Unbounded.ttf>
+Run: python tools/branding/theme_fonts.py <folder with variable fonts: GolosText.ttf, Onest.ttf, Manrope.ttf, ...>
 Output: patches/src/main/resources/soundcloud/theme/fonts/<font>_<weight>.ttf, one file per font and weight;
+only the fonts found in the folder are cut again, files of fonts no theme uses any more are removed;
 the slots of each theme are listed in ArsoundTheme (extension), which must match THEMES below.
 Needs: pip install fonttools
 """
@@ -26,8 +27,8 @@ OUT = ROOT / "patches/src/main/resources/soundcloud/theme/fonts"
 # Slot -> (font, weight). Slots are SoundCloud's font files: soehne_regular_400, soehne_semi_bold_600,
 # soehne_bold_900, soehne_extrafett_900 and roboto_medium_numbers.
 THEMES = {
-    "scarlet": {"regular": ("Onest", 400), "semibold": ("Onest", 600), "bold": ("Onest", 800),
-                "extrabold": ("Onest", 800), "numbers": ("Onest", 500)},
+    "scarlet": {"regular": ("GolosText", 400), "semibold": ("GolosText", 700), "bold": ("GolosText", 800),
+                "extrabold": ("GolosText", 900), "numbers": ("GolosText", 500)},
     "cobalt": {"regular": ("Manrope", 500), "semibold": ("Manrope", 600), "bold": ("Manrope", 800),
                "extrabold": ("Manrope", 800), "numbers": ("Manrope", 500)},
     "mint": {"regular": ("Geologica", 400), "semibold": ("Geologica", 600), "bold": ("Geologica", 700),
@@ -64,10 +65,17 @@ def instance(font_name, weight):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    needed = sorted({value for slots in THEMES.values() for value in slots.values()})
+    names = {f"{font_name.lower()}_{weight}.ttf" for font_name, weight in needed}
     for old in OUT.glob("*.ttf"):
-        old.unlink()
-    for font_name, weight in sorted({value for slots in THEMES.values() for value in slots.values()}):
-        instance(font_name, weight).save(OUT / f"{font_name.lower()}_{weight}.ttf")
+        if old.name not in names:
+            old.unlink()
+    for font_name, weight in needed:
+        target = OUT / f"{font_name.lower()}_{weight}.ttf"
+        if (SOURCE / f"{font_name}.ttf").is_file():
+            instance(font_name, weight).save(target)
+        elif not target.is_file():
+            sys.exit(f"Missing {font_name}.ttf in {SOURCE}")
     for license_file in SOURCE.glob("OFL-*.txt"):
         (OUT / license_file.name).write_bytes(license_file.read_bytes())
     total = sum(f.stat().st_size for f in OUT.glob("*.ttf"))

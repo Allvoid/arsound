@@ -175,11 +175,11 @@ python tools/branding/icons.py <папка экспорта иконки>/palett
 (`misc/branding/AppIcons.kt`, `branding/AppIconList.java`); их руками не правят.
 
 Темы оформления описаны в `patches/src/main/resources/soundcloud/theme/themes.json` (палитры тёмной и светлой темы,
-шрифты, скругления). Патч кладёт его и шрифты в `assets/arsound/` и делает заставку каждой темы; приложение подменяет
-цвета, шрифты и анимацию загрузки на лету. Шрифты пересобираются из переменных шрифтов Google Fonts (лицензия OFL):
+шрифты, скругления; `darkOnly` держит приложение тёмным через собственный тёмный режим приложения в Android 12+). Патч кладёт его и шрифты в `assets/arsound/` и делает заставку каждой темы; приложение подменяет
+цвета, шрифты и анимацию загрузки на лету. Шрифты пересобираются из переменных шрифтов Google Fonts (лицензия OFL); пересобираются только шрифты, лежащие в папке:
 
 ```bash
-python tools/branding/theme_fonts.py <папка с Onest.ttf, Manrope.ttf, Geologica.ttf, Nunito.ttf, Unbounded.ttf>
+python tools/branding/theme_fonts.py <папка с переменными шрифтами: GolosText.ttf, Onest.ttf, Manrope.ttf, ...>
 ```
 
 Русский перевод SoundCloud лежит в `patches/src/main/resources/soundcloud/translation/` (строки и множественные формы,

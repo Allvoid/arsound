@@ -51,6 +51,8 @@ import app.revanced.extension.soundcloud.settings.Settings;
 public final class ArsoundTheme {
     public static final String KEY = "arsound_theme";
     public static final String SOUNDCLOUD = "soundcloud";
+    /** Set while the app's dark mode is forced on by a dark-only theme. */
+    private static final String FORCED_NIGHT_KEY = "arsound_theme_forced_night";
 
     private static final String ASSETS = "arsound/";
     private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
@@ -70,11 +72,14 @@ public final class ArsoundTheme {
         public final String id;
         public final String name;
         public final String description;
+        /** The app stays dark whatever the phone's mode: the design has no light version. */
+        public final boolean darkOnly;
         final JSONObject json;
 
         Theme(JSONObject json) {
             this.json = json;
             id = json.optString("id");
+            darkOnly = json.optBoolean("darkOnly");
             name = json.optJSONObject("name").optString(RUSSIAN ? "ru" : "en");
             description = json.optJSONObject("description").optString(RUSSIAN ? "ru" : "en");
         }
@@ -175,6 +180,11 @@ public final class ArsoundTheme {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
         appContext = application;
         try {
+            applyNightMode(application, currentTheme(application));
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not set the dark mode", ex);
+        }
+        try {
             apply(application.getResources());
         } catch (Throwable ex) {
             Logger.printException(() -> "Theme: could not apply on start", ex);
@@ -217,6 +227,22 @@ public final class ArsoundTheme {
             public void onActivityDestroyed(Activity activity) {
             }
         });
+    }
+
+    /**
+     * Keeps the app dark for a dark-only theme, through Android's own per-app dark mode (Android 12 and later):
+     * every screen, the status bar and SoundCloud's night resources then follow it. Android remembers the mode,
+     * so it is given back to the phone's setting once, when another theme is chosen.
+     */
+    private static void applyNightMode(Context context, Theme theme) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        boolean dark = theme != null && theme.darkOnly;
+        boolean forced = !Settings.getString(FORCED_NIGHT_KEY, "").isEmpty();
+        if (dark == forced) return;
+        android.app.UiModeManager modes = context.getSystemService(android.app.UiModeManager.class);
+        if (modes == null) return;
+        modes.setApplicationNightMode(dark ? android.app.UiModeManager.MODE_NIGHT_YES : android.app.UiModeManager.MODE_NIGHT_AUTO);
+        Settings.putString(FORCED_NIGHT_KEY, dark ? "yes" : "");
     }
 
     /** Adds the loader of the chosen theme to these resources; nothing for the original look. */
