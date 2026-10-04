@@ -198,6 +198,9 @@ def main():
     )
     size = sum(f.stat().st_size for f in (RES / "drawable-nodpi").glob("arsound_icon_*_*.webp"))
     print(f"{len(everything)} icons written, bitmaps {size // 1024} KB")
+    # The icons from the Claude Design set (tools/branding/design_icons.py) are added back to the lists.
+    import design_icons
+    design_icons.main()
 
 
 if __name__ == "__main__":
