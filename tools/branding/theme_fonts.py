@@ -1,45 +1,35 @@
 """
-Static font files for the Arsound themes, cut from the OFL variable fonts of Google Fonts.
+Static font files for the Arsound themes, cut from the OFL fonts of Google Fonts.
 
-Each theme replaces SoundCloud's font files (Söhne) slot by slot:
-regular (400), semibold (600), bold and extra bold (headings) and the numbers font (500).
+Each theme replaces SoundCloud's font files (Söhne) slot by slot: regular, semibold, bold and extra bold (headings)
+and the numbers font. The files a theme uses are named in its "fonts" in themes.json:
+<font>_<weight> (for example golostext_400), or <font>_t<NN>_<weight> with the letters NN hundredths of an em closer
+to each other (golostext_t04_800; SoundCloud uses the bold and extra bold files only for headings, and designs
+often draw headings tight). <font> is the family name in lower case without spaces.
 Only Latin, Cyrillic and punctuation are kept, so the files stay small.
 
-Run: python tools/branding/theme_fonts.py <folder with variable fonts: GolosText.ttf, Onest.ttf, Manrope.ttf, ...>
-Output: patches/src/main/resources/soundcloud/theme/fonts/<font>_<weight>.ttf, one file per font and weight;
-only the fonts found in the folder are cut again, files of fonts no theme uses any more are removed;
-the slots of each theme are listed in ArsoundTheme (extension), which must match THEMES below.
+Run: python tools/branding/theme_fonts.py <folder with font files>
+The folder holds Google Fonts files: a variable font (GolosText[wght].ttf or GolosText.ttf) or static ones
+(MPLUSRounded1c-Bold.ttf). Only the fonts found there are cut again; files no theme uses any more are removed.
+tools/branding/theme_from_design.py downloads the fonts of a design by itself.
 Needs: pip install fonttools
 """
+import json
 import pathlib
+import re
 import sys
 
 from fontTools import subset
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 
-if len(sys.argv) < 2:
-    sys.exit("Usage: python tools/branding/theme_fonts.py <folder with the variable fonts>")
-SOURCE = pathlib.Path(sys.argv[1])
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "patches/src/main/resources/soundcloud/theme/fonts"
-
-# Slot -> (font, weight) or (font, weight, tracking in em). Slots are SoundCloud's font files: soehne_regular_400,
-# soehne_semi_bold_600, soehne_bold_900, soehne_extrafett_900 and roboto_medium_numbers. SoundCloud uses the bold
-# and extra bold files only for headings; a tracking makes their letters closer, as the design asks for headings.
-# A font with a tracking is saved as <font>_tight_<weight>.ttf.
-THEMES = {
-    "scarlet": {"regular": ("GolosText", 400), "semibold": ("GolosText", 700), "bold": ("GolosText", 800, -0.04),
-                "extrabold": ("GolosText", 900, -0.04), "numbers": ("GolosText", 500)},
-    "cobalt": {"regular": ("Manrope", 500), "semibold": ("Manrope", 600), "bold": ("Manrope", 800),
-               "extrabold": ("Manrope", 800), "numbers": ("Manrope", 500)},
-    "mint": {"regular": ("Geologica", 400), "semibold": ("Geologica", 600), "bold": ("Geologica", 700),
-             "extrabold": ("Geologica", 700), "numbers": ("Geologica", 500)},
-    "sakura": {"regular": ("Nunito", 600), "semibold": ("Nunito", 700), "bold": ("Nunito", 900),
-               "extrabold": ("Nunito", 900), "numbers": ("Nunito", 700)},
-    "lime": {"regular": ("Onest", 400), "semibold": ("Onest", 600), "bold": ("Unbounded", 600),
-             "extrabold": ("Unbounded", 600), "numbers": ("Onest", 500)},
-}
+THEMES = ROOT / "patches/src/main/resources/soundcloud/theme/themes.json"
+NAME = re.compile(r"^(?P<font>[a-z0-9]+?)(?:_t(?P<tracking>\d\d))?_(?P<weight>\d{3})$")
+# Names of static font files by weight, as Google Fonts writes them.
+WEIGHTS = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold",
+           700: "Bold", 800: "ExtraBold", 900: "Black"}
 
 UNICODES = [
     *range(0x20, 0x7F),      # Basic Latin
@@ -50,8 +40,29 @@ UNICODES = [
 ]
 
 
-def file_name(font_name, weight, tracking=0.0):
-    return f"{font_name.lower()}_{'tight_' if tracking else ''}{weight}.ttf"
+def key(name):
+    """A font name compared without case, spaces, dashes and the [wght] suffix."""
+    return re.sub(r"\[.*?]|[^a-z0-9]", "", name.lower())
+
+
+def find_source(folder, font, weight):
+    """The variable font of the family, or its static file of this weight (or the nearest one); None if absent."""
+    files = list(folder.glob("*.ttf"))
+    for file in files:
+        stem = file.stem
+        if "-" not in stem and key(stem) == font and "Italic" not in stem:
+            return file, True
+    statics = {}
+    for file in files:
+        family, _, style = file.stem.partition("-")
+        if key(family) == font:
+            for value, style_name in WEIGHTS.items():
+                if style == style_name:
+                    statics[value] = file
+    if not statics:
+        return None
+    nearest = min(statics, key=lambda value: abs(value - weight))
+    return statics[nearest], False
 
 
 def track(font, tracking):
@@ -63,37 +74,52 @@ def track(font, tracking):
             metrics[glyph] = (max(0, advance + delta), lsb)
 
 
-def instance(font_name, weight, tracking=0.0):
-    font = TTFont(SOURCE / f"{font_name}.ttf")
-    axes = {axis.axisTag: axis.defaultValue for axis in font["fvar"].axes}
-    axes["wght"] = weight
-    static = instancer.instantiateVariableFont(font, axes)
+def cut(source, variable, weight, tracking):
+    font = TTFont(source)
+    if variable and "fvar" in font:
+        axes = {axis.axisTag: axis.defaultValue for axis in font["fvar"].axes}
+        axes["wght"] = max(min(weight, max(a.maxValue for a in font["fvar"].axes if a.axisTag == "wght")),
+                           min(a.minValue for a in font["fvar"].axes if a.axisTag == "wght"))
+        font = instancer.instantiateVariableFont(font, axes)
     options = subset.Options()
     options.layout_features = ["*"]
     options.name_IDs = ["*"]
     options.notdef_outline = True
     subsetter = subset.Subsetter(options)
     subsetter.populate(unicodes=UNICODES)
-    subsetter.subset(static)
+    subsetter.subset(font)
     if tracking:
-        track(static, tracking)
-    return static
+        track(font, tracking)
+    return font
+
+
+def used_fonts():
+    themes = json.loads(THEMES.read_text(encoding="utf-8"))["themes"]
+    return sorted({name for theme in themes for name in theme.get("fonts", {}).values()})
 
 
 def main():
+    if len(sys.argv) < 2:
+        sys.exit("Usage: python tools/branding/theme_fonts.py <folder with font files>")
+    source_folder = pathlib.Path(sys.argv[1])
     OUT.mkdir(parents=True, exist_ok=True)
-    needed = sorted({value for slots in THEMES.values() for value in slots.values()})
-    names = {file_name(*font) for font in needed}
+    needed = used_fonts()
     for old in OUT.glob("*.ttf"):
-        if old.name not in names:
+        if old.stem not in needed:
             old.unlink()
-    for font in needed:
-        target = OUT / file_name(*font)
-        if (SOURCE / f"{font[0]}.ttf").is_file():
-            instance(*font).save(target)
+    for name in needed:
+        match = NAME.match(name)
+        if not match:
+            sys.exit(f"Font name {name} is not <font>_<weight> or <font>_t<NN>_<weight>")
+        weight = int(match["weight"])
+        tracking = -int(match["tracking"]) / 100 if match["tracking"] else 0.0
+        found = find_source(source_folder, match["font"], weight)
+        target = OUT / f"{name}.ttf"
+        if found:
+            cut(found[0], found[1], weight, tracking).save(target)
         elif not target.is_file():
-            sys.exit(f"Missing {font[0]}.ttf in {SOURCE}")
-    for license_file in SOURCE.glob("OFL-*.txt"):
+            sys.exit(f"No font file for {name} in {source_folder}")
+    for license_file in source_folder.glob("OFL*.txt"):
         (OUT / license_file.name).write_bytes(license_file.read_bytes())
     total = sum(f.stat().st_size for f in OUT.glob("*.ttf"))
     print(f"{len(list(OUT.glob('*.ttf')))} font files, {total // 1024} KB")
