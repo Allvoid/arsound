@@ -54,11 +54,17 @@ public final class SavedPlaylist {
         return saved != null && saved.equals(String.valueOf(urn));
     }
 
+    /** SoundCloud's {@code DefaultPlaylistOperations}, or null before the app made it. */
+    public static Object getPlaylistOperations() {
+        return playlistOperations;
+    }
+
     /** Called from the constructor of {@code DefaultPlaylistOperations}. */
     public static void setPlaylistOperations(Object instance) {
         playlistOperations = instance;
         if (checked) return;
         checked = true;
+        app.revanced.extension.soundcloud.recommendations.ForYou.onAppStart();
         // Give the app time to sign in and start; this never blocks the UI.
         Utils.runOnBackgroundThread(() -> {
             try {

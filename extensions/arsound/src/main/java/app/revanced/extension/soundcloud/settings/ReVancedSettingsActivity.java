@@ -151,7 +151,7 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Реклама, предложения Go и Go+, вкладка Upgrade", "Ads, Go and Go+ offers, Upgrade tab"),
                 SCREEN_ADS));
         list.addView(openScreenRow(text("Рекомендации", "Recommendations"),
-                text("Дубликаты треков на главной и в автовоспроизведении", "Duplicate tracks on the home screen and in autoplay"),
+                text("Плейлист «Для вас» от Last.fm, дубликаты, «Не нравится»", "\"For you\" playlist by Last.fm, duplicates, dislikes"),
                 SCREEN_RECOMMENDATIONS));
         list.addView(openScreenRow(text("Своя музыка", "Your music"),
                 text("Импорт файлов, плейлист «Импортированные», свой порядок", "Import files, \"Imported\" playlist, custom order"),
@@ -726,6 +726,8 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private void addRecommendationsSection(LinearLayout list) {
+        addForYouOptions(list);
+        list.addView(createSubHeading(text("Дубликаты", "Duplicates")));
         LinearLayout duplicateOptions = new LinearLayout(this);
         duplicateOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
@@ -753,6 +755,42 @@ public final class ReVancedSettingsActivity extends Activity {
         ));
         list.addView(duplicateOptions);
         addDislikeOptions(list);
+    }
+
+    private void addForYouOptions(LinearLayout list) {
+        list.addView(createSubHeading(text("Плейлист «Для вас»", "\"For you\" playlist")));
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.VERTICAL);
+        list.addView(createToggleRow(
+                text("Подбирать треки через Last.fm", "Pick tracks with Last.fm"),
+                text("Раз в день Arsound смотрит ваши лайки, плейлисты, импортированные треки и то, что вы слушаете чаще, "
+                                + "спрашивает у Last.fm, что слушают вместе с ними, и кладёт новые для вас треки в плейлист «Для вас». "
+                                + "В Last.fm уходят только названия треков и исполнителей, без аккаунта. Треки берутся из SoundCloud, "
+                                + "поэтому обновление нужно запускать без российского IP.",
+                        "Once a day Arsound looks at your likes, playlists, imported tracks and what you play most, asks Last.fm "
+                                + "what people listen to along with them and puts tracks new to you into the \"For you\" playlist. "
+                                + "Only track and artist names go to Last.fm, no account. Tracks come from SoundCloud, so the update "
+                                + "needs a connection without a Russian IP."),
+                app.revanced.extension.soundcloud.recommendations.ForYou.isEnabled(),
+                (button, checked) -> {
+                    Settings.putBoolean(app.revanced.extension.soundcloud.recommendations.ForYou.ENABLED, checked);
+                    options.setVisibility(checked ? View.VISIBLE : View.GONE);
+                }
+        ));
+        options.setVisibility(app.revanced.extension.soundcloud.recommendations.ForYou.isEnabled() ? View.VISIBLE : View.GONE);
+        String status = app.revanced.extension.soundcloud.recommendations.ForYou.status();
+        View refreshRow = createActionRow(text("Обновить сейчас", "Update now"),
+                status.isEmpty() ? text("Ещё не обновлялся", "Not updated yet") : text("Последнее обновление: ", "Last update: ") + status,
+                null);
+        TextView description = (TextView) ((ViewGroup) refreshRow).getChildAt(1);
+        refreshRow.setOnClickListener(v -> {
+            if (app.revanced.extension.soundcloud.recommendations.ForYou.isRunning()) return;
+            description.setText(text("Начинаю…", "Starting…"));
+            Utils.runOnBackgroundThread(() -> app.revanced.extension.soundcloud.recommendations.ForYou.refresh(
+                    message -> description.setText(message)));
+        });
+        options.addView(refreshRow);
+        list.addView(options);
     }
 
     private void addDislikeOptions(LinearLayout list) {
