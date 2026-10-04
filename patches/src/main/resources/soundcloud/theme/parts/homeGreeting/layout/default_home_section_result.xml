@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SoundCloud's home screen with the Scarlet greeting and red glow (design 1a). The ids and classes SoundCloud's
+<!-- SoundCloud's home screen with the theme's greeting and glow. The ids and classes SoundCloud's
      code looks for are the same as in SoundCloud's own layout. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/arsound_scarlet__arsound_home_glow"
+    android:background="@drawable/arsound_${theme}__arsound_home_glow"
     android:orientation="vertical">
 
     <androidx.compose.ui.platform.ComposeView

@@ -1,13 +1,13 @@
 """
-Icons of a theme: SoundCloud's icons redrawn with the Lucide icon set (ISC licence, lucide.dev).
+Icons for the themes: SoundCloud's icons redrawn with the Lucide icon set (ISC licence, lucide.dev).
 
 Each SoundCloud icon below gets a Lucide icon of the same meaning, as an Android vector drawable with the same name,
 size and colour as SoundCloud's own (the colour is read from SoundCloud's file, so tinting and the light, dark and
-active variants keep working). The files go to the theme's overrides folder. Then the theme's "resources" list in
-themes.json is written anew from everything in that folder (also hand-made files), so the theme patch puts them all
-into the app and the theme swaps them in: run the script after adding any file there.
+active variants keep working; an icon on a round backing keeps the backing). The files make up the theme part
+"lucideIcons" (patches/src/main/resources/soundcloud/theme/parts/lucideIcons): a theme that lists this part in
+themes.json gets them.
 
-Run: python tools/branding/theme_icons.py <theme id> <lucide-static package folder>
+Run: python tools/branding/theme_icons.py <lucide-static package folder>
 Needs the decoded SoundCloud resources in local/analysis/res-decoded (see BUILDING.md) and picosvg.
 The Lucide icons: https://registry.npmjs.org/lucide-static/-/lucide-static-0.460.0.tgz (the version the design used).
 """
@@ -20,7 +20,6 @@ from picosvg.svg_types import SVGPath
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOUNDCLOUD = ROOT / "local/analysis/res-decoded/res/drawable"
-THEMES = ROOT / "patches/src/main/resources/soundcloud/theme/themes.json"
 
 # SoundCloud icon -> Lucide icon; "+fill" fills the shape as well (for "active" icons such as a liked heart).
 ICONS = {
@@ -203,16 +202,13 @@ def vector(name, lucide, nodes):
 
 
 def main():
-    if len(sys.argv) < 3:
-        sys.exit("Usage: python tools/branding/theme_icons.py <theme id> <lucide-static package folder>")
-    theme, lucide_dir = sys.argv[1], pathlib.Path(sys.argv[2])
-    nodes = json.loads((lucide_dir / "icon-nodes.json").read_text(encoding="utf-8"))
-    out = ROOT / f"patches/src/main/resources/soundcloud/theme/overrides/{theme}/drawable"
+    if len(sys.argv) < 2:
+        sys.exit("Usage: python tools/branding/theme_icons.py <lucide-static package folder>")
+    nodes = json.loads((pathlib.Path(sys.argv[1]) / "icon-nodes.json").read_text(encoding="utf-8"))
+    out = ROOT / "patches/src/main/resources/soundcloud/theme/parts/lucideIcons/drawable"
     out.mkdir(parents=True, exist_ok=True)
-    # Only the icons this script made are replaced; hand-made files of the theme stay.
-    made = {f"drawable/{old.stem}" for old in out.glob("*.xml") if MARK in old.read_text(encoding="utf-8")}
-    for name in made:
-        (out / f"{name.split('/')[1]}.xml").unlink()
+    for old in out.glob("*.xml"):
+        old.unlink()
 
     names = {}
     for name, lucide in ICONS.items():
@@ -220,7 +216,7 @@ def main():
         for variant in VARIANTS:
             if f"{name}_{variant}" not in ICONS:
                 names.setdefault(f"{name}_{variant}", lucide)
-    written = []
+    written = 0
     for name, lucide in sorted(names.items()):
         if not (SOUNDCLOUD / f"{name}.xml").is_file():
             continue
@@ -228,26 +224,8 @@ def main():
         if xml is None:
             continue
         (out / f"{name}.xml").write_text(xml, encoding="utf-8")
-        written.append(f"drawable/{name}")
-
-    # The theme's "resources" list.
-    text = THEMES.read_text(encoding="utf-8")
-    block = re.search(r'("id": "' + theme + r'".*?"resources": \[)([^\]]*)(\])', text, re.S)
-    if not block:
-        sys.exit(f'Theme {theme} has no "resources" list in themes.json')
-    # Every file of the theme's overrides folder, so the list never misses a hand-made one.
-    folder = out.parent
-    entries = sorted(f"{file.parent.name}/{file.stem}" for file in folder.glob("*/*.xml"))
-    lines = [[]]
-    for entry in entries:
-        if lines[-1] and sum(len(item) + 4 for item in lines[-1]) + len(entry) > 100:
-            lines.append([])
-        lines[-1].append(f'"{entry}"')
-    listing = (",\n" + " " * 20).join(", ".join(line) for line in lines)
-    text = text[:block.start(2)] + listing + text[block.end(2):]
-    THEMES.write_text(text, encoding="utf-8")
-    json.loads(text)
-    print(f"{len(written)} icons for {theme}")
+        written += 1
+    print(f"{written} icons")
 
 
 if __name__ == "__main__":

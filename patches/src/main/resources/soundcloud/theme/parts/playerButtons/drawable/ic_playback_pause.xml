@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The player's pause button of the Scarlet theme: SoundCloud's drawing on an accent circle with a red glow (design 1a). -->
+<!-- The player's pause button : SoundCloud's drawing on an accent circle with a red glow. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
     android:width="64dp" android:height="64dp" android:viewportWidth="64" android:viewportHeight="64">
     <!-- Soft red glow, a little lower than the button, as its shadow in the design. -->
     <path android:pathData="M32,3A32,32 0,1 1,32 67A32,32 0,1 1,32 3Z">
         <aapt:attr name="android:fillColor">
             <gradient android:type="radial" android:centerX="32" android:centerY="35" android:gradientRadius="32">
-                <item android:offset="0.6" android:color="#80E0242F" />
-                <item android:offset="1" android:color="#00E0242F" />
+                <item android:offset="0.6" android:color="${accent@50}" />
+                <item android:offset="1" android:color="${accent@0}" />
             </gradient>
         </aapt:attr>
     </path>

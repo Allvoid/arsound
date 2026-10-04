@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home background of the Scarlet theme: the theme's near-black with a soft red glow at the top left (design 1a).
+<!-- Home background: the theme's background with a soft glow of its accent at the top left.
      The glow fades out above the list, which SoundCloud paints with its own background. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
@@ -14,8 +14,8 @@
                 android:centerX="0.3"
                 android:centerY="0.25"
                 android:gradientRadius="150dp"
-                android:startColor="#73E0242F"
-                android:endColor="#00E0242F" />
+                android:startColor="${accent@45}"
+                android:endColor="${accent@0}" />
         </shape>
     </item>
 </layer-list>
