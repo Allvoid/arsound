@@ -1,18 +1,24 @@
 {
-  "_about": "Arsound colour themes, from the Claude Design handoff 'Arsound: визуальный стиль' (step 1, five directions); Scarlet is variant 1a of 'Arsound App v2'. \"darkOnly\" themes keep the app dark whatever the phone's mode, their light palette repeats the dark one. Colours are #rrggbb or #rrggbbaa. Fonts name the files in fonts/ (tools/branding/theme_fonts.py). Radii in dp. Read by the theme patch (splash screen, fonts) and by the app (ArsoundTheme).",
+  "_about": "Arsound colour themes, from the Claude Design handoff 'Arsound: визуальный стиль' (step 1, five directions); Scarlet is variant 1a of 'Arsound App v2'. \"darkOnly\" themes keep the app dark whatever the phone's mode, their light palette repeats the dark one. \"colors\" overrides any other SoundCloud colour by name; \"resources\" are whole files from overrides/<theme>/<type>/<name>.xml that stand in for SoundCloud's (names starting with arsound_ are the theme's own additions). Colours are #rrggbb or #rrggbbaa. Fonts name the files in fonts/ (tools/branding/theme_fonts.py). Radii in dp. Read by the theme patch (splash screen, fonts) and by the app (ArsoundTheme).",
   "themes": [
     {
       "id": "scarlet",
       "name": {"ru": "Алый", "en": "Scarlet"},
-      "description": {"ru": "Почти чёрный с красным отливом и алый акцент, шрифт Golos Text. Всегда тёмная.",
-                      "en": "Near-black with a red tint and a scarlet accent, Golos Text font. Always dark."},
+      "description": {"ru": "Почти чёрный с красным отливом и алый акцент, шрифт Golos Text с плотными заголовками. Всегда тёмная.",
+                      "en": "Near-black with a red tint and a scarlet accent, Golos Text font with tight headings. Always dark."},
       "darkOnly": true,
-      "dark":  {"surface": "#0E0809", "primary": "#FFFFFF", "secondary": "#C4A7A9", "highlight": "#1F1112", "special": "#E0242F",
+      "dark":  {"surface": "#0E0809", "primary": "#FFFFFF", "secondary": "#C4A7A9", "highlight": "#2A1517", "special": "#E0242F",
                 "error": "#FFB020", "overlay": "#0E0809B3", "imageBorders": "#FFFFFF00", "dialog": "#1F1112"},
-      "light": {"surface": "#0E0809", "primary": "#FFFFFF", "secondary": "#C4A7A9", "highlight": "#1F1112", "special": "#E0242F",
+      "light": {"surface": "#0E0809", "primary": "#FFFFFF", "secondary": "#C4A7A9", "highlight": "#2A1517", "special": "#E0242F",
                 "error": "#FFB020", "overlay": "#0E0809B3", "imageBorders": "#FFFFFF00", "dialog": "#1F1112"},
-      "fonts": {"regular": "golostext_400", "semibold": "golostext_700", "bold": "golostext_800", "extrabold": "golostext_900", "numbers": "golostext_500"},
-      "radii": {"card": 4, "miniPlayer": 36}
+      "fonts": {"regular": "golostext_400", "semibold": "golostext_700", "bold": "golostext_tight_800", "extrabold": "golostext_tight_900", "numbers": "golostext_500"},
+      "radii": {"card": 4, "miniPlayer": 36},
+      "colors": {"extended_palette_grey_950": "#1F1112", "extended_palette_grey_900": "#2A1517", "extended_palette_grey_800": "#3A1A1D",
+                 "extended_palette_grey_700": "#4E2A2D", "extended_palette_grey_600": "#634245", "extended_palette_grey_500": "#8A6E70",
+                 "extended_palette_grey_400": "#A88D8F", "extended_palette_grey_300": "#C4A7A9", "extended_palette_grey_200": "#D8C2C3",
+                 "extended_palette_grey_100": "#F3EBEB", "extended_palette_grey_50": "#F9F5F5"},
+      "resources": ["drawable/bth_footer_shape", "drawable/bth_footer_shape_dark_surfaces", "drawable/arsound_tab_bar",
+                    "layout/bottom_navigation_view_large_screens_restyle", "color/bottom_tab_bar_item_color"]
     },
     {
       "id": "cobalt",

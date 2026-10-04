@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tab icons and labels: the open tab in the accent, the others muted. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:color="@color/shared_colors_special_action" />
+    <item android:state_checked="true" android:color="@color/shared_colors_special_action" />
+    <item android:state_active="true" android:color="@color/shared_colors_special_action" />
+    <item android:color="?themeColorSecondary" />
+</selector>

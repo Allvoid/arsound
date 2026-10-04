@@ -14,8 +14,8 @@ import java.util.TreeMap;
  * by their ids. Android loads it with {@code ResourcesProvider.loadFromTable} into a {@code ResourcesLoader};
  * the values then win over the app's own for every lookup: XML, styles, {@code getColor}, Compose.
  * <p>
- * Only what Arsound needs: one package, colours, dimensions and file references (fonts, raw files),
- * each in the default configuration or the night one.
+ * Only what Arsound needs: one package, colours, dimensions, file references (fonts, raw files) and
+ * references to other resources of the app, each in the default configuration or the night one.
  */
 final class ArscWriter {
     private static final short RES_STRING_POOL_TYPE = 0x0001;
@@ -24,6 +24,7 @@ final class ArscWriter {
     private static final short RES_TABLE_TYPE_TYPE = 0x0201;
     private static final short RES_TABLE_TYPE_SPEC_TYPE = 0x0202;
 
+    static final byte TYPE_REFERENCE = 0x01;
     static final byte TYPE_STRING = 0x03;
     static final byte TYPE_DIMENSION = 0x05;
     static final byte TYPE_INT_COLOR_ARGB8 = 0x1c;
@@ -51,6 +52,11 @@ final class ArscWriter {
         /** A file inside the provider, such as {@code res/font/x.ttf}. */
         static Value file(String path) {
             return new Value(TYPE_STRING, 0, path);
+        }
+
+        /** Another resource of the app, such as a theme's own drawable that stands in for SoundCloud's. */
+        static Value reference(int id) {
+            return new Value(TYPE_REFERENCE, id, null);
         }
 
         /** Density-independent pixels, as a complex dimension. */
