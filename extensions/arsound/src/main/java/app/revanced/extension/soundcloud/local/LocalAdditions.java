@@ -129,7 +129,7 @@ public final class LocalAdditions {
     }
 
     /** Replaces the added entries of a playlist, keeping the given order. */
-    static void setEntries(String playlistUrn, List<String> entries) {
+    public static void setEntries(String playlistUrn, List<String> entries) {
         Map<String, List<String>> additions = readAdditions();
         additions.put(playlistUrn, new ArrayList<>(entries));
         writeAdditions(additions);

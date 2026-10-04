@@ -75,6 +75,9 @@ local/
   manager.keystore                       (необязательно) ключ, экспортированный из ReVanced Manager;
   manager.keystore.alias, .password      его псевдоним и пароль из Manager → Настройки → Импорт и экспорт.
                                          Если он есть, сборка ставится поверх версии из Manager без потери данных
+  lastfm.properties                      (необязательно) api_key=... — ключ Last.fm для плейлиста «Для вас»
+                                         (last.fm/api/account/create). Без него плейлист не собирается.
+                                         Вместо файла можно задать переменную ARSOUND_LASTFM_API_KEY
   out/                                   готовые APK и логи
 ```
 

@@ -240,6 +240,22 @@ public final class BatchActivity extends Activity {
         return result;
     }
 
+    /**
+     * The full original of a track on SoundCloud: by the artist, with the wanted title, not a snippet or
+     * another version. Null if the search has none. Blocks: call it off the main thread.
+     */
+    public static ClientProfiles.FoundTrack findOnSoundCloud(String artist, String title) throws Exception {
+        for (ClientProfiles.FoundTrack track : ClientProfiles.searchTracks(artist + " " + title)) {
+            boolean byArtist = normalize(track.user).contains(normalize(artist))
+                    || normalize(track.title).contains(normalize(artist));
+            if (byArtist && track.isFull() && holdsTitle(stripArtist(track.title, artist), title)
+                    && !isVariant(track.title, title) && !isSnippet(track.title, title)) {
+                return track;
+            }
+        }
+        return null;
+    }
+
     private static final String[] VARIANTS = {"speed up", "sped up", "speedup", "slowed", "reverb", "remix",
             "nightcore", "cover", "karaoke", "instrumental", "минус", "ускор", "замедл", "ремикс", "кавер",
             "censored", "clean version", "radio edit", "цензур"};
