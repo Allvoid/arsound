@@ -90,7 +90,13 @@ val brandingPatch = resourcePatch {
             "soundcloud/branding",
             ResourceGroup(
                 "drawable",
-                *APP_ICONS.flatMap { listOf("arsound_icon_bg_$it.xml", "arsound_icon_fg_$it.xml") }.toTypedArray(),
+                *APP_ICONS.filter { it !in BITMAP_APP_ICONS }
+                    .flatMap { listOf("arsound_icon_bg_$it.xml", "arsound_icon_fg_$it.xml") }.toTypedArray(),
+            ),
+            // Glowing, neon and art icons: their layers are bitmaps.
+            ResourceGroup(
+                "drawable-nodpi",
+                *BITMAP_APP_ICONS.flatMap { listOf("arsound_icon_bg_$it.webp", "arsound_icon_fg_$it.webp") }.toTypedArray(),
             ),
             ResourceGroup("mipmap-anydpi", *APP_ICONS.map { "arsound_icon_$it.xml" }.toTypedArray()),
         )

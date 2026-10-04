@@ -12,6 +12,9 @@ import app.arsound.patches.soundcloud.misc.account.accountTypePatch
 import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatch
 import app.arsound.patches.soundcloud.misc.appname.appNamePatch
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
+import app.arsound.patches.soundcloud.misc.translation.russianTranslationPatch
+import app.arsound.patches.soundcloud.misc.theme.themePatch
+import app.arsound.patches.soundcloud.recommendations.forYouPatch
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.patches.soundcloud.network.networkPatch
 import app.arsound.patches.soundcloud.offline.downloadedPlaybackPatch
@@ -44,6 +47,9 @@ private val basePatch = bytecodePatch {
         removePhonePermissionPatch,
         appNamePatch,
         brandingPatch,
+        russianTranslationPatch,
+        themePatch,
+        forYouPatch,
         // Renames the package after every other patch.
         changePackageNamePatch,
     )
@@ -69,8 +75,8 @@ val arsoundBaseGroup = arsoundGroup(
 
 @Suppress("unused")
 val arsoundNoAdsGroup = arsoundGroup(
-    "Arsound: без рекламы",
-    "Нет рекламы между треками, баннеров и полноэкранной рекламы; нет предложений подписки Go и Go+.",
+    "Arsound: без лишнего",
+    "Без предложений подписки Go и Go+, баннера «Transfer your gems» и лишних вставок в интерфейсе.",
     playbackAdsPatch,
     hideSubscriptionOffersPatch,
     hideImportBannerPatch,

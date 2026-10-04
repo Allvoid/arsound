@@ -42,7 +42,7 @@ rem The "Arsound: ..." groups include every patch of this project, with the opti
 "%JAVA_HOME%\bin\java.exe" -jar local\tools\revanced-cli-6.0.0-all.jar patch ^
   -p "%RVP%" -b --exclusive ^
   -e "Arsound: основа" ^
-  -e "Arsound: без рекламы" ^
+  -e "Arsound: без лишнего" ^
   -e "Arsound: скачивание" ^
   -e "Arsound: своя музыка" ^
   -e "Arsound: мгновенные плейлисты" ^

@@ -1,0 +1,65 @@
+{
+  "_about": "Arsound colour themes, from the Claude Design handoff 'Arsound: визуальный стиль' (step 1, five directions). Colours are #rrggbb or #rrggbbaa. Fonts name the files in fonts/ (tools/branding/theme_fonts.py). Radii in dp. Read by the theme patch (splash screen, fonts) and by the app (ArsoundTheme).",
+  "themes": [
+    {
+      "id": "scarlet",
+      "name": {"ru": "Алый", "en": "Scarlet"},
+      "description": {"ru": "Тёплый графит и алый: алым горят только Play, лайк и прогресс. Шрифт Onest.",
+                      "en": "Warm graphite and scarlet: only Play, like and progress glow red. Onest font."},
+      "dark":  {"surface": "#120E0F", "primary": "#F7F1F1", "secondary": "#B9AEAF", "highlight": "#2A2224", "special": "#FF2D46",
+                "error": "#FFB020", "overlay": "#0A0708B3", "imageBorders": "#FFFFFF1F", "dialog": "#1E1719"},
+      "light": {"surface": "#FFF9F8", "primary": "#1A0F11", "secondary": "#6E5F61", "highlight": "#F4EAEA", "special": "#E0102F",
+                "error": "#B45309", "overlay": "#1A0F1166", "imageBorders": "#1A0F1124", "dialog": "#FFFFFF"},
+      "fonts": {"regular": "onest_400", "semibold": "onest_600", "bold": "onest_800", "extrabold": "onest_800", "numbers": "onest_500"},
+      "radii": {"card": 10, "miniPlayer": 16}
+    },
+    {
+      "id": "cobalt",
+      "name": {"ru": "Кобальт", "en": "Cobalt"},
+      "description": {"ru": "Холодный ночной синий и электрический кобальт. Спокойно, дружит с любыми обложками. Шрифт Manrope.",
+                      "en": "Cold night blue and electric cobalt. Calm, goes with any artwork. Manrope font."},
+      "dark":  {"surface": "#0D1117", "primary": "#EEF3FA", "secondary": "#9AA8BC", "highlight": "#1D2633", "special": "#4C9AFF",
+                "error": "#FF6B81", "overlay": "#05080DB3", "imageBorders": "#C8DCFF29", "dialog": "#161D27"},
+      "light": {"surface": "#F7F9FC", "primary": "#0B1220", "secondary": "#5A6678", "highlight": "#E9EEF5", "special": "#1F6FEB",
+                "error": "#D1243F", "overlay": "#0B122066", "imageBorders": "#0B122021", "dialog": "#FFFFFF"},
+      "fonts": {"regular": "manrope_500", "semibold": "manrope_600", "bold": "manrope_800", "extrabold": "manrope_800", "numbers": "manrope_500"},
+      "radii": {"card": 8, "miniPlayer": 14}
+    },
+    {
+      "id": "mint",
+      "name": {"ru": "Мята", "en": "Mint"},
+      "description": {"ru": "Хвойный почти-чёрный и светящаяся мята: акцент читается как индикатор «играет». Шрифт Geologica.",
+                      "en": "Pine near-black and glowing mint: the accent reads as a \"playing\" light. Geologica font."},
+      "dark":  {"surface": "#0D110F", "primary": "#EDF5F0", "secondary": "#9DB0A5", "highlight": "#1C2520", "special": "#34E0A1",
+                "error": "#FF6B6B", "overlay": "#050806B3", "imageBorders": "#D2FFE529", "dialog": "#151C18"},
+      "light": {"surface": "#F7FAF8", "primary": "#0C1A13", "secondary": "#56685E", "highlight": "#E8F0EB", "special": "#087A52",
+                "error": "#D12E3A", "overlay": "#0C1A1366", "imageBorders": "#0C1A1321", "dialog": "#FFFFFF"},
+      "fonts": {"regular": "geologica_400", "semibold": "geologica_600", "bold": "geologica_700", "extrabold": "geologica_700", "numbers": "geologica_500"},
+      "radii": {"card": 12, "miniPlayer": 18}
+    },
+    {
+      "id": "sakura",
+      "name": {"ru": "Сакура", "en": "Sakura"},
+      "description": {"ru": "Лиловая ночь и розовая сакура, мягкие формы и круглый шрифт Nunito.",
+                      "en": "Lilac night and pink sakura, soft shapes and the rounded Nunito font."},
+      "dark":  {"surface": "#15121C", "primary": "#FFF3F8", "secondary": "#C3B5CC", "highlight": "#2A2335", "special": "#FF85BE",
+                "error": "#FFC857", "overlay": "#0B0912B3", "imageBorders": "#FFD6EC33", "dialog": "#201A2A"},
+      "light": {"surface": "#FFF7FA", "primary": "#2A1830", "secondary": "#7A6680", "highlight": "#FBEAF2", "special": "#D9418A",
+                "error": "#B7791F", "overlay": "#2A183066", "imageBorders": "#2A183021", "dialog": "#FFFFFF"},
+      "fonts": {"regular": "nunito_600", "semibold": "nunito_700", "bold": "nunito_900", "extrabold": "nunito_900", "numbers": "nunito_700"},
+      "radii": {"card": 18, "miniPlayer": 28}
+    },
+    {
+      "id": "lime",
+      "name": {"ru": "Лайм", "en": "Lime"},
+      "description": {"ru": "Фиолетовый и кислотный лайм, острые углы, широкие заголовки Unbounded. В светлой теме акцент фиолетовый.",
+                      "en": "Violet and acid lime, sharp corners, wide Unbounded headings. The light theme uses a violet accent."},
+      "dark":  {"surface": "#100C18", "primary": "#F3F0FA", "secondary": "#ABA3BD", "highlight": "#251D36", "special": "#A3FF3D",
+                "error": "#FF4D6D", "overlay": "#07050CB3", "imageBorders": "#D9CCFF29", "dialog": "#1A1426"},
+      "light": {"surface": "#F9F8FC", "primary": "#150F22", "secondary": "#615A72", "highlight": "#ECE8F5", "special": "#6D28D9",
+                "error": "#D0103A", "overlay": "#150F2266", "imageBorders": "#150F2221", "dialog": "#FFFFFF"},
+      "fonts": {"regular": "onest_400", "semibold": "onest_600", "bold": "unbounded_600", "extrabold": "unbounded_600", "numbers": "onest_500"},
+      "radii": {"card": 4, "miniPlayer": 6}
+    }
+  ]
+}

@@ -24,14 +24,17 @@ import app.revanced.extension.soundcloud.local.LocalSheet;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
- * Checks the GitHub releases of Arsound for a newer version.
+ * Checks the GitHub releases of Arsound for a newer version. Nothing is downloaded or installed by the app:
+ * it offers the ready APK in the Telegram channel or the patches on GitHub.
  */
 @SuppressWarnings("unused")
 public final class UpdateChecker {
     /** Must match {@code version} in gradle.properties. */
-    public static final String VERSION = "0.6.0";
+    public static final String VERSION = "0.7.0";
 
     public static final String REPOSITORY_URL = "https://github.com/Allvoid/arsound";
+    /** The ready APK of every version is posted here. */
+    public static final String TELEGRAM_URL = "https://t.me/arsound_git";
     private static final String LATEST_RELEASE_API =
             "https://api.github.com/repos/Allvoid/arsound/releases/latest";
 
@@ -195,8 +198,11 @@ public final class UpdateChecker {
     public static void showUpdateSheet(Context context, Release release) {
         boolean russian = Locale.getDefault().getLanguage().equals("ru");
         java.util.List<LocalSheet.Item> items =LocalSheet.items();
-        items.add(new LocalSheet.Item(russian ? "Скачать" : "Download", "ic_actions_download",
-                () -> openUrl(context, release.url)));
+        // Nothing is downloaded by the app: the user picks where to get the new version.
+        items.add(new LocalSheet.Item(russian ? "Скачать APK в Telegram" : "Download the APK on Telegram",
+                "ic_actions_download", () -> openUrl(context, TELEGRAM_URL)));
+        items.add(new LocalSheet.Item(russian ? "Патчи на GitHub (для ReVanced Manager)" : "Patches on GitHub (for ReVanced Manager)",
+                "ic_actions_link", () -> openUrl(context, release.url)));
         items.add(new LocalSheet.Item(russian ? "Позже" : "Later", "ic_actions_close", null));
         LocalSheet.show(context,
                 russian ? "Доступно обновление" : "Update available",

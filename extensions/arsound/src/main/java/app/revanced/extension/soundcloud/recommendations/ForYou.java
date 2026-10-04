@@ -47,14 +47,13 @@ public final class ForYou {
     public static final String ENABLED = "for_you_enabled";
     private static final String PREFERENCES_NAME = "arsound_for_you";
     private static final String PLAYLIST_URN = "playlist_urn";
-    /** The last refresh that filled the playlist; the daily one waits for it. */
+    /** The last refresh after which nothing is left for the day (filled, or nothing to add). */
     private static final String LAST_REFRESH = "last_refresh";
     private static final String LAST_ATTEMPT = "last_attempt";
     private static final String LAST_STATUS = "last_status";
     private static final String MATCHES = "matches";
     private static final String PREVIOUS = "previous";
 
-    private static final long REFRESH_EVERY_MS = TimeUnit.HOURS.toMillis(20);
     private static final long MATCH_KEPT_MS = TimeUnit.DAYS.toMillis(14);
     private static final int MAX_SEEDS = 60;
     private static final int SEEDS_PER_ARTIST = 4;
@@ -114,23 +113,44 @@ public final class ForYou {
         return russian() ? russian : english;
     }
 
-    /** Called when the app starts (from {@link SavedPlaylist}): refreshes once a day, in the background. */
+    /** Called when the app starts (from {@link SavedPlaylist}): plans the midnight update. */
     public static void onAppStart() {
-        if (!isEnabled() || !LastFm.hasKey()) return;
+        Context context = Utils.getContext();
+        if (context == null) return;
+        if (!isEnabled() || !LastFm.hasKey()) {
+            ForYouJob.cancel(context);
+            return;
+        }
+        ForYouJob.schedule(context, lastRefresh());
+    }
+
+    /** Switched in the settings: the midnight update is planned or cancelled. */
+    public static void setEnabled(boolean enabled) {
+        Settings.putBoolean(ENABLED, enabled);
+        onAppStart();
+    }
+
+    /** When the playlist was last updated (or found nothing to add), 0 if never. */
+    public static long lastRefresh() {
         SharedPreferences preferences = preferences();
-        if (preferences == null) return;
-        if (System.currentTimeMillis() - preferences.getLong(LAST_REFRESH, 0) < REFRESH_EVERY_MS) return;
-        Utils.runOnBackgroundThread(() -> {
-            try {
-                // After the saved playlist check, which shares the start with this.
-                Thread.sleep(20_000);
-                // On a Russian IP nothing can be fetched; the next start tries again.
-                if ("RU".equals(app.revanced.extension.soundcloud.network.RegionGuard.lastCountry())) return;
-                refresh(null);
-            } catch (Exception ex) {
-                Logger.printException(() -> "For you: refresh on start failed", ex);
-            }
-        });
+        return preferences == null ? 0 : preferences.getLong(LAST_REFRESH, 0);
+    }
+
+    enum Outcome {
+        /** The playlist was filled. */
+        FILLED,
+        /** Nothing to do until tomorrow: no key, no seeds, nothing new. */
+        DONE,
+        /** Last.fm or SoundCloud could not be reached; worth trying again soon. */
+        RETRY
+    }
+
+    private static volatile Outcome lastOutcome = Outcome.DONE;
+
+    /** The midnight update. Blocks. */
+    static Outcome refreshScheduled() {
+        refresh(null);
+        return lastOutcome;
     }
 
     /** Progress and the result of a refresh, on the main thread. May be null. */
@@ -144,10 +164,12 @@ public final class ForYou {
         running = true;
         String result;
         boolean filled = false;
+        lastOutcome = Outcome.RETRY;
         try {
             result = build(listener);
             filled = result.startsWith(FILLED);
             if (filled) result = result.substring(FILLED.length());
+            if (result.startsWith(DONE)) result = result.substring(DONE.length());
         } catch (Exception ex) {
             Logger.printException(() -> "For you: refresh failed", ex);
             result = text("Ошибка: ", "Error: ") + ex.getMessage();
@@ -159,7 +181,7 @@ public final class ForYou {
         if (preferences != null) {
             SharedPreferences.Editor editor = preferences.edit()
                     .putLong(LAST_ATTEMPT, System.currentTimeMillis()).putString(LAST_STATUS, status);
-            if (filled) editor.putLong(LAST_REFRESH, System.currentTimeMillis());
+            if (filled || lastOutcome == Outcome.DONE) editor.putLong(LAST_REFRESH, System.currentTimeMillis());
             editor.apply();
         }
         Logger.printInfo(() -> "For you: " + status);
@@ -378,6 +400,18 @@ public final class ForYou {
 
     /** Marks a result that filled the playlist. */
     private static final String FILLED = "[filled]";
+    /** Marks a result after which trying again today would not help. */
+    private static final String DONE = "[done]";
+
+    private static String done(String message) {
+        lastOutcome = Outcome.DONE;
+        return DONE + message;
+    }
+
+    private static String filled(String message) {
+        lastOutcome = Outcome.FILLED;
+        return FILLED + message;
+    }
 
     private static String needsVpn() {
         return text("Нужен VPN: Last.fm и SoundCloud не работают с российского IP",
@@ -387,13 +421,13 @@ public final class ForYou {
     private static String build(Listener listener) throws Exception {
         Context context = Utils.getContext();
         if (context == null) throw new IllegalStateException("No context");
-        if (!LastFm.hasKey()) return text("Нет ключа Last.fm в сборке", "No Last.fm key in this build");
+        if (!LastFm.hasKey()) return done(text("Нет ключа Last.fm в сборке", "No Last.fm key in this build"));
         if ("RU".equals(app.revanced.extension.soundcloud.network.RegionGuard.lastCountry())) return needsVpn();
 
         report(listener, text("Собираю вашу библиотеку…", "Reading your library…"));
         Set<String> known = new HashSet<>();
         List<Seed> seeds = collectSeeds(context, known);
-        if (seeds.isEmpty()) return text("В библиотеке нет треков, от которых можно оттолкнуться", "No tracks in the library to start from");
+        if (seeds.isEmpty()) return done(text("В библиотеке нет треков, от которых можно оттолкнуться", "No tracks in the library to start from"));
         List<Seed> picked = pickSeeds(seeds);
         Logger.printInfo(() -> "For you: " + seeds.size() + " seeds, asking about " + picked.size());
 
@@ -457,7 +491,7 @@ public final class ForYou {
             return text("SoundCloud недоступен (российский IP или нет сети) — плейлист не изменён",
                     "SoundCloud is not reachable (Russian IP or no network), playlist unchanged");
         }
-        if (entries.isEmpty()) return text("Ничего нового не нашлось в SoundCloud", "Nothing new found on SoundCloud");
+        if (entries.isEmpty()) return done(text("Ничего нового не нашлось в SoundCloud", "Nothing new found on SoundCloud"));
 
         report(listener, text("Обновляю плейлист…", "Updating the playlist…"));
         String urn = ensurePlaylist();
@@ -466,7 +500,7 @@ public final class ForYou {
         }
         LocalAdditions.setEntries(urn, entries);
         Utils.runOnMainThread(() -> LocalAdditions.notifyPlaylistChanged(urn));
-        return FILLED + text("в плейлисте " + entries.size() + " треков", entries.size() + " tracks in the playlist");
+        return filled(text("в плейлисте " + entries.size() + " треков", entries.size() + " tracks in the playlist"));
     }
 
     /**
@@ -558,6 +592,41 @@ public final class ForYou {
         return entries;
     }
 
+    /**
+     * The "For you" playlist already on the server: the oldest one with a known title. Empty copies next to it
+     * (left by older versions or a failed check) are deleted. Null if there is none or the server could not be asked;
+     * in the second case nothing is created either.
+     */
+    private static String adoptFromServer() throws Exception {
+        String[] me = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
+        if (me[1] == null) throw new java.io.IOException("SoundCloud did not answer: HTTP " + me[0]);
+        long userId = new JSONObject(me[1]).getLong("id");
+        String[] response = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet(
+                "https://api-v2.soundcloud.com/users/" + userId + "/playlists_without_albums?limit=200");
+        if (response[1] == null) throw new java.io.IOException("SoundCloud did not answer: HTTP " + response[0]);
+        org.json.JSONArray playlists = new JSONObject(response[1]).optJSONArray("collection");
+        List<long[]> copies = new ArrayList<>();
+        for (int i = 0; playlists != null && i < playlists.length(); i++) {
+            JSONObject playlist = playlists.getJSONObject(i);
+            if (KNOWN_TITLES.contains(playlist.optString("title"))) {
+                copies.add(new long[]{playlist.getLong("id"), playlist.optInt("track_count")});
+            }
+        }
+        if (copies.isEmpty()) return null;
+        copies.sort((a, b) -> Long.compare(a[0], b[0]));
+        for (int i = 1; i < copies.size(); i++) {
+            long[] copy = copies.get(i);
+            // Tracks of this playlist exist only on the phone; a copy with tracks on the server is someone's own.
+            if (copy[1] != 0) continue;
+            int code = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiDelete(
+                    "https://api-v2.soundcloud.com/playlists/" + copy[0]);
+            Logger.printInfo(() -> "For you: deleted the extra copy " + copy[0] + ", HTTP " + code);
+        }
+        String urn = "soundcloud:playlists:" + copies.get(0)[0];
+        Logger.printInfo(() -> "For you: using the existing playlist " + urn);
+        return urn;
+    }
+
     /** The playlist on SoundCloud: the stored one, an existing empty one with the title, or a new one. */
     private static String ensurePlaylist() throws Exception {
         SharedPreferences preferences = preferences();
@@ -571,7 +640,14 @@ public final class ForYou {
             if (!"404".equals(response[0])) return urn;
             Logger.printInfo(() -> "For you: the playlist was deleted, creating it again");
         }
-        // After a reinstall the stored urn is gone, but the playlist still exists.
+        // After a reinstall or cleared data the stored urn is gone, but the playlist still exists on the server.
+        // The server is asked first: right after a reset the library on the phone is still empty, and creating
+        // a playlist then was how "Imported" got duplicated.
+        String adopted = adoptFromServer();
+        if (adopted != null) {
+            preferences.edit().putString(PLAYLIST_URN, adopted).apply();
+            return adopted;
+        }
         for (Object item : app.revanced.extension.soundcloud.offline.PlaylistPreloader.libraryItems("LOCAL_ONLY")) {
             try {
                 String title = String.valueOf(item.getClass().getMethod("getTitle").invoke(item));
