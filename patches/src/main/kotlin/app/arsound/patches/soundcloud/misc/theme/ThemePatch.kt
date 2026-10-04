@@ -29,9 +29,11 @@ private fun androidColor(hex: String) = if (hex.length == 9) "#" + hex.substring
 private fun readThemes(json: String): List<ThemeColors> = json.split("\"id\":").drop(1).map { block ->
     fun color(mode: String, role: String) = Regex("\"$mode\":\\s*\\{[^}]*\"$role\":\\s*\"(#[0-9A-Fa-f]+)\"")
         .find(block)?.groupValues?.get(1) ?: error("No $mode $role in themes.json")
+    // A dark-only theme keeps the app dark, so its start screen is dark in both modes too.
+    val light = if (Regex("\"darkOnly\":\\s*true").containsMatchIn(block)) "dark" else "light"
     ThemeColors(
         Regex("\"(\\w+)\"").find(block)!!.groupValues[1],
-        color("dark", "surface"), color("dark", "special"), color("light", "surface"), color("light", "special"),
+        color("dark", "surface"), color("dark", "special"), color(light, "surface"), color(light, "special"),
     )
 }
 

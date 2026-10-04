@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "x" (ISC licence) in place of SoundCloud's ic_navigation_close_large. Made by tools/branding/theme_icons.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="48.0dp" android:width="48.0dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="@color/black" android:pathData="M24,0L24,0A24,24 0,0 1,48 24L48,24A24,24 0,0 1,24 48L24,48A24,24 0,0 1,0 24L0,24A24,24 0,0 1,24 0z" android:fillAlpha="0.4" />
+    <group android:scaleX="0.784" android:scaleY="0.784" android:translateX="14.596" android:translateY="14.596">
+        <path android:pathData="M18 6 6 18" android:strokeColor="@color/extended_palette_zinc_50" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="m6 6 12 12" android:strokeColor="@color/extended_palette_zinc_50" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    </group>
+</vector>

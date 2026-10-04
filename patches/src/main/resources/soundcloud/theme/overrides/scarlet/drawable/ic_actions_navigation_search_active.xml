@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "search" (ISC licence) in place of SoundCloud's ic_actions_navigation_search_active. Made by tools/branding/theme_icons.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="24.0dp" android:width="24.0dp" android:autoMirrored="true" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M3,11a8,8 0 1,0 16,0a8,8 0 1,0 -16,0Z" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="m21 21-4.3-4.3" android:strokeColor="?colorDrawablePrimary" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

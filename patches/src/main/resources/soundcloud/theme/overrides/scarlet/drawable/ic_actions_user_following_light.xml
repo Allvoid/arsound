@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "user-check" (ISC licence) in place of SoundCloud's ic_actions_user_following_light. Made by tools/branding/theme_icons.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="24.0dp" android:width="24.0dp" android:autoMirrored="true" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" android:strokeColor="@color/white" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M5,7a4,4 0 1,0 8,0a4,4 0 1,0 -8,0Z" android:strokeColor="@color/white" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M16,11L18,13L22,9" android:strokeColor="@color/white" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>
