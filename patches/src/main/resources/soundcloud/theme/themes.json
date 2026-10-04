@@ -1,17 +1,18 @@
 {
-  "_about": "Arsound colour themes, from the Claude Design handoff 'Arsound: визуальный стиль' (step 1, five directions). Colours are #rrggbb or #rrggbbaa. Fonts name the files in fonts/ (tools/branding/theme_fonts.py). Radii in dp. Read by the theme patch (splash screen, fonts) and by the app (ArsoundTheme).",
+  "_about": "Arsound colour themes, from the Claude Design handoff 'Arsound: визуальный стиль' (step 1, five directions); Scarlet is variant 1a of 'Arsound App v2'. \"darkOnly\" themes keep the app dark whatever the phone's mode, their light palette repeats the dark one. Colours are #rrggbb or #rrggbbaa. Fonts name the files in fonts/ (tools/branding/theme_fonts.py). Radii in dp. Read by the theme patch (splash screen, fonts) and by the app (ArsoundTheme).",
   "themes": [
     {
       "id": "scarlet",
       "name": {"ru": "Алый", "en": "Scarlet"},
-      "description": {"ru": "Тёплый графит и алый: алым горят только Play, лайк и прогресс. Шрифт Onest.",
-                      "en": "Warm graphite and scarlet: only Play, like and progress glow red. Onest font."},
-      "dark":  {"surface": "#120E0F", "primary": "#F7F1F1", "secondary": "#B9AEAF", "highlight": "#2A2224", "special": "#FF2D46",
-                "error": "#FFB020", "overlay": "#0A0708B3", "imageBorders": "#FFFFFF1F", "dialog": "#1E1719"},
-      "light": {"surface": "#FFF9F8", "primary": "#1A0F11", "secondary": "#6E5F61", "highlight": "#F4EAEA", "special": "#E0102F",
-                "error": "#B45309", "overlay": "#1A0F1166", "imageBorders": "#1A0F1124", "dialog": "#FFFFFF"},
-      "fonts": {"regular": "onest_400", "semibold": "onest_600", "bold": "onest_800", "extrabold": "onest_800", "numbers": "onest_500"},
-      "radii": {"card": 10, "miniPlayer": 16}
+      "description": {"ru": "Почти чёрный с красным отливом и алый акцент, шрифт Golos Text. Всегда тёмная.",
+                      "en": "Near-black with a red tint and a scarlet accent, Golos Text font. Always dark."},
+      "darkOnly": true,
+      "dark":  {"surface": "#0E0809", "primary": "#FFFFFF", "secondary": "#C4A7A9", "highlight": "#1F1112", "special": "#E0242F",
+                "error": "#FFB020", "overlay": "#0E0809B3", "imageBorders": "#FFFFFF00", "dialog": "#1F1112"},
+      "light": {"surface": "#0E0809", "primary": "#FFFFFF", "secondary": "#C4A7A9", "highlight": "#1F1112", "special": "#E0242F",
+                "error": "#FFB020", "overlay": "#0E0809B3", "imageBorders": "#FFFFFF00", "dialog": "#1F1112"},
+      "fonts": {"regular": "golostext_400", "semibold": "golostext_700", "bold": "golostext_800", "extrabold": "golostext_900", "numbers": "golostext_500"},
+      "radii": {"card": 4, "miniPlayer": 36}
     },
     {
       "id": "cobalt",
