@@ -159,15 +159,28 @@ def grey_scale(tokens):
 
 # region Fonts
 
+def github_listing(path):
+    """A GitHub API answer: through the GitHub CLI when it is signed in (no hourly limit worth noting), else directly
+    (60 requests an hour without signing in). None if neither works."""
+    try:
+        result = subprocess.run(["gh", "api", path], capture_output=True, timeout=60)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    try:
+        with urllib.request.urlopen(f"https://api.github.com/{path}") as response:
+            return json.load(response)
+    except Exception:
+        return None
+
+
 def google_font_files(family, folder):
     """Downloads the family's font files from the Google Fonts repository into the folder."""
     directory = re.sub(r"[^a-z0-9]", "", family.lower())
     for licence in ("ofl", "apache", "ufl"):
-        url = f"https://api.github.com/repos/google/fonts/contents/{licence}/{directory}"
-        try:
-            with urllib.request.urlopen(url) as response:
-                listing = json.load(response)
-        except Exception:
+        listing = github_listing(f"repos/google/fonts/contents/{licence}/{directory}")
+        if not isinstance(listing, list):
             continue
         for entry in listing:
             name = entry["name"]
@@ -232,6 +245,10 @@ def make_theme(text, theme_id, variant, name_ru, name_en):
 
     colors = grey_scale(tokens)
     colors["extended_palette_orange_900"] = accent
+    # Edges of the server's tiles (search genres and other sections): shades of the theme instead of a rainbow.
+    shades = [accent, tokens["pink"], mix(accent, "#FFFFFF", 0.25), mix(accent, "#000000", 0.25), tokens["muted"]]
+    for i, name in enumerate(("blue", "green", "magenta", "orange", "purple", "red", "teal", "violet", "yellow")):
+        colors[f"sdui_{name}"] = shades[i % len(shades)]
     decor = {"settingsGlow": tokens["deep"], "settingsBadge": accent,
              "settingsStrips": [accent, tokens["surface2"], tokens["surface2"]],
              "homeHelloColor": tokens["pink"], "shortcutScrim": "#00000040"}
