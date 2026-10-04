@@ -83,6 +83,45 @@ val brandingPatch = resourcePatch {
             ResourceGroup("raw-night", "loading_animation.json"),
         )
 
+        // App icon variants (tools/branding/icons.py). Each one is a launcher entry: an alias of the start
+        // screen, only the default enabled. The start screen itself loses its launcher entry, so switching the
+        // icon never disables it (links and the app restart open it directly).
+        copyResources(
+            "soundcloud/branding",
+            ResourceGroup(
+                "drawable",
+                *APP_ICONS.flatMap { listOf("arsound_icon_bg_$it.xml", "arsound_icon_fg_$it.xml") }.toTypedArray(),
+            ),
+            ResourceGroup("mipmap-anydpi", *APP_ICONS.map { "arsound_icon_$it.xml" }.toTypedArray()),
+        )
+        document("AndroidManifest.xml").use { document ->
+            val launcher = document.getElementsByTagName("activity").asSequence().map { it as Element }
+                .first { it.getAttribute("android:name") == "com.soundcloud.android.launcher.LauncherActivity" }
+            launcher.getElementsByTagName("intent-filter").asSequence().map { it as Element }.toList()
+                .filter { filter ->
+                    filter.getElementsByTagName("category").asSequence()
+                        .any { (it as Element).getAttribute("android:name") == "android.intent.category.LAUNCHER" }
+                }
+                .forEach { launcher.removeChild(it) }
+
+            var anchor: org.w3c.dom.Node = launcher
+            APP_ICONS.forEachIndexed { index, id ->
+                val alias = document.createElement("activity-alias")
+                alias.setAttribute("android:name", "com.soundcloud.android.launcher.ArsoundIcon_$id")
+                alias.setAttribute("android:targetActivity", "com.soundcloud.android.launcher.LauncherActivity")
+                alias.setAttribute("android:enabled", (index == 0).toString())
+                alias.setAttribute("android:exported", "true")
+                alias.setAttribute("android:icon", "@mipmap/arsound_icon_$id")
+                alias.setAttribute("android:roundIcon", "@mipmap/arsound_icon_$id")
+                val filter = document.createElement("intent-filter")
+                filter.appendChild(document.createElement("action").apply { setAttribute("android:name", "android.intent.action.MAIN") })
+                filter.appendChild(document.createElement("category").apply { setAttribute("android:name", "android.intent.category.LAUNCHER") })
+                alias.appendChild(filter)
+                launcher.parentNode.insertBefore(alias, anchor.nextSibling)
+                anchor = alias
+            }
+        }
+
         // The start screen shows the drawing animation of the letter instead of the orange cloud.
         res.listFiles { file -> file.isDirectory && file.name.startsWith("values") }!!
             .filter { it.resolve("styles.xml").exists() }

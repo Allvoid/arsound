@@ -17,6 +17,7 @@ extensions/                       Код, который встраиваетс�
   arsound/stub/                   Заглушки классов SoundCloud для компиляции
   arsound-shared/                 Общая библиотека расширений ReVanced
 tools/branding/generate.py        Генерация иконок и анимаций Arsound
+tools/branding/icons.py           Варианты иконки приложения (цвета и градиенты)
 build-and-install.cmd             Сборка, патчинг и установка одной командой
 local/                            Локальные файлы, в Git не попадают (см. ниже)
 ```
@@ -43,7 +44,7 @@ local/                            Локальные файлы, в Git не п�
 | **Hide duplicate recommendations** | Фильтр перезаливов в автовоспроизведении и на серверной главной (`SDUIView`). |
 | **Hide subscription offers** | Экран покупки Go/Go+, окна MoEngage, вкладка Upgrade, серверные блоки главной `UpsellPlaceholder` и `BannerAdPlaceholder`, кнопка «Get Pro» в шапке. |
 | **Change account type** | Свой тип аккаунта Android, чтобы мод работал рядом с оригиналом. |
-| **Custom app name**, **Arsound branding** | Название, иконки, анимации запуска и загрузки, логотипы и заглушка обложки. |
+| **Custom app name**, **Arsound branding** | Название, иконки (и 63 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
 | **Change package name** | Патч ReVanced: пакет `com.soundcloud.android.revanced`. |
 
 ## Что нужно для сборки
@@ -115,6 +116,16 @@ build-and-install.cmd
 ```bash
 python tools/branding/generate.py <папка экспорта иконки>
 ```
+
+Варианты иконки для выбора в настройках описаны в проекте иконки (`palettes.py` там пишет
+`export/palettes/palettes.json`) и переносятся в патчи так:
+
+```bash
+python tools/branding/icons.py <папка экспорта иконки>/palettes/palettes.json
+```
+
+Скрипт пишет векторные слои каждой иконки в ресурсы патча и списки вариантов
+(`misc/branding/AppIcons.kt`, `branding/AppIconList.java`); их руками не правят.
 
 Нужны `pillow`, `picosvg`, `skia-pathops`, `resvg-py`. Заглушка обложки берётся из разобранного APK
 (`local/analysis/res-decoded`), если он есть.
