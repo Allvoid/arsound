@@ -138,7 +138,13 @@ public final class RegionGuard {
         });
     }
 
+    /** The check every 30 seconds; the user may turn it off and check by hand. */
     private static void recheckIfStale() {
+        if (!Settings.isRegionRecheckPeriodicEnabled()) return;
+        recheckIfStaleNow();
+    }
+
+    private static void recheckIfStaleNow() {
         if (recheckRunning || System.currentTimeMillis() - checkedAt < BLOCKED_RECHECK_MS) return;
         recheckRunning = true;
         Utils.runOnBackgroundThread(() -> {
@@ -224,6 +230,8 @@ public final class RegionGuard {
             manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
+                    // Turned off by the user: the known country stays until a check by hand.
+                    if (!Settings.isRegionRecheckOnChangeEnabled()) return;
                     country = null;
                     lastFailedCheck = 0;
                     toastShown = false;
@@ -231,14 +239,16 @@ public final class RegionGuard {
 
                 @Override
                 public void onLinkPropertiesChanged(Network network, android.net.LinkProperties properties) {
+                    if (!Settings.isRegionRecheckOnChangeEnabled()) return;
                     // A new local address or DNS on the same network may mean a new public IP. This event is
                     // frequent, so requests keep the known answer while it is checked again in the background.
                     checkedAt = 0;
-                    recheckIfStale();
+                    recheckIfStaleNow();
                 }
 
                 @Override
                 public void onLost(Network network) {
+                    if (!Settings.isRegionRecheckOnChangeEnabled()) return;
                     country = null;
                 }
             });

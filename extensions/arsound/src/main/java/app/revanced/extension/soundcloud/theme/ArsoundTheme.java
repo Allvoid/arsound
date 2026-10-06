@@ -95,6 +95,11 @@ public final class ArsoundTheme {
         public int surface(boolean night) {
             return color(night, "surface");
         }
+
+        /** The animated background ({@link ThemeEffect}): the theme id unless themes.json names another. */
+        public String effect() {
+            return json.optString("effect", id);
+        }
     }
 
     private static int parse(String hex) {
@@ -192,6 +197,49 @@ public final class ArsoundTheme {
         }
     }
 
+    /** True when the app draws its dark look now. */
+    public static boolean isNight(Context context) {
+        return (context.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /**
+     * A colour of the chosen theme for Arsound's own elements, in the look drawn now: "surface", "primary",
+     * "secondary", "highlight", "special" (the accent), "error", "dialog". SoundCloud's own colours for the
+     * original look.
+     */
+    public static int palette(Context context, String role) {
+        boolean night = isNight(context);
+        Theme theme = currentTheme(context);
+        if (theme != null) {
+            JSONObject colors = theme.json.optJSONObject(night ? "dark" : "light");
+            String value = colors == null ? "" : colors.optString(role);
+            if (value.startsWith("#")) return parse(value);
+        }
+        switch (role) {
+            case "surface":
+                return night ? 0xFF121212 : 0xFFFFFFFF;
+            case "primary":
+                return night ? 0xFFFFFFFF : 0xFF121212;
+            case "secondary":
+                return night ? 0xFF999999 : 0xFF666666;
+            case "highlight":
+                return night ? 0xFF2A2A2A : 0xFFF2F2F2;
+            case "error":
+                return night ? 0xFFFF6B6B : 0xFFD32F2F;
+            case "dialog":
+                return night ? 0xFF1E1E1E : 0xFFFFFFFF;
+            default:
+                return 0xFFFF5500;
+        }
+    }
+
+    /** The id of the chosen theme's animated background, or null: the theme id unless themes.json names another. */
+    public static String effect(Context context) {
+        Theme theme = currentTheme(context);
+        return theme == null ? null : theme.effect();
+    }
+
     /** A colour written as in themes.json: #rrggbb or #rrggbbaa. */
     public static int color(String hex) {
         return parse(hex);
@@ -279,6 +327,7 @@ public final class ArsoundTheme {
 
             @Override
             public void onActivityResumed(Activity activity) {
+                ThemeBackdrop.onActivityResumed(activity);
             }
 
             @Override

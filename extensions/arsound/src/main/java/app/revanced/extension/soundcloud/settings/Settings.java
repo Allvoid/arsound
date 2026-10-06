@@ -236,6 +236,33 @@ public final class Settings {
         return preferences != null && preferences.getBoolean(REGION_GUARD, false);
     }
 
+    public static final String REGION_RECHECK_ON_CHANGE = "region_recheck_on_change";
+
+    /** Checks the IP country again when the network or the VPN changes. On by default. */
+    public static boolean isRegionRecheckOnChangeEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(REGION_RECHECK_ON_CHANGE, true);
+    }
+
+    public static final String REGION_RECHECK_PERIODIC = "region_recheck_periodic";
+
+    /** Checks the IP country again every 30 seconds while requests go. On by default. */
+    public static boolean isRegionRecheckPeriodicEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(REGION_RECHECK_PERIODIC, true);
+    }
+
+    public static final String THEME_EFFECTS = "theme_effects";
+
+    /** The animated background of the chosen theme: sparks, stars, fireflies, petals. On by default. */
+    public static boolean isThemeEffectsEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(THEME_EFFECTS, true);
+    }
+
+    /** How many particles the theme animation draws, in percent of the design. */
+    public static final String THEME_EFFECTS_DENSITY = "theme_effects_density";
+
     public static final String DUPLICATE_FILTER = "duplicate_filter";
     public static final String MERGE_EDITED_VERSIONS = "merge_edited_versions";
 

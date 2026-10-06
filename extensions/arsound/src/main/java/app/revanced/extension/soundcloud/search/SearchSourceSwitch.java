@@ -58,7 +58,6 @@ import app.revanced.extension.soundcloud.shared.HelpBadge;
 public final class SearchSourceSwitch {
     private static final String TAG = "arsound_search_switch";
     private static final long SEARCH_DELAY_MS = 700;
-    private static final int ACCENT = 0xFFFF5500;
 
     private static final Handler handler = new Handler(Looper.getMainLooper());
     private static final ExecutorService network = Executors.newFixedThreadPool(3);
@@ -83,6 +82,11 @@ public final class SearchSourceSwitch {
 
     private static String text(String russian, String english) {
         return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
+    }
+
+    /** The accent of the chosen theme, SoundCloud orange in the original look. */
+    private static int accent(Context context) {
+        return app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "special");
     }
 
     private static int dp(Context context, float value) {
@@ -200,7 +204,7 @@ public final class SearchSourceSwitch {
             results.addView(status, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
             spinner = new ProgressBar(context);
-            spinner.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+            spinner.setIndeterminateTintList(ColorStateList.valueOf(accent(context)));
             FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dp(context, 36), dp(context, 36),
                     Gravity.TOP | Gravity.CENTER_HORIZONTAL);
             spinnerParams.topMargin = dp(context, 48);
@@ -593,7 +597,7 @@ public final class SearchSourceSwitch {
             download.setOnClickListener(v -> startDownload(this));
             action.addView(download, new FrameLayout.LayoutParams(dp(context, 48), dp(context, 48), Gravity.CENTER));
             busy = new ProgressBar(context);
-            busy.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+            busy.setIndeterminateTintList(ColorStateList.valueOf(accent(context)));
             action.addView(busy, new FrameLayout.LayoutParams(dp(context, 28), dp(context, 28), Gravity.CENTER));
             percent = new TextView(context);
             percent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
@@ -607,7 +611,7 @@ public final class SearchSourceSwitch {
 
         void refresh() {
             boolean playing = track.url.equals(playingUrl);
-            title.setTextColor(playing ? ACCENT : screen.textColor);
+            title.setTextColor(playing ? accent(title.getContext()) : screen.textColor);
             String duration = track.durationSeconds > 0
                     ? String.format(Locale.ROOT, "%d:%02d", track.durationSeconds / 60, track.durationSeconds % 60) : "";
             String state = playing ? (preparing ? text("загрузка…", "loading…") : text("играет", "playing")) : "";
