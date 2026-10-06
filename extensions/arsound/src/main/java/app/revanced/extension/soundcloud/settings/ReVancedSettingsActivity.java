@@ -49,6 +49,13 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(base);
+        // Dark like SoundCloud's own screens, whatever the phone's mode.
+        app.revanced.extension.soundcloud.theme.ArsoundTheme.forceDark(this, base);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 

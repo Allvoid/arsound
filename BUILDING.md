@@ -199,7 +199,8 @@ python tools/branding/theme_from_design.py --from-palette cobalt
 - `decor` — украшения того, что рисует сам Arsound: экран настроек (`settingsGlow`, `settingsBadge`, `settingsStrips`),
   цвет приветствия на главной (`homeHelloColor`, приветствие — класс `theme/HomeGreeting`) и вуаль над полосой
   «Твои лайки» (`shortcutScrim` вместо 70 % чёрного SoundCloud). `decorLight` — значения для светлого вида, они перекрывают `decor`
-  (сам SoundCloud тёмный всегда, светлым бывает только экран настроек Arsound).
+  (сейчас не видны: SoundCloud тёмный всегда, экраны Arsound — настройки, импорт — тоже держатся тёмными через
+  `ArsoundTheme.forceDark`).
 
 **Шрифты** режутся из файлов Google Fonts (лицензия OFL), переменных или статичных; набор берётся из `fonts` всех тем.
 Имя `<шрифт>_t<NN>_<вес>` — буквы на NN сотых em плотнее, так делаются плотные заголовки из макета. Пересобираются

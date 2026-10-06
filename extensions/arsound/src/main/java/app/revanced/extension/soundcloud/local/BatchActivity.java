@@ -52,6 +52,13 @@ public final class BatchActivity extends Activity {
     private static java.util.concurrent.ExecutorService worker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(base);
+        // Dark like SoundCloud's own screens, whatever the phone's mode.
+        app.revanced.extension.soundcloud.theme.ArsoundTheme.forceDark(this, base);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         finish();
