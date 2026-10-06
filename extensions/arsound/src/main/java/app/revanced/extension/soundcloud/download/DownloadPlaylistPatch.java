@@ -2,7 +2,6 @@ package app.revanced.extension.soundcloud.download;
 
 import static app.revanced.extension.soundcloud.download.DownloadTrackPatch.text;
 
-import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -209,7 +208,7 @@ public final class DownloadPlaylistPatch {
                     return;
                 }
 
-                Utils.runOnMainThread(() -> new AlertDialog.Builder(context)
+                Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(context)
                         .setTitle(text("Удалить скачанные треки?", "Delete downloaded tracks?"))
                         .setMessage(text("Будут удалены файлы " + downloaded.size() + " треков из папки Музыка/Arsound. "
                                         + "Импортированные с телефона треки останутся.",
@@ -408,7 +407,7 @@ public final class DownloadPlaylistPatch {
             for (String title : unavailableTitles) summary.append("  ✕ ").append(title).append('\n');
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        app.revanced.extension.soundcloud.shared.ArsoundDialog builder = new app.revanced.extension.soundcloud.shared.ArsoundDialog(context);
         // Everything available is on the phone: the playlist counts as downloaded.
         if (downloadable.isEmpty() && downloading == 0 && downloaded > 0) setPlaylistDownloaded(playlistId, true);
         if (downloadable.isEmpty()) {

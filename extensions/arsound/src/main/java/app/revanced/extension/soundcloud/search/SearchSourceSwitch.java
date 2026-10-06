@@ -1,7 +1,6 @@
 package app.revanced.extension.soundcloud.search;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -831,7 +830,7 @@ public final class SearchSourceSwitch {
         if (current == null || current.isFinishing() || signInOffered) return;
         signInOffered = true;
         try {
-            new AlertDialog.Builder(current)
+            new app.revanced.extension.soundcloud.shared.ArsoundDialog(current)
                     .setView(WelcomePermissions.createDialogContent(current,
                             text("У трека возрастное ограничение: YouTube отдаёт его только после входа в аккаунт.",
                                     "The track is age-restricted: YouTube gives it only to signed-in listeners."),

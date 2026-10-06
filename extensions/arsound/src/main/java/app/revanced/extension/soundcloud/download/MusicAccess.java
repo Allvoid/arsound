@@ -1,7 +1,6 @@
 package app.revanced.extension.soundcloud.download;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -55,7 +54,7 @@ public final class MusicAccess {
         shownThisLaunch = true;
 
         try {
-            new AlertDialog.Builder(activity)
+            new app.revanced.extension.soundcloud.shared.ArsoundDialog(activity)
                     .setTitle(text("Доступ к скачанной музыке", "Access to downloaded music"))
                     .setMessage(text("Разрешите доступ к музыке, чтобы скачанные треки играли из файлов без интернета. "
                                     + "Без него треки, скачанные до переустановки Arsound, играют только из сети.",
