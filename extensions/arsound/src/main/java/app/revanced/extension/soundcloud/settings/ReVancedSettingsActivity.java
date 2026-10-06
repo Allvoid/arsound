@@ -399,7 +399,7 @@ public final class ReVancedSettingsActivity extends Activity {
         for (ThemeChoice choice : choices) {
             View option = createThemeOption(choice, choice.id.equals(current), accent);
             option.setOnClickListener(v -> {
-                foldThemeOptions(options, chevron, false);
+                foldOptions(options, chevron, false);
                 if (choice.id.equals(ArsoundTheme.current())) return;
                 ArsoundTheme.setCurrent(this, choice.id);
                 ArsoundTheme.restartApp(this);
@@ -407,12 +407,12 @@ public final class ReVancedSettingsActivity extends Activity {
             options.addView(option);
         }
         card.addView(options);
-        header.setOnClickListener(v -> foldThemeOptions(options, chevron, options.getVisibility() != View.VISIBLE));
+        header.setOnClickListener(v -> foldOptions(options, chevron, options.getVisibility() != View.VISIBLE));
         return card;
     }
 
-    /** Unfolds or folds the theme list: the height slides, the arrow turns, the rows appear one after another. */
-    private void foldThemeOptions(LinearLayout options, View chevron, boolean open) {
+    /** Unfolds or folds a drop-down list: the height slides, the arrow turns, the rows appear one after another. */
+    private void foldOptions(LinearLayout options, View chevron, boolean open) {
         if (options.getTag() instanceof android.animation.Animator) ((android.animation.Animator) options.getTag()).cancel();
         int width = ((View) options.getParent()).getWidth();
         options.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -785,7 +785,7 @@ public final class ReVancedSettingsActivity extends Activity {
         new EqualizerPanel(info, options).build();
     }
 
-    /** Presets as chips over a curve of the bands that can be dragged; the user's own presets below. */
+    /** A drop-down of presets over a curve of the bands that can be dragged; the user's own presets in the same list. */
     private final class EqualizerPanel {
         private final app.revanced.extension.soundcloud.player.AudioEqualizer.Info info;
         private final LinearLayout options;
@@ -793,11 +793,10 @@ public final class ReVancedSettingsActivity extends Activity {
         private final int accent = ArsoundTheme.palette(ReVancedSettingsActivity.this, "special");
         private final int primary = themeColor("themeColorPrimary");
         private final int card = ArsoundTheme.palette(ReVancedSettingsActivity.this, "highlight");
-        private final java.util.List<TextView> chips = new java.util.ArrayList<>();
         private short[] levels;
-        private TextView name, note;
+        private LinearLayout header, list;
+        private android.widget.ImageView chevron;
         private EqualizerGraph graph;
-        private ChipFlow userChips;
 
         EqualizerPanel(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info, LinearLayout options) {
             this.info = info;
@@ -818,14 +817,35 @@ public final class ReVancedSettingsActivity extends Activity {
             }
             levels = app.revanced.extension.soundcloud.player.AudioEqualizer.levels(bands);
 
-            LinearLayout header = new LinearLayout(ReVancedSettingsActivity.this);
-            header.setOrientation(LinearLayout.VERTICAL);
-            header.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), dimen("spacing_s"));
-            name = createText("H2.Primary", "");
-            note = createText("Body.Secondary", "");
-            header.addView(name);
-            header.addView(note);
-            options.addView(header);
+            // The card: the chosen preset on top, the list of presets unfolds under it.
+            LinearLayout dropdown = new LinearLayout(ReVancedSettingsActivity.this);
+            dropdown.setOrientation(LinearLayout.VERTICAL);
+            android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+            shape.setColor(card);
+            shape.setCornerRadius(dp(18));
+            shape.setStroke(dp(1), (accent & 0x00FFFFFF) | 0x40000000);
+            dropdown.setBackground(shape);
+            dropdown.setClipToOutline(true);
+            LinearLayout.LayoutParams dropdownParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dropdownParams.leftMargin = dropdownParams.rightMargin = dimen("spacing_m");
+            dropdownParams.topMargin = dimen("spacing_s");
+            dropdownParams.bottomMargin = dimen("spacing_m");
+            header = new LinearLayout(ReVancedSettingsActivity.this);
+            header.setOrientation(LinearLayout.HORIZONTAL);
+            dropdown.addView(header);
+            list = new LinearLayout(ReVancedSettingsActivity.this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            list.setVisibility(View.GONE);
+            dropdown.addView(list);
+            chevron = new android.widget.ImageView(ReVancedSettingsActivity.this);
+            chevron.setImageDrawable(lineIcon(new float[]{.22f, .4f, .5f, .64f, .78f, .4f}, primary));
+            header.setOnClickListener(v -> {
+                boolean open = list.getVisibility() != View.VISIBLE;
+                if (open) fillList();
+                foldOptions(list, chevron, open);
+            });
+            options.addView(dropdown, dropdownParams);
 
             graph = new EqualizerGraph(ReVancedSettingsActivity.this, info.centerFrequenciesHz, info.minLevel, info.maxLevel,
                     accent, primary, card);
@@ -833,154 +853,157 @@ public final class ReVancedSettingsActivity extends Activity {
             graph.setListener((band, level) -> {
                 levels[band] = level;
                 app.revanced.extension.soundcloud.player.AudioEqualizer.setLevel(band, level, bands);
-                showChoice();
+                showHeader();
             });
             LinearLayout.LayoutParams graphParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             graphParams.leftMargin = graphParams.rightMargin = dimen("spacing_m");
             options.addView(graph, graphParams);
-            TextView hint = createText("Body.Secondary", text("Тяните точки вверх и вниз, чтобы подстроить звук.",
-                    "Drag the points up and down to tune the sound."));
-            hint.setPadding(dimen("spacing_m"), dp(8), dimen("spacing_m"), 0);
+            TextView hint = createText("Body.Secondary", text(
+                    "Тяните точки вверх и вниз, чтобы подстроить звук. Свою настройку можно сохранить под своим именем — "
+                            + "она появится в списке пресетов; удерживайте её там, чтобы переименовать или удалить.",
+                    "Drag the points up and down to tune the sound. Your tuning can be saved under a name and shows up in "
+                            + "the preset list; hold it there to rename or delete it."));
+            hint.setPadding(dimen("spacing_m"), dp(10), dimen("spacing_m"), dp(10));
             options.addView(hint);
 
-            options.addView(createSubHeading(text("Пресеты", "Presets")));
-            ChipFlow builtIn = chipFlow();
+            TextView save = createText("H4.Primary", text("+ Сохранить как свой пресет", "+ Save as my preset"));
+            save.setTextColor(accent);
+            save.setGravity(Gravity.CENTER);
+            save.setMinHeight(dp(44));
+            save.setPadding(dp(18), dp(8), dp(18), dp(8));
+            android.graphics.drawable.GradientDrawable dashed = new android.graphics.drawable.GradientDrawable();
+            dashed.setCornerRadius(dp(100));
+            dashed.setStroke(Math.max(1, dp(1)), accent, dp(5), dp(4));
+            save.setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x40000000), dashed, null));
+            save.setOnClickListener(v -> askName(null));
+            LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            saveParams.leftMargin = dimen("spacing_m");
+            saveParams.bottomMargin = dimen("spacing_m");
+            options.addView(save, saveParams);
+            showHeader();
+        }
+
+        /** Name, note and curve of what is chosen now, in the closed drop-down. */
+        private void showHeader() {
+            String choice = choice();
+            String title, note;
+            short[] shape = levels;
+            app.revanced.extension.soundcloud.player.AudioEqualizer.Preset preset = choice.startsWith("p:")
+                    ? app.revanced.extension.soundcloud.player.AudioEqualizer.preset(choice.substring(2)) : null;
+            if (preset != null) {
+                title = preset.name();
+                note = preset.note();
+            } else if (choice.startsWith("u:")) {
+                title = choice.substring(2);
+                note = text("Ваш пресет", "Your preset");
+            } else {
+                title = text("Своя настройка", "Custom");
+                note = text("Не сохранена", "Not saved");
+            }
+            TextView old = header.getChildCount() > 0 ? (TextView) header.findViewWithTag("name") : null;
+            boolean changed = old == null || !title.equals(old.getText().toString());
+            header.removeAllViews();
+            View row = presetRow(title, note, shape, false);
+            // The row's views move into the header, which keeps its own click and the arrow.
+            ViewGroup source = (ViewGroup) row;
+            while (source.getChildCount() > 0) {
+                View child = source.getChildAt(0);
+                source.removeViewAt(0);
+                header.addView(child);
+            }
+            header.setGravity(Gravity.CENTER_VERTICAL);
+            header.setPadding(row.getPaddingLeft(), row.getPaddingTop(), row.getPaddingRight(), row.getPaddingBottom());
+            header.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
+            if (chevron.getParent() != null) ((ViewGroup) chevron.getParent()).removeView(chevron);
+            header.addView(chevron, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            header.setContentDescription(text("Пресет: ", "Preset: ") + title);
+            if (changed) {
+                View name = header.findViewWithTag("name");
+                name.setAlpha(0f);
+                name.setTranslationY(dp(6));
+                name.animate().alpha(1f).translationY(0).setDuration(220).start();
+            }
+        }
+
+        /** The unfolding list: built-in presets, then the user's. */
+        private void fillList() {
+            list.removeAllViews();
+            String choice = choice();
+            View divider = new View(ReVancedSettingsActivity.this);
+            divider.setBackgroundColor((primary & 0x00FFFFFF) | 0x1A000000);
+            list.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1) / 2)));
             for (app.revanced.extension.soundcloud.player.AudioEqualizer.Preset preset
                     : app.revanced.extension.soundcloud.player.AudioEqualizer.PRESETS) {
-                TextView chip = chip(preset.name(), "p:" + preset.id, false);
-                chip.setOnClickListener(v -> choose(preset.levels(info), "p:" + preset.id));
-                builtIn.addView(chip);
+                short[] shape = preset.levels(info);
+                View row = presetRow(preset.name(), preset.note(), shape, ("p:" + preset.id).equals(choice));
+                row.setOnClickListener(v -> choose(shape, "p:" + preset.id));
+                list.addView(row);
             }
-            options.addView(builtIn);
-
-            options.addView(createSubHeading(text("Мои пресеты", "My presets")));
-            userChips = chipFlow();
-            options.addView(userChips);
-            TextView userHint = createText("Body.Secondary", text(
-                    "Настройте кривую и сохраните её под своим именем. Удерживайте свой пресет, чтобы переименовать или удалить.",
-                    "Tune the curve and save it under a name. Hold your preset to rename or delete it."));
-            userHint.setPadding(dimen("spacing_m"), dp(4), dimen("spacing_m"), dimen("spacing_m"));
-            options.addView(userHint);
-            fillUserChips();
-            showChoice();
-        }
-
-        private ChipFlow chipFlow() {
-            ChipFlow flow = new ChipFlow(ReVancedSettingsActivity.this, dp(8));
-            flow.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), dimen("spacing_s"));
-            return flow;
-        }
-
-        private void fillUserChips() {
-            for (int i = userChips.getChildCount() - 1; i >= 0; i--) chips.remove(userChips.getChildAt(i));
-            userChips.removeAllViews();
-            for (app.revanced.extension.soundcloud.player.AudioEqualizer.UserPreset preset
-                    : app.revanced.extension.soundcloud.player.AudioEqualizer.userPresets(bands)) {
-                TextView chip = chip(preset.name, "u:" + preset.name, false);
-                chip.setOnClickListener(v -> choose(preset.levels, "u:" + preset.name));
-                chip.setOnLongClickListener(v -> {
+            java.util.List<app.revanced.extension.soundcloud.player.AudioEqualizer.UserPreset> mine =
+                    app.revanced.extension.soundcloud.player.AudioEqualizer.userPresets(bands);
+            if (mine.isEmpty()) return;
+            TextView heading = createText("H4.Secondary", text("Мои пресеты", "My presets"));
+            heading.setPadding(dp(14), dp(14), dp(14), dp(4));
+            list.addView(heading);
+            for (app.revanced.extension.soundcloud.player.AudioEqualizer.UserPreset preset : mine) {
+                View row = presetRow(preset.name, text("Ваш пресет · удерживайте, чтобы изменить", "Your preset · hold to edit"),
+                        preset.levels, ("u:" + preset.name).equals(choice));
+                row.setOnClickListener(v -> choose(preset.levels, "u:" + preset.name));
+                row.setOnLongClickListener(v -> {
                     editUserPreset(preset.name);
                     return true;
                 });
-                userChips.addView(chip);
+                list.addView(row);
             }
-            TextView save = chip(text("+ Сохранить текущий", "+ Save current"), null, true);
-            save.setOnClickListener(v -> askName(null));
-            userChips.addView(save);
-            refreshChips(false);
         }
 
-        /** A rounded chip; the "save" chip has a dashed edge. */
-        private TextView chip(String label, String tag, boolean dashed) {
-            TextView chip = createText("Body.Primary", label);
-            chip.setTag(tag);
-            chip.setGravity(Gravity.CENTER);
-            chip.setMinHeight(dp(36));
-            chip.setPadding(dp(14), dp(7), dp(14), dp(7));
-            android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
-            shape.setCornerRadius(dp(100));
-            if (dashed) {
-                shape.setColor(0);
-                shape.setStroke(Math.max(1, dp(1)), accent, dp(5), dp(4));
-                chip.setTextColor(accent);
-            } else {
-                shape.setColor(card);
-                shape.setStroke(Math.max(1, dp(1)), (primary & 0x00FFFFFF) | 0x1F000000);
+        /** A preset row: a small picture of its curve, the name and the note, a tick when chosen. */
+        private View presetRow(String title, String note, short[] shape, boolean selected) {
+            LinearLayout row = new LinearLayout(ReVancedSettingsActivity.this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
+            row.setPadding(dp(14), dp(10), dp(14), dp(10));
+
+            View curve = new View(ReVancedSettingsActivity.this);
+            // A narrower scale than the big curve (±10 dB), so gentle presets still show their shape.
+            curve.setBackground(new CurveThumbnail(shape, (short) -1000, (short) 1000, accent,
+                    (primary & 0x00FFFFFF) | 0x14000000, dp(1)));
+            LinearLayout.LayoutParams curveParams = new LinearLayout.LayoutParams(dp(56), dp(36));
+            curveParams.rightMargin = dp(14);
+            row.addView(curve, curveParams);
+
+            LinearLayout texts = new LinearLayout(ReVancedSettingsActivity.this);
+            texts.setOrientation(LinearLayout.VERTICAL);
+            TextView name = createText("H4.Primary", title);
+            name.setTag("name");
+            if (selected) name.setTextColor(accent);
+            texts.addView(name);
+            texts.addView(createText("Body.Secondary", note));
+            row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            if (selected) {
+                android.widget.ImageView tick = new android.widget.ImageView(ReVancedSettingsActivity.this);
+                tick.setImageDrawable(lineIcon(new float[]{.2f, .52f, .42f, .72f, .82f, .3f}, accent));
+                row.addView(tick, new LinearLayout.LayoutParams(dp(24), dp(24)));
             }
-            chip.setBackground(new android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x40000000), shape, null));
-            if (tag != null) chips.add(chip);
-            return chip;
+            return row;
         }
 
         private void choose(short[] chosen, String choice) {
             levels = chosen.clone();
             app.revanced.extension.soundcloud.player.AudioEqualizer.setLevels(levels, choice);
+            foldOptions(list, chevron, false);
             graph.setLevels(levels, true);
-            showChoice();
+            showHeader();
         }
 
-        /** The name and note of what is chosen, and the chips coloured to match. */
-        private void showChoice() {
-            String choice = choice();
-            String title, description;
-            if (choice.startsWith("p:") && app.revanced.extension.soundcloud.player.AudioEqualizer.preset(choice.substring(2)) != null) {
-                app.revanced.extension.soundcloud.player.AudioEqualizer.Preset preset =
-                        app.revanced.extension.soundcloud.player.AudioEqualizer.preset(choice.substring(2));
-                title = preset.name();
-                description = preset.note();
-            } else if (choice.startsWith("u:")) {
-                title = choice.substring(2);
-                description = text("Ваш пресет", "Your preset");
-            } else {
-                title = text("Своя настройка", "Custom");
-                description = text("Не сохранена — можно сохранить в «Мои пресеты»", "Not saved: you can keep it in My presets");
-            }
-            if (!title.equals(name.getText().toString())) {
-                name.setAlpha(0f);
-                name.setTranslationY(dp(6));
-                name.animate().alpha(1f).translationY(0).setDuration(220).start();
-            }
-            name.setText(title);
-            note.setText(description);
-            refreshChips(true);
-        }
-
-        private void refreshChips(boolean animate) {
-            String choice = choice();
-            boolean light = (0.299 * android.graphics.Color.red(accent) + 0.587 * android.graphics.Color.green(accent)
-                    + 0.114 * android.graphics.Color.blue(accent)) / 255 > 0.6;
-            for (TextView chip : chips) {
-                boolean selected = choice.equals(chip.getTag());
-                if (Boolean.valueOf(selected).equals(chip.getTag(TAG_SELECTED))) continue;
-                chip.setTag(TAG_SELECTED, selected);
-                android.graphics.drawable.GradientDrawable shape = (android.graphics.drawable.GradientDrawable)
-                        ((android.graphics.drawable.RippleDrawable) chip.getBackground()).getDrawable(0);
-                int fromFill = selected ? card : accent, toFill = selected ? accent : card;
-                int toText = selected ? (light ? 0xFF111111 : 0xFFFFFFFF) : primary;
-                int fromText = chip.getCurrentTextColor();
-                if (!animate) {
-                    shape.setColor(toFill);
-                    chip.setTextColor(toText);
-                    continue;
-                }
-                android.animation.ValueAnimator fade = android.animation.ValueAnimator.ofFloat(0, 1);
-                fade.setDuration(200);
-                android.animation.ArgbEvaluator colors = new android.animation.ArgbEvaluator();
-                fade.addUpdateListener(a -> {
-                    float t = (float) a.getAnimatedValue();
-                    shape.setColor((int) colors.evaluate(t, fromFill, toFill));
-                    chip.setTextColor((int) colors.evaluate(t, fromText, toText));
-                });
-                fade.start();
-                if (selected) {
-                    chip.setScaleX(.9f);
-                    chip.setScaleY(.9f);
-                    chip.animate().scaleX(1f).scaleY(1f).setDuration(260)
-                            .setInterpolator(new android.view.animation.OvershootInterpolator(2.5f)).start();
-                }
-            }
+        /** After saving, renaming or deleting: the header, and the list if it is open. */
+        private void refresh() {
+            showHeader();
+            if (list.getVisibility() == View.VISIBLE) fillList();
         }
 
         /** Asks for a name: to save the current curve, or to rename the given preset. */
@@ -1004,8 +1027,7 @@ public final class ReVancedSettingsActivity extends Activity {
                         } else {
                             app.revanced.extension.soundcloud.player.AudioEqualizer.saveUserPreset(value, levels);
                         }
-                        fillUserChips();
-                        showChoice();
+                        refresh();
                     })
                     .setNegativeButton(text("Отмена", "Cancel"), null)
                     .show();
@@ -1020,15 +1042,13 @@ public final class ReVancedSettingsActivity extends Activity {
                             askName(presetName);
                         } else {
                             app.revanced.extension.soundcloud.player.AudioEqualizer.deleteUserPreset(presetName, bands);
-                            fillUserChips();
-                            showChoice();
+                            refresh();
                         }
                     })
                     .show();
         }
     }
 
-    private static final int TAG_SELECTED = 0x41725131;
 
     private void addStatsSection(LinearLayout list) {
         LinearLayout content = new LinearLayout(this);
