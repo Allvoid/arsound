@@ -197,6 +197,18 @@ public final class ArsoundTheme {
         }
     }
 
+    /**
+     * Keeps an Arsound screen dark, like SoundCloud's own screens, which stay dark whatever the phone's mode.
+     * Call from {@code attachBaseContext}, after the super call: the activity then reads night resources.
+     */
+    public static void forceDark(Activity activity, Context base) {
+        android.content.res.Configuration override = new android.content.res.Configuration();
+        int mode = base.getResources().getConfiguration().uiMode;
+        override.uiMode = (mode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                | android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        activity.applyOverrideConfiguration(override);
+    }
+
     /** True when the app draws its dark look now. */
     public static boolean isNight(Context context) {
         return (context.getResources().getConfiguration().uiMode
