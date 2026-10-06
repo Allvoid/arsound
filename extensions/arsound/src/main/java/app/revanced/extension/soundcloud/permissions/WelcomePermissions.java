@@ -1,7 +1,6 @@
 package app.revanced.extension.soundcloud.permissions;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -102,7 +101,7 @@ public final class WelcomePermissions {
         shownThisLaunch = true;
 
         try {
-            new AlertDialog.Builder(activity)
+            new app.revanced.extension.soundcloud.shared.ArsoundDialog(activity)
                     .setView(createContent(activity, items))
                     .setCancelable(false)
                     .setNegativeButton(text("Позже", "Later"), (dialog, which) -> preferences.edit().putBoolean(SHOWN, true).apply())

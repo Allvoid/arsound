@@ -1,6 +1,5 @@
 package app.revanced.extension.soundcloud.shared;
 
-import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -64,7 +63,7 @@ public final class HelpBadge {
 
     public static void show(Context context, CharSequence... paragraphs) {
         try {
-            new AlertDialog.Builder(context)
+            new app.revanced.extension.soundcloud.shared.ArsoundDialog(context)
                     .setView(WelcomePermissions.createDialogContent(context, paragraphs))
                     .setPositiveButton(text("Понятно", "Got it"), null)
                     .show();
