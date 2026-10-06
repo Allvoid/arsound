@@ -88,7 +88,7 @@ private fun addLibraryRowIcons(method: app.revanced.com.android.tools.smali.dexl
 /** SoundCloud's veil colour: 70 % black. */
 private const val SHORTCUT_SCRIM = 0xb3000000L
 
-private class ThemeColors(val id: String, val darkSurface: String, val darkAccent: String, val lightSurface: String, val lightAccent: String)
+private class ThemeColors(val id: String, val darkSurface: String, val darkAccent: String)
 
 private fun resource(path: String) = object {}.javaClass.classLoader.getResourceAsStream("$THEME_RESOURCES/$path")
     ?: error("Missing theme resource $path")
@@ -96,15 +96,13 @@ private fun resource(path: String) = object {}.javaClass.classLoader.getResource
 /** #rrggbb or #rrggbbaa as in themes.json, to Android's #aarrggbb. */
 private fun androidColor(hex: String) = if (hex.length == 9) "#" + hex.substring(7) + hex.substring(1, 7) else hex
 
-/** The ids and the surface and accent colours of each theme; the app reads the rest of themes.json itself. */
+/** The ids and the dark surface and accent colours of each theme; the app reads the rest of themes.json itself. */
 private fun readThemes(json: String): List<ThemeColors> = json.split("\"id\":").drop(1).map { block ->
     fun color(mode: String, role: String) = Regex("\"$mode\":\\s*\\{[^}]*\"$role\":\\s*\"(#[0-9A-Fa-f]+)\"")
         .find(block)?.groupValues?.get(1) ?: error("No $mode $role in themes.json")
-    // A dark-only theme keeps the app dark, so its start screen is dark in both modes too.
-    val light = if (Regex("\"darkOnly\":\\s*true").containsMatchIn(block)) "dark" else "light"
     ThemeColors(
         Regex("\"(\\w+)\"").find(block)!!.groupValues[1],
-        color("dark", "surface"), color("dark", "special"), color(light, "surface"), color(light, "special"),
+        color("dark", "surface"), color("dark", "special"),
     )
 }
 
@@ -205,10 +203,12 @@ private val themeResourcesPatch = resourcePatch {
         assets.resolve("theme-resources.json").writeText(replaced.append("\n}\n").toString())
 
         val themes = readThemes(String(json))
-        for ((folder, dark) in listOf("values" to false, "values-night" to true)) {
+        // The start screen is dark in both modes: the app it opens is dark whatever the phone's mode, and a light
+        // start screen flashed white before it.
+        for (folder in listOf("values", "values-night")) {
             val colors = themes.joinToString("\n") { theme ->
-                val surface = if (dark) theme.darkSurface else theme.lightSurface
-                val accent = if (dark) theme.darkAccent else theme.lightAccent
+                val surface = theme.darkSurface
+                val accent = theme.darkAccent
                 "    <color name=\"arsound_theme_${theme.id}_surface\">${androidColor(surface)}</color>\n" +
                     "    <color name=\"arsound_theme_${theme.id}_accent\">${androidColor(accent)}</color>"
             }
