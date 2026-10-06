@@ -40,7 +40,7 @@ local/                            Локальные файлы, в Git не п�
 | **Download tracks** | Сначала авторский download (`/tracks/{id}/download`), затем поток `progressive` из `media.transcodings` через DownloadManager. HLS не сохраняется, Go/Go+ и preview отсекаются до запроса ссылки. Уже скачанные и скачивающиеся треки повторно не ставятся в очередь. |
 | **Offline first playlists** | Сохранённая копия плейлиста отдаётся сразу, синхронизация уходит в фон; фоновое сохранение метаданных всех плейлистов библиотеки (`SyncInitiator`). |
 | **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`): элемент воспроизведения собирается сразу в `PlaybackMediaProvider.j`, без ожидания `TrackRepository` (`SYNC_MISSING`), метаданные уведомления ждут не больше 2 с. Таймаут обложки уведомления, повтор при сбое потока. Разрешение `READ_MEDIA_AUDIO` для файлов, скачанных до переустановки. |
-| **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, плашка статуса сети. |
+| **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, значок статуса сети над плеером. |
 | **Local music** | Импорт файлов, плейлист «Импортированные», локальные добавления в любые плейлисты, свой порядок плейлистов в библиотеке и треков в плейлисте (`DragReorder`, порядок применяется к `playlistTrackUrns`). |
 | **Power saving** | Реже опрос входящих, без фоновых отчётов SDK, без WifiLock при проигрывании файла. |
 | **Hide duplicate recommendations** | Фильтр перезаливов в автовоспроизведении и на серверной главной (`SDUIView`). |
@@ -153,6 +153,10 @@ python tools/branding/design_icons.py
 
 Темы описаны в `patches/src/main/resources/soundcloud/theme/themes.json`. Патч кладёт его и шрифты в `assets/arsound/`
 и делает заставку каждой темы; приложение подменяет ресурсы SoundCloud на лету, после выбора темы оно перезапускается.
+
+Анимация фона темы (`theme/ThemeEffect.java`) повторяет макет «Анимации тем»: частицы считаются от времени, как
+CSS-кадры, рисуются на Canvas и идут только пока видны. Эффект выбирается по id темы (`scarlet`, `cobalt`, `mint`,
+`sakura`, `lime`); новой теме можно отдать чужой эффект полем `"effect"` в `themes.json`.
 
 **Новая тема из макета Claude Design — одной командой.** Компонент телефона в макете хранит вид в объекте токенов
 `th` (bg, surface, surface2, deep, border, accent, pink, muted, text2, head, track, rc, coverBorder, mini, miniBorder,
