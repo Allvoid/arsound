@@ -149,8 +149,11 @@ public final class ImportActivity extends Activity {
             }
             boolean done = saved;
             Utils.runOnMainThread(() -> {
-                // The open header is drawn again with the new cover.
-                if (playlistUrn != null) LocalAdditions.notifyPlaylistChanged(playlistUrn);
+                if (playlistUrn != null) {
+                    LocalAdditions.notifyPlaylistChanged(playlistUrn);
+                    // The open header is not bound again by the list: its playlist did not change.
+                    PlaylistHeader.redraw(playlistUrn);
+                }
                 if (file != null) LocalAdditions.notifyTrackChanged(new File(file));
                 Toast.makeText(context, done
                         ? text("Обложка сохранена на этом телефоне", "The cover is saved on this phone")
