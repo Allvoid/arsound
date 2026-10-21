@@ -131,21 +131,26 @@ public final class LocalCovers {
         return bytes;
     }
 
+    /** Downloads a picture. Blocks. */
+    private static byte[] download(String imageUrl) throws Exception {
+        app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlocked(new URL(imageUrl).getHost());
+        HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        try (InputStream input = connection.getInputStream()) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[16 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            return output.toByteArray();
+        }
+    }
+
     /** Downloads a cover for an imported file. Blocks: call it off the main thread. */
     public static void save(File audio, String imageUrl) {
         if (audio == null || imageUrl == null || imageUrl.isEmpty()) return;
         try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
-            connection.setConnectTimeout(15_000);
-            connection.setReadTimeout(30_000);
-            byte[] bytes;
-            try (InputStream input = connection.getInputStream()) {
-                ByteArrayOutputStream output = new ByteArrayOutputStream();
-                byte[] buffer = new byte[16 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-                bytes = square(output.toByteArray());
-            }
+            byte[] bytes = square(download(imageUrl));
             String hash = store(bytes);
             SharedPreferences preferences = preferences();
             if (hash == null || preferences == null) return;
@@ -256,24 +261,35 @@ public final class LocalCovers {
      */
     public static String playlistArtwork(Object playlist) {
         try {
-            if (artworkField == null) {
-                java.lang.reflect.Field urn = playlist.getClass().getDeclaredField("urn");
-                urn.setAccessible(true);
-                urnField = urn;
-                java.lang.reflect.Field artwork = playlist.getClass().getDeclaredField("artworkImageUrl");
-                artwork.setAccessible(true);
-                artworkField = artwork;
-            }
             Map<String, String> covers = playlistCovers();
-            String urn = String.valueOf(urnField.get(playlist));
+            String urn = playlistUrn(playlist);
             String cover = covers.isEmpty() ? null : covers.get(urn);
             if (cover != null) return cover;
-            String artwork = (String) artworkField.get(playlist);
-            return artwork != null && !artwork.isEmpty() ? artwork : firstTrackCover(urn);
+            String remote = remoteArtwork(playlist, urn);
+            String copy = offlineCopy(urn, remote);
+            return copy != null ? copy : remote;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not give the playlist cover", ex);
             return null;
         }
+    }
+
+    private static String playlistUrn(Object playlist) throws Exception {
+        if (artworkField == null) {
+            java.lang.reflect.Field urn = playlist.getClass().getDeclaredField("urn");
+            urn.setAccessible(true);
+            urnField = urn;
+            java.lang.reflect.Field artwork = playlist.getClass().getDeclaredField("artworkImageUrl");
+            artwork.setAccessible(true);
+            artworkField = artwork;
+        }
+        return String.valueOf(urnField.get(playlist));
+    }
+
+    /** SoundCloud's artwork of the playlist, otherwise the cover of its first track added on the phone. */
+    private static String remoteArtwork(Object playlist, String urn) throws Exception {
+        String artwork = (String) artworkField.get(playlist);
+        return artwork != null && !artwork.isEmpty() ? artwork : firstTrackCover(urn);
     }
 
     /** Marks the cover of a playlist taken from its first track added on the phone: entry, then address. */
@@ -338,6 +354,9 @@ public final class LocalCovers {
             preferences.edit().putString(FIRST_TRACK_PREFIX + playlistUrn, entry + '\n' + address).apply();
             Logger.printInfo(() -> "Playlist " + playlistUrn + " takes the cover of its first track: " + found);
             Utils.runOnMainThread(() -> LocalAdditions.notifyPlaylistChanged(playlistUrn));
+        } catch (java.io.IOException ex) {
+            // Without a network the cover is looked for again at the next start.
+            Logger.printInfo(() -> "No first track cover of " + playlistUrn + " without a network: " + ex);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not find the first track cover of " + playlistUrn, ex);
         }
@@ -374,6 +393,166 @@ public final class LocalCovers {
             Logger.printException(() -> "Could not set the playlist cover", ex);
             return false;
         }
+    }
+
+    // endregion
+
+    // region Offline copies of playlist covers
+
+    /**
+     * Library playlists show SoundCloud's artwork by its link, and the image cache does not keep it:
+     * without a network the library had empty squares. A copy of each cover is kept here and given
+     * instead of the link. Keys: the prefix and the playlist urn, the value is the cover hash.
+     */
+    private static final String OFFLINE_PREFIX = "offline:";
+    /** The link each copy was made from: a playlist with another cover gets a new copy. */
+    private static final String OFFLINE_SOURCE_PREFIX = "offline-source:";
+    /** The size put into the link template: the playlist header shows the cover large. */
+    private static final String OFFLINE_SIZE = "t500x500";
+    /** Failed downloads in a row after which the network counts as gone. */
+    private static final int OFFLINE_FAILURES_TO_STOP = 3;
+    /** A copy that failed is tried again when the playlist is shown, at most this often. */
+    private static final long OFFLINE_RETRY_MS = 60_000;
+
+    /** Playlist urn to the link of the copy and the address of its file, read once from the preferences. */
+    private static volatile Map<String, String[]> offlineCopies;
+    /**
+     * Library playlists still without an up-to-date copy, with the time of the last try. Android cuts
+     * the network of an app in the background, so the copies missed at the start are made when the
+     * library is on screen.
+     */
+    private static final Map<String, Long> offlineAttempts = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static Map<String, String[]> offlineCopies() {
+        Map<String, String[]> copies = offlineCopies;
+        if (copies != null) return copies;
+        copies = new java.util.concurrent.ConcurrentHashMap<>();
+        SharedPreferences preferences = preferences();
+        File directory = directory();
+        if (preferences == null || directory == null) return copies;
+        for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+            if (!entry.getKey().startsWith(OFFLINE_PREFIX)) continue;
+            String urn = entry.getKey().substring(OFFLINE_PREFIX.length());
+            File file = new File(directory, entry.getValue() + ".jpg");
+            String source = preferences.getString(OFFLINE_SOURCE_PREFIX + urn, null);
+            if (file.isFile() && source != null) {
+                copies.put(urn, new String[]{source, android.net.Uri.fromFile(file).toString()});
+            }
+        }
+        offlineCopies = copies;
+        return copies;
+    }
+
+    /**
+     * @param remote The link SoundCloud would load.
+     * @return The address of the stored copy, or null to load the link.
+     */
+    private static String offlineCopy(String urn, String remote) {
+        // The cover of an imported file is on the phone already, and without artwork there is nothing to keep.
+        if (remote == null || !remote.startsWith("http")) return null;
+        String[] copy = offlineCopies().get(urn);
+        // A library playlist whose copy is missing, or one that got another cover: the old copy stays
+        // until the new one is downloaded.
+        boolean stale = copy == null ? offlineAttempts.containsKey(urn) : !remote.equals(copy[0]);
+        if (stale) tryOfflineCopy(urn, remote, copy != null);
+        return copy == null ? null : copy[1];
+    }
+
+    private static void tryOfflineCopy(String urn, String remote, boolean redraw) {
+        long now = System.currentTimeMillis();
+        Long last = offlineAttempts.get(urn);
+        if (last != null && now - last < OFFLINE_RETRY_MS) return;
+        offlineAttempts.put(urn, now);
+        Utils.runOnBackgroundThread(() -> {
+            if (!saveOfflineCopy(urn, remote)) return;
+            offlineAttempts.remove(urn);
+            removeUnused();
+            // The old copy is on screen; without one, the link was shown and nothing changes.
+            if (redraw) Utils.runOnMainThread(() -> LocalAdditions.notifyPlaylistChanged(urn));
+        });
+    }
+
+    /** Downloads the cover of a playlist and keeps it as its copy. Blocks. @return True if saved. */
+    private static boolean saveOfflineCopy(String urn, String remote) {
+        try {
+            String hash = store(download(remote.replace("{size}", OFFLINE_SIZE)));
+            SharedPreferences preferences = preferences();
+            File directory = directory();
+            if (hash == null || preferences == null || directory == null) return false;
+            preferences.edit()
+                    .putString(OFFLINE_PREFIX + urn, hash)
+                    .putString(OFFLINE_SOURCE_PREFIX + urn, remote)
+                    .commit();
+            offlineCopies().put(urn, new String[]{remote, android.net.Uri.fromFile(new File(directory, hash + ".jpg")).toString()});
+            return true;
+        } catch (java.io.IOException ex) {
+            // No network or SoundCloud is switched off: tried again later.
+            Logger.printInfo(() -> "No copy of the cover of " + urn + " yet: " + ex);
+            return false;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not keep the cover of " + urn, ex);
+            return false;
+        }
+    }
+
+    /**
+     * Keeps a copy of the cover of every library playlist: downloads the missing and changed ones and
+     * removes the copies of playlists no longer in the library. Blocks: call it off the main thread.
+     *
+     * @param playlists The {@code Playlist}s of the library.
+     */
+    public static void keepOfflineCopies(java.util.List<Object> playlists) {
+        if (playlists.isEmpty()) return;
+        Map<String, String> wanted = new LinkedHashMap<>();
+        Set<String> library = new HashSet<>();
+        for (Object playlist : playlists) {
+            try {
+                String urn = playlistUrn(playlist);
+                library.add(urn);
+                String remote = remoteArtwork(playlist, urn);
+                String[] copy = offlineCopies().get(urn);
+                if (remote != null && remote.startsWith("http") && (copy == null || !remote.equals(copy[0]))) {
+                    wanted.put(urn, remote);
+                }
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not read a library playlist cover", ex);
+                return;
+            }
+        }
+
+        int saved = 0, failures = 0;
+        for (Map.Entry<String, String> entry : wanted.entrySet()) {
+            String urn = entry.getKey();
+            if (failures >= OFFLINE_FAILURES_TO_STOP) {
+                // Not tried: tried as soon as the playlist is shown.
+                offlineAttempts.put(urn, 0L);
+            } else if (saveOfflineCopy(urn, entry.getValue())) {
+                offlineAttempts.remove(urn);
+                saved++;
+                failures = 0;
+            } else {
+                offlineAttempts.put(urn, System.currentTimeMillis());
+                failures++;
+            }
+        }
+
+        SharedPreferences preferences = preferences();
+        int removed = 0;
+        if (preferences != null) {
+            SharedPreferences.Editor editor = preferences.edit();
+            for (String urn : offlineCopies().keySet()) {
+                if (library.contains(urn)) continue;
+                editor.remove(OFFLINE_PREFIX + urn).remove(OFFLINE_SOURCE_PREFIX + urn);
+                offlineCopies().remove(urn);
+                removed++;
+            }
+            editor.commit();
+        }
+        offlineAttempts.keySet().retainAll(library);
+        if (saved > 0 || removed > 0) removeUnused();
+        int total = library.size(), done = saved, gone = removed, missing = wanted.size() - saved;
+        Logger.printInfo(() -> "Playlist covers kept for offline: " + total + " in library, downloaded " + done
+                + ", not downloaded " + missing + ", removed " + gone);
     }
 
     // endregion
@@ -422,6 +601,7 @@ public final class LocalCovers {
         editor.putBoolean(SQUARED_KEY, true).commit();
         memory.keySet().removeAll(replaced.keySet());
         playlistCovers = null;
+        offlineCopies = null;
         removeUnused();
         Logger.printInfo(() -> "Stored covers cut to a square: " + replaced.size());
         if (!replaced.isEmpty()) LocalAdditions.clearLocalTrackCache();

@@ -2,6 +2,8 @@ package app.revanced.extension.soundcloud.player;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -13,6 +15,7 @@ import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import app.revanced.extension.shared.Logger;
@@ -20,6 +23,7 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.LocalMusic;
+import app.revanced.extension.soundcloud.recommendations.ForYou;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
@@ -69,10 +73,11 @@ public final class ListeningStats {
      */
     public static synchronized void onPlaybackItem(Object item) {
         try {
-            finishListen();
-            if (!isEnabled()) return;
             Object urn = item.getClass().getMethod("h").invoke(item);
             String value = String.valueOf(urn);
+            if (isResume(item, value)) return;
+            finishListen();
+            if (!isEnabled()) return;
             // Ads and other items that are not tracks are not counted.
             if (!value.contains(":tracks:")) return;
             currentUrn = value;
@@ -80,6 +85,36 @@ public final class ListeningStats {
         } catch (Exception ex) {
             Logger.printException(() -> "Listening stats: could not read the playback item", ex);
         }
+    }
+
+    /**
+     * Play after a pause gives the player the same item again, starting where it stopped. That is the
+     * same listen going on: counted as a new one, a track paused once became two short listens, and
+     * often neither reached a play. Also continues the listen saved at a pause if the app was closed.
+     *
+     * @return True if the listen goes on.
+     */
+    private static boolean isResume(Object item, String urn) {
+        long position;
+        try {
+            position = ((Number) item.getClass().getMethod("e").invoke(item)).longValue();
+        } catch (Exception ex) {
+            return false;
+        }
+        // From the start it is a new listen, also of the same track.
+        if (position <= 0) return false;
+        if (urn.equals(currentUrn)) return true;
+        if (currentUrn != null || !isEnabled()) return false;
+        SharedPreferences preferences = preferences();
+        String pending = preferences == null ? null : preferences.getString(PENDING, null);
+        String[] parts = pending == null ? new String[0] : pending.split("\t");
+        if (parts.length != 3 || !parts[1].equals(urn)) return false;
+        currentUrn = urn;
+        currentStart = Long.parseLong(parts[0]);
+        playedMs = Long.parseLong(parts[2]);
+        playingSince = 0;
+        Logger.printInfo(() -> "Listening stats: the listen saved at the pause goes on: " + urn);
+        return true;
     }
 
     /**
@@ -137,6 +172,7 @@ public final class ListeningStats {
     }
 
     private static void append(long start, String urn, long played) {
+        Logger.printInfo(() -> "Listening stats: " + urn + " played " + played / 1000 + " s");
         Utils.runOnBackgroundThread(() -> {
             synchronized (ListeningStats.class) {
                 File file = file();
@@ -224,14 +260,30 @@ public final class ListeningStats {
         resolveTitles(sorted);
         for (int i = 0; i < Math.min(limit, sorted.size()); i++) summary.topTracks.add(sorted.get(i));
 
+        // One artist is written in different ways ("CUPSIZE", "Cupsize", "Cupsize & ..."): counted
+        // together and named as written on the tracks played the longest.
         Map<String, Entry> artists = new HashMap<>();
+        Map<String, Map<String, Long>> spellings = new HashMap<>();
         for (Entry track : sorted) {
-            if (track.artist == null || track.artist.isEmpty()) continue;
-            Entry artist = artists.get(track.artist);
-            if (artist == null) artists.put(track.artist, artist = new Entry(track.artist));
-            artist.title = track.artist;
+            if (track.artist == null || track.artist.trim().isEmpty()) continue;
+            String key = ForYou.artistKey(track.artist);
+            if (key.isEmpty()) key = track.artist.trim().toLowerCase(Locale.ROOT);
+            Entry artist = artists.get(key);
+            if (artist == null) artists.put(key, artist = new Entry(key));
             artist.plays += track.plays;
             artist.playedMs += track.playedMs;
+            Map<String, Long> names = spellings.get(key);
+            if (names == null) spellings.put(key, names = new HashMap<>());
+            names.merge(track.artist.trim(), track.playedMs, Long::sum);
+        }
+        for (Entry artist : artists.values()) {
+            long longest = -1;
+            for (Map.Entry<String, Long> name : spellings.get(artist.key).entrySet()) {
+                if (name.getValue() > longest) {
+                    longest = name.getValue();
+                    artist.title = name.getKey();
+                }
+            }
         }
         List<Entry> artistList = new ArrayList<>(artists.values());
         artistList.sort((a, b) -> Long.compare(b.playedMs, a.playedMs));
@@ -269,7 +321,13 @@ public final class ListeningStats {
         }
     }
 
-    /** Titles of SoundCloud tracks are asked for once and kept; imported files give their tags. */
+    /**
+     * Titles of SoundCloud tracks are looked up once and kept: in SoundCloud's own database first, which
+     * works without a network, then on the server. Imported files give their tags.
+     * <p>
+     * Uploads by others are often titled "Artist - Title" under the uploader's name: the artist is
+     * taken from the title then, the same way as for the "For you" playlist.
+     */
     private static void resolveTitles(List<Entry> entries) {
         SharedPreferences preferences = preferences();
         JSONObject titles;
@@ -283,44 +341,101 @@ public final class ListeningStats {
             File local = LocalAdditions.importedFileOf(entry.key);
             if (local != null) {
                 LocalMusic.Track track = local.isFile() ? LocalMusic.readTrack(local) : null;
-                entry.title = track != null ? track.title : local.getName();
-                entry.artist = track != null ? track.artist : "";
-                continue;
-            }
-            JSONArray known = titles.optJSONArray(entry.key);
-            if (known != null) {
-                entry.title = known.optString(0);
-                entry.artist = known.optString(1);
-            } else {
-                String id = DownloadTrackPatch.parseTrackId(entry.key);
-                if (id != null) missing.add(id);
+                if (track != null && !track.artist.isEmpty()) {
+                    entry.title = track.title;
+                    entry.artist = track.artist;
+                } else {
+                    name(entry, track != null ? track.title : local.getName(), "");
+                }
+            } else if (!titles.has(entry.key)) {
+                missing.add(entry.key);
             }
         }
-        for (int start = 0; start < missing.size(); start += 50) {
+
+        boolean changed = false;
+        if (!missing.isEmpty()) {
+            for (Map.Entry<String, String[]> stored : storedTitles(missing).entrySet()) {
+                putTitle(titles, stored.getKey(), stored.getValue()[0], stored.getValue()[1]);
+                missing.remove(stored.getKey());
+                changed = true;
+            }
+        }
+        List<String> ids = new ArrayList<>();
+        for (String urn : missing) {
+            String id = DownloadTrackPatch.parseTrackId(urn);
+            if (id != null) ids.add(id);
+        }
+        for (int start = 0; start < ids.size(); start += 50) {
             try {
                 String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks?ids="
-                        + String.join(",", missing.subList(start, Math.min(missing.size(), start + 50))));
+                        + String.join(",", ids.subList(start, Math.min(ids.size(), start + 50))));
                 if (response[1] == null) break;
                 JSONArray array = new JSONArray(response[1]);
                 for (int i = 0; i < array.length(); i++) {
                     JSONObject track = array.getJSONObject(i);
                     JSONObject user = track.optJSONObject("user");
-                    titles.put("soundcloud:tracks:" + track.getLong("id"), new JSONArray()
-                            .put(track.optString("title"))
-                            .put(user == null ? "" : user.optString("username")));
+                    putTitle(titles, "soundcloud:tracks:" + track.getLong("id"), track.optString("title"),
+                            user == null ? "" : user.optString("username"));
+                    changed = true;
                 }
             } catch (Exception ex) {
                 Logger.printInfo(() -> "Listening stats: no track titles: " + ex);
                 break;
             }
         }
-        if (!missing.isEmpty() && preferences != null) preferences.edit().putString(TITLES, titles.toString()).apply();
+        if (changed && preferences != null) preferences.edit().putString(TITLES, titles.toString()).apply();
+
         for (Entry entry : entries) {
             if (entry.title != null) continue;
             JSONArray known = titles.optJSONArray(entry.key);
-            entry.title = known != null ? known.optString(0) : entry.key;
-            entry.artist = known != null ? known.optString(1) : "";
+            if (known != null) {
+                name(entry, known.optString(0), known.optString(1));
+            } else {
+                entry.title = entry.key;
+                entry.artist = "";
+            }
         }
+    }
+
+    /** Kept as SoundCloud gives them: the title and the uploader. */
+    private static void putTitle(JSONObject titles, String urn, String title, String uploader) {
+        try {
+            titles.put(urn, new JSONArray().put(title).put(uploader == null ? "" : uploader));
+        } catch (Exception ignored) {
+            // Only a null key throws.
+        }
+    }
+
+    private static void name(Entry entry, String title, String uploader) {
+        String[] names = ForYou.artistAndTitle(title, uploader);
+        entry.artist = names != null ? names[0] : "";
+        entry.title = names != null ? names[1] : title;
+    }
+
+    /** Titles and uploaders of tracks from SoundCloud's own database, without the network. */
+    private static Map<String, String[]> storedTitles(List<String> urns) {
+        Map<String, String[]> found = new HashMap<>();
+        Context context = Utils.getContext();
+        File path = context == null ? null : context.getDatabasePath("core.db");
+        if (path == null || !path.isFile()) return found;
+        try (SQLiteDatabase core = SQLiteDatabase.openDatabase(path.getPath(), null, SQLiteDatabase.OPEN_READONLY)) {
+            // SQLite takes at most 999 values in one query.
+            for (int start = 0; start < urns.size(); start += 400) {
+                List<String> part = urns.subList(start, Math.min(urns.size(), start + 400));
+                String query = "SELECT t.urn, t.title, u.username FROM Tracks t "
+                        + "LEFT JOIN TrackUserJoin j ON j.trackUrn = t.urn LEFT JOIN Users u ON u.urn = j.userUrn "
+                        + "WHERE t.urn IN (" + String.join(",", java.util.Collections.nCopies(part.size(), "?")) + ")";
+                try (Cursor cursor = core.rawQuery(query, part.toArray(new String[0]))) {
+                    while (cursor.moveToNext()) {
+                        if (cursor.getString(1) == null) continue;
+                        found.put(cursor.getString(0), new String[]{cursor.getString(1), cursor.getString(2)});
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Listening stats: could not read stored track titles: " + ex);
+        }
+        return found;
     }
 
     // endregion

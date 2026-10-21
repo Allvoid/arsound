@@ -736,10 +736,11 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(createToggleRow(
                 text("Сохранять плейлисты заранее", "Save playlists ahead"),
                 text("В фоне сохраняет списки треков всех плейлистов и альбомов из библиотеки: названия, исполнителей, "
-                                + "длительность. Без музыки и картинок, места почти не занимает. Нужно, чтобы плейлисты "
-                                + "открывались без интернета.",
+                                + "длительность, и обложки самих плейлистов. Без музыки, места почти не занимает. Нужно, "
+                                + "чтобы плейлисты открывались без интернета и с обложками.",
                         "Saves the track lists of every playlist and album in the library in the background: titles, "
-                                + "artists, durations. No audio or images, takes almost no space. Lets playlists open offline."),
+                                + "artists, durations, and the covers of the playlists themselves. No audio, takes almost "
+                                + "no space. Lets playlists open offline, with their covers."),
                 Settings.isPlaylistPreloadEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.PLAYLIST_PRELOAD, checked)
         ));

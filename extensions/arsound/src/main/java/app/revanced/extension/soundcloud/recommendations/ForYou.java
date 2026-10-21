@@ -207,7 +207,7 @@ public final class ForYou {
     }
 
     /** Artist and title of a SoundCloud upload: "Artist - Title" uploads name the artist in the title. */
-    static String[] artistAndTitle(String title, String uploader) {
+    public static String[] artistAndTitle(String title, String uploader) {
         if (title == null) return null;
         for (String dash : new String[]{" - ", " – ", " — "}) {
             int index = title.indexOf(dash);
@@ -219,7 +219,7 @@ public final class ForYou {
         return new String[]{uploader.trim(), title.trim()};
     }
 
-    static String artistKey(String artist) {
+    public static String artistKey(String artist) {
         String value = artist == null ? "" : artist.toLowerCase(Locale.ROOT);
         // The first of several artists: "A, B", "A & B", "A feat. B".
         value = value.split("\\s*(,|&|\\bfeat\\.?|\\bft\\.?|\\bx\\b|\\bи\\b)\\s*")[0];
@@ -298,7 +298,9 @@ public final class ForYou {
                 ListeningStats.Summary summary = ListeningStats.summarize(
                         System.currentTimeMillis() - TimeUnit.DAYS.toMillis(90), 40);
                 for (ListeningStats.Entry entry : summary.topTracks) {
-                    String[] names = artistAndTitle(entry.title, entry.artist);
+                    // The statistics already took the artist out of the title where it was there.
+                    String[] names = entry.artist != null && !entry.artist.isEmpty()
+                            ? new String[]{entry.artist, entry.title} : artistAndTitle(entry.title, null);
                     if (names != null && entry.plays > 0) {
                         addSeed(seeds, known, names[0], names[1], Math.min(1.5, 0.4 + 0.15 * entry.plays));
                     }
