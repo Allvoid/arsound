@@ -1,5 +1,8 @@
 package app.revanced.extension.soundcloud.local;
 
+import android.view.View;
+
+import java.lang.ref.WeakReference;
 import java.util.List;
 
 import app.revanced.extension.shared.Logger;
@@ -12,12 +15,16 @@ import app.revanced.extension.shared.Utils;
  * number of tracks this phone can play without the network follows the number of tracks, after a
  * download arrow: tracks downloaded by Arsound and imported files of the playlist.
  * <p>
- * The header is drawn by Compose from the playlist's metadata, so it changes when the playlist is
- * loaded again. The numbers come from {@link PlaylistTracks}.
+ * The header is drawn by Compose from the playlist's metadata. The list binds it again only when that
+ * metadata changes, so a new cover or count binds the shown header again. The numbers come from
+ * {@link PlaylistTracks}.
  */
 public final class PlaylistHeader {
     /** The playlist whose header was drawn last. */
     private static volatile String shownPlaylist;
+    /** The header bound last and its item, bound again to draw it anew. */
+    private static WeakReference<Object> shownHolder = new WeakReference<>(null);
+    private static WeakReference<Object> shownItem = new WeakReference<>(null);
 
     private PlaylistHeader() {
     }
@@ -29,8 +36,32 @@ public final class PlaylistHeader {
      * @param urns The {@code Urn}s the screen shows.
      */
     static void onScreenTracks(String playlistUrn, List<?> urns) {
-        if (!PlaylistTracks.record(playlistUrn, urns) || !playlistUrn.equals(shownPlaylist)) return;
-        Utils.runOnMainThread(() -> LocalAdditions.notifyPlaylistChanged(playlistUrn));
+        if (PlaylistTracks.record(playlistUrn, urns)) Utils.runOnMainThread(() -> redraw(playlistUrn));
+    }
+
+    /**
+     * Injection point: the header is bound to its item.
+     *
+     * @param holder The header's {@code ScViewHolder}.
+     * @param item   The header item with the playlist's metadata.
+     */
+    public static void onBind(Object holder, Object item) {
+        shownHolder = new WeakReference<>(holder);
+        shownItem = new WeakReference<>(item);
+    }
+
+    /** Draws the shown header of the playlist again, with its current cover and count. Main thread. */
+    public static void redraw(String playlistUrn) {
+        try {
+            Object holder = shownHolder.get();
+            Object item = shownItem.get();
+            if (holder == null || item == null || !playlistUrn.equals(shownPlaylist)) return;
+            View view = (View) holder.getClass().getField("itemView").get(holder);
+            if (view == null || !view.isAttachedToWindow()) return;
+            holder.getClass().getMethod("bindItem", Object.class).invoke(holder, item);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not draw the playlist header again", ex);
+        }
     }
 
     /**

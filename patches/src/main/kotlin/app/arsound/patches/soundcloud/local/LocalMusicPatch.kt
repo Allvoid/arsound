@@ -178,6 +178,18 @@ private val BytecodePatchContext.playlistArtworkMethod by gettingFirstMethodDecl
 }
 
 /**
+ * Binds the header of the playlist screen: hands the Compose view the content drawn from the playlist's
+ * metadata. The list binds it again only when the metadata changes, not when Arsound's cover or count does.
+ */
+private val BytecodePatchContext.playlistHeaderBindMethod by gettingFirstMethodDeclaratively {
+    name("bindItem")
+    definingClass(
+        "Lcom/soundcloud/android/playlist/view/renderers/PlaylistDetailsSmallerArtworkHeaderRenderer" +
+            "${'$'}PlaylistDetailsSmallerArtworkHeaderComposeViewHolder;",
+    )
+}
+
+/**
  * Draws the header of the playlist screen with Compose: title, author and the meta line with the number of
  * tracks. A lambda with an obfuscated class name, the only one that reads the metadata of the header.
  */
@@ -265,6 +277,12 @@ val localMusicPatch = bytecodePatch {
                 move-result-object p0
                 return-object p0
             """,
+        )
+
+        // The header is remembered, so a new cover or count draws it again right away.
+        playlistHeaderBindMethod.addInstruction(
+            0,
+            "invoke-static { p0, p1 }, Lapp/revanced/extension/soundcloud/local/PlaylistHeader;->onBind(Ljava/lang/Object;Ljava/lang/Object;)V",
         )
 
         // The meta line of the header gets the number of tracks that play from a file, as one more part

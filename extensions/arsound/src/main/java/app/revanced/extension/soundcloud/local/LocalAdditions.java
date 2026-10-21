@@ -506,7 +506,10 @@ public final class LocalAdditions {
                     dialog.dismiss();
                     Utils.runOnBackgroundThread(() -> {
                         LocalCovers.setPlaylistCover(playlistUrn, null);
-                        Utils.runOnMainThread(() -> notifyPlaylistChanged(playlistUrn));
+                        Utils.runOnMainThread(() -> {
+                            notifyPlaylistChanged(playlistUrn);
+                            PlaylistHeader.redraw(playlistUrn);
+                        });
                     });
                 });
         menuItems.addView(removeRow, new LinearLayout.LayoutParams(
