@@ -274,6 +274,9 @@ public final class SavedPlaylist {
                 storage.getClass().getMethod("removePlaylistPost", urnClass).invoke(storage, urn);
                 Logger.printInfo(() -> "Removed the deleted playlist " + copy + " from the stored posts");
             }
+        } catch (java.io.IOException ex) {
+            // Without a network the check waits for the next start.
+            Logger.printInfo(() -> "Deleted copies not checked, no network: " + ex);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not remove the deleted copies from the stored posts", ex);
         }

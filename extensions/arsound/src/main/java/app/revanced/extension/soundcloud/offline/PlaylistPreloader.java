@@ -17,9 +17,10 @@ import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
- * Saves the contents of every playlist and album in the library ahead of time, as text only:
- * titles, artists, durations and artwork links go into SoundCloud's own database, no audio and no
- * images. With "Offline first playlists" a playlist then opens instantly, also without a network.
+ * Saves the contents of every playlist and album in the library ahead of time: titles, artists,
+ * durations and artwork links go into SoundCloud's own database, no audio. The playlist covers are
+ * kept as files by {@link app.revanced.extension.soundcloud.local.LocalCovers}. With "Offline first
+ * playlists" a playlist then opens instantly, also without a network.
  * <p>
  * Runs in the background after start, one playlist at a time with a pause, and refreshes a playlist
  * at most once a day.
@@ -52,11 +53,17 @@ public final class PlaylistPreloader {
                 // The library cells show how many tracks each playlist has and how many play from a file.
                 // Read from the database only, before the slower preload.
                 List<String> library = new ArrayList<>();
+                List<Object> playlists = new ArrayList<>();
                 for (Object item : libraryItems("LOCAL_ONLY")) {
                     library.add(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)));
+                    playlists.add(item.getClass().getMethod("getPlaylist").invoke(item));
                 }
                 app.revanced.extension.soundcloud.local.PlaylistTracks.recordAll(library);
                 app.revanced.extension.soundcloud.download.DownloadProgress.redrawNow();
+                // Covers first: a few small pictures, while the track lists take a while.
+                if (Settings.isPlaylistPreloadEnabled()) {
+                    app.revanced.extension.soundcloud.local.LocalCovers.keepOfflineCopies(playlists);
+                }
                 preload();
                 // Downloaded tracks deleted on SoundCloud before their playlists were watched.
                 if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
