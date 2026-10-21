@@ -9,7 +9,7 @@
 Arsound — это набор патчей на основе [ReVanced](https://revanced.app). Это неофициальный проект, он не связан
 ни с ReVanced, ни с SoundCloud.
 
-> Проверено на SoundCloud **2026.10.14-release**, Android 16.
+> Проверено на SoundCloud **2026.10.14-release**, Android 16, arm64.
 > С другой версией SoundCloud часть функций может не заработать.
 
 ## Что умеет
