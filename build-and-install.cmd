@@ -14,8 +14,8 @@ if not "%TARGET%"=="" if /i not "%TARGET%"=="phone" if /i not "%TARGET%"=="emu" 
 
 if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
-set "APK_IN=local\apk\soundcloud-2026.09.02-merged.apk"
-set "APK_OUT=local\out\arsound-2026.09.02.apk"
+set "APK_IN=local\apk\soundcloud-2026.10.14-merged.apk"
+set "APK_OUT=local\out\arsound-2026.10.14.apk"
 set "KEYSTORE=local\sc-revanced.keystore"
 set "KEYSTORE_ARGS="
 rem A keystore exported from ReVanced Manager lets the build update an app installed by Manager, keeping its data.

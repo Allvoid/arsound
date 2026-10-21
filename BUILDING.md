@@ -69,7 +69,7 @@ local/                            Локальные файлы, в Git не п�
 
 ```
 local/
-  apk/soundcloud-2026.09.02-merged.apk   APK SoundCloud (закрытое приложение, публиковать нельзя)
+  apk/soundcloud-2026.10.14-merged.apk   APK SoundCloud (закрытое приложение, публиковать нельзя)
   tools/revanced-cli-6.0.0-all.jar       ReVanced CLI
   tools/APKEditor-*.jar                  склейка split APK
   tools/apktool_*.jar, tools/jadx/       разбор APK
@@ -94,18 +94,22 @@ local/
 
 ### Как достать APK SoundCloud
 
-Проще всего с телефона, где SoundCloud установлен из Google Play:
+Проще всего с телефона или эмулятора, где SoundCloud установлен из Google Play:
 
 ```bash
 adb shell pm path com.soundcloud.android
 ```
 
-Команда выведет пути к `base.apk` и `split_config.*.apk`. Каждый скачивается через `adb pull <путь> local/apk/2026.09.02/`.
+Команда выведет пути к `base.apk` и `split_config.*.apk`. Каждый скачивается через `adb pull <путь> local/apk/2026.10.14/`.
 Google Play отдаёт приложение несколькими файлами, их нужно склеить в один:
 
 ```bash
-java -jar local/tools/APKEditor-1.4.9.jar m -i local/apk/2026.09.02 -o local/apk/soundcloud-2026.09.02-merged.apk
+java -jar local/tools/APKEditor-1.4.9.jar m -i local/apk/2026.10.14 -o local/apk/soundcloud-2026.10.14-merged.apk
 ```
+
+Весь код лежит в `base.apk`, в `split_config.<abi>.apk` — только библиотеки под процессор. Эмулятор получает из
+Google Play `split_config.x86_64.apk`, телефон — `split_config.arm64_v8a.apk`. Сборка без arm64 на телефоне не
+запустится, поэтому в папку перед склейкой кладутся обе части: такой APK работает и на телефоне, и на эмуляторе.
 
 ## Сборка и установка
 
@@ -324,5 +328,9 @@ disk.dataPartition.size=16G
    `SEVERE: "Settings" failed`, со стеком. Строка с `patches/soundcloud/...` показывает, какой метод не нашёлся.
 3. Открыть APK в jadx и найти, куда переехал нужный код: по строкам, по именам классов, по соседним вызовам.
    Для точной картины байткода удобно разобрать APK: `java -jar local/tools/apktool_3.0.3.jar d -r <apk>`.
-4. Поправить поиск методов и версию в `compatibleWith(...)`, пересобрать.
+4. Поправить поиск методов и версию в `compatibleWith(...)`, пересобрать. Короткие имена вроде `f`, `Q`, `E` R8 раздаёт
+   заново в каждой версии: метод надёжнее искать по параметрам, типу результата или вызовам внутри, а в расширении —
+   по сигнатуре или поведению (так найдены `Observable.merge` и методы `ItemDragCallback.DragHost`). Заглушки в
+   `extensions/arsound/stub` тоже сверяются с новой версией: вызов метода, которого больше нет, падает только
+   во время работы.
 5. Проверить на телефоне: лог расширения виден через `adb logcat | findstr revanced`.

@@ -149,10 +149,8 @@ public final class ImportActivity extends Activity {
             }
             boolean done = saved;
             Utils.runOnMainThread(() -> {
-                if (playlistUrn != null) {
-                    LocalAdditions.notifyPlaylistChanged(playlistUrn);
-                    if (done) PlaylistHeader.showCover(playlistUrn, LocalCovers.playlistCoverUrl(playlistUrn));
-                }
+                // The open header is drawn again with the new cover.
+                if (playlistUrn != null) LocalAdditions.notifyPlaylistChanged(playlistUrn);
                 if (file != null) LocalAdditions.notifyTrackChanged(new File(file));
                 Toast.makeText(context, done
                         ? text("Обложка сохранена на этом телефоне", "The cover is saved on this phone")

@@ -46,7 +46,7 @@ private val HOME_LIST_VIEWS = listOf(
 val duplicateFilterPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // Home screen (server-driven UI): every item list is filtered in place before the view object keeps it.

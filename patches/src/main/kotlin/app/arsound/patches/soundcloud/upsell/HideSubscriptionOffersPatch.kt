@@ -146,7 +146,7 @@ private val BytecodePatchContext.libraryDownloadsClickMethod by gettingFirstMeth
 val hideSubscriptionOffersPatch = bytecodePatch {
     dependsOn(settingsPatch, emptyActivityPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // Returning before the render method starts its Compose group leaves nothing on screen.

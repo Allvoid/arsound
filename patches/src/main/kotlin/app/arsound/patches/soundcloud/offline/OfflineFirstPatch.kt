@@ -8,12 +8,14 @@ import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.replaceInstruction
+import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.indexOfFirstInstructionOrThrow
+import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
@@ -79,7 +81,7 @@ private val BytecodePatchContext.myPlaylistOperationsConstructorMethod by gettin
 val offlineFirstPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // Save every library playlist's contents ahead of time, as text in SoundCloud's database.
@@ -187,6 +189,12 @@ val offlineFirstPatch = bytecodePatch {
             val resultIndex = statusMapperIndex + 2
             val statusRegister = getInstruction<OneRegisterInstruction>(resultIndex).registerA
             val freeRegister = getInstruction<OneRegisterInstruction>(statusMapperIndex).registerA
+            // Observable.startWithItem(item): R8 renamed it and the name changes between versions. It is the
+            // only instance method taking one Object and returning an Observable.
+            val startWithItem = firstClassDef("Lio/reactivex/rxjava3/core/Observable;").methods.single {
+                !AccessFlags.STATIC.isSet(it.accessFlags) && it.returnType == "Lio/reactivex/rxjava3/core/Observable;" &&
+                    it.parameterTypes.map(CharSequence::toString) == listOf("Ljava/lang/Object;")
+            }.name
             addInstructionsWithLabels(
                 resultIndex + 1,
                 """
@@ -194,7 +202,7 @@ val offlineFirstPatch = bytecodePatch {
                     move-result v$freeRegister
                     if-eqz v$freeRegister, :keep
                     sget-object v$freeRegister, Lcom/soundcloud/android/playlists/PlaylistDetailsMetadata${'$'}FollowStatus;->a:Lcom/soundcloud/android/playlists/PlaylistDetailsMetadata${'$'}FollowStatus;
-                    invoke-virtual { v$statusRegister, v$freeRegister }, Lio/reactivex/rxjava3/core/Observable;->P(Ljava/lang/Object;)Lio/reactivex/rxjava3/core/Observable;
+                    invoke-virtual { v$statusRegister, v$freeRegister }, Lio/reactivex/rxjava3/core/Observable;->$startWithItem(Ljava/lang/Object;)Lio/reactivex/rxjava3/core/Observable;
                     move-result-object v$statusRegister
                 """,
                 ExternalLabel("keep", getInstruction(resultIndex + 1)),

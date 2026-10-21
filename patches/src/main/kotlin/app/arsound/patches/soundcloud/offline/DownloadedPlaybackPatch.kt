@@ -5,6 +5,7 @@ import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
+import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
@@ -71,7 +72,7 @@ private val BytecodePatchContext.playbackDataMethod by gettingFirstMethodDeclara
 val downloadedPlaybackPatch = bytecodePatch {
     dependsOn(downloadTrackPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         playbackItemForTrackMethod.apply {
@@ -119,9 +120,12 @@ val downloadedPlaybackPatch = bytecodePatch {
         playbackDataMethod.apply {
             // Track branch: v4 = playbackItemForTrack(...).map(PlaybackItem), v8 TrackSourceInfo,
             // v9/v10 start position, v11 TrackUrn; then goto to AppPlaybackData.
+            // Maybe.map and Observable.map are found by what they return: R8's names change between versions.
             val itemIndex = indexOfFirstInstructionOrThrow {
-                opcode == Opcode.INVOKE_VIRTUAL &&
-                    (this as ReferenceInstruction).reference.toString().startsWith("Lio/reactivex/rxjava3/core/Maybe;->j(")
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.let {
+                    it.definingClass == "Lio/reactivex/rxjava3/core/Maybe;" &&
+                        it.returnType == "Lio/reactivex/rxjava3/internal/operators/maybe/MaybeMap;"
+                } == true
             }
             val itemRegister = getInstruction<OneRegisterInstruction>(itemIndex + 1).registerA
             addInstructions(
@@ -135,8 +139,10 @@ val downloadedPlaybackPatch = bytecodePatch {
 
             // metadata.map(Success) is in v3; v4 is overwritten by the next instruction.
             val metadataIndex = indexOfFirstInstructionOrThrow {
-                opcode == Opcode.INVOKE_VIRTUAL &&
-                    (this as ReferenceInstruction).reference.toString().startsWith("Lio/reactivex/rxjava3/core/Observable;->E(")
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.let {
+                    it.definingClass == "Lio/reactivex/rxjava3/core/Observable;" &&
+                        it.returnType == "Lio/reactivex/rxjava3/internal/operators/observable/ObservableMap;"
+                } == true
             }
             val metadataRegister = getInstruction<OneRegisterInstruction>(metadataIndex + 1).registerA
             addInstructions(

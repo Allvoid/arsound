@@ -36,7 +36,7 @@ private val BytecodePatchContext.generateImportBannerStateMethod by gettingFirst
 val hideImportBannerPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // The state is replaced at every exit of the method, so the banner is gone before the library

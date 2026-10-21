@@ -10,12 +10,15 @@ import app.revanced.patcher.extensions.wideLiteral
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
+import app.revanced.patcher.returnType
+import app.arsound.util.findFreeRegister
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
@@ -45,10 +48,14 @@ private val BytecodePatchContext.libraryHeaderItemConstructorMethod by gettingFi
     parameterTypes("Landroid/content/Context;", "Landroid/util/AttributeSet;")
 }
 
-/** Binds the Library list; builds the Downloads row again. */
-private val BytecodePatchContext.libraryLinksBindMethod by gettingFirstMethodDeclaratively {
-    name("bindItem")
+/**
+ * Builds the state of the Downloads row again when the Library list is bound: {@code LibraryLinksViewHolder.a(Z)},
+ * the only method of the holder that returns a row state. The row view is not at hand there.
+ */
+private val BytecodePatchContext.libraryDownloadsStateMethod by gettingFirstMethodDeclaratively {
     definingClass("Lcom/soundcloud/android/features/library/LibraryLinksViewHolder;")
+    returnType("Lcom/soundcloud/android/ui/components/actionlists/ActionListItem\$ViewState;")
+    parameterTypes("Z")
 }
 
 /**
@@ -59,30 +66,62 @@ private val BytecodePatchContext.libraryLinksBindMethod by gettingFirstMethodDec
  */
 private fun addLibraryRowIcons(method: app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod): Int {
     val instructions = method.implementation!!.instructions.toList()
-    val states = instructions.withIndex().filter { (_, instruction) ->
-        instruction.opcode == Opcode.INVOKE_DIRECT_RANGE && instruction.methodReference?.let {
-            it.definingClass.endsWith("ActionListItem\$ViewState;") && it.name == "<init>"
-        } == true
-    }.map { it.index }
+    val states = rowStateIndexes(instructions)
     for (index in states.reversed()) {
         val range = instructions[index] as RegisterRangeInstruction
-        val icon = range.startRegister + 2
-        val mask = range.startRegister + range.registerCount - 1
         // The row: the view the state is given to (ActionListItem.n) right after.
         val give = instructions.drop(index + 1).first { it.methodReference?.name == "n" } as FiveRegisterInstruction
-        val defaults = instructions.subList(0, index).last {
-            it is NarrowLiteralInstruction && it is OneRegisterInstruction && it.registerA == mask
-        } as NarrowLiteralInstruction
         method.addInstructions(
             index,
             """
                 invoke-static/range { v${give.registerC} .. v${give.registerC} }, Lapp/revanced/extension/soundcloud/theme/ArsoundTheme;->libraryRowIcon(Landroid/view/View;)I
-                move-result v$icon
-                const/16 v$mask, ${defaults.narrowLiteral and 2.inv()}
-            """,
+            """ + iconArguments(instructions, index, range),
         )
     }
     return states.size
+}
+
+/**
+ * Like [addLibraryRowIcons], for a method that only builds the state of one row and returns it, without the row
+ * view: the row is named instead, as in its view id library_header_<row>.
+ */
+private fun addLibraryRowIcon(method: app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod, row: String): Int {
+    val instructions = method.implementation!!.instructions.toList()
+    val index = rowStateIndexes(instructions).singleOrNull() ?: return 0
+    val range = instructions[index] as RegisterRangeInstruction
+    val name = method.findFreeRegister(index, *IntArray(range.registerCount) { range.startRegister + it })
+    method.addInstructions(
+        index,
+        """
+            const-string v$name, "$row"
+            invoke-static { v$name }, Lapp/revanced/extension/soundcloud/theme/ArsoundTheme;->libraryRowIcon(Ljava/lang/String;)I
+        """ + iconArguments(instructions, index, range),
+    )
+    return 1
+}
+
+private fun rowStateIndexes(instructions: List<Instruction>) =
+    instructions.withIndex().filter { (_, instruction) ->
+        instruction.opcode == Opcode.INVOKE_DIRECT_RANGE && instruction.methodReference?.let {
+            it.definingClass.endsWith("ActionListItem\$ViewState;") && it.name == "<init>"
+        } == true
+    }.map { it.index }
+
+/** Takes the icon just returned into the iconStart argument and marks it as given in the mask of defaults. */
+private fun iconArguments(
+    instructions: List<Instruction>,
+    index: Int,
+    range: RegisterRangeInstruction,
+): String {
+    val icon = range.startRegister + 2
+    val mask = range.startRegister + range.registerCount - 1
+    val defaults = instructions.subList(0, index).last {
+        it is NarrowLiteralInstruction && it is OneRegisterInstruction && it.registerA == mask
+    } as NarrowLiteralInstruction
+    return """
+        move-result v$icon
+        const/16 v$mask, ${defaults.narrowLiteral and 2.inv()}
+    """
 }
 
 /** SoundCloud's veil colour: 70 % black. */
@@ -261,8 +300,9 @@ val themePatch = bytecodePatch {
                 "->onApplicationCreate(Landroid/app/Application;)V",
         )
         // Each Library row asks the theme for a leading icon. The rows are built in LibraryHeaderItem; the Downloads
-        // row is built again when the list is bound (LibraryLinksViewHolder.bindItem).
-        val rows = addLibraryRowIcons(libraryHeaderItemConstructorMethod) + addLibraryRowIcons(libraryLinksBindMethod)
+        // row is built again when the list is bound (LibraryLinksViewHolder.a).
+        val rows = addLibraryRowIcons(libraryHeaderItemConstructorMethod) +
+            addLibraryRowIcon(libraryDownloadsStateMethod, "downloads")
         if (rows < 9) error("Library rows not found ($rows)")
         // The theme may lighten the veil over the "Your likes" bar, so the bar shows the theme's colours.
         for (method in listOf(shortcutHeaderStaticMethod, sectionsShortcutsStaticMethod)) {

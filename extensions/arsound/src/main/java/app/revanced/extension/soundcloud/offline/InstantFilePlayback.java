@@ -116,9 +116,7 @@ public final class InstantFilePlayback {
             Object delayedFailure = delayedItem(loader, sourceClass, failure);
 
             // merge(metadata, delayedFailure): whichever comes first is used to start playback.
-            Method merge = type(loader, "io.reactivex.rxjava3.core.Observable")
-                    .getMethod("F", sourceClass, sourceClass);
-            return merge.invoke(null, metadata, delayedFailure);
+            return app.revanced.extension.soundcloud.shared.Rx.merge(metadata, delayedFailure);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not limit the metadata wait", ex);
             return metadata;

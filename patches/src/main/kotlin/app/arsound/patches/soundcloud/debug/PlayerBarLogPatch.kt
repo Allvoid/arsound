@@ -47,7 +47,7 @@ private val BytecodePatchContext.playStatePlayerPageMethod by gettingFirstMethod
 val playerBarLogPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // The range form is required: these methods use dozens of registers, and a plain

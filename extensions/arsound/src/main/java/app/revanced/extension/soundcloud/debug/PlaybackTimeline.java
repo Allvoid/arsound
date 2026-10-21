@@ -95,7 +95,7 @@ public final class PlaybackTimeline extends Timber.Tree {
     }
 
     @Override
-    public void i(String tag, int priority, String message, Throwable throwable) {
+    public void j(String tag, int priority, String message, Throwable throwable) {
         try {
             boolean wanted = tag != null && TAGS.contains(tag);
             if (!wanted && priority < WARN) return;

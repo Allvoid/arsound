@@ -4,11 +4,11 @@ package timber.log;
 public final class Timber {
     public abstract static class Tree {
         /** Whether a line of this priority is wanted. */
-        public boolean h(int priority) {
+        public boolean i(int priority) {
             return true;
         }
 
         /** Receives one formatted line. */
-        public abstract void i(String tag, int priority, String message, Throwable throwable);
+        public abstract void j(String tag, int priority, String message, Throwable throwable);
     }
 }

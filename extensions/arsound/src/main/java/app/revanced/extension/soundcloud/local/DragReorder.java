@@ -68,26 +68,30 @@ public final class DragReorder {
     public void install() throws Exception {
         Class<?> hostType = Class.forName(
                 "com.soundcloud.android.libs.recyclerviewutils.touchhelpers.ItemDragCallback$DragHost", false, loader);
+        // The host's three methods have obfuscated names that change between versions; their signatures tell
+        // them apart: can (from, to) move, (from, to) moved, and the drop.
         Object host = Proxy.newProxyInstance(loader, new Class<?>[]{hostType}, (proxy, method, args) -> {
-            switch (method.getName()) {
-                case "N":
-                    return canMove((Integer) args[0], (Integer) args[1]);
-                case "k":
-                    move((Integer) args[0], (Integer) args[1]);
-                    return null;
-                case "p":
-                    save();
-                    if (dropped != null) {
-                        try {
-                            dropped.accept(items());
-                        } catch (Exception ex) {
-                            Logger.printException(() -> "Could not finish the move", ex);
-                        }
-                    }
-                    return null;
-                default:
-                    return defaultValue(method);
+            if (method.getDeclaringClass() != hostType) return defaultValue(method);
+            int count = method.getParameterTypes().length;
+            if (count == 2 && method.getReturnType() == boolean.class) {
+                return canMove((Integer) args[0], (Integer) args[1]);
             }
+            if (count == 2) {
+                move((Integer) args[0], (Integer) args[1]);
+                return null;
+            }
+            if (count == 0) {
+                save();
+                if (dropped != null) {
+                    try {
+                        dropped.accept(items());
+                    } catch (Exception ex) {
+                        Logger.printException(() -> "Could not finish the move", ex);
+                    }
+                }
+                return null;
+            }
+            return defaultValue(method);
         });
         Object callback = Class.forName(
                         "com.soundcloud.android.libs.recyclerviewutils.touchhelpers.ItemDragCallback", false, loader)

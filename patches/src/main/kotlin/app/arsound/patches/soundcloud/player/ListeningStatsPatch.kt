@@ -13,7 +13,7 @@ private const val EXTENSION_CLASS_DESCRIPTOR =
 val listeningStatsPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         playerPlayMethod.addInstruction(0, "invoke-static { p1 }, $EXTENSION_CLASS_DESCRIPTOR->onPlaybackItem(Ljava/lang/Object;)V")

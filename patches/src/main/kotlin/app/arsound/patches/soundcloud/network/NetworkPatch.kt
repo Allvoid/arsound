@@ -45,7 +45,7 @@ private val BytecodePatchContext.dataDomeChallengeStartMethod by gettingFirstMet
 val networkPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // Ask before the bot protection check screen opens over the app.

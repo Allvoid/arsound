@@ -12,7 +12,7 @@ val disableTelemetryPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
     compatibleWith(
-        "com.soundcloud.android"("2025.05.27-release", "2026.09.02-release"),
+        "com.soundcloud.android"("2025.05.27-release", "2026.10.14-release"),
     )
 
     apply {
