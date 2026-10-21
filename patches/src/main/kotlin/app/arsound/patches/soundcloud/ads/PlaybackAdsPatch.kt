@@ -53,7 +53,7 @@ private val BytecodePatchContext.bannerSectionsMethod by gettingFirstMethodDecla
 val playbackAdsPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // Full screen ad on app start: the call returns right away, as if no ad was available.

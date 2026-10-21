@@ -7,8 +7,11 @@ import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.method
+import app.revanced.patcher.instructions
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
+import app.revanced.patcher.returnType
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
@@ -73,22 +76,27 @@ private val BytecodePatchContext.filterAndSortPlaylistsMethod by gettingFirstMet
     definingClass("Lcom/soundcloud/android/collections/data/MyPlaylistOperations;")
 }
 
-/** Renders a loaded state of the library playlist screens: {@code PlaylistCollectionFragment.P(AsyncLoaderState)}. */
+/**
+ * Renders a loaded state of the library playlist screens: {@code PlaylistCollectionFragment.R(AsyncLoaderState)}.
+ * Found by its parameter: the obfuscated name changes between versions.
+ */
 private val BytecodePatchContext.playlistCollectionRenderMethod by gettingFirstMethodDeclaratively {
-    name("P")
     definingClass("Lcom/soundcloud/android/features/library/playlists/PlaylistCollectionFragment;")
+    returnType("V")
+    parameterTypes("Lcom/soundcloud/android/uniflow/AsyncLoaderState;")
 }
 
-/** onViewCreated of the library playlist screens. */
 /** The playlist and album screen, where tracks can be rearranged. */
 private val BytecodePatchContext.playlistDetailViewCreatedMethod by gettingFirstMethodDeclaratively {
     name("onViewCreated")
     definingClass("Lcom/soundcloud/android/playlist/view/PlaylistDetailFragment;")
 }
 
+/** onViewCreated of the library playlist screens, under an obfuscated name: found by its parameters. */
 private val BytecodePatchContext.playlistCollectionViewCreatedMethod by gettingFirstMethodDeclaratively {
-    name("q0")
     definingClass("Lcom/soundcloud/android/features/library/playlists/PlaylistCollectionFragment;")
+    returnType("V")
+    parameterTypes("Landroid/view/View;", "Landroid/os/Bundle;")
 }
 
 /** Reads the track urns for the playlist screen. */
@@ -169,19 +177,25 @@ private val BytecodePatchContext.playlistArtworkMethod by gettingFirstMethodDecl
     definingClass("Lcom/soundcloud/android/foundation/domain/playlists/Playlist;")
 }
 
-/** Fills the header of the playlist screen: title, author and the meta line with the number of tracks. */
-private val BytecodePatchContext.playlistHeaderBindMethod by gettingFirstMethodDeclaratively {
-    name("bindItem")
-    definingClass(
-        "Lcom/soundcloud/android/playlist/view/renderers/PlaylistDetailsSmallerArtworkHeaderRenderer" +
-            "${'$'}PlaylistDetailsSmallerArtworkHeaderViewHolder;",
+/**
+ * Draws the header of the playlist screen with Compose: title, author and the meta line with the number of
+ * tracks. A lambda with an obfuscated class name, the only one that reads the metadata of the header.
+ */
+private val BytecodePatchContext.playlistHeaderContentMethod by gettingFirstMethodDeclaratively {
+    name("invoke")
+    returnType("Ljava/lang/Object;")
+    parameterTypes("Ljava/lang/Object;", "Ljava/lang/Object;")
+    instructions(
+        method { definingClass == "Lcom/soundcloud/android/playlists/PlaylistDetailsMetadataKt;" },
     )
 }
 
-/** Builds the meta line of a playlist cell: type, number of tracks, download icon. */
+/**
+ * Builds the meta line of a playlist cell: type, number of tracks, download icon. Found by its
+ * parameters: the obfuscated name changes between versions.
+ */
 private val BytecodePatchContext.playlistCellMetaLabelMethod by gettingFirstMethodDeclaratively {
     definingClass("Lcom/soundcloud/android/uievo/statemappers/MetaLabelsKt;")
-    name("c")
     parameterTypes(
         "Lcom/soundcloud/android/foundation/domain/playlists/Playlist;",
         "Landroid/content/res/Resources;",
@@ -207,7 +221,7 @@ private const val TRACKS_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/
 val localMusicPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadTrackPatch, importActivityPatch, trackCellMarksPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // Imported files without an embedded picture get their stored cover (one file per album).
@@ -253,23 +267,26 @@ val localMusicPatch = bytecodePatch {
             """,
         )
 
-        // The meta line of the header gets the number of tracks that play from a file.
-        playlistHeaderBindMethod.apply {
+        // The meta line of the header gets the number of tracks that play from a file, as one more part
+        // of the text: the parts are joined with " · " into a single line.
+        playlistHeaderContentMethod.apply {
             val stateIndex = indexOfFirstInstructionOrThrow {
                 opcode == Opcode.INVOKE_STATIC &&
                     methodReference?.definingClass == "Lcom/soundcloud/android/playlists/PlaylistDetailsMetadataKt;"
             }
             val metadataRegister = getInstruction<FiveRegisterInstruction>(stateIndex).registerC
-            val bindIndex = indexOfFirstInstructionOrThrow(stateIndex) {
-                opcode == Opcode.INVOKE_STATIC &&
-                    methodReference?.definingClass == "Lcom/soundcloud/android/ui/components/listviews/BindingAdaptersKt;"
+            val joinIndex = indexOfFirstInstructionOrThrow(stateIndex) {
+                opcode == Opcode.INVOKE_STATIC_RANGE && methodReference?.let {
+                    it.definingClass == "Lkotlin/collections/CollectionsKt;" && it.returnType == "Ljava/lang/String;" &&
+                        it.parameterTypes.firstOrNull() == "Ljava/lang/Iterable;"
+                } == true
             }
-            val bind = getInstruction<FiveRegisterInstruction>(bindIndex)
+            val partsRegister = getInstruction<RegisterRangeInstruction>(joinIndex).startRegister
             addInstruction(
-                bindIndex + 1,
-                "invoke-static { v${bind.registerC}, v$metadataRegister, v${bind.registerE} }, " +
+                joinIndex,
+                "invoke-static { v$partsRegister, v$metadataRegister }, " +
                     "Lapp/revanced/extension/soundcloud/local/PlaylistHeader;->addDownloadedCount(" +
-                    "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                    "Ljava/util/List;Ljava/lang/Object;)V",
             )
         }
 

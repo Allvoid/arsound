@@ -37,7 +37,7 @@ import app.revanced.patcher.patch.bytecodePatch
  * four SoundCloud patches for an older version. With more Arsound patches, Manager suggests the right version.
  */
 
-private const val SOUNDCLOUD_VERSION = "2026.09.02-release"
+private const val SOUNDCLOUD_VERSION = "2026.10.14-release"
 
 /** What every group needs: the Arsound settings screen, the icon and name, and installing next to the original. */
 private val basePatch = bytecodePatch {

@@ -81,17 +81,37 @@ public final class Rx {
         Object filteredLocal = find(observable, false, "ObservableFilter", predicate)
                 .invoke(local, untilRemote);
 
-        Method merge = null;
+        return mergeMethod(loader, observable, source).invoke(null, filteredLocal, markedRemote);
+    }
+
+    /** {@code Observable.merge(first, second)}: both sources at once, items in the order they come. */
+    public static Object merge(Object first, Object second) throws Exception {
+        ClassLoader loader = second.getClass().getClassLoader();
+        return mergeMethod(loader, type(loader, CORE + "Observable"), type(loader, CORE + "ObservableSource"))
+                .invoke(null, first, second);
+    }
+
+    private static volatile Method merge;
+
+    /**
+     * {@code Observable.merge(a, b)}. R8 renamed it, and the name changes between versions; other static
+     * (ObservableSource, ObservableSource) methods, such as concat, may sit next to it. Merge is the one that
+     * flat-maps both sources: tried with two empty sources, it gives an ObservableFlatMap.
+     */
+    private static Method mergeMethod(ClassLoader loader, Class<?> observable, Class<?> source) throws Exception {
+        Method found = merge;
+        if (found != null) return found;
+        Object empty = type(loader, OPERATORS + "ObservableEmpty").getField("a").get(null);
         for (Method method : observable.getMethods()) {
             if (!Modifier.isStatic(method.getModifiers()) || method.getReturnType() != observable) continue;
             if (!java.util.Arrays.equals(method.getParameterTypes(), new Class<?>[]{source, source})) continue;
-            if (isMerge(method)) {
+            Object result = method.invoke(null, empty, empty);
+            if (result != null && result.getClass().getSimpleName().equals("ObservableFlatMap")) {
                 merge = method;
-                break;
+                return method;
             }
         }
-        if (merge == null) throw new IllegalStateException("RxJava merge not found");
-        return merge.invoke(null, filteredLocal, markedRemote);
+        throw new IllegalStateException("RxJava merge not found");
     }
 
     /**
@@ -106,12 +126,6 @@ public final class Rx {
         Object toEmpty = function(loader, "Function", args -> empty);
         return find(observable, false, "ObservableOnErrorNext", type(loader, FUNCTIONS + "Function"))
                 .invoke(source, toEmpty);
-    }
-
-    /** Several static (ObservableSource, ObservableSource) methods exist; merge is the one that interleaves. */
-    private static boolean isMerge(Method method) {
-        // In the 2026.09.02 build merge is "F". Concat and ambiguity helpers are named differently.
-        return method.getName().equals("F");
     }
 
     public static Object mapSingle(Object single, java.util.function.Function<Object, Object> mapper) throws Exception {

@@ -66,7 +66,7 @@ private val BytecodePatchContext.offlinePropertiesProviderConstructorMethod by g
 val downloadTrackPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadPermissionPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         // The Downloads screen lists the tracks downloaded by Arsound, as downloaded.

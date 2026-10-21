@@ -33,7 +33,7 @@ private val BytecodePatchContext.openCacheMethod by gettingFirstMethodDeclarativ
 val streamCachePatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         cacheSizeMethod.addInstructionsWithLabels(

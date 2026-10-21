@@ -23,7 +23,7 @@ private const val SESSION_RUNNABLE = "Landroidx/media3/exoplayer/i;"
 val equalizerPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         firstClassDef(SESSION_RUNNABLE).methods.first { it.name == "run" }.apply {

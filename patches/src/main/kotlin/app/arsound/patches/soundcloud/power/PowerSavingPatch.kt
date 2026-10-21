@@ -8,6 +8,8 @@ import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.returnType
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.instructions
+import app.revanced.patcher.method
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
@@ -34,19 +36,24 @@ internal val BytecodePatchContext.playerPlayMethod by gettingFirstMethodDeclarat
     parameterTypes("Lcom/soundcloud/android/playback/core/PlaybackItem;")
 }
 
-/** Updates the wake and Wi-Fi locks from the playback state: {@code ExoPlayerImpl.Q()}. */
+/**
+ * Updates the wake and Wi-Fi locks from the playback state: {@code ExoPlayerImpl.R()}. The only method
+ * without parameters that calls the Wi-Fi lock; its obfuscated name changes between versions.
+ */
 internal val BytecodePatchContext.updateWakeAndWifiLockMethod by gettingFirstMethodDeclaratively {
-    name("Q")
     definingClass("Landroidx/media3/exoplayer/ExoPlayerImpl;")
     returnType("V")
     parameterTypes()
+    instructions(
+        method { definingClass == "Landroidx/media3/common/util/WifiLockManager;" },
+    )
 }
 
 /** Power saving: Adds an option to reduce background network polling. Part of the "Arsound" patch, not shown on its own. */
 val powerSavingPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.09.02-release"))
+    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
 
     apply {
         playerPlayMethod.addInstruction(

@@ -184,12 +184,26 @@ public final class ArsoundTheme {
      */
     public static int libraryRowIcon(android.view.View row) {
         try {
+            if (row.getId() == android.view.View.NO_ID) return 0;
+            return libraryRowIcon(row.getResources().getResourceEntryName(row.getId()).replace("library_header_", ""));
+        } catch (Exception ex) {
+            Logger.printException(() -> "Theme: no library row icon", ex);
+            return 0;
+        }
+    }
+
+    /**
+     * Injection point: the same for a row that is built without its view at hand.
+     *
+     * @param row The row as named in its view id library_header_<row>, for example "downloads".
+     */
+    public static int libraryRowIcon(String row) {
+        try {
             Theme theme = appContext == null ? null : currentTheme(appContext);
-            if (theme == null || row.getId() == android.view.View.NO_ID) return 0;
-            Resources resources = row.getResources();
-            String name = resources.getResourceEntryName(row.getId()).replace("library_header_", "");
-            String icon = "arsound_" + theme.id + "__arsound_library_" + name;
-            int id = resources.getIdentifier(icon, "drawable", row.getContext().getPackageName());
+            if (theme == null) return 0;
+            Resources resources = appContext.getResources();
+            String icon = "arsound_" + theme.id + "__arsound_library_" + row;
+            int id = resources.getIdentifier(icon, "drawable", appContext.getPackageName());
             return id != 0 ? id : resources.getIdentifier(icon, "drawable", "com.soundcloud.android");
         } catch (Exception ex) {
             Logger.printException(() -> "Theme: no library row icon", ex);

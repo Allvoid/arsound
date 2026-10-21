@@ -35,10 +35,12 @@ internal val BytecodePatchContext.playlistMenuDataConsumerMethod by gettingFirst
     definingClass("Lcom/soundcloud/android/features/bottomsheet/playlist/PlaylistBottomSheetDialogFragment\$onCreateDialog$1$2;")
 }
 
-/** Builds the meta line of a playlist cell, with its download icon. */
+/**
+ * Builds the meta line of a playlist cell, with its download icon. Found by its parameters: the
+ * obfuscated name changes between versions.
+ */
 internal val BytecodePatchContext.playlistMetaLabelMethod by gettingFirstMethodDeclaratively {
     definingClass("Lcom/soundcloud/android/uievo/statemappers/MetaLabelsKt;")
-    name("c")
     parameterTypes(
         "Lcom/soundcloud/android/foundation/domain/playlists/Playlist;",
         "Landroid/content/res/Resources;",
