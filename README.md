@@ -1,114 +1,119 @@
 # Arsound
 
-Мод для Android-приложения SoundCloud со скачиванием треков, своей музыкой с телефона
-и плейлистами, которые открываются сразу — даже без интернета.
+English · **[Русский](README.ru.md)**
 
-Готовый APK каждой версии — в Telegram-канале [t.me/arsound_git](https://t.me/arsound_git). Здесь, на GitHub, —
-исходный код и набор патчей для ReVanced Manager.
+A mod for the Android SoundCloud app with track downloads, your own music from your phone, and
+playlists that open instantly — even without internet.
 
-Arsound — это набор патчей на основе [ReVanced](https://revanced.app). Это неофициальный проект, он не связан
-ни с ReVanced, ни с SoundCloud.
+Ready-to-install APKs of every version are posted in the Telegram channel [t.me/arsound_git](https://t.me/arsound_git).
+This GitHub repository holds the source code and the patch set for ReVanced Manager.
 
-> Проверено на SoundCloud **2026.10.14-release**, Android 16, arm64.
-> С другой версией SoundCloud часть функций может не заработать.
+Arsound is a set of patches based on [ReVanced](https://revanced.app). It is an unofficial project, not affiliated
+with ReVanced or SoundCloud.
 
-## Что умеет
+> Tested on SoundCloud **2026.10.14-release**, Android 16, arm64.
+> With another SoundCloud version some features may not work.
 
-Всё настраивается в SoundCloud: **Настройки → Arsound**, настройки разбиты на разделы.
+## Features
 
-**Без лишнего**
-- Нет навязчивых предложений подписки Go, Go+ и Pro: ни экрана покупки, ни баннеров на главной и в библиотеке, ни кнопок «Get Pro» и «Upgrade» в шапке; вкладку Upgrade можно скрыть.
-- Нет баннера «Transfer your gems» в библиотеке: у него своя кнопка «закрыть», но через несколько дней он возвращается сам.
-- Телеметрия выключена.
-- Дубликаты в рекомендациях (перезаливы одного и того же трека) можно скрыть: на главной, в автовоспроизведении и в подборках, которые SoundCloud собрал для вас (Your Mix, Daily Drops, Weekly Wave). По желанию тем же треком считаются версии с другой скоростью («0.9 speed», «1.2x», slowed) и ремиксы.
-- Плейлист «Для вас»: раз в день Arsound берёт ваши лайки, плейлисты, импортированные и самые слушаемые треки, спрашивает у Last.fm, что слушают вместе с ними, и кладёт в плейлист до 40 новых для вас треков из SoundCloud — не больше двух от одного исполнителя, без уже знакомых и «Не нравится». Плейлист обновляется каждый день в 00:00, без открытия приложения; если в это время нет сети или IP российский, обновление сработает при первой возможности. Обновить можно и вручную: Настройки → Arsound → Рекомендации. В Last.fm уходят только названия треков и исполнителей. Last.fm и SoundCloud не работают с российского IP, поэтому обновлению нужен VPN.
-- «Не нравится — не рекомендовать» в меню «⋮» трека: трек пропадает с главной, из автовоспроизведения и из подборок SoundCloud. Список хранится на телефоне, трек можно вернуть в Настройках → Arsound → Рекомендации. Лайки, плейлисты и поиск не меняются.
+Everything is configured inside SoundCloud: **Settings → Arsound**, split into sections.
+(Menu and button names below are given as they appear in the English interface; the app itself can be switched
+between Russian and English in Settings → Arsound → Appearance.)
 
-**Скачивание**
-- «Скачать файл» в меню трека — в папку `Музыка/Arsound`, если трек доступен вам целиком.
-- «Проверить скачивание треков» в меню плейлиста: сколько уже скачано и сколько можно скачать ещё. Проверка сразу запрашивает ссылку на файл, поэтому заблокированные в регионе треки попадают в «недоступно», а не в «можно скачать». Уже скачанное не скачивается повторно. Несколько треков проверяются одновременно; трек, который оказался недоступен, запоминается на 12 часов, поэтому повторная проверка того же плейлиста проходит сразу.
-- Пока идёт проверка или скачивание плейлиста, внизу экрана висит маленькое окошко со счётом — «14 из 48». Оно стоит над мини-плеером, а без плеера — над нижними вкладками; когда плеер появляется или пропадает, окошко плавно сдвигается. Пока плеер раскрыт на весь экран, окошко скрыто.
-- Скачанные треки играют из файла сразу — без интернета, без трафика и не дожидаясь SoundCloud, даже если сеть есть, но не отвечает. Кнопка «следующий» в наушниках и в уведомлении тоже переключает на скачанный трек сразу.
-- Библиотека открывается без интернета: плейлисты (и те, что собраны только из треков на телефоне), альбомы, лайки и подписки показываются из памяти телефона сразу, ответ сервера приходит следом. Обложки плейлистов и альбомов библиотеки хранятся на телефоне файлами (обновляются, если на сервере обложка сменилась), поэтому и без интернета библиотека, «Недавно прослушанные» и шапка плейлиста — с картинками.
-- Раздел Downloads показывает треки и плейлисты, скачанные Arsound, — без подписки SoundCloud. Плейлист считается скачанным, когда из его проверки запущено скачивание или проверка нашла, что всё доступное уже на телефоне. «Удалить скачанные треки» снимает отметку, открытый экран Downloads обновляется сразу.
-- В карточках библиотеки после числа треков стоит значок загрузки и число треков, которые играют с телефона: скачанные Arsound и импортированные. В шапке плейлиста то же число стоит после стрелки: «38 треков · ↓ 28». Число треков в карточках учитывает и треки, добавленные только на этом телефоне (раньше плейлист из таких треков показывал «0 Tracks»). Списки всех плейлистов библиотеки читаются из памяти телефона после запуска, открывать каждый не нужно.
-- Если Arsound переустанавливали, приложение попросит доступ к музыке: без него Android не даёт читать треки, скачанные до переустановки.
-- Скачивается всё, что SoundCloud отдаёт без защиты: если приложению поток не дают, тот же трек запрашивается как у веб-плеера, и перебираются все варианты потоков.
-- Треки только для подписчиков и отрывки не скачиваются. Треки, у которых остались только потоки под DRM (FairPlay, Widevine), слушаются, но не сохраняются — в меню и в проверке плейлиста так и написано: «защищён DRM».
-- Треки, которые отдаются только защищённым потоком HLS, собираются самим приложением: сегменты скачиваются, расшифровываются и упаковываются в один файл `.m4a`. Это занимает несколько секунд после загрузки, всё это время у трека крутится значок; в проверке плейлиста такие треки помечены «фоновая обработка». Как это устроено — [docs/protected-tracks.md](docs/protected-tracks.md).
-- Пока трек скачивается, у него крутится значок загрузки; у плейлиста — пока качаются треки, запущенные из его проверки.
-- **Поиск Arsound** — для треков, которые в SoundCloud не скачать (нет в каталоге, только для подписчиков, отрывок, DRM). Во вкладке «Поиск» под строкой поиска — переключатель «SoundCloud / Arsound», маленький «?» на половине Arsound объясняет, что это. Arsound ищет в YouTube Music: нажмите на трек, чтобы послушать и проверить, тот ли это; кнопка справа скачивает его в плейлист «Импортированные», откуда трек добавляется в любой плейлист. Кроме треков находятся исполнители и альбомы: исполнитель открывается списком своих альбомов, альбом — списком треков с кнопкой «Скачать всё». Вместе с треком сохраняется обложка альбома: одна копия на альбом, общая для всех его треков. Треки с возрастным ограничением YouTube отдаёт только после входа: по желанию войдите в YouTube Music в Настройках → Arsound → Аккаунт (пароль вводится на странице Google, сессия хранится только на телефоне); при попытке скачать такой трек без входа приложение само предложит войти. Как это устроено — [docs/downloading-tracks.md](docs/downloading-tracks.md).
-- «Удалить скачанный файл» в меню трека и «Удалить скачанные треки» в меню плейлиста (с подтверждением). Импортированную с телефона музыку это не трогает: её удаляют вручную, по одному треку.
+**No clutter**
+- No ads: no audio ads between tracks, no banners in the player, library and feed.
+- No pushy Go, Go+ and Pro subscription offers: no purchase screen, no banners on the home screen and in the library, no "Get Pro" and "Upgrade" buttons in the header; the Upgrade tab can be hidden.
+- No "Transfer your gems" banner in the library: it has its own close button, but comes back by itself after a few days.
+- Telemetry is turned off.
+- Duplicates in recommendations (re-uploads of the same track) can be hidden: on the home screen, in autoplay and in the mixes SoundCloud builds for you (Your Mix, Daily Drops, Weekly Wave). Optionally, versions at a different speed ("0.9 speed", "1.2x", slowed) and remixes count as the same track.
+- "For you" playlist: once a day Arsound takes your likes, playlists, imported and most-played tracks, asks Last.fm what people listen to alongside them, and puts up to 40 tracks that are new to you from SoundCloud into a playlist — at most two per artist, without tracks you already know or marked "Not interested". The playlist refreshes every day at 00:00 without opening the app; if there is no network at that moment or the IP is Russian, the refresh runs at the first opportunity. You can also refresh it by hand: Settings → Arsound → Recommendations. Only track and artist names are sent to Last.fm. Last.fm and SoundCloud do not work from a Russian IP, so the refresh needs a VPN there.
+- "Not for me: don't recommend" in a track's "⋮" menu: the track disappears from the home screen, autoplay and SoundCloud's mixes. The list is stored on the phone, and the track can be restored in Settings → Arsound → Recommendations. Likes, playlists and search are unchanged.
 
-**Своя музыка**
-- Импорт аудиофайлов с телефона: из меню любого плейлиста, из «Import my music» или из настроек Arsound.
-- Папка-наблюдатель (Настройки → Arsound → Своя музыка → «Следить за папкой»): новые аудиофайлы из выбранной папки на телефоне сами импортируются, когда вы открываете SoundCloud; при выборе папки импортируется и то, что в ней уже лежит. Файлы, импортированные раньше вручную (то же имя и размер), не копируются второй раз. Удаление файла из папки импортированный трек не трогает.
-- Плейлист «Импортированные» со всеми вашими файлами. Он всегда один: пустые копии, которые старые версии создавали после переустановки, удаляются с SoundCloud и пропадают из профиля.
-- У импортированных треков в плейлисте рядом с «⋮» стоит значок ноты — так их видно среди треков SoundCloud.
-- «Задать обложку» в меню «⋮» импортированного трека: картинка из галереи обрезается до квадрата и видна в списках и в плеере, вместо картинки из файла. «Убрать свою обложку» возвращает прежнюю.
-- У плейлиста или альбома без треков SoundCloud (пустого или только из импортированных) в меню есть «Задать обложку»: картинка видна в шапке и в библиотеке, только на этом телефоне. Карточка «Recently played» подхватывает её при следующем запуске. Без своей обложки такой плейлист берёт обложку первого трека, добавленного на телефоне, как SoundCloud делает с треками сервера.
-- «Проверить скачивание треков» учитывает и треки, добавленные в плейлист на телефоне (в том числе пакетом): раньше плейлист из одних таких треков выглядел пустым — «Нечего скачать».
-- Старые обложки с чёрными полосами (кадр видео 16:9) один раз обрезаются до квадрата сами.
-- Если SoundCloud удалил трек, он больше не исчезает из плейлиста молча. Arsound помнит состав плейлистов и проверяет пропавший трек: скачанный становится импортированным (файл копируется в «Импортированные») и встаёт на прежнее место; нескачанный остаётся на месте серым — послушать его нельзя, при нажатии объясняется почему. Трек, который просто убрали из плейлиста, забывается как обычно. Раз в неделю скачанные треки дополнительно проверяются целиком — так находятся и удалённые до этой функции (они появятся в «Импортированных»).
-- Треки и файлы можно добавить в любой плейлист, даже чужой, — только у вас на телефоне, на сервер ничего не уходит.
-- Свой порядок плейлистов в библиотеке и треков внутри плейлиста: зажмите строку и перетащите. Воспроизведение идёт в этом же порядке.
+**Downloads**
+- "Download file" in a track's menu — saves to the `Music/Arsound` folder, if the whole track is available to you.
+- "Check track downloads" in a playlist's menu: how many tracks are already downloaded and how many more can be. The check requests the file link right away, so tracks blocked in your region land in "unavailable", not "can be downloaded". Already downloaded tracks are not downloaded again. Several tracks are checked at once; a track found unavailable is remembered for 12 hours, so re-checking the same playlist is instant.
+- While a playlist is being checked or downloaded, a small badge with a count hangs at the bottom of the screen — "14 of 48". It sits above the mini-player, or above the bottom tabs when there is no player, and slides smoothly when the player appears or goes away. It is hidden while the player is expanded to full screen.
+- Downloaded tracks play straight from the file — without internet, without traffic and without waiting for SoundCloud, even if there is a connection that does not respond. The "next" button on headphones and in the notification also switches to a downloaded track instantly.
+- The library opens offline: playlists (including ones made only of tracks on the phone), albums, likes and followings are shown from the phone's memory right away, the server's answer follows. Covers of library playlists and albums are stored on the phone as files (updated if the cover changes on the server), so even offline the library, "Recently played" and the playlist header have pictures.
+- The Downloads section shows tracks and playlists downloaded by Arsound — without a SoundCloud subscription. A playlist counts as downloaded when a download was started from its check, or the check found everything available already on the phone. "Delete downloaded tracks" removes the mark, and an open Downloads screen refreshes immediately.
+- In library cards, after the track count there is a download icon and the number of tracks that play from the phone: downloaded by Arsound and imported. In the playlist header the same number follows an arrow: "38 tracks · ↓ 28". The track count in cards also includes tracks added only on this phone (a playlist made of such tracks used to show "0 Tracks"). The lists of all library playlists are read from the phone's memory after launch, you don't need to open each one.
+- If Arsound was reinstalled, the app asks for access to music: without it Android does not let it read tracks downloaded before the reinstall.
+- Everything SoundCloud serves without protection can be downloaded: if the app is refused a stream, the same track is requested the way the web player does it, and all stream variants are tried in turn.
+- Subscriber-only tracks and previews are not downloaded. Tracks that only have DRM-protected streams (FairPlay, Widevine) can be played but not saved — the menu and the playlist check say so: "protected by DRM".
+- Tracks served only as a protected HLS stream are assembled by the app itself: segments are downloaded, decrypted and packed into a single `.m4a` file. It takes a few seconds after the download, and the track shows a spinner the whole time; in the playlist check such tracks are marked "background processing". How it works — [docs/protected-tracks.md](docs/protected-tracks.md) (in Russian).
+- While a track is downloading, its download icon spins; for a playlist — while the tracks started from its check are downloading.
+- **Arsound search** — for tracks that can't be downloaded from SoundCloud (not in the catalog, subscriber-only, preview, DRM). On the Search tab, under the search bar, there is a "SoundCloud / Arsound" switch; a small "?" on the Arsound half explains what it is. Arsound searches YouTube Music: tap a track to listen and check it is the right one; the button on the right downloads it into the "Imported" playlist, from where it can be added to any playlist. Besides tracks, artists and albums are found: an artist opens as a list of their albums, an album as a list of tracks with a "Download all" button. The album cover is saved with the track: one copy per album, shared by all its tracks. YouTube serves age-restricted tracks only after sign-in: optionally sign in to YouTube Music in Settings → Arsound → Account (the password is entered on Google's page, the session is stored only on the phone); if you try to download such a track without signing in, the app offers to do it. How it works — [docs/downloading-tracks.md](docs/downloading-tracks.md) (in Russian).
+- "Delete the downloaded file" in a track's menu and "Delete downloaded tracks" in a playlist's menu (with confirmation). Music imported from the phone is not touched by this: it is deleted by hand, one track at a time.
 
-**Плохой интернет**
-- Плейлисты и альбомы открываются сразу: их содержимое заранее сохраняется текстом, без музыки; обложки самих плейлистов — маленькими файлами.
-- Если трек оборвался из-за связи, плеер сам повторит загрузку.
-- Кэш потоков: SoundCloud хранит части прослушанных из сети треков (120–500 МБ). В Настройках → Arsound → Офлайн и воспроизведение можно выбрать размер от 250 МБ до 20 ГБ, срок хранения (1, 7, 30 или 90 дней без прослушивания) и очистить кэш. Файлы удаляются при запуске, до того как плеер откроет кэш.
-- Свой DNS (например, xbox-dns.ru), если провайдер мешает SoundCloud.
-- Можно запретить приложению выходить в сеть с российского IP — и к SoundCloud, и в поиск Arsound. Страна проверяется заново при смене сети или VPN и раз в 30 секунд, пока идут запросы (обе проверки можно выключить и проверять вручную); если проверка не прошла (сеть нестабильна, VPN переподключается), запросы ждут следующей, а не верят старому ответу. Когда сети нет или SoundCloud отключён, внизу справа над плеером появляется маленький значок перечёркнутого глобуса в цветах темы: нажатие проверяет сеть снова, удержание объясняет, в чём дело.
-- Проверка устройства от SoundCloud не открывается сама поверх приложения — сначала спросит.
+**Your own music**
+- Import audio files from the phone: from any playlist's menu, from "Import my music" or from the Arsound settings.
+- Watch folder (Settings → Arsound → Your music → "Watch a folder"): new audio files in the chosen folder on the phone are imported by themselves when you open SoundCloud; when you pick the folder, what is already in it is imported too. Files imported earlier by hand (same name and size) are not copied a second time. Deleting a file from the folder does not touch the imported track.
+- The "Imported" playlist with all your files. There is always exactly one: empty copies that old versions created after a reinstall are deleted from SoundCloud and disappear from the profile.
+- Imported tracks in a playlist have a note icon next to "⋮" — so you can tell them from SoundCloud tracks.
+- "Set cover" in the "⋮" menu of an imported track: a picture from the gallery is cropped to a square and shown in lists and in the player, instead of the picture from the file. "Remove own cover" brings the old one back.
+- A playlist or album without SoundCloud tracks (empty or made only of imported ones) has "Set cover" in its menu: the picture shows in the header and in the library, on this phone only. The "Recently played" card picks it up on the next launch. Without a custom cover such a playlist takes the cover of the first track added on the phone, the way SoundCloud does for server tracks.
+- "Check track downloads" also counts tracks added to a playlist on the phone (including in bulk): a playlist made only of such tracks used to look empty — "Nothing to download".
+- Old covers with black bars (a 16:9 video frame) are cropped to a square by themselves, once.
+- If SoundCloud removes a track, it no longer vanishes from the playlist silently. Arsound remembers the contents of playlists and checks the missing track: a downloaded one becomes imported (the file is copied to "Imported") and returns to its former place; one that was not downloaded stays in place, greyed out — it can't be played, and tapping it explains why. A track that was simply removed from the playlist is forgotten as usual. Once a week downloaded tracks are additionally checked in full — this finds the ones removed before this feature existed (they appear in "Imported").
+- Tracks and files can be added to any playlist, even someone else's — on your phone only, nothing is sent to the server.
+- Your own order of playlists in the library and of tracks inside a playlist: hold a row and drag. Playback follows the same order.
 
-**Плеер**
-- Эквалайзер (Настройки → Arsound → Эквалайзер): 21 пресет, как в популярных плеерах («Больше баса», «Голос», «Рок», «Электроника», «Джаз», «Lo-fi» и другие), в выпадающем списке с картинкой кривой у каждого, и кривая, точки которой тянутся пальцем. Свою настройку можно сохранить под своим именем — она появится в том же списке в «Моих пресетах»; там её можно переименовать или удалить. Меняет звук сразу, без перезапуска. Работает через эквалайзер Android.
-- Окна Arsound (вопросы, выбор из списка, ввод текста) оформлены в цветах выбранной темы.
-- Статистика прослушиваний (Настройки → Arsound → Статистика прослушиваний): сколько времени вы слушали, самые частые треки и исполнители за 7 дней, 30 дней, год или всё время. Прослушиванием считается от 30 секунд; пауза не делит прослушивание на части, даже если приложение закрылось на паузе. Ведётся и без интернета: названия треков берутся из памяти телефона. Исполнитель берётся из названия вида «Исполнитель - Трек», иначе это автор загрузки; разные написания одного исполнителя («CUPSIZE», «Cupsize») считаются вместе. Хранится только на телефоне; сбор можно выключить, историю — очистить.
+**Poor internet**
+- Playlists and albums open instantly: their contents are saved ahead of time as text, without music; the covers of the playlists themselves as small files.
+- If a track breaks off because of the connection, the player retries the load by itself.
+- Stream cache: SoundCloud keeps parts of tracks played over the network (120–500 MB). In Settings → Arsound → Offline and playback you can choose a size from 250 MB to 20 GB and a retention period (1, 7, 30 or 90 days without listening), and clear the cache. Files are deleted at launch, before the player opens the cache.
+- Your own DNS (for example xbox-dns.ru), if your provider interferes with SoundCloud.
+- The app can be forbidden to go online from a Russian IP — both to SoundCloud and to Arsound search. The country is checked again when the network or VPN changes and every 30 seconds while requests are running (both checks can be turned off and run by hand); if a check fails (unstable network, VPN reconnecting), requests wait for the next one instead of trusting the old answer. When there is no network or SoundCloud is disabled, a small crossed-out globe icon in the theme's colours appears at the bottom right above the player: a tap checks the network again, a long press explains what is going on.
+- SoundCloud's device check no longer opens by itself on top of the app — it asks first.
 
-**Прочее**
-- Экономия батареи: меньше фоновых запросов.
-- При первом запуске Arsound здоровается и объясняет, какие разрешения попросит (уведомления, музыка) и что перестанет работать без каждого. Любое можно отклонить. Разрешение «Телефон», которое просил оригинальный SoundCloud, убрано: паузу при звонке и так ставит система.
-- Ставится рядом с оригинальным SoundCloud, со своей иконкой.
-- Своё оформление (Настройки → Arsound → Оформление): темы «Алый», «Кобальт», «Мята», «Сакура» и «Лайм» меняют цвета тёмной и светлой темы, акцент, шрифт, скругления обложек и мини-плеера, цвет заставки и анимации загрузки. Каждая тема меняет не только цвета: свои иконки, полоса вкладок и мини-плеер, приветствие и свечение на главной, полоса «Твои лайки» в цвет темы, значки в «Библиотеке», светящаяся кнопка Play в плеере и плейлистах и свой вид настроек Arsound. Приложение и экраны Arsound всегда тёмные, даже если в телефоне включена светлая тема; «Алый» — почти чёрный с красным отливом, шрифт Golos Text. «SoundCloud» возвращает стандартный вид. Темы выбираются из выпадающего списка, где у каждой видны цвета и анимация. После выбора приложение перезапускается.
-- У каждой темы своя лёгкая анимация фона: тлеющие искры у «Алого», звёзды с метеорами у «Кобальта», светлячки у «Мяты», падающие лепестки у «Сакуры», сканер и фигуры у «Лайма». Она идёт на главном экране и в настройках Arsound, замирает в режиме экономии батареи; выключается или делается реже там же, в «Оформлении».
-- Интерфейс SoundCloud переведён на русский. Язык приложения выбирается там же, в «Оформлении»: как в системе, русский или английский. Подборки главной сервер SoundCloud присылает на английском.
-- Иконку можно сменить: 133 варианта — восемь новых (плитка, буква, свечение, глубокая, цветы, каваи, ночная, стикер) в пяти цветах тем, однотонные, градиенты, переливы, цветная буква, светящиеся и неоновые буквы, космос, ледник, брызги краски, комикс, матрица, хром и другие, а также иконка в цветах обоев (Android 12+) (Настройки → Arsound → Иконка приложения). Некоторые рабочие столы при смене убирают ярлык с главного экрана — его можно вернуть из списка приложений.
-- Проверка обновлений Arsound: при новой версии приложение предлагает скачать APK в Telegram-канале или патчи на GitHub. Само оно ничего не скачивает и не ставит.
-- Журнал работы мода в файл (Настройки → Arsound → Для разработчика): нужен, чтобы поймать редкую поломку. Журнал занимает не больше 2 МБ и сохраняется в «Загрузки» одной кнопкой.
+**Player**
+- Equalizer (Settings → Arsound → Equalizer): 21 presets, as in popular players ("Bass boost", "Vocal", "Rock", "Electronic", "Jazz", "Lo-fi" and others), in a drop-down list with a picture of the curve for each, and a curve whose points you drag with your finger. You can save your own setting under your own name — it appears in the same list under "My presets", where it can be renamed or deleted. Changes the sound immediately, without a restart. Works through Android's equalizer.
+- Arsound's windows (questions, list choices, text input) are styled in the colours of the chosen theme.
+- Listening stats (Settings → Arsound → Listening statistics): how much time you listened, the most frequent tracks and artists over 7 days, 30 days, a year or all time. A listen counts from 30 seconds; a pause does not split a listen into parts, even if the app was closed while paused. Works without internet too: track names come from the phone's memory. The artist is taken from a title like "Artist - Track", otherwise it is the uploader; different spellings of one artist ("CUPSIZE", "Cupsize") are counted together. Stored on the phone only; collection can be turned off and the history cleared.
 
-## Как установить
+**Other**
+- Battery saving: fewer background requests.
+- On first launch Arsound greets you and explains which permissions it will ask for (notifications, music) and what stops working without each. Any of them can be declined. The "Phone" permission that the original SoundCloud asked for is removed: the system pauses playback on a call anyway.
+- Installs next to the original SoundCloud, with its own icon.
+- Custom appearance (Settings → Arsound → Appearance): the themes "Scarlet" (Алый), "Cobalt", "Mint", "Sakura" and "Lime" change the colours of the dark and light theme, the accent, the font, the rounding of covers and the mini-player, the splash colour and the loading animation. Each theme changes more than colours: its own icons, tab bar and mini-player, home greeting and glow, a "Your likes" strip in the theme's colour, icons in the Library, a glowing Play button in the player and playlists, and its own look of the Arsound settings. The app and Arsound screens are always dark, even if the phone uses the light theme; "Scarlet" is almost black with a red tint, font Golos Text. "SoundCloud" brings back the standard look. Themes are picked from a drop-down list where every theme shows its colours and animation. The app restarts after you choose.
+- Each theme has its own light background animation: smouldering sparks for "Scarlet", stars with meteors for "Cobalt", fireflies for "Mint", falling petals for "Sakura", a scanner and shapes for "Lime". It runs on the home screen and in the Arsound settings, freezes in battery-saving mode, and can be turned off or slowed down in the same "Appearance" section.
+- The SoundCloud interface is translated into Russian. The app language is chosen in the same "Appearance" section: as in the system, Russian or English. The home screen mixes arrive from the SoundCloud server in English.
+- The icon can be changed: 133 variants — eight new ones (tile, letter, glow, deep, flowers, kawaii, night, sticker) in the five theme colours, solid, gradients, iridescent, a coloured letter, glowing and neon letters, space, glacier, paint splashes, comic, matrix, chrome and others, as well as an icon in the wallpaper colours (Android 12+) (Settings → Arsound → App icon). Some launchers remove the shortcut from the home screen on a change — it can be brought back from the app list.
+- Arsound update check: when a new version is out, the app offers to download the APK from the Telegram channel or the patches from GitHub. It downloads and installs nothing by itself.
+- Mod log to a file (Settings → Arsound → Developer): needed to catch a rare failure. The log takes at most 2 MB and is saved to "Downloads" with one button.
 
-Проще всего — скачать готовый APK в Telegram-канале [t.me/arsound_git](https://t.me/arsound_git) и установить его.
+## How to install
 
-Или собрать самому прямо с телефона, без компьютера, через [ReVanced Manager](https://github.com/ReVanced/revanced-manager/releases):
+The easiest way is to download the ready APK from the Telegram channel [t.me/arsound_git](https://t.me/arsound_git) and install it.
 
-1. Установите [ReVanced Manager](https://github.com/ReVanced/revanced-manager/releases/download/v2.6.0/revanced-manager-2.6.0.apk)
-   и [загрузчики для него](https://github.com/ReVanced/revanced-manager-downloaders/releases/download/v1.2.0/revanced-manager-downloaders-1.2.0.apk).
-2. В Manager: «Патчи» → ✏️ → «Добавить патчи» → «Введите URL» → вставьте
+Or build it yourself right on the phone, without a computer, through [ReVanced Manager](https://github.com/ReVanced/revanced-manager/releases):
+
+1. Install [ReVanced Manager](https://github.com/ReVanced/revanced-manager/releases/download/v2.6.0/revanced-manager-2.6.0.apk)
+   and [the downloaders for it](https://github.com/ReVanced/revanced-manager-downloaders/releases/download/v1.2.0/revanced-manager-downloaders-1.2.0.apk).
+2. In Manager: "Patches" → ✏️ → "Add patches" → "Enter URL" → paste
    `https://raw.githubusercontent.com/Allvoid/arsound/main/patches.json`.
-3. «Приложения» → SoundCloud → «Патч». Manager сам скачает SoundCloud нужной версии, пропатчит и предложит установить.
+3. "Apps" → SoundCloud → "Patch". Manager downloads the right SoundCloud version, patches it and offers to install.
 
-Подробная инструкция с пояснениями к каждому шагу — в описании [последнего релиза](https://github.com/Allvoid/arsound/releases/latest).
-Оригинальный SoundCloud удалять не нужно — Arsound ставится отдельным приложением.
+A detailed guide with an explanation of every step is in the description of the [latest release](https://github.com/Allvoid/arsound/releases/latest).
+You don't need to uninstall the original SoundCloud — Arsound installs as a separate app.
 
-Собрать патчи самому или пропатчить на компьютере — [BUILDING.md](BUILDING.md).
+To build the patches yourself or patch on a computer — [BUILDING.md](BUILDING.md) (in Russian).
 
-## Частые вопросы
+## FAQ
 
-- **«Недоступно в вашей стране», хотя в оригинале трек играет.** Откройте Настройки → Arsound → Обновления и данные →
-  «Сбросить данные SoundCloud». Вход в аккаунт и настройки Arsound сохранятся.
-- **Android спрашивает «Открыть с помощью: SoundCloud / Arsound».** Выберите Arsound.
-- **Белая подложка без названия у трека** — это трек только для подписчиков.
+- **"Not available in your country", although the track plays in the original app.** Open Settings → Arsound → Updates and data →
+  "Reset SoundCloud data". Your account sign-in and Arsound settings are kept.
+- **Android asks "Open with: SoundCloud / Arsound".** Choose Arsound.
+- **A white placeholder with no title on a track** — it is a subscriber-only track.
 
-## Лицензия
+## License
 
-**GNU General Public License v3.0**, см. [LICENSE](LICENSE).
+**GNU General Public License v3.0**, see [LICENSE](LICENSE).
 
-Основан на [ReVanced Patches](https://gitlab.com/ReVanced/revanced-patches) © ReVanced, GPLv3.
-Из ReVanced взяты, без изменений или с небольшими изменениями: общая библиотека расширений (`extensions/arsound-shared`),
-подключение расширения и поиск ресурсов (`patches/shared/misc`), утилиты байткода (`util`),
-патч смены имени пакета (`patches/all/misc/packagename`), настройки сборки Gradle. Патч телеметрии переделан
-из одноимённого патча ReVanced. Остальное в `patches/soundcloud` и `extensions/arsound` написано для этого проекта.
+Based on [ReVanced Patches](https://gitlab.com/ReVanced/revanced-patches) © ReVanced, GPLv3.
+Taken from ReVanced, unchanged or with small changes: the shared extension library (`extensions/arsound-shared`),
+extension hookup and resource lookup (`patches/shared/misc`), bytecode utilities (`util`),
+the package-name change patch (`patches/all/misc/packagename`), Gradle build settings. The telemetry patch is reworked
+from ReVanced's patch of the same name. The rest in `patches/soundcloud` and `extensions/arsound` was written for this project.
 
-SoundCloud — товарный знак SoundCloud Global Limited & Co. KG. Проект не распространяет APK и код SoundCloud.
+SoundCloud is a trademark of SoundCloud Global Limited & Co. KG. The project does not distribute SoundCloud's APK or code.
