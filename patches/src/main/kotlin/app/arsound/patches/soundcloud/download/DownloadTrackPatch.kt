@@ -119,6 +119,18 @@ val downloadTrackPatch = bytecodePatch {
                 "invoke-static { v$dialogRegister, v$trackUrnRegister }, " +
                     "$EXTENSION_CLASS_DESCRIPTOR->onTrackMenu(Landroid/app/Dialog;Ljava/lang/Object;)V",
             )
+            // The sleep timer row, only in the menu of the full screen player. The consumer (it holds the menu
+            // fragment) is passed at the start: its register is reused for other values further on.
+            addInstruction(
+                parseTrackIndex + 2,
+                "invoke-static { v$dialogRegister }, " +
+                    "Lapp/revanced/extension/soundcloud/player/SleepTimer;->onTrackMenu(Landroid/app/Dialog;)V",
+            )
+            addInstruction(
+                0,
+                "invoke-static { p0 }, " +
+                    "Lapp/revanced/extension/soundcloud/player/SleepTimer;->setMenuConsumer(Ljava/lang/Object;)V",
+            )
         }
 
         playlistMenuDataConsumerMethod.apply {

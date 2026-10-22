@@ -55,7 +55,10 @@ public final class ArsoundTheme {
     private static final String FORCED_NIGHT_KEY = "arsound_theme_forced_night";
 
     private static final String ASSETS = "arsound/";
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
 
     /** Palette roles and the SoundCloud colour token each one replaces (dark_mode_X and light_mode_X). */
     private static final String[][] TOKENS = {
@@ -70,8 +73,6 @@ public final class ArsoundTheme {
 
     public static final class Theme {
         public final String id;
-        public final String name;
-        public final String description;
         /** The app stays dark whatever the phone's mode: the design has no light version. */
         public final boolean darkOnly;
         final JSONObject json;
@@ -80,8 +81,15 @@ public final class ArsoundTheme {
             this.json = json;
             id = json.optString("id");
             darkOnly = json.optBoolean("darkOnly");
-            name = json.optJSONObject("name").optString(RUSSIAN ? "ru" : "en");
-            description = json.optJSONObject("description").optString(RUSSIAN ? "ru" : "en");
+        }
+
+        /** In the app language of the moment. */
+        public String name() {
+            return json.optJSONObject("name").optString(russian() ? "ru" : "en");
+        }
+
+        public String description() {
+            return json.optJSONObject("description").optString(russian() ? "ru" : "en");
         }
 
         int color(boolean night, String role) {

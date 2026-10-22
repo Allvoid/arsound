@@ -27,7 +27,10 @@ import app.revanced.extension.shared.Logger;
  */
 @SuppressWarnings("unused")
 public final class HomeGreeting extends LinearLayout {
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
     private static final long FOLD_MS = 220;
 
     private int fullHeight = -1;
@@ -58,7 +61,7 @@ public final class HomeGreeting extends LinearLayout {
 
         TextView hello = new TextView(context);
         String name = accountName(context);
-        String helloText = (RUSSIAN ? "Привет" : "Hello") + (name.isEmpty() ? "" : ", " + name);
+        String helloText = (russian() ? "Привет" : "Hello") + (name.isEmpty() ? "" : ", " + name);
         hello.setText(helloText.toUpperCase(Locale.getDefault()));
         hello.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         hello.setLetterSpacing(0.08f);
@@ -67,7 +70,7 @@ public final class HomeGreeting extends LinearLayout {
         addView(hello);
 
         TextView title = new TextView(context);
-        title.setText(RUSSIAN ? "Что послушаем?" : "What shall we play?");
+        title.setText(russian() ? "Что послушаем?" : "What shall we play?");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 32);
         title.setTypeface(font(context, "soehne_extrafett_900"));
         title.setTextColor(themeColor(context, "themeColorPrimary"));

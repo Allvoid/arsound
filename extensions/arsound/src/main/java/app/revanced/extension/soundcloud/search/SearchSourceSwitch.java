@@ -695,7 +695,7 @@ public final class SearchSourceSwitch {
                         offerSignIn();
                         return;
                     }
-                    toast(context, isRegionBlock(ex) ? REGION_BLOCKED_TEXT
+                    toast(context, isRegionBlock(ex) ? regionBlockedText()
                             : text("Не получилось включить трек.", "Could not play the track."));
                 });
             }
@@ -786,7 +786,7 @@ public final class SearchSourceSwitch {
                         offerSignIn();
                         return;
                     }
-                    toast(context, isRegionBlock(ex) ? REGION_BLOCKED_TEXT : refused(ex)
+                    toast(context, isRegionBlock(ex) ? regionBlockedText() : refused(ex)
                             ? text("YouTube не отдал файл: похоже, VPN шлёт запросы с разных адресов.",
                             "YouTube refused the file: the VPN seems to use different addresses.")
                             : text("Не получилось скачать «" + track.title + "».",
@@ -796,8 +796,10 @@ public final class SearchSourceSwitch {
         });
     }
 
-    private static final String REGION_BLOCKED_TEXT = text("Российский IP — поиск Arsound отключён.",
+    private static String regionBlockedText() {
+        return text("Российский IP — поиск Arsound отключён.",
             "Russian IP: the Arsound search is off.");
+    }
 
     private static <T> List<T> resultOrEmpty(java.util.concurrent.Future<List<T>> future) {
         try {

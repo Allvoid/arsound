@@ -142,11 +142,11 @@ public final class AudioEqualizer {
         }
 
         public String name() {
-            return RUSSIAN ? russian : english;
+            return russian() ? russian : english;
         }
 
         public String note() {
-            return RUSSIAN ? russianNote : englishNote;
+            return russian() ? russianNote : englishNote;
         }
 
         /** The preset on the phone's bands, in millibels, kept within the phone's range. */
@@ -155,7 +155,10 @@ public final class AudioEqualizer {
         }
     }
 
-    private static final boolean RUSSIAN = "ru".equals(java.util.Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(java.util.Locale.getDefault().getLanguage());
+    }
 
     /** The usual curves of music players (Winamp, foobar2000, Poweramp and their kin), slightly evened out. */
     public static final Preset[] PRESETS = {

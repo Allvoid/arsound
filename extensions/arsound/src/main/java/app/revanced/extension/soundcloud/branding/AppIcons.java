@@ -24,7 +24,10 @@ public final class AppIcons {
     /** Must match the alias names the branding patch adds to the manifest. */
     private static final String ALIAS_PREFIX = "com.soundcloud.android.launcher.ArsoundIcon_";
 
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
 
     public static final class Icon {
         public final String id;
@@ -33,8 +36,8 @@ public final class AppIcons {
 
         Icon(String[] row) {
             id = row[0];
-            name = RUSSIAN ? row[1] : row[2];
-            group = RUSSIAN ? row[3] : row[4];
+            name = russian() ? row[1] : row[2];
+            group = russian() ? row[3] : row[4];
         }
     }
 

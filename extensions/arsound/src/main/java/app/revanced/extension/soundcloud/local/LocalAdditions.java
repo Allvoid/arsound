@@ -51,13 +51,16 @@ public final class LocalAdditions {
     private static final String COVER_ROW_TAG = "arsound_cover_row";
     private static final String REMOVE_COVER_ROW_TAG = "arsound_remove_cover_row";
 
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
 
     private LocalAdditions() {
     }
 
     private static String text(String russian, String english) {
-        return RUSSIAN ? russian : english;
+        return russian() ? russian : english;
     }
 
     private static SharedPreferences preferences() {

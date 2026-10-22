@@ -31,12 +31,15 @@ public final class TrackCellMarks {
     private static final int GROUP_KEY = 0x41727331;
     private static final float DELETED_ALPHA = 0.4f;
 
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
 
     private static volatile CellIcon importedIcon;
 
     private static final Function0<Unit> IMPORTED_TAP = () -> {
-        Toast.makeText(Utils.getContext(), RUSSIAN
+        Toast.makeText(Utils.getContext(), russian()
                 ? "Импортированный трек: играет из файла на этом телефоне"
                 : "Imported track: plays from a file on this phone", Toast.LENGTH_SHORT).show();
         return Unit.INSTANCE;
@@ -136,7 +139,7 @@ public final class TrackCellMarks {
             String urn = trackItem == null ? null : urnOf(trackItem);
             if (urn == null || !RemovedTracks.isDeleted(urn)) return false;
 
-            Toast.makeText(Utils.getContext(), RUSSIAN
+            Toast.makeText(Utils.getContext(), russian()
                     ? "Трек удалён из SoundCloud. Скачан он не был, поэтому послушать его нельзя — "
                     + "он остался в плейлисте как запись о том, что здесь был"
                     : "This track was deleted from SoundCloud and was not downloaded, so it cannot be played. "

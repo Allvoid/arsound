@@ -50,7 +50,10 @@ public final class DownloadTrackPatch {
     private static final Pattern TRACK_ID = Pattern.compile("(\\d+)$");
     private static final String API_ROOT = "https://api-v2.soundcloud.com";
 
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
 
     /**
      * The SoundCloud OAuth helper, used to authorize the download request like the app does.
@@ -58,7 +61,7 @@ public final class DownloadTrackPatch {
     private static volatile Object oAuth;
 
     static String text(String russian, String english) {
-        return RUSSIAN ? russian : english;
+        return russian() ? russian : english;
     }
 
     /**
