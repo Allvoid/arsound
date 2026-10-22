@@ -42,10 +42,13 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private LinearLayout localTrackList;
 
-    private static final boolean RUSSIAN = "ru".equals(Locale.getDefault().getLanguage());
+    /** Read each time: the app language can change while the app runs (the welcome switch). */
+    private static boolean russian() {
+        return "ru".equals(Locale.getDefault().getLanguage());
+    }
 
     private static String text(String russian, String english) {
-        return RUSSIAN ? russian : english;
+        return russian() ? russian : english;
     }
 
     @Override
@@ -360,7 +363,7 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Стандартный вид SoundCloud: чёрно-белый с оранжевым.", "SoundCloud's own look: black and white with orange."),
                 null));
         for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) {
-            choices.add(new ThemeChoice(theme.id, theme.name, theme.description, theme));
+            choices.add(new ThemeChoice(theme.id, theme.name(), theme.description(), theme));
         }
         return choices;
     }

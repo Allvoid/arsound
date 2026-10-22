@@ -30,6 +30,9 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * Built like {@link android.app.AlertDialog.Builder}, with the parts Arsound uses, so it replaces it one for one.
  */
 public final class ArsoundDialog {
+    /** The tag of a view that colours its own text: the dialog leaves it and everything inside it as it is. */
+    public static final String KEEP_COLORS = "arsound_keep_colors";
+
     private final Context context;
     private final int accent, primary, secondary, surface;
     private CharSequence title, message;
@@ -40,6 +43,7 @@ public final class ArsoundDialog {
     private CharSequence positive, negative, neutral;
     private DialogInterface.OnClickListener onPositive, onNegative, onNeutral;
     private boolean cancelable = true;
+    private View buttonsStart;
     private DialogInterface.OnDismissListener onDismiss;
 
     public ArsoundDialog(Context context) {
@@ -109,6 +113,20 @@ public final class ArsoundDialog {
         return this;
     }
 
+    /** A view at the start of the button row, where the neutral button would be (for example a small switch). */
+    public ArsoundDialog setButtonsStart(View view) {
+        buttonsStart = view;
+        return this;
+    }
+
+    /** A button of a shown dialog, by {@link DialogInterface#BUTTON_POSITIVE} and the like, to change its label. */
+    public static TextView getButton(Dialog dialog, int which) {
+        Window window = dialog.getWindow();
+        return window == null ? null : window.getDecorView().findViewWithTag(BUTTON_TAG + which);
+    }
+
+    private static final String BUTTON_TAG = "arsound_dialog_button_";
+
     public ArsoundDialog setNeutralButton(CharSequence text, DialogInterface.OnClickListener listener) {
         neutral = text;
         onNeutral = listener;
@@ -161,12 +179,19 @@ public final class ArsoundDialog {
         scroll.addView(body);
         card.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        if (positive != null || negative != null || neutral != null) {
+        if (positive != null || negative != null || neutral != null || buttonsStart != null) {
             LinearLayout buttons = new LinearLayout(context);
             buttons.setOrientation(LinearLayout.HORIZONTAL);
             buttons.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
             buttons.setPadding(dp(14), dp(10), dp(16), 0);
-            if (neutral != null) {
+            if (buttonsStart != null) {
+                if (buttonsStart.getParent() instanceof ViewGroup) ((ViewGroup) buttonsStart.getParent()).removeView(buttonsStart);
+                LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                startParams.leftMargin = dp(8);
+                buttons.addView(buttonsStart, startParams);
+                buttons.addView(new View(context), new LinearLayout.LayoutParams(0, 1, 1f));
+            } else if (neutral != null) {
                 buttons.addView(button(dialog, neutral, onNeutral, DialogInterface.BUTTON_NEUTRAL, false));
                 buttons.addView(new View(context), new LinearLayout.LayoutParams(0, 1, 1f));
             }
@@ -236,6 +261,7 @@ public final class ArsoundDialog {
 
     private View button(Dialog dialog, CharSequence label, DialogInterface.OnClickListener listener, int which, boolean main) {
         TextView button = text("H4.Primary", label, main ? contrast(accent) : accent);
+        button.setTag(BUTTON_TAG + which);
         button.setGravity(Gravity.CENTER);
         button.setMinHeight(dp(40));
         button.setPadding(dp(18), dp(8), dp(18), dp(8));
@@ -257,6 +283,7 @@ public final class ArsoundDialog {
 
     /** Text fields inside the given view get the theme's colours. */
     private void tintFields(View view) {
+        if (KEEP_COLORS.equals(view.getTag())) return;
         if (view instanceof EditText) {
             EditText field = (EditText) view;
             field.setTextColor(primary);
