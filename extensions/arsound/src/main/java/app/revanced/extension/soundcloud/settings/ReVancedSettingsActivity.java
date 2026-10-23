@@ -2499,6 +2499,10 @@ public final class ReVancedSettingsActivity extends Activity {
         titleView.setText(title);
 
         CompoundButton toggle = row.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "action_list_switch_button"));
+        // Every toggle row has the same view id, so after recreate() Android would restore one saved state
+        // into all of them and fire their listeners: turning on "Theme animation" switched it straight back off.
+        // The state always comes from the settings, so the toggle keeps none of its own.
+        toggle.setSaveEnabled(false);
         toggle.setChecked(checked);
         toggle.setOnCheckedChangeListener(listener);
 
