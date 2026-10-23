@@ -85,9 +85,13 @@ public final class HlsDownloader {
     static String download(Context context, String trackId, String playlistUrl, String mimeType) {
         File transportStream = new File(context.getCacheDir(), "arsound-hls-" + trackId + ".ts");
         File packed = new File(context.getCacheDir(), "arsound-hls-" + trackId + ".m4a");
+        File stripped = new File(context.getCacheDir(), "arsound-hls-" + trackId + ".mp4");
         try {
             List<Segment> segments = parsePlaylist(playlistUrl);
-            if (segments.isEmpty()) {
+            boolean hasAudio = false;
+            for (Segment segment : segments) hasAudio |= segment.sequence != INITIALISATION_SEGMENT;
+            if (!hasAudio) {
+                // Only the headers of a fragmented MP4 would be saved as a silent "complete" file.
                 Logger.printInfo(() -> "HLS playlist of " + trackId + " has no segments");
                 return null;
             }
@@ -99,8 +103,17 @@ public final class HlsDownloader {
             String fileName;
             File source;
             if (isFragmentedMp4(transportStream)) {
-                // Fragmented MP4 with its headers is already a playable file; nothing has to be repacked.
-                source = transportStream;
+                // Every segment brings its own index, and the first one covers only its own ten seconds: players that
+                // trust it show a track of ten seconds and stop there. A plain MP4 has the whole length in its header.
+                if (remux(transportStream, packed)) {
+                    source = packed;
+                } else if (dropSegmentIndexes(transportStream, stripped)) {
+                    // At least without the false length: the track plays through, only without a length.
+                    source = stripped;
+                    Logger.printInfo(() -> "HLS track " + trackId + " saved as fragments without their indexes");
+                } else {
+                    source = transportStream;
+                }
                 fileName = "soundcloud-" + trackId + ".m4a";
             } else if (remux(transportStream, packed)) {
                 source = packed;
@@ -120,6 +133,54 @@ public final class HlsDownloader {
         } finally {
             delete(transportStream);
             delete(packed);
+            delete(stripped);
+        }
+    }
+
+    /**
+     * Copies a fragmented MP4 without its {@code styp} and {@code sidx} boxes: each segment of an HLS track carries
+     * its own, and a player that reads only the first takes the track for one segment long.
+     *
+     * @return True if the copy was made.
+     */
+    private static boolean dropSegmentIndexes(File source, File target) {
+        try (java.io.DataInputStream input = new java.io.DataInputStream(
+                new java.io.BufferedInputStream(new java.io.FileInputStream(source), 64 * 1024));
+             java.io.BufferedOutputStream output = new java.io.BufferedOutputStream(new FileOutputStream(target), 64 * 1024)) {
+            byte[] buffer = new byte[64 * 1024];
+            while (true) {
+                byte[] header = new byte[16];
+                int first = input.read(header, 0, 8);
+                if (first < 0) return true;
+                if (first < 8) input.readFully(header, first, 8 - first);
+                long size = ((header[0] & 0xFFL) << 24) | ((header[1] & 0xFFL) << 16) | ((header[2] & 0xFFL) << 8) | (header[3] & 0xFFL);
+                String type = new String(header, 4, 4, StandardCharsets.ISO_8859_1);
+                int headerLength = 8;
+                if (size == 1) {
+                    input.readFully(header, 8, 8);
+                    size = 0;
+                    for (int i = 8; i < 16; i++) size = (size << 8) | (header[i] & 0xFF);
+                    headerLength = 16;
+                }
+                boolean drop = "styp".equals(type) || "sidx".equals(type);
+                if (!drop) output.write(header, 0, headerLength);
+                // A size of 0 means "until the end of the file".
+                long left = size == 0 ? Long.MAX_VALUE : size - headerLength;
+                if (left < 0) return false;
+                while (left > 0) {
+                    int want = (int) Math.min(buffer.length, left);
+                    int read = input.read(buffer, 0, want);
+                    if (read < 0) {
+                        if (size == 0) return true;
+                        return false;
+                    }
+                    if (!drop) output.write(buffer, 0, read);
+                    left -= read;
+                }
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not drop the segment indexes: " + ex);
+            return false;
         }
     }
 
@@ -250,9 +311,11 @@ public final class HlsDownloader {
     private static byte[] decrypt(Segment segment) throws Exception {
         byte[] data = readBytes(segment.url);
         Key key = segment.key;
-        if (key.uri == null || "NONE".equals(key.method)) return data;
+        if ("NONE".equals(key.method)) return data;
         // The headers of a fragmented MP4 come in the clear, and decrypting them would destroy them.
         if (segment.sequence == INITIALISATION_SEGMENT) return data;
+        // Saving the bytes of a track that says it is encrypted, without a key, would give a file that never plays.
+        if (key.uri == null) throw new IOException("The playlist declares " + key.method + " but gives no key");
 
         byte[] secret = keyBytes(key.uri);
         byte[] iv = key.iv != null ? key.iv : sequenceIv(segment.sequence);
@@ -477,7 +540,10 @@ public final class HlsDownloader {
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(30_000);
         int code = connection.getResponseCode();
-        if (code != HttpURLConnection.HTTP_OK) throw new IOException("HTTP " + code + " for " + url);
+        if (code != HttpURLConnection.HTTP_OK) {
+            connection.disconnect();
+            throw new IOException("HTTP " + code + " for " + url);
+        }
         return connection;
     }
 
