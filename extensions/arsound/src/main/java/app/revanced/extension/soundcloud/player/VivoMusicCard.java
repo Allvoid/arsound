@@ -115,8 +115,9 @@ public final class VivoMusicCard {
         if (!isSupported(context)) return State.NOT_VIVO;
         try {
             String list = Settings.Secure.getString(context.getContentResolver(), LIST_KEY);
-            return list != null && contains(new JSONArray(list), context.getPackageName())
-                    ? State.LISTED : State.NOT_LISTED;
+            // Without the setting the player uses its built-in list, which has the package of the Chinese build.
+            JSONArray entries = list != null ? new JSONArray(list) : builtInList();
+            return contains(entries, context.getPackageName()) ? State.LISTED : State.NOT_LISTED;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not read the vivo music player list", ex);
             return State.UNREADABLE;
@@ -285,6 +286,11 @@ public final class VivoMusicCard {
                         + "own list. SoundCloud and Arsound are not on it, so the player says \"Not playing\". An app "
                         + "cannot add itself; it takes one command from a computer, once. This hint is also in the "
                         + "settings: Arsound → Offline and playback → \"The vivo control centre player\".")));
+        content.addView(paragraph(activity, secondary, text(
+                "Нет компьютера — поставьте Arsound для китайских прошивок из Telegram-канала t.me/arsound_git: "
+                        + "он уже в списке плеера. Это отдельное приложение, в него нужно заново войти в аккаунт.",
+                "No computer? Install Arsound for Chinese firmware from the Telegram channel t.me/arsound_git: it is "
+                        + "already on the player's list. It is a separate app, so you sign in to it again.")));
         content.addView(paragraph(activity, secondary, text(
                 "1. На телефоне включите «Отладку по USB» в «Для разработчиков» (раздел открывается семью нажатиями "
                         + "на номер версии ПО в «О телефоне»).\n"
