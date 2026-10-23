@@ -1293,9 +1293,11 @@ public final class ReVancedSettingsActivity extends Activity {
         View unplayedToggle = createToggleRow(
                 text("Удалять файлы неслушанных треков", "Delete files of unplayed tracks"),
                 text("Если скачанный трек не слушали дольше срока ниже, его файл удаляется с телефона. Трек остаётся "
-                                + "в SoundCloud: его можно слушать из сети и скачать снова. Проверка — при запуске приложения.",
+                                + "в SoundCloud: его можно слушать из сети и скачать снова. Импортированные с телефона "
+                                + "треки не затрагиваются, если не включить это ниже. Проверка — при запуске приложения.",
                         "If a downloaded track was not played for longer than the period below, its file is deleted from "
                                 + "the phone. The track stays in SoundCloud: it can be streamed and downloaded again. "
+                                + "Tracks imported from the phone are not touched unless turned on below. "
                                 + "Checked when the app starts."),
                 app.revanced.extension.soundcloud.download.UnplayedDownloads.isEnabled(),
                 (button, checked) -> {
@@ -1308,6 +1310,20 @@ public final class ReVancedSettingsActivity extends Activity {
         View periodRow = createActionRow(text("Срок", "Period"), "", v -> chooseUnplayedPeriod(unplayedDescription[0]));
         unplayedDescription[0] = (TextView) ((ViewGroup) periodRow).getChildAt(1);
         unplayedOptions.addView(periodRow);
+        unplayedOptions.addView(createToggleRow(
+                text("Удалять и импортированные треки", "Delete imported tracks too"),
+                text("Треки, импортированные с телефона, тоже удаляются по этому сроку. Выключено — они не "
+                                + "удаляются никогда. Удалённый трек можно импортировать снова, если исходный файл "
+                                + "ещё есть на телефоне.",
+                        "Tracks imported from the phone are deleted by the same period too. Off: they are never "
+                                + "deleted. A deleted track can be imported again while its original file is still "
+                                + "on the phone."),
+                app.revanced.extension.soundcloud.download.UnplayedDownloads.isImportedIncluded(),
+                (button, checked) -> {
+                    Settings.putBoolean(app.revanced.extension.soundcloud.download.UnplayedDownloads.IMPORTED, checked);
+                    countUnplayed(unplayedDescription[0]);
+                }
+        ));
         unplayedOptions.setVisibility(app.revanced.extension.soundcloud.download.UnplayedDownloads.isEnabled()
                 ? View.VISIBLE : View.GONE);
         list.addView(unplayedOptions);
@@ -1334,9 +1350,12 @@ public final class ReVancedSettingsActivity extends Activity {
         String period = daysText(app.revanced.extension.soundcloud.download.UnplayedDownloads.days());
         description.setText(period);
         Utils.runOnBackgroundThread(() -> {
-            java.util.List<Object[]> tracks = app.revanced.extension.soundcloud.download.UnplayedDownloads.unplayed();
+            java.util.List<app.revanced.extension.soundcloud.download.UnplayedDownloads.Unplayed> tracks =
+                    app.revanced.extension.soundcloud.download.UnplayedDownloads.unplayed();
             long bytes = 0;
-            for (Object[] track : tracks) bytes += ((java.io.File) track[1]).length();
+            for (app.revanced.extension.soundcloud.download.UnplayedDownloads.Unplayed track : tracks) {
+                bytes += track.file.length();
+            }
             String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
             Utils.runOnMainThread(() -> description.setText(period + "\n" + (tracks.isEmpty()
                     ? text("Сейчас под это не попадает ни один трек.", "No track falls under it now.")
