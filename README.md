@@ -20,6 +20,10 @@ Everything is configured inside SoundCloud: **Settings → Arsound**, split into
 (Menu and button names below are given as they appear in the English interface; the app itself can be switched
 between Russian and English in Settings → Arsound → Appearance.)
 
+The magnifier at the right of the "Arsound" title searches all settings: the field grows out of the button, results appear
+as you type (by a setting's name, its section or a word from its description), and a tap opens the right screen, scrolls
+to the setting and lights it up. The search follows the theme's colours.
+
 **No clutter**
 - No ads: no audio ads between tracks, no banners in the player, library and feed.
 - No pushy Go, Go+ and Pro subscription offers: no purchase screen, no banners on the home screen and in the library, no "Get Pro" and "Upgrade" buttons in the header; the Upgrade tab can be hidden.
@@ -43,7 +47,7 @@ between Russian and English in Settings → Arsound → Appearance.)
 - If Arsound was reinstalled, the app asks for access to music: without it Android does not let it read tracks downloaded before the reinstall.
 - Everything SoundCloud serves without protection can be downloaded: if the app is refused a stream, the same track is requested the way the web player does it, and all stream variants are tried in turn.
 - Subscriber-only tracks and previews are not downloaded. Tracks that only have DRM-protected streams (FairPlay, Widevine) can be played but not saved — the menu and the playlist check say so: "protected by DRM".
-- Tracks served only as a protected HLS stream are assembled by the app itself: segments are downloaded, decrypted and packed into a single `.m4a` file. It takes a few seconds after the download, and the track shows a spinner the whole time; in the playlist check such tracks are marked "background processing". How it works — [docs/protected-tracks.md](docs/protected-tracks.md) (in Russian).
+- Tracks served only as a protected HLS stream are assembled by the app itself: segments are downloaded, decrypted and packed into a single `.m4a` file. It takes a few seconds after the download, and the track shows a spinner the whole time; a whole playlist is assembled two tracks at a time, so a long one does not run the app out of memory; in the playlist check such tracks are marked "background processing". How it works — [docs/protected-tracks.md](docs/protected-tracks.md) (in Russian).
 - While a track is downloading, its download icon spins; for a playlist — while the tracks started from its check are downloading.
 - **Arsound search** — for tracks that can't be downloaded from SoundCloud (not in the catalog, subscriber-only, preview, DRM). On the Search tab, under the search bar, there is a "SoundCloud / Arsound" switch; a small "?" on the Arsound half explains what it is. Arsound searches YouTube Music: tap a track to listen and check it is the right one; the button on the right downloads it into the "Imported" playlist, from where it can be added to any playlist. Besides tracks, artists and albums are found: an artist opens as a list of their albums, an album as a list of tracks with a "Download all" button. The album cover is saved with the track: one copy per album, shared by all its tracks. YouTube serves age-restricted tracks only after sign-in: optionally sign in to YouTube Music in Settings → Arsound → Account (the password is entered on Google's page, the session is stored only on the phone); if you try to download such a track without signing in, the app offers to do it. How it works — [docs/downloading-tracks.md](docs/downloading-tracks.md) (in Russian).
 - "Delete the downloaded file" in a track's menu and "Delete downloaded tracks" in a playlist's menu (with confirmation). Music imported from the phone is not touched by this: it is deleted by hand, one track at a time.

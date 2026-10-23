@@ -10,6 +10,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -72,6 +74,8 @@ public final class ReVancedSettingsActivity extends Activity {
                     : createSection(screen);
             addThemeEffect(content);
             setContentView(content);
+            String highlight = getIntent().getStringExtra(EXTRA_HIGHLIGHT);
+            if (highlight != null) content.postDelayed(() -> revealRow(highlight), 250);
         } catch (Exception ex) {
             Logger.printException(() -> "Failed to create ReVanced settings screen", ex);
             finish();
@@ -123,6 +127,7 @@ public final class ReVancedSettingsActivity extends Activity {
         root.addView(createToolbar());
 
         ScrollView scrollView = new ScrollView(this);
+        screenScroll = scrollView;
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(list);
@@ -161,8 +166,16 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private View openScreenRow(String title, String description, String screen) {
-        return createActionRow(title, description, v -> startActivity(
-                new android.content.Intent(this, ReVancedSettingsActivity.class).putExtra(EXTRA_SCREEN, screen)));
+        boolean sectionRow = searchCollector != null && searchScreen == null;
+        // On the main screen the row is a section of its own in the search; elsewhere it is a row like the others.
+        if (sectionRow) searchCollector.add(new SettingsSearchIndex.Entry(screen, title, title, description, true));
+        searchSkipRecord = sectionRow;
+        try {
+            return createActionRow(title, description, v -> startActivity(
+                    new android.content.Intent(this, ReVancedSettingsActivity.class).putExtra(EXTRA_SCREEN, screen)));
+        } finally {
+            searchSkipRecord = false;
+        }
     }
 
     /** The decoration of the chosen theme, or null. */
@@ -214,8 +227,16 @@ public final class ReVancedSettingsActivity extends Activity {
             background.setLayerGravity(1, Gravity.TOP);
             root.setBackground(background);
         }
-        list.addView(createTitle("Arsound", true));
+        list.addView(createSearchHeader(createTitle("Arsound", true)));
+        list.addView(searchSections);
+        list.addView(searchResults);
+        addSectionRows(searchSections);
+        addStrips(searchSections, 0);
+        return root;
+    }
 
+    /** One row per section of the main screen. */
+    private void addSectionRows(LinearLayout list) {
         list.addView(openScreenRow(text("Аккаунт", "Account"),
                 text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
                 SCREEN_ACCOUNT));
@@ -258,72 +279,518 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(openScreenRow(text("Для разработчика", "Developer"),
                 text("Инструменты для проверки и отладки", "Testing and debugging tools"),
                 SCREEN_DEVELOPER));
-        addStrips(list, 1);
-        return root;
     }
+
+    // region Search
+
+    private static final String EXTRA_HIGHLIGHT = "arsound_highlight";
+    /** Screens whose rows the search knows; the equalizer, the statistics and the icon grid are found by their section row. */
+    private static final String[] SEARCHED_SCREENS = {SCREEN_ACCOUNT, SCREEN_APPEARANCE, SCREEN_NETWORK, SCREEN_PLAYBACK,
+            SCREEN_ADS, SCREEN_RECOMMENDATIONS, SCREEN_MUSIC, SCREEN_STORAGE, SCREEN_PRIVACY, SCREEN_UPDATES, SCREEN_DEVELOPER};
+    private static final int MAX_RESULTS = 30;
+    private static final int ANIMATED_RESULTS = 8;
+
+    private ScrollView screenScroll;
+    private LinearLayout searchSections;
+    private LinearLayout searchResults;
+    private View searchTitleRow;
+    private View searchButton;
+    private View searchBar;
+    private EditText searchField;
+    private boolean searchOpen;
+    private SettingsSearchIndex searchIndex;
+    private java.util.Set<SettingsSearchIndex.Entry> shownResults = new java.util.HashSet<>();
+
+    /** Set while the screens are built to fill the index, null otherwise. */
+    private SettingsSearchIndex searchCollector;
+    /** The screen being built for the index, null for the main screen. */
+    private String searchScreen;
+    private boolean searchSkipRecord;
+    private boolean searchIndexing;
+
+    private void recordForSearch(String title, String description) {
+        if (searchCollector == null || searchSkipRecord || title == null || title.isEmpty()) return;
+        String section = searchScreen == null ? null : sectionTitle(searchScreen);
+        searchCollector.add(new SettingsSearchIndex.Entry(searchScreen, section, title, description, false));
+    }
+
+    /** Work that fills the screen with numbers; it has no use while the screens are only read for the search. */
+    private void inBackground(Runnable task) {
+        if (!searchIndexing) Utils.runOnBackgroundThread(task);
+    }
+
+    /**
+     * Builds every searched screen once, off screen, and keeps what its rows say. Done while the main screen sits
+     * idle, so the first tap on the search finds it ready.
+     */
+    private void ensureSearchIndex() {
+        if (searchIndex != null) return;
+        SettingsSearchIndex index = new SettingsSearchIndex();
+        searchCollector = index;
+        searchIndexing = true;
+        try {
+            searchScreen = null;
+            addSectionRows(new LinearLayout(this));
+            for (String screen : SEARCHED_SCREENS) {
+                searchScreen = screen;
+                try {
+                    fillSection(screen, new LinearLayout(this));
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Search index: could not read the " + screen + " screen", ex);
+                }
+            }
+        } finally {
+            searchCollector = null;
+            searchScreen = null;
+            searchIndexing = false;
+        }
+        searchIndex = index;
+    }
+
+    /** The title row with the search button at its end, and the field that grows out of the button. */
+    private View createSearchHeader(View title) {
+        FrameLayout header = new FrameLayout(this);
+        searchSections = new LinearLayout(this);
+        searchSections.setOrientation(LinearLayout.VERTICAL);
+        searchResults = new LinearLayout(this);
+        searchResults.setOrientation(LinearLayout.VERTICAL);
+        searchResults.setVisibility(View.GONE);
+
+        searchTitleRow = title;
+        int accent = ArsoundTheme.palette(this, "special");
+        searchButton = createSearchButton(accent);
+        LinearLayout titleRow = (LinearLayout) title;
+        titleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        titleRow.addView(searchButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        header.addView(titleRow, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        searchBar = createSearchBar(accent);
+        FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52), Gravity.CENTER_VERTICAL);
+        barParams.leftMargin = barParams.rightMargin = dimen("spacing_m");
+        header.addView(searchBar, barParams);
+        searchBar.setVisibility(View.INVISIBLE);
+
+        // The index is read when the main thread has nothing else to do, before anyone taps the button.
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (!isFinishing()) {
+                try {
+                    ensureSearchIndex();
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Search index failed", ex);
+                }
+            }
+            return false;
+        });
+        return header;
+    }
+
+    private View createSearchButton(int accent) {
+        ImageButton button = new ImageButton(this);
+        android.graphics.drawable.GradientDrawable disc = new android.graphics.drawable.GradientDrawable();
+        disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        disc.setColor(ArsoundTheme.palette(this, "highlight"));
+        disc.setStroke(dp(1), (accent & 0x00FFFFFF) | 0x40000000);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x33000000), disc, null));
+        button.setImageDrawable(new SearchGlyph(SearchGlyph.MAGNIFIER, themeColor("themeColorPrimary")));
+        button.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setContentDescription(text("Поиск по настройкам", "Search settings"));
+        button.setOnClickListener(v -> openSearch());
+        return button;
+    }
+
+    private View createSearchBar(int accent) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(ArsoundTheme.palette(this, "highlight"));
+        shape.setCornerRadius(dp(26));
+        shape.setStroke(dp(1), (accent & 0x00FFFFFF) | 0x66000000);
+        bar.setBackground(shape);
+
+        android.widget.ImageView lens = new android.widget.ImageView(this);
+        lens.setImageDrawable(new SearchGlyph(SearchGlyph.MAGNIFIER, ArsoundTheme.palette(this, "secondary")));
+        lens.setPadding(dp(14), dp(14), dp(10), dp(14));
+        bar.addView(lens, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        searchField = new EditText(this);
+        searchField.setBackground(null);
+        searchField.setSingleLine(true);
+        searchField.setHint(text("Поиск по настройкам", "Search settings"));
+        searchField.setHintTextColor(ArsoundTheme.palette(this, "secondary"));
+        searchField.setTextColor(themeColor("themeColorPrimary"));
+        searchField.setHighlightColor((accent & 0x00FFFFFF) | 0x55000000);
+        searchField.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        searchField.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        searchField.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        searchField.setPadding(0, 0, 0, 0);
+        searchField.setOnEditorActionListener((view, action, event) -> {
+            hideKeyboard();
+            return true;
+        });
+        searchField.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                updateSearchResults(s.toString());
+            }
+        });
+        bar.addView(searchField, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+        ImageButton clear = new ImageButton(this);
+        clear.setImageDrawable(new SearchGlyph(SearchGlyph.CROSS, themeColor("themeColorPrimary")));
+        clear.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        clear.setPadding(dp(12), dp(12), dp(12), dp(12));
+        clear.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
+        clear.setContentDescription(text("Закрыть поиск", "Close search"));
+        // Clears what was typed; with an empty field it closes the search.
+        clear.setOnClickListener(v -> {
+            if (searchField.length() > 0) searchField.setText("");
+            else closeSearch();
+        });
+        bar.addView(clear, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        return bar;
+    }
+
+    /** The field grows out of the button over the title, the sections give way to the results. */
+    private void openSearch() {
+        if (searchOpen) return;
+        searchOpen = true;
+        try {
+            ensureSearchIndex();
+        } catch (Exception ex) {
+            Logger.printException(() -> "Search index failed", ex);
+        }
+
+        int[] reveal = revealCentre();
+        float far = (float) Math.hypot(Math.max(reveal[0], searchBar.getWidth() - reveal[0]), searchBar.getHeight());
+        searchBar.setVisibility(View.VISIBLE);
+        android.animation.Animator grow = android.view.ViewAnimationUtils.createCircularReveal(
+                searchBar, reveal[0], reveal[1], dp(22), far);
+        grow.setDuration(360);
+        grow.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
+        grow.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (!searchOpen) return;
+                searchField.requestFocus();
+                android.view.inputmethod.InputMethodManager keyboard = (android.view.inputmethod.InputMethodManager)
+                        getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (keyboard != null) keyboard.showSoftInput(searchField, 0);
+            }
+        });
+        grow.start();
+
+        searchTitleRow.animate().alpha(0f).setDuration(220).start();
+        searchSections.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+            if (searchOpen) searchSections.setVisibility(View.GONE);
+        }).start();
+        searchResults.setAlpha(0f);
+        searchResults.setVisibility(View.VISIBLE);
+        updateSearchResults(searchField.getText().toString());
+        searchResults.animate().alpha(1f).setStartDelay(120).setDuration(240).start();
+    }
+
+    private void closeSearch() {
+        if (!searchOpen) return;
+        searchOpen = false;
+        hideKeyboard();
+
+        int[] reveal = revealCentre();
+        float far = (float) Math.hypot(Math.max(reveal[0], searchBar.getWidth() - reveal[0]), searchBar.getHeight());
+        android.animation.Animator shrink = android.view.ViewAnimationUtils.createCircularReveal(
+                searchBar, reveal[0], reveal[1], far, dp(22));
+        shrink.setDuration(280);
+        shrink.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        shrink.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (searchOpen) return;
+                searchBar.setVisibility(View.INVISIBLE);
+                searchField.setText("");
+            }
+        });
+        shrink.start();
+
+        searchTitleRow.animate().alpha(1f).setStartDelay(140).setDuration(240).start();
+        searchResults.animate().alpha(0f).setStartDelay(0).setDuration(150).withEndAction(() -> {
+            if (searchOpen) return;
+            searchResults.setVisibility(View.GONE);
+            searchResults.removeAllViews();
+            shownResults.clear();
+        }).start();
+        searchSections.setAlpha(0f);
+        searchSections.setVisibility(View.VISIBLE);
+        searchSections.animate().alpha(1f).setStartDelay(120).setDuration(260).start();
+    }
+
+    /** The middle of the search button, in the coordinates of the field: where the field starts to grow. */
+    private int[] revealCentre() {
+        int[] button = new int[2];
+        int[] bar = new int[2];
+        searchButton.getLocationInWindow(button);
+        searchBar.getLocationInWindow(bar);
+        int x = button[0] + searchButton.getWidth() / 2 - bar[0];
+        int y = button[1] + searchButton.getHeight() / 2 - bar[1];
+        return new int[]{Math.max(0, Math.min(searchBar.getWidth(), x)), Math.max(0, Math.min(searchBar.getHeight(), y))};
+    }
+
+    private void hideKeyboard() {
+        android.view.inputmethod.InputMethodManager keyboard = (android.view.inputmethod.InputMethodManager)
+                getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (keyboard != null && searchField != null) keyboard.hideSoftInputFromWindow(searchField.getWindowToken(), 0);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (searchOpen) {
+            closeSearch();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    private void updateSearchResults(String query) {
+        if (searchResults == null || !searchOpen && searchResults.getVisibility() != View.VISIBLE) return;
+        searchResults.removeAllViews();
+        if (query.trim().isEmpty()) {
+            shownResults.clear();
+            searchResults.addView(createSearchNote(text("Название настройки или слово из её описания",
+                    "A setting's name, or a word from its description")));
+            return;
+        }
+        java.util.List<SettingsSearchIndex.Entry> found = searchIndex == null
+                ? java.util.Collections.<SettingsSearchIndex.Entry>emptyList() : searchIndex.search(query, MAX_RESULTS);
+        if (found.isEmpty()) {
+            shownResults.clear();
+            searchResults.addView(createSearchNote(text("Ничего не нашлось", "Nothing found")));
+            return;
+        }
+
+        org.json.JSONArray strips = decor == null ? null : decor.optJSONArray("settingsStrips");
+        java.util.Set<SettingsSearchIndex.Entry> now = new java.util.HashSet<>();
+        int animated = 0;
+        for (int i = 0; i < found.size(); i++) {
+            SettingsSearchIndex.Entry entry = found.get(i);
+            View row = createSearchResult(entry, query);
+            if (strips != null && strips.length() > 0) {
+                row = withStrip(row, ArsoundTheme.color(strips.optString(i % strips.length())));
+            }
+            searchResults.addView(row);
+            now.add(entry);
+            // Rows already on screen stay where they are while the query narrows; only new ones slide in.
+            if (!shownResults.contains(entry) && animated < ANIMATED_RESULTS) {
+                row.setAlpha(0f);
+                row.setTranslationY(dp(14));
+                row.animate().alpha(1f).translationY(0f).setStartDelay(animated * 35L).setDuration(260)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+                animated++;
+            }
+        }
+        shownResults = now;
+    }
+
+    private View createSearchNote(String message) {
+        TextView note = createText("Body.Secondary", message);
+        note.setPadding(dimen("spacing_m"), dp(18), dimen("spacing_m"), dp(18));
+        note.setAlpha(0f);
+        note.animate().alpha(1f).setDuration(240).start();
+        return note;
+    }
+
+    private View createSearchResult(SettingsSearchIndex.Entry entry, String query) {
+        int accent = ArsoundTheme.palette(this, "special");
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
+        row.setPadding(dimen("spacing_m"), dp(10), dimen("spacing_m"), dp(10));
+
+        TextView title = createText("H4.Primary", "");
+        android.text.SpannableString spanned = new android.text.SpannableString(entry.title);
+        for (int[] range : SettingsSearchIndex.matches(entry.title, query)) {
+            spanned.setSpan(new android.text.style.ForegroundColorSpan(accent), range[0], range[1],
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            spanned.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), range[0], range[1],
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        title.setText(spanned);
+        row.addView(title);
+
+        TextView place = createText("Body.Secondary", entry.sectionRow
+                ? text("Раздел", "Section") : entry.section);
+        place.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        place.setTextColor((accent & 0x00FFFFFF) | 0xE6000000);
+        place.setPadding(0, dp(2), 0, 0);
+        row.addView(place);
+
+        if (!entry.description.isEmpty()) {
+            TextView description = createText("Body.Secondary", entry.description);
+            description.setMaxLines(2);
+            description.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            description.setPadding(0, dp(4), dp(24), 0);
+            row.addView(description);
+        }
+
+        row.setOnClickListener(v -> {
+            hideKeyboard();
+            android.content.Intent open = new android.content.Intent(this, ReVancedSettingsActivity.class)
+                    .putExtra(EXTRA_SCREEN, entry.screen);
+            if (!entry.sectionRow) open.putExtra(EXTRA_HIGHLIGHT, entry.title);
+            startActivity(open);
+        });
+        return row;
+    }
+
+    /** Scrolls to the row the search led to and lets it glow in the theme's accent a couple of times. */
+    private void revealRow(String title) {
+        if (screenScroll == null || screenScroll.getChildCount() == 0) return;
+        View content = screenScroll.getChildAt(0);
+        TextView label = findLabel(content, title);
+        if (label == null) return;
+        View row = label;
+        // A row is its title two levels up: the title line (or the constraint layout) inside the row container.
+        for (int level = 0; level < 2 && row.getParent() instanceof View && row.getParent() != content; level++) {
+            row = (View) row.getParent();
+        }
+        if (!row.isShown()) return;
+
+        int top = 0;
+        for (View view = row; view != content && view.getParent() instanceof View; view = (View) view.getParent()) {
+            top += view.getTop();
+        }
+        screenScroll.smoothScrollTo(0, Math.max(0, top - dp(140)));
+
+        android.graphics.drawable.ColorDrawable glow = new android.graphics.drawable.ColorDrawable(
+                ArsoundTheme.palette(this, "special"));
+        glow.setAlpha(0);
+        View target = row;
+        target.setForeground(glow);
+        android.animation.ValueAnimator pulse = android.animation.ValueAnimator.ofInt(0, 70, 8, 70, 0);
+        pulse.setStartDelay(300);
+        pulse.setDuration(1500);
+        pulse.addUpdateListener(animation -> glow.setAlpha((Integer) animation.getAnimatedValue()));
+        pulse.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                target.setForeground(null);
+            }
+        });
+        pulse.start();
+    }
+
+    private static TextView findLabel(View view, String title) {
+        if (view instanceof TextView && title.contentEquals(((TextView) view).getText())) return (TextView) view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                TextView found = findLabel(group.getChildAt(i), title);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    // endregion
 
     private View createSection(String screen) {
         LinearLayout[] holder = new LinearLayout[1];
         LinearLayout root = createScreen(holder);
         LinearLayout list = holder[0];
+        list.addView(createTitle(sectionTitle(screen), false));
+        fillSection(screen, list);
+        return root;
+    }
+
+    /** The name of a section screen, also its row on the main screen. */
+    private String sectionTitle(String screen) {
         switch (screen) {
             case SCREEN_NETWORK:
-                list.addView(createTitle(text("Сеть", "Network"), false));
+                return text("Сеть", "Network");
+            case SCREEN_PLAYBACK:
+                return text("Офлайн и воспроизведение", "Offline and playback");
+            case SCREEN_ADS:
+                return text("Реклама и подписка", "Ads and subscription");
+            case SCREEN_RECOMMENDATIONS:
+                return text("Рекомендации", "Recommendations");
+            case SCREEN_MUSIC:
+                return text("Своя музыка", "Your music");
+            case SCREEN_STORAGE:
+                return text("Память", "Storage");
+            case SCREEN_PRIVACY:
+                return text("Батарея и конфиденциальность", "Battery and privacy");
+            case SCREEN_UPDATES:
+                return text("Обновления и данные", "Updates and data");
+            case SCREEN_EQUALIZER:
+                return text("Эквалайзер", "Equalizer");
+            case SCREEN_STATS:
+                return text("Статистика прослушиваний", "Listening statistics");
+            case SCREEN_APPEARANCE:
+                return text("Оформление", "Appearance");
+            case SCREEN_APP_ICON:
+                return text("Иконка приложения", "App icon");
+            case SCREEN_ACCOUNT:
+                return text("Аккаунт", "Account");
+            default:
+                return text("Для разработчика", "Developer");
+        }
+    }
+
+    /** The rows of a section screen, below its title. */
+    private void fillSection(String screen, LinearLayout list) {
+        switch (screen) {
+            case SCREEN_NETWORK:
                 addNetworkSection(list);
                 break;
             case SCREEN_PLAYBACK:
-                list.addView(createTitle(text("Офлайн и воспроизведение", "Offline and playback"), false));
                 addPlaybackSection(list);
                 break;
             case SCREEN_ADS:
-                list.addView(createTitle(text("Реклама и подписка", "Ads and subscription"), false));
                 addAdsSection(list);
                 break;
             case SCREEN_RECOMMENDATIONS:
-                list.addView(createTitle(text("Рекомендации", "Recommendations"), false));
                 addRecommendationsSection(list);
                 break;
             case SCREEN_MUSIC:
-                list.addView(createTitle(text("Своя музыка", "Your music"), false));
                 addMusicSection(list);
                 break;
             case SCREEN_STORAGE:
-                list.addView(createTitle(text("Память", "Storage"), false));
                 addStorageSection(list);
                 break;
             case SCREEN_PRIVACY:
-                list.addView(createTitle(text("Батарея и конфиденциальность", "Battery and privacy"), false));
                 addPrivacySection(list);
                 break;
             case SCREEN_UPDATES:
-                list.addView(createTitle(text("Обновления и данные", "Updates and data"), false));
                 addUpdatesSection(list);
                 break;
             case SCREEN_EQUALIZER:
-                list.addView(createTitle(text("Эквалайзер", "Equalizer"), false));
                 addEqualizerSection(list);
                 break;
             case SCREEN_STATS:
-                list.addView(createTitle(text("Статистика прослушиваний", "Listening statistics"), false));
                 addStatsSection(list);
                 break;
             case SCREEN_APPEARANCE:
-                list.addView(createTitle(text("Оформление", "Appearance"), false));
                 addAppearanceSection(list);
                 break;
             case SCREEN_APP_ICON:
-                list.addView(createTitle(text("Иконка приложения", "App icon"), false));
                 addAppIconSection(list);
                 break;
             case SCREEN_ACCOUNT:
-                list.addView(createTitle(text("Аккаунт", "Account"), false));
                 addAccountSection(list);
                 break;
             default:
-                list.addView(createTitle(text("Для разработчика", "Developer"), false));
                 addDeveloperSection(list);
         }
-        return root;
     }
 
     /** Theme, app icon and language. */
@@ -1277,7 +1744,7 @@ public final class ReVancedSettingsActivity extends Activity {
         });
         used[0] = (TextView) ((ViewGroup) clearRow).getChildAt(1);
         used[0].setText(text("Считаю…", "Counting…"));
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             long bytes = app.revanced.extension.soundcloud.player.StreamCache.usedBytes();
             boolean pending = Settings.getBoolean(app.revanced.extension.soundcloud.player.StreamCache.CLEAR_REQUESTED, false);
             String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
@@ -1349,7 +1816,7 @@ public final class ReVancedSettingsActivity extends Activity {
         TextView cacheDescription = (TextView) ((ViewGroup) cacheRow).getChildAt(1);
         cacheDescription.setText(text("Считаю…", "Counting…"));
         list.addView(cacheRow);
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             String size = android.text.format.Formatter.formatShortFileSize(this,
                     app.revanced.extension.soundcloud.player.StreamCache.usedBytes());
             Utils.runOnMainThread(() -> cacheDescription.setText(text(
@@ -1364,7 +1831,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private void countUnplayed(TextView description) {
         String period = daysText(app.revanced.extension.soundcloud.download.UnplayedDownloads.days());
         description.setText(period);
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             java.util.List<app.revanced.extension.soundcloud.download.UnplayedDownloads.Unplayed> tracks =
                     app.revanced.extension.soundcloud.download.UnplayedDownloads.unplayed();
             long bytes = 0;
@@ -1450,7 +1917,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private void countDownloads() {
         downloadsDescription.setText(text("Считаю…", "Counting…"));
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             long[] usage = downloadsUsage();
             String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
             Utils.runOnMainThread(() -> downloadsDescription.setText(usage[0] == 0
@@ -2423,6 +2890,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** @param help A {@link HelpBadge} shown right after the title, or null. */
     private View createActionRow(String title, String description, View help, View.OnClickListener listener) {
+        recordForSearch(title, description);
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
@@ -2449,7 +2917,7 @@ public final class ReVancedSettingsActivity extends Activity {
      * Shows the IP address and country this app uses, to diagnose region blocks caused by VPN routing.
      */
     private void checkNetwork(TextView view) {
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             String result;
             try {
                 java.net.HttpURLConnection connection = (java.net.HttpURLConnection)
@@ -2488,7 +2956,7 @@ public final class ReVancedSettingsActivity extends Activity {
         back.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_back_primary"));
         back.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
         back.setContentDescription(text("Назад", "Back"));
-        back.setOnClickListener(v -> finish());
+        back.setOnClickListener(v -> onBackPressed());
         int size = dp(48);
         toolbar.addView(back, new LinearLayout.LayoutParams(size, size));
 
@@ -2505,6 +2973,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private View createToggleRow(String title, String description, boolean checked,
                                  CompoundButton.OnCheckedChangeListener listener) {
+        recordForSearch(title, description);
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
