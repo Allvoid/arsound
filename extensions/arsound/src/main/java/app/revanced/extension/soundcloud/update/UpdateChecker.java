@@ -65,6 +65,8 @@ public final class UpdateChecker {
      * Checks for an update in the background and shows it on the first screen that opens.
      */
     public static void onApplicationCreate(Application application) {
+        // First, so a crash anywhere after this is written down.
+        app.revanced.extension.soundcloud.debug.CrashLog.install(application);
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(Activity activity) {
