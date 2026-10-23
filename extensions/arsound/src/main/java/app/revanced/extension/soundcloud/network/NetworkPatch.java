@@ -48,6 +48,13 @@ public final class NetworkPatch {
         builder.getClass().getMethod("dns", dnsClass).invoke(builder, dns);
     }
 
+    /** The exception an OkHttp interceptor may throw: IOException and unchecked ones as they are, others wrapped. */
+    private static Throwable unwrap(Throwable ex) {
+        while (ex instanceof java.lang.reflect.InvocationTargetException && ex.getCause() != null) ex = ex.getCause();
+        if (ex instanceof java.io.IOException || ex instanceof RuntimeException || ex instanceof Error) return ex;
+        return new java.io.IOException(ex);
+    }
+
     public static void onBuild(Object builder) {
         try {
             ClassLoader loader = builder.getClass().getClassLoader();
@@ -75,37 +82,49 @@ public final class NetworkPatch {
                     return INTERCEPTOR_NAME;
                 }
 
-                Object chain = args[0];
-                Object request = requestMethod.invoke(chain);
-                int delay = Settings.getDeveloperNetworkDelaySeconds();
-                if (delay > 0) {
-                    Logger.printInfo(() -> "Delaying request by " + delay + " s: " + request);
-                    try {
-                        Thread.sleep(delay * 1000L);
-                    } catch (InterruptedException ex) {
-                        // OkHttp interrupts calls that were cancelled; let the chain report it.
-                        Thread.currentThread().interrupt();
-                    }
-                }
+                // OkHttp's Interceptor may only throw IOException. Any other checked exception, such as the wrapper
+                // reflection puts around a cancelled download, became UndeclaredThrowableException on OkHttp's thread
+                // and closed the app (a cover cancelled while a track was downloaded or a list was scrolled).
+                try {
 
-                Object url = urlMethod.invoke(request);
-                String host = (String) hostMethod.invoke(url);
-                RegionGuard.throwIfBlocked(host);
-                if (app.revanced.extension.soundcloud.power.PowerSavingPatch.isBackgroundReportBlocked(host,
-                        (String) pathMethod.invoke(url))) {
-                    throw new java.io.IOException("Arsound: background report blocked to save power");
-                }
-                SharedArtwork.Call call = () -> {
-                    try {
-                        return proceedMethod.invoke(chain, request);
-                    } catch (java.lang.reflect.InvocationTargetException ex) {
-                        // Rethrow the original IOException, OkHttp handles it.
-                        throw ex.getCause();
+                    Object chain = args[0];
+                    Object request = requestMethod.invoke(chain);
+                    int delay = Settings.getDeveloperNetworkDelaySeconds();
+                    if (delay > 0) {
+                        Logger.printInfo(() -> "Delaying request by " + delay + " s: " + request);
+                        try {
+                            Thread.sleep(delay * 1000L);
+                        } catch (InterruptedException ex) {
+                            // OkHttp interrupts calls that were cancelled; let the chain report it.
+                            Thread.currentThread().interrupt();
+                        }
                     }
-                };
-                String path = (String) pathMethod.invoke(url);
-                if (SharedArtwork.applies(host, path)) return SharedArtwork.load(url.toString(), request, call);
-                return call.proceed();
+
+                    Object url = urlMethod.invoke(request);
+                    String host = (String) hostMethod.invoke(url);
+                    RegionGuard.throwIfBlocked(host);
+                    if (app.revanced.extension.soundcloud.power.PowerSavingPatch.isBackgroundReportBlocked(host,
+                            (String) pathMethod.invoke(url))) {
+                        throw new java.io.IOException("Arsound: background report blocked to save power");
+                    }
+                    SharedArtwork.Call call = () -> {
+                        try {
+                            return proceedMethod.invoke(chain, request);
+                        } catch (java.lang.reflect.InvocationTargetException ex) {
+                            // Rethrow the original IOException, OkHttp handles it.
+                            throw ex.getCause();
+                        }
+                    };
+                    String path = (String) pathMethod.invoke(url);
+                    if (SharedArtwork.applies(host, path)) return SharedArtwork.load(url.toString(), request, call);
+                    return call.proceed();
+                } catch (java.lang.reflect.InvocationTargetException ex) {
+                    throw unwrap(ex.getCause());
+                } catch (java.io.IOException | RuntimeException | Error ex) {
+                    throw ex;
+                } catch (Throwable ex) {
+                    throw unwrap(ex);
+                }
             });
 
             builder.getClass().getMethod("addInterceptor", interceptorClass).invoke(builder, interceptor);
