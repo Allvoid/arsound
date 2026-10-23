@@ -31,6 +31,8 @@ val shadowJar = tasks.named<ShadowJar>("shadowJar") {
     relocate("com.google.protobuf", "$prefix.protobuf")
     relocate("javax.annotation", "$prefix.javax.annotation")
     exclude("META-INF/**", "**/*.proto", "core/**")
+    // The classes of this module come first and replace the library's ones of the same name (see src/main/java).
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 configurations.named("runtimeElements") {
