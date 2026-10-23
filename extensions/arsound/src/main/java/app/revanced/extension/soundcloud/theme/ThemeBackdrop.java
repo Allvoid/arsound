@@ -1,7 +1,11 @@
 package app.revanced.extension.soundcloud.theme;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.PowerManager;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -18,6 +22,10 @@ public final class ThemeBackdrop {
     private static final String TAG = "arsound_theme_effect";
     /** Over SoundCloud's content the particles are dimmer than on the design's empty background. */
     private static final float MAIN_SCREEN_OPACITY = .55f;
+
+    /** The effect over the main screen, told when battery saver is switched. */
+    private static java.lang.ref.WeakReference<ThemeEffect> mainEffect = new java.lang.ref.WeakReference<>(null);
+    private static boolean powerSaveWatched;
 
     private ThemeBackdrop() {
     }
@@ -39,6 +47,19 @@ public final class ThemeBackdrop {
         return ThemeEffect.create(context, theme.effect(), sizeScale, density, true, theme.accent(true));
     }
 
+    /** Battery saver stops the animation; switching it while the app is open now takes effect at once. */
+    private static void watchPowerSave(Context context) {
+        if (powerSaveWatched) return;
+        powerSaveWatched = true;
+        context.registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context receiverContext, Intent intent) {
+                ThemeEffect effect = mainEffect.get();
+                if (effect != null) effect.refreshStill(receiverContext);
+            }
+        }, new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+    }
+
     /** Called when an activity comes to the screen: adds, renews or removes the effect over the main screen. */
     public static void onActivityResumed(Activity activity) {
         if (!activity.getClass().getName().endsWith(".MainActivity")) return;
@@ -50,7 +71,13 @@ public final class ThemeBackdrop {
             String key = Settings.isThemeEffectsEnabled() + "/" + ArsoundTheme.effect(activity) + "/" + density()
                     + "/" + ArsoundTheme.isNight(activity);
             if (existing != null) {
-                if (key.equals(existing.getTag(TAG.hashCode()))) return;
+                if (key.equals(existing.getTag(TAG.hashCode()))) {
+                    // Android's animations may have been switched while another app was open.
+                    if (existing.getBackground() instanceof ThemeEffect) {
+                        ((ThemeEffect) existing.getBackground()).refreshStill(activity);
+                    }
+                    return;
+                }
                 content.removeView(existing);
             }
             ThemeEffect effect = forCurrentTheme(activity, 1f);
@@ -58,14 +85,18 @@ public final class ThemeBackdrop {
             View layer = new View(activity);
             layer.setTag(TAG);
             layer.setTag(TAG.hashCode(), key);
+            // The drawable fades itself. A faded view would be drawn into a buffer of the whole screen on every
+            // frame of the animation, which made the full player open with a few frames per second on big screens.
+            effect.setAlpha(Math.round(255 * MAIN_SCREEN_OPACITY));
             layer.setBackground(effect);
-            layer.setAlpha(MAIN_SCREEN_OPACITY);
             layer.setClickable(false);
             layer.setFocusable(false);
             layer.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             // Right above SoundCloud's own views, so Arsound's pills added later stay on top.
             content.addView(layer, Math.min(1, content.getChildCount()), new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            mainEffect = new java.lang.ref.WeakReference<>(effect);
+            watchPowerSave(activity.getApplicationContext());
         } catch (Exception ex) {
             Logger.printException(() -> "Theme effect: could not add to the main screen", ex);
         }
