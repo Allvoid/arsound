@@ -227,7 +227,7 @@ public final class ListeningStats {
      *
      * @param since Epoch milliseconds, 0 for all time.
      */
-    /** The start of the last listen of each track in the statistics, by track id. */
+    /** The start of the last listen of each track in the statistics, by its urn. */
     public static Map<String, Long> lastListens() {
         Map<String, Long> result = new HashMap<>();
         File file = file();
@@ -238,10 +238,9 @@ public final class ListeningStats {
                 while ((line = reader.readLine()) != null) {
                     String[] parts = line.split("\t");
                     if (parts.length != 3) continue;
-                    String id = parts[1].substring(parts[1].lastIndexOf(':') + 1);
                     long start = Long.parseLong(parts[0]);
-                    Long known = result.get(id);
-                    if (known == null || known < start) result.put(id, start);
+                    Long known = result.get(parts[1]);
+                    if (known == null || known < start) result.put(parts[1], start);
                 }
             } catch (Exception ex) {
                 Logger.printException(() -> "Listening stats: could not read", ex);
