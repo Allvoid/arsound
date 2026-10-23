@@ -29,7 +29,11 @@ import android.provider.Settings;
  * saver mode or when Android's animations are turned off.
  */
 public final class ThemeEffect extends Drawable implements Runnable {
-    private static final long FRAME_MS = 16;
+    /**
+     * Time between frames: one refresh of the screen at its highest rate, so on a 120 Hz screen the particles move
+     * as smoothly as the rest of the app. A fixed 16 ms held them at 60 frames a second there.
+     */
+    private final long frameMs;
     /** The design draws its effects on a card this tall, in dp; travel distances are scaled to the real height. */
     private static final float DESIGN_HEIGHT = 600f;
 
@@ -94,6 +98,7 @@ public final class ThemeEffect extends Drawable implements Runnable {
         this.night = night;
         this.accent = accent;
         this.still = isStill(context);
+        this.frameMs = frameMs(context);
         this.particles = build(kind, density);
     }
 
@@ -106,6 +111,26 @@ public final class ThemeEffect extends Drawable implements Runnable {
         if (now == still) return;
         still = now;
         invalidateSelf();
+    }
+
+    /** One refresh at the screen's highest supported rate, in whole milliseconds, at least 4 (250 Hz). */
+    private static long frameMs(Context context) {
+        float rate = 60f;
+        try {
+            android.hardware.display.DisplayManager displays =
+                    context.getSystemService(android.hardware.display.DisplayManager.class);
+            android.view.Display display = displays == null ? null
+                    : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
+            if (display != null) {
+                for (android.view.Display.Mode mode : display.getSupportedModes()) {
+                    rate = Math.max(rate, mode.getRefreshRate());
+                }
+            }
+        } catch (Exception ignored) {
+            // The usual 60 Hz.
+        }
+        // A little under one refresh, so the next frame is asked for before its refresh, not one refresh late.
+        return Math.max(4, (long) Math.floor(1000f / rate) - 1);
     }
 
     private static boolean isStill(Context context) {
@@ -327,7 +352,7 @@ public final class ThemeEffect extends Drawable implements Runnable {
         canvas.restore();
         if (!still && isVisible()) {
             unscheduleSelf(this);
-            scheduleSelf(this, SystemClock.uptimeMillis() + FRAME_MS);
+            scheduleSelf(this, SystemClock.uptimeMillis() + frameMs);
         }
     }
 
