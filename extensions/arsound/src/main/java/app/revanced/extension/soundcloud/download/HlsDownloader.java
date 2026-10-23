@@ -46,6 +46,8 @@ import app.revanced.extension.shared.Logger;
 public final class HlsDownloader {
     /** How many segments are downloaded at the same time. */
     private static final int PARALLEL_SEGMENTS = 4;
+    /** How many segments may be downloaded but not yet written, which caps the memory of one track. */
+    private static final int SEGMENTS_AHEAD = PARALLEL_SEGMENTS * 2;
     /** The sequence number of an {@code #EXT-X-MAP} segment, which is never encrypted. */
     private static final int INITIALISATION_SEGMENT = -1;
     private static final Pattern KEY_ATTRIBUTE = Pattern.compile("([A-Z0-9-]+)=(\"[^\"]*\"|[^,]*)");
@@ -229,10 +231,17 @@ public final class HlsDownloader {
         java.util.concurrent.ExecutorService pool =
                 java.util.concurrent.Executors.newFixedThreadPool(PARALLEL_SEGMENTS);
         try (FileOutputStream output = new FileOutputStream(target)) {
-            // Segments are fetched in parallel, but written in their playlist order.
-            List<java.util.concurrent.Future<byte[]>> pending = new ArrayList<>();
-            for (Segment segment : segments) pending.add(pool.submit(() -> decrypt(segment)));
-            for (java.util.concurrent.Future<byte[]> future : pending) output.write(future.get());
+            // Segments are fetched in parallel, but written in their playlist order. Only a few are
+            // submitted ahead of the one being written, so a slow first segment cannot pile up the rest in memory.
+            java.util.ArrayDeque<java.util.concurrent.Future<byte[]>> pending = new java.util.ArrayDeque<>();
+            int next = 0;
+            while (next < segments.size() || !pending.isEmpty()) {
+                while (next < segments.size() && pending.size() < SEGMENTS_AHEAD) {
+                    Segment segment = segments.get(next++);
+                    pending.add(pool.submit(() -> decrypt(segment)));
+                }
+                output.write(pending.poll().get());
+            }
         } finally {
             pool.shutdownNow();
         }

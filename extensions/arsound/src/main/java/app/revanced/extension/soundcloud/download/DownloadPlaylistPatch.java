@@ -408,7 +408,7 @@ public final class DownloadPlaylistPatch {
                         TrackSource source = UnavailableTracks.get(id);
                         if (source == null) {
                             try {
-                                source = DownloadTrackPatch.resolveSource(id);
+                                source = DownloadTrackPatch.resolveSource(id, track);
                                 if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
                             } catch (Exception ex) {
                                 Logger.printInfo(() -> "No file link for " + id + ": " + ex);
