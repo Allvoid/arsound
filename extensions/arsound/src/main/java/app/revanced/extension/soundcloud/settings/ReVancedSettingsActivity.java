@@ -39,6 +39,8 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String EXTRA_SCREEN = "arsound_screen";
     private static final String SCREEN_LOCAL_MUSIC = "local_music";
     private static final int REQUEST_IMPORT = 1;
+    /** Android's confirmation for removing downloaded files the app cannot remove by itself. */
+    private static final int REQUEST_DELETE_DOWNLOADS = 2;
 
     private LinearLayout localTrackList;
 
@@ -88,6 +90,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String SCREEN_EQUALIZER = "equalizer";
     private static final String SCREEN_APP_ICON = "app_icon";
     private static final String SCREEN_APPEARANCE = "appearance";
+    private static final String SCREEN_STORAGE = "storage";
 
     /** The chosen theme's animation behind the screen, over its background colour and glow. */
     private void addThemeEffect(View root) {
@@ -235,6 +238,9 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(openScreenRow(text("Своя музыка", "Your music"),
                 text("Импорт файлов, плейлист «Импортированные», свой порядок", "Import files, \"Imported\" playlist, custom order"),
                 SCREEN_MUSIC));
+        list.addView(openScreenRow(text("Память", "Storage"),
+                text("Сколько места занимают скачанные треки, удаление", "Space taken by downloaded tracks, removing them"),
+                SCREEN_STORAGE));
         list.addView(openScreenRow(text("Эквалайзер", "Equalizer"),
                 text("Громкость низких, средних и высоких частот", "Levels of low, middle and high frequencies"),
                 SCREEN_EQUALIZER));
@@ -279,6 +285,10 @@ public final class ReVancedSettingsActivity extends Activity {
             case SCREEN_MUSIC:
                 list.addView(createTitle(text("Своя музыка", "Your music"), false));
                 addMusicSection(list);
+                break;
+            case SCREEN_STORAGE:
+                list.addView(createTitle(text("Память", "Storage"), false));
+                addStorageSection(list);
                 break;
             case SCREEN_PRIVACY:
                 list.addView(createTitle(text("Батарея и конфиденциальность", "Battery and privacy"), false));
@@ -1264,6 +1274,139 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(clearRow);
     }
 
+    /** The description of the "delete all downloads" row: shows the space once it is counted. */
+    private TextView downloadsDescription;
+
+    /** Downloaded tracks: how much space they take, and removing all of them at once. */
+    private void addStorageSection(LinearLayout list) {
+        list.addView(createSubHeading(text("Скачанные треки", "Downloaded tracks")));
+        View deleteRow = createActionRow(text("Удалить все скачанные треки", "Delete all downloaded tracks"), "",
+                v -> confirmDeleteDownloads());
+        downloadsDescription = (TextView) ((ViewGroup) deleteRow).getChildAt(1);
+        list.addView(deleteRow);
+        countDownloads();
+
+        list.addView(createSubHeading(text("Кэш потоков", "Stream cache")));
+        View cacheRow = openScreenRow(text("Кэш потоков", "Stream cache"), "", SCREEN_PLAYBACK);
+        TextView cacheDescription = (TextView) ((ViewGroup) cacheRow).getChildAt(1);
+        cacheDescription.setText(text("Считаю…", "Counting…"));
+        list.addView(cacheRow);
+        Utils.runOnBackgroundThread(() -> {
+            String size = android.text.format.Formatter.formatShortFileSize(this,
+                    app.revanced.extension.soundcloud.player.StreamCache.usedBytes());
+            Utils.runOnMainThread(() -> cacheDescription.setText(text(
+                    "Занято: " + size + ". Части треков, прослушанных из сети. Размер, срок хранения и очистка — "
+                            + "в «Офлайн и воспроизведение».",
+                    "Used: " + size + ". Parts of tracks streamed from the network. Size, lifetime and clearing are "
+                            + "in Offline and playback.")));
+        });
+    }
+
+    /** The downloaded tracks: how many, and the bytes of their files that are there. */
+    private static long[] downloadsUsage() {
+        java.util.Set<String> ids = app.revanced.extension.soundcloud.download.DownloadTrackPatch.getDownloadedTrackIds();
+        long bytes = 0;
+        for (String id : ids) {
+            java.io.File file = app.revanced.extension.soundcloud.download.DownloadTrackPatch.knownFile(id);
+            if (file != null) bytes += file.length();
+        }
+        return new long[]{ids.size(), bytes};
+    }
+
+    private void countDownloads() {
+        downloadsDescription.setText(text("Считаю…", "Counting…"));
+        Utils.runOnBackgroundThread(() -> {
+            long[] usage = downloadsUsage();
+            String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
+            Utils.runOnMainThread(() -> downloadsDescription.setText(usage[0] == 0
+                    ? text("Скачанных треков нет.", "No downloaded tracks.")
+                    : text("Сейчас: " + tracksText(usage[0]) + ", " + size + " в «Музыка/Arsound». Треки останутся в "
+                                    + "SoundCloud: их можно слушать из сети и скачать снова.",
+                            "Now: " + usage[0] + (usage[0] == 1 ? " track, " : " tracks, ") + size
+                                    + " in Music/Arsound. The tracks stay in SoundCloud: they can be streamed and "
+                                    + "downloaded again.")));
+        });
+    }
+
+    /** "1 трек", "3 трека", "5 треков". */
+    private static String tracksText(long count) {
+        long tens = count % 100, ones = count % 10;
+        String word = tens >= 11 && tens <= 14 ? "треков" : ones == 1 ? "трек" : ones >= 2 && ones <= 4 ? "трека" : "треков";
+        return count + " " + word;
+    }
+
+    private void confirmDeleteDownloads() {
+        Utils.runOnBackgroundThread(() -> {
+            long[] usage = downloadsUsage();
+            if (usage[0] == 0) return;
+            String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
+            Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                    .setTitle(text("Удалить все скачанные треки?", "Delete all downloaded tracks?"))
+                    .setMessage(text("Удалятся файлы: " + tracksText(usage[0]) + ", " + size + " из «Музыка/Arsound». "
+                                    + "Без интернета эти треки играть не будут. Импортированные с телефона не затрагиваются.",
+                            "The files of " + usage[0] + (usage[0] == 1 ? " track" : " tracks") + " (" + size
+                                    + ") are deleted from Music/Arsound. These tracks will not play without a connection. "
+                                    + "Tracks imported from the phone are not touched."))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(text("Удалить", "Delete"), (dialog, which) -> deleteAllDownloads())
+                    .show());
+        });
+    }
+
+    /**
+     * Removes every downloaded file. Files made before a reinstall belong to the old install for Android, so the app
+     * may not remove them itself: those are handed to Android's own confirmation (Android 11 and later).
+     */
+    private void deleteAllDownloads() {
+        downloadsDescription.setText(text("Удаляю…", "Deleting…"));
+        Utils.runOnBackgroundThread(() -> {
+            java.util.List<String> left = new java.util.ArrayList<>();
+            int deleted = 0;
+            for (String id : app.revanced.extension.soundcloud.download.DownloadTrackPatch.getDownloadedTrackIds()) {
+                java.io.File file = app.revanced.extension.soundcloud.download.DownloadTrackPatch.knownFile(id);
+                app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                if (file != null && file.exists()) left.add(file.getName());
+                else deleted++;
+            }
+            int done = deleted;
+            java.util.List<android.net.Uri> uris = mediaStoreUris(left);
+            Utils.runOnMainThread(() -> {
+                Toast.makeText(this, text("Удалено: " + tracksText(done), "Deleted: " + done), Toast.LENGTH_SHORT).show();
+                if (!uris.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
+                    try {
+                        startIntentSenderForResult(android.provider.MediaStore.createDeleteRequest(getContentResolver(), uris)
+                                .getIntentSender(), REQUEST_DELETE_DOWNLOADS, null, 0, 0, 0);
+                    } catch (Exception ex) {
+                        Logger.printException(() -> "Could not ask to delete the old downloads", ex);
+                    }
+                }
+                countDownloads();
+            });
+        });
+    }
+
+    /** The media store entries of the files in Music/Arsound with these names. */
+    private java.util.List<android.net.Uri> mediaStoreUris(java.util.List<String> names) {
+        java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
+        if (names.isEmpty() || android.os.Build.VERSION.SDK_INT < 29) return uris;
+        android.net.Uri collection = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        for (String name : names) {
+            try (android.database.Cursor cursor = getContentResolver().query(collection,
+                    new String[]{android.provider.MediaStore.MediaColumns._ID},
+                    android.provider.MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                            + android.provider.MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?",
+                    new String[]{name, "%Music/Arsound%"}, null)) {
+                while (cursor != null && cursor.moveToNext()) {
+                    uris.add(android.content.ContentUris.withAppendedId(collection, cursor.getLong(0)));
+                }
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Could not find " + name + " in the media store: " + ex);
+            }
+        }
+        return uris;
+    }
+
+
     private void addAdsSection(LinearLayout list) {
         list.addView(createToggleRow(
                 text("Блокировать рекламу", "Block ads"),
@@ -2061,6 +2204,10 @@ public final class ReVancedSettingsActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_DELETE_DOWNLOADS) {
+            if (downloadsDescription != null) countDownloads();
+            return;
+        }
         if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null) return;
 
         java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
