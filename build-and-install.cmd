@@ -1,8 +1,10 @@
 @echo off
 rem Builds the patches, patches the SoundCloud APK and installs it next to the original app.
-rem Usage: build-and-install.cmd [phone or emu] [china]. Without phone or emu the APK goes to every connected device.
+rem Usage: build-and-install.cmd [phone or emu] [china] [arm64]. Without phone or emu the APK goes to every connected
+rem device.
 rem "china" builds Arsound for Chinese firmware: under the package of a Chinese music player, which the control centre
 rem player of vivo (and other firmwares with such a list) shows without any setup. It installs next to the usual build.
+rem "arm64" builds from the SoundCloud APK with phone libraries only: the smaller APK posted in the Telegram channel.
 rem Local files (APK, tools, signing key) live in the "local" folder, which is not committed.
 setlocal
 rem The patch names are in Russian.
@@ -10,6 +12,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 set "TARGET="
 set "VARIANT="
+set "ABI="
 :arguments
 if "%~1"=="" goto arguments_done
 if /i "%~1"=="phone" (
@@ -18,8 +21,10 @@ if /i "%~1"=="phone" (
   set "TARGET=emu"
 ) else if /i "%~1"=="china" (
   set "VARIANT=china"
+) else if /i "%~1"=="arm64" (
+  set "ABI=arm64"
 ) else (
-  echo Unknown argument "%~1". Use phone or emu, or nothing for every connected device, and china for the Chinese build.
+  echo Unknown argument "%~1". Use phone or emu, or nothing for every connected device, china and arm64.
   exit /b 1
 )
 shift
@@ -29,14 +34,19 @@ goto arguments
 if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
 set "APK_IN=local\apk\soundcloud-2026.10.14-merged.apk"
-set "APK_OUT=local\out\arsound-2026.10.14.apk"
+set "APK_OUT=local\out\arsound-2026.10.14"
+if "%ABI%"=="arm64" (
+  set "APK_IN=local\apk\soundcloud-2026.10.14-arm64-merged.apk"
+  set "APK_OUT=%APK_OUT%-arm64"
+)
 set "PACKAGE_ARGS="
 rem KuGou Concept: on the vivo list as a plain media session app (not a "cooperate" one), and on the lists of
 rem OPPO and realme firmware too. Russian-speaking users hardly ever have it, and an app cannot share a package.
 if "%VARIANT%"=="china" (
-  set "APK_OUT=local\out\arsound-2026.10.14-china.apk"
+  set "APK_OUT=%APK_OUT%-china"
   set "PACKAGE_ARGS=-e "Change package name" -O "Package name=com.kugou.viper""
 )
+set "APK_OUT=%APK_OUT%.apk"
 set "KEYSTORE=local\sc-revanced.keystore"
 set "KEYSTORE_ARGS="
 rem A keystore exported from ReVanced Manager lets the build update an app installed by Manager, keeping its data.

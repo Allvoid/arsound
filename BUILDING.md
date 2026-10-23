@@ -135,6 +135,14 @@ build-and-install.cmd china
 build-and-install.cmd emu china
 ```
 
+APK для Telegram-канала собираются из SoundCloud только с библиотеками телефона (`soundcloud-<версия>-arm64-merged.apk`,
+файл меньше) — аргумент `arm64`, тоже сочетается с `china`. `phone` без подключённого телефона просто оставляет APK в `local/out/`:
+
+```bash
+build-and-install.cmd phone arm64
+build-and-install.cmd phone arm64 china
+```
+
 Иконки и анимации пересобираются отдельно:
 
 ```bash
