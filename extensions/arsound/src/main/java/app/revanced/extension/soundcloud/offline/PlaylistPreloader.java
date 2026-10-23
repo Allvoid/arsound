@@ -47,6 +47,7 @@ public final class PlaylistPreloader {
         Utils.runOnBackgroundThread(() -> {
             try {
                 Thread.sleep(START_DELAY_MS);
+                app.revanced.extension.soundcloud.download.UnplayedDownloads.runAtStart();
                 if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
                     app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
                 }

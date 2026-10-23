@@ -75,6 +75,8 @@ public final class ListeningStats {
         try {
             Object urn = item.getClass().getMethod("h").invoke(item);
             String value = String.valueOf(urn);
+            // Kept even with the statistics off: unplayed downloads are counted from it.
+            app.revanced.extension.soundcloud.download.UnplayedDownloads.onTrackStarted(value);
             if (isResume(item, value)) return;
             finishListen();
             if (!isEnabled()) return;
@@ -225,6 +227,29 @@ public final class ListeningStats {
      *
      * @param since Epoch milliseconds, 0 for all time.
      */
+    /** The start of the last listen of each track in the statistics, by track id. */
+    public static Map<String, Long> lastListens() {
+        Map<String, Long> result = new HashMap<>();
+        File file = file();
+        if (file == null || !file.isFile()) return result;
+        synchronized (ListeningStats.class) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String[] parts = line.split("\t");
+                    if (parts.length != 3) continue;
+                    String id = parts[1].substring(parts[1].lastIndexOf(':') + 1);
+                    long start = Long.parseLong(parts[0]);
+                    Long known = result.get(id);
+                    if (known == null || known < start) result.put(id, start);
+                }
+            } catch (Exception ex) {
+                Logger.printException(() -> "Listening stats: could not read", ex);
+            }
+        }
+        return result;
+    }
+
     public static Summary summarize(long since, int limit) {
         Summary summary = new Summary();
         Map<String, Entry> tracks = new HashMap<>();
