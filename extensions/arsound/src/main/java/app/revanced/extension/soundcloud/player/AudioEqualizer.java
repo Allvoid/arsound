@@ -25,6 +25,7 @@ public final class AudioEqualizer {
     public static final long CUSTOM = -1;
 
     private static final List<Equalizer> active = new ArrayList<>();
+    private static final int MAX_EFFECTS = 4;
 
     private AudioEqualizer() {
     }
@@ -44,6 +45,16 @@ public final class AudioEqualizer {
             Equalizer equalizer = new Equalizer(0, sessionId);
             synchronized (active) {
                 active.add(equalizer);
+                // Every new player session brings an effect and the old sessions are gone: only the latest few are kept,
+                // since the system allows a limited number of effects.
+                while (active.size() > MAX_EFFECTS) {
+                    Equalizer oldest = active.remove(0);
+                    try {
+                        oldest.release();
+                    } catch (Throwable ignored) {
+                        // Already released by the system.
+                    }
+                }
             }
             apply(equalizer);
             Logger.printInfo(() -> "Equalizer attached to audio session " + sessionId + ", enabled " + isEnabled());
@@ -54,9 +65,12 @@ public final class AudioEqualizer {
 
     /** Applies the settings to the sound that plays now. */
     public static void applyAll() {
+        // A dead effect removes itself from the list while it is applied: a copy is walked.
+        List<Equalizer> effects;
         synchronized (active) {
-            for (Equalizer equalizer : active) apply(equalizer);
+            effects = new ArrayList<>(active);
         }
+        for (Equalizer equalizer : effects) apply(equalizer);
     }
 
     private static void apply(Equalizer equalizer) {

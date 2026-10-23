@@ -142,7 +142,11 @@ public final class HomeGreeting extends LinearLayout {
         if (getParent() instanceof ViewGroup) {
             ViewGroup parent = (ViewGroup) getParent();
             int index = parent.indexOfChild(this);
-            if (index > 0) post(() -> clearBackgrounds(parent.getChildAt(index - 1)));
+            if (index > 0) post(() -> {
+                // The parent may have lost children before this runs.
+                View above = parent.getChildAt(index - 1);
+                if (above != null) clearBackgrounds(above);
+            });
         }
     }
 

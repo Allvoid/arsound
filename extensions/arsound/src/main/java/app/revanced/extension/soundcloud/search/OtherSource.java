@@ -168,14 +168,19 @@ public final class OtherSource {
         return artists;
     }
 
+    /** Most continuation pages read for one album or artist. */
+    private static final int MAX_PAGES = 30;
+
     /** The tracks of an album, in album order. */
     public static List<Track> albumTracks(Album album) throws Exception {
         StreamingService service = service();
         PlaylistInfo info = PlaylistInfo.getInfo(service, album.url);
         List<StreamInfoItem> items = new ArrayList<>(info.getRelatedItems());
         Page page = info.getNextPage();
-        while (Page.isValid(page) && items.size() < 500) {
+        // A page without items ends the loop: a valid continuation that never fills would otherwise spin for ever.
+        for (int pages = 0; Page.isValid(page) && items.size() < 500 && pages < MAX_PAGES; pages++) {
             ListExtractor.InfoItemsPage<StreamInfoItem> more = PlaylistInfo.getMoreItems(service, album.url, page);
+            if (more.getItems().isEmpty()) break;
             items.addAll(more.getItems());
             page = more.getNextPage();
         }
@@ -200,8 +205,9 @@ public final class OtherSource {
             ChannelTabInfo info = ChannelTabInfo.getInfo(service, tab);
             List<InfoItem> items = new ArrayList<>(info.getRelatedItems());
             Page page = info.getNextPage();
-            while (Page.isValid(page) && items.size() < 300) {
+            for (int pages = 0; Page.isValid(page) && items.size() < 300 && pages < MAX_PAGES; pages++) {
                 ListExtractor.InfoItemsPage<InfoItem> more = ChannelTabInfo.getMoreItems(service, tab, page);
+                if (more.getItems().isEmpty()) break;
                 items.addAll(more.getItems());
                 page = more.getNextPage();
             }

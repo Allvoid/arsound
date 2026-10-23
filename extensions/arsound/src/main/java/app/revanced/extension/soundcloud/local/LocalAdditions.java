@@ -119,8 +119,8 @@ public final class LocalAdditions {
         return entries;
     }
 
-    /** @return False if the entry was already added. */
-    public static boolean add(String playlistUrn, String entry) {
+    /** @return False if the entry was already added. Read and write happen under one lock: two imports must not lose each other. */
+    public static synchronized boolean add(String playlistUrn, String entry) {
         Map<String, List<String>> additions = readAdditions();
         List<String> entries = additions.get(playlistUrn);
         if (entries == null) additions.put(playlistUrn, entries = new ArrayList<>());
@@ -131,13 +131,13 @@ public final class LocalAdditions {
     }
 
     /** Replaces the added entries of a playlist, keeping the given order. */
-    public static void setEntries(String playlistUrn, List<String> entries) {
+    public static synchronized void setEntries(String playlistUrn, List<String> entries) {
         Map<String, List<String>> additions = readAdditions();
         additions.put(playlistUrn, new ArrayList<>(entries));
         writeAdditions(additions);
     }
 
-    public static void remove(String playlistUrn, String entry) {
+    public static synchronized void remove(String playlistUrn, String entry) {
         Map<String, List<String>> additions = readAdditions();
         List<String> entries = additions.get(playlistUrn);
         if (entries != null && entries.remove(entry)) writeAdditions(additions);

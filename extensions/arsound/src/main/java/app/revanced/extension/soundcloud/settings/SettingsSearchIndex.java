@@ -88,7 +88,8 @@ final class SettingsSearchIndex {
 
     static List<String> words(String query) {
         List<String> words = new ArrayList<>();
-        for (String word : normalize(query).split("\\s+")) if (!word.isEmpty()) words.add(word);
+        // Punctuation does not belong to a word: "дубликаты," and "«Не нравится»" must still find their rows.
+        for (String word : normalize(query).split("[^\\p{L}\\p{N}]+")) if (!word.isEmpty()) words.add(word);
         return words;
     }
 

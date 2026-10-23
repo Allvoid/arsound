@@ -115,6 +115,10 @@ public final class WatchFolder {
 
                 List<File> files = found.isEmpty() ? new ArrayList<>() : LocalMusic.importFileList(context, found);
                 seen.addAll(foundIds);
+                // A file that could not be copied is tried again at the next check, not forgotten.
+                if (files.size() < found.size()) {
+                    for (Uri uri : found) seen.remove(DocumentsContract.getDocumentId(uri));
+                }
                 preferences.edit().putStringSet(SEEN, seen).apply();
                 Logger.printInfo(() -> "Watch folder: " + found.size() + " new, imported " + files.size());
                 if (files.isEmpty() && !report) return;
@@ -148,7 +152,8 @@ public final class WatchFolder {
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_SIZE}, null, null, null)) {
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED}, null, null, null)) {
             if (cursor == null) return;
             while (cursor.moveToNext()) {
                 String id = cursor.getString(0);
@@ -157,12 +162,17 @@ public final class WatchFolder {
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
                     collect(resolver, tree, id, seen, imported, found, foundIds, depth + 1);
                 } else if (!seen.contains(id) && isAudio(name, mime)) {
+                    // A file written a moment ago may still be growing (a download, a copy): it waits for the next check.
+                    if (System.currentTimeMillis() - cursor.getLong(4) < SETTLE_MS) continue;
                     if (!imported.contains(name + '/' + cursor.getLong(3))) found.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
                     foundIds.add(id);
                 }
             }
         }
     }
+
+    /** How long a file must stay untouched before it is imported. */
+    private static final long SETTLE_MS = 15_000;
 
     private static boolean isAudio(String name, String mime) {
         if (mime != null && mime.startsWith("audio/")) return true;

@@ -170,6 +170,9 @@ public final class RegionGuard {
     /** Checks the country once for all waiting requests. Null means the check failed. */
     private static synchronized String check() {
         if (country != null) return country;
+        // Threads that queued on this lock while one check failed take its answer instead of each running a check
+        // of 6 s connect and 6 s read of their own.
+        if (lastFailedCheck != 0 && System.currentTimeMillis() - lastFailedCheck <= FAILED_CHECK_BACKOFF_MS) return null;
         String fresh = fetchCountry();
         if (fresh != null) country = fresh;
         else lastFailedCheck = System.currentTimeMillis();

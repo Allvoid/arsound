@@ -11,13 +11,16 @@ import app.revanced.extension.shared.Logger;
  * <p>
  * The login survives because SoundCloud keeps its tokens in the Android account manager,
  * which lives outside the app data directory. Arsound preference files survive: settings, the
- * downloaded tracks list, the playlist order, local additions and the "Imported" playlist.
+ * downloaded tracks list, the playlist order, local additions and the "Imported" playlist; so do the
+ * imported audio files and covers in files/arsound.
  * Only the playlist preload marks are removed, so the emptied database is filled again on the
  * next start instead of a day later.
  */
 public final class DataReset {
     private static final String[] KEPT_PREFERENCES_PREFIXES = {"revanced_", "arsound_"};
     private static final String PRELOAD_PREFERENCES = "arsound_playlist_preload.xml";
+    /** Inside "files": imported audio and covers. */
+    private static final String KEPT_FILES_FOLDER = "arsound";
 
     /**
      * Folders the app needs to run, which are rebuilt by Android and must not be removed.
@@ -31,6 +34,16 @@ public final class DataReset {
 
         for (File entry : entries) {
             if (isKeptFolder(entry.getName())) continue;
+
+            // The imported music and its covers are the user's own files, not SoundCloud's cache.
+            if (entry.getName().equals("files")) {
+                File[] files = entry.listFiles();
+                if (files == null) continue;
+                for (File file : files) {
+                    if (!file.getName().equals(KEPT_FILES_FOLDER)) delete(file);
+                }
+                continue;
+            }
 
             if (entry.getName().equals("shared_prefs")) {
                 File[] preferences = entry.listFiles();
