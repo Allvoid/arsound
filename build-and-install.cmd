@@ -1,10 +1,11 @@
 @echo off
 rem Builds the patches, patches the SoundCloud APK and installs it next to the original app.
-rem Usage: build-and-install.cmd [phone or emu] [china] [arm64]. Without phone or emu the APK goes to every connected
-rem device.
+rem Usage: build-and-install.cmd [phone or emu] [china] [arm64] [apiNN]. Without phone or emu the APK goes to every
+rem connected device.
 rem "china" builds Arsound for Chinese firmware: under the package of a Chinese music player, which the control centre
 rem player of vivo (and other firmwares with such a list) shows without any setup. It installs next to the usual build.
 rem "arm64" builds from the SoundCloud APK with phone libraries only: the smaller APK posted in the Telegram channel.
+rem "apiNN" (for example api29) is an experiment: the APK installs on Android from API level NN, below SoundCloud's 12L.
 rem Local files (APK, tools, signing key) live in the "local" folder, which is not committed.
 setlocal
 rem The patch names are in Russian.
@@ -13,8 +14,10 @@ cd /d "%~dp0"
 set "TARGET="
 set "VARIANT="
 set "ABI="
+set "MINSDK="
 :arguments
 if "%~1"=="" goto arguments_done
+set "ARG=%~1"
 if /i "%~1"=="phone" (
   set "TARGET=phone"
 ) else if /i "%~1"=="emu" (
@@ -23,8 +26,10 @@ if /i "%~1"=="phone" (
   set "VARIANT=china"
 ) else if /i "%~1"=="arm64" (
   set "ABI=arm64"
+) else if /i "%ARG:~0,3%"=="api" (
+  set "MINSDK=%ARG:~3%"
 ) else (
-  echo Unknown argument "%~1". Use phone or emu, or nothing for every connected device, china and arm64.
+  echo Unknown argument "%~1". Use phone or emu, or nothing for every connected device, china, arm64 and apiNN.
   exit /b 1
 )
 shift
@@ -45,6 +50,11 @@ rem OPPO and realme firmware too. Russian-speaking users hardly ever have it, an
 if "%VARIANT%"=="china" (
   set "APK_OUT=%APK_OUT%-china"
   set "PACKAGE_ARGS=-e "Change package name" -O "Package name=com.kugou.viper""
+)
+set "MINSDK_ARGS="
+if defined MINSDK (
+  set "APK_OUT=%APK_OUT%-api%MINSDK%"
+  set "MINSDK_ARGS=-e "Lower minimum Android version" -O "Min SDK=%MINSDK%""
 )
 set "APK_OUT=%APK_OUT%.apk"
 set "KEYSTORE=local\sc-revanced.keystore"
@@ -86,7 +96,7 @@ rem The "Arsound: ..." groups include every patch of this project, with the opti
   -e "Arsound: сеть и батарея" ^
   -e "Arsound: без дубликатов" ^
   -e "Arsound: плеер" ^
-  %PACKAGE_ARGS% ^
+  %PACKAGE_ARGS% %MINSDK_ARGS% ^
   --keystore "%KEYSTORE%" %KEYSTORE_ARGS% -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" > local\out\patch.log 2>&1
 set "PATCH_EXIT=%errorlevel%"
