@@ -75,6 +75,7 @@ public final class UpdateChecker {
                 app.revanced.extension.soundcloud.network.NetworkBanner.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.permissions.WelcomePermissions.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity);
+                app.revanced.extension.soundcloud.player.VivoMusicCard.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.download.ProgressPill.onActivityResumed(activity);
                 app.revanced.extension.soundcloud.search.SearchSourceSwitch.onActivityResumed(activity);

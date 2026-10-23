@@ -21,6 +21,7 @@ import java.util.Locale;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.player.VivoMusicCard;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
@@ -802,6 +803,20 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.setPlaybackRetryEnabled(checked)
         ));
         addStreamCacheOptions(list);
+        addVivoMusicCardRow(list);
+    }
+
+    /** Only on vivo phones: whether their control centre player sees Arsound, and how to add it. */
+    private void addVivoMusicCardRow(LinearLayout list) {
+        if (!VivoMusicCard.isSupported(this)) return;
+        list.addView(createSubHeading("vivo"));
+        TextView[] description = new TextView[1];
+        View row = createActionRow(text("Плеер в шторке vivo", "The vivo control centre player"), "",
+                v -> VivoMusicCard.showHelp(this, () ->
+                        description[0].setText(VivoMusicCard.describe(VivoMusicCard.state(this)))));
+        description[0] = (TextView) ((ViewGroup) row).getChildAt(1);
+        description[0].setText(VivoMusicCard.describe(VivoMusicCard.state(this)));
+        list.addView(row);
     }
 
     private void addEqualizerSection(LinearLayout list) {
