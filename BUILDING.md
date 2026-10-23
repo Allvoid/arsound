@@ -126,6 +126,15 @@ build-and-install.cmd phone
 build-and-install.cmd emu
 ```
 
+Версия для китайских прошивок (`local/out/arsound-<версия SoundCloud>-china.apk`) — то же, но под именем пакета
+`com.kugou.viper` (KuGou Concept), которое уже есть в списке плеера в шторке vivo OriginOS и плееров OPPO/realme.
+Ставится рядом с обычной сборкой, с отдельным аккаунтом. Аргумент `china` сочетается с `phone` и `emu`:
+
+```bash
+build-and-install.cmd china
+build-and-install.cmd emu china
+```
+
 Иконки и анимации пересобираются отдельно:
 
 ```bash
