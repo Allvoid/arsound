@@ -3,11 +3,13 @@ package app.revanced.extension.soundcloud.player;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.View;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -38,7 +40,12 @@ public final class VivoMusicCard {
     private static final String PERMISSION = "android.permission.WRITE_SECURE_SETTINGS";
 
     private static final String PREFERENCES_NAME = "arsound_vivo_music_card";
-    private static final String ASKED = "asked";
+    /** Set by the "Do not show again" box of the hint. */
+    private static final String NEVER_SHOW = "never_show";
+    /** How often the hint checks whether the main screen is free, so the screen and its own prompts come first. */
+    private static final long HINT_CHECK_MS = 1000;
+    /** How many checks the hint makes; a screen still busy after them waits for the next launch. */
+    private static final int HINT_CHECKS = 15;
 
     /**
      * The list of Origin Player 6.2, written together with Arsound when the setting is absent, so the player keeps
@@ -183,11 +190,18 @@ public final class VivoMusicCard {
 
     /**
      * Called when an activity comes to the screen. Once per launch on the main screen: keeps Arsound on the list
-     * when it may write it, and otherwise explains once how to add it.
+     * when it may write it, and otherwise shows how to add it, every launch until it is on the list or the user
+     * ticks "Do not show again". It never covers another prompt: not in the launch of the greeting, and not while
+     * any dialog is on screen; then it waits for the next launch.
      */
     public static void onActivityResumed(Activity activity) {
         if (checkedThisLaunch || !activity.getClass().getName().endsWith(".MainActivity")) return;
         checkedThisLaunch = true;
+        // The greeting asks for permissions and may switch the language; this launch belongs to it.
+        if (app.revanced.extension.soundcloud.permissions.WelcomePermissions.isShownThisLaunch()) {
+            Logger.printInfo(() -> "vivo hint waits: the greeting is shown in this launch");
+            return;
+        }
         Context context = activity.getApplicationContext();
         Utils.runOnBackgroundThread(() -> {
             if (!isSupported(context)) return;
@@ -196,15 +210,37 @@ public final class VivoMusicCard {
                 return;
             }
             SharedPreferences preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
-            if (preferences.getBoolean(ASKED, false) || state(context) != State.NOT_LISTED) return;
-            Utils.runOnMainThread(() -> {
-                // Other prompts of the first launch go first; this one waits for the next launch.
-                if (app.revanced.extension.soundcloud.permissions.WelcomePermissions.isShownThisLaunch()
-                        || activity.isFinishing()) return;
-                preferences.edit().putBoolean(ASKED, true).apply();
-                showHelp(activity, null);
-            });
+            if (preferences.getBoolean(NEVER_SHOW, false)) return;
+            State state = state(context);
+            if (state != State.NOT_LISTED) {
+                Logger.printInfo(() -> "vivo hint not needed: " + state);
+                return;
+            }
+            Utils.runOnMainThreadDelayed(() -> showWhenFree(activity, HINT_CHECKS), HINT_CHECK_MS);
         });
+    }
+
+    /**
+     * Shows the hint once the main screen has the focus (it is loaded, and no Android dialog such as a permission
+     * request is over it). An Arsound dialog on screen means another prompt of this launch: the hint waits for the
+     * next launch.
+     */
+    private static void showWhenFree(Activity activity, int checksLeft) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
+        if (ArsoundDialog.isAnyShown()) {
+            Logger.printInfo(() -> "vivo hint waits for the next launch: another Arsound dialog is on screen");
+            return;
+        }
+        if (!activity.hasWindowFocus()) {
+            if (checksLeft > 1) {
+                Utils.runOnMainThreadDelayed(() -> showWhenFree(activity, checksLeft - 1), HINT_CHECK_MS);
+            } else {
+                Logger.printInfo(() -> "vivo hint waits for the next launch: the screen stayed busy");
+            }
+            return;
+        }
+        Logger.printInfo(() -> "vivo hint shown");
+        showHelp(activity, null);
     }
 
     /** A short line for the settings: whether the player sees Arsound. */
@@ -225,6 +261,8 @@ public final class VivoMusicCard {
     /**
      * Explains why the player does not show Arsound and gives the command, which copies on a tap.
      *
+     * Its "Do not show again" box shows and changes whether the hint opens by itself on start.
+     *
      * @param onClosed Runs when the dialog closes, may be null.
      */
     public static void showHelp(Activity activity, Runnable onClosed) {
@@ -241,10 +279,12 @@ public final class VivoMusicCard {
         content.addView(paragraph(activity, secondary, text(
                 "Плеер в шторке и на экране блокировки vivo показывает только приложения из своего списка. "
                         + "SoundCloud и Arsound в нём нет, поэтому плеер пишет «Not playing». Само приложение "
-                        + "добавить себя туда не может — это делается один раз командой с компьютера.",
+                        + "добавить себя туда не может — это делается один раз командой с компьютера. Эта подсказка "
+                        + "есть и в настройках: Arsound → Офлайн и воспроизведение → «Плеер в шторке vivo».",
                 "The player in the control centre and on the lock screen of vivo phones shows only the apps on its "
                         + "own list. SoundCloud and Arsound are not on it, so the player says \"Not playing\". An app "
-                        + "cannot add itself; it takes one command from a computer, once.")));
+                        + "cannot add itself; it takes one command from a computer, once. This hint is also in the "
+                        + "settings: Arsound → Offline and playback → \"The vivo control centre player\".")));
         content.addView(paragraph(activity, secondary, text(
                 "1. На телефоне включите «Отладку по USB» в «Для разработчиков» (раздел открывается семью нажатиями "
                         + "на номер версии ПО в «О телефоне»).\n"
@@ -275,11 +315,20 @@ public final class VivoMusicCard {
         content.addView(command(activity, primary, accent,
                 "adb shell pm revoke " + activity.getPackageName() + " " + PERMISSION));
 
+        SharedPreferences preferences = activity.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+        CheckBox box = new CheckBox(activity);
+        box.setText(text("Больше не показывать", "Do not show again"));
+        box.setTextColor(secondary);
+        box.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        box.setButtonTintList(ColorStateList.valueOf(accent));
+        box.setChecked(preferences.getBoolean(NEVER_SHOW, false));
         new ArsoundDialog(activity)
                 .setTitle(text("Плеер в шторке vivo", "The vivo control centre player"))
                 .setView(content)
+                .setButtonsStart(box)
                 .setPositiveButton(text("Понятно", "Got it"), null)
                 .setOnDismissListener(dialog -> {
+                    preferences.edit().putBoolean(NEVER_SHOW, box.isChecked()).apply();
                     if (onClosed != null) onClosed.run();
                 })
                 .show();

@@ -46,6 +46,10 @@ public final class ArsoundDialog {
     private View buttonsStart;
     private DialogInterface.OnDismissListener onDismiss;
 
+    /** Every dialog shown, to tell whether one is on screen; closed ones drop out with their activity. */
+    private static final java.util.Set<Dialog> SHOWN =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
     public ArsoundDialog(Context context) {
         this.context = context;
         accent = ArsoundTheme.palette(context, "special");
@@ -133,6 +137,12 @@ public final class ArsoundDialog {
         return this;
     }
 
+    /** True while an Arsound dialog is on screen, so a prompt that can wait does not cover it. Main thread only. */
+    public static boolean isAnyShown() {
+        for (Dialog dialog : SHOWN) if (dialog.isShowing()) return true;
+        return false;
+    }
+
     public Dialog show() {
         Dialog dialog = new Dialog(context);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -213,6 +223,7 @@ public final class ArsoundDialog {
         card.setScaleY(.94f);
         card.setTranslationY(dp(12));
         dialog.show();
+        SHOWN.add(dialog);
         card.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0).setDuration(220)
                 .setInterpolator(new DecelerateInterpolator(1.8f)).start();
         return dialog;
