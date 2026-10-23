@@ -235,6 +235,40 @@ public final class DownloadPlaylistPatch {
         return downloaded;
     }
 
+    /** Liked tracks asked from the server at most: a bigger list is checked in its newest part. */
+    private static final int MAX_LIKES = 5000;
+
+    /** The ids of the liked tracks, newest first, from the server; null if it did not answer. */
+    private static List<String> likedTrackIds() throws Exception {
+        String[] me = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
+        if (me[1] == null) {
+            lastError = me[0];
+            return null;
+        }
+        long userId = new JSONObject(me[1]).getLong("id");
+        List<String> ids = new ArrayList<>();
+        String url = "https://api-v2.soundcloud.com/users/" + userId + "/track_likes?limit=200&linked_partitioning=1";
+        while (url != null && ids.size() < MAX_LIKES) {
+            String[] page = DownloadTrackPatch.apiGet(url);
+            if (page[1] == null) {
+                if (!ids.isEmpty()) break;
+                lastError = page[0];
+                return null;
+            }
+            JSONObject json = new JSONObject(page[1]);
+            JSONArray likes = json.optJSONArray("collection");
+            if (likes == null || likes.length() == 0) break;
+            for (int i = 0; i < likes.length(); i++) {
+                JSONObject track = likes.getJSONObject(i).optJSONObject("track");
+                if (track != null && track.has("id")) ids.add(String.valueOf(track.getLong("id")));
+            }
+            url = json.isNull("next_href") ? null : json.optString("next_href", null);
+        }
+        int count = ids.size();
+        Logger.printInfo(() -> "Liked tracks for the check: " + count);
+        return ids;
+    }
+
     /**
      * The SoundCloud tracks of the playlist: those on the server, then those added on this phone.
      *
@@ -282,14 +316,32 @@ public final class DownloadPlaylistPatch {
         });
     }
 
-    private static void checkPlaylist(Context context, String playlistId) {
+    static void checkPlaylist(Context context, String playlistId) {
+        int[] imported = {0};
+        check(context, playlistId, () -> trackIdsOf(playlistId, imported), imported);
+    }
+
+    /** Checks the liked tracks and offers to download the available ones, like a playlist. */
+    static void checkLikes(Context context) {
+        check(context, null, DownloadPlaylistPatch::likedTrackIds, new int[]{0});
+    }
+
+    private interface TrackIds {
+        /** @return The track ids, or null if the server did not answer. */
+        List<String> get() throws Exception;
+    }
+
+    /**
+     * @param playlistId The playlist, or null for the likes.
+     * @param imported   Receives the number of imported files the list has.
+     */
+    private static void check(Context context, String playlistId, TrackIds trackIds, int[] imported) {
         // The progress counter at the bottom shows the check, a toast would cover it.
         ProgressPill.onCheckLoading();
 
         Utils.runOnBackgroundThread(() -> {
             try {
-                int[] imported = {0};
-                List<String> ids = trackIdsOf(playlistId, imported);
+                List<String> ids = trackIds.get();
                 if (ids == null) {
                     ProgressPill.onCheckFinished();
                     DownloadTrackPatch.showToast(context, text("Не удалось получить треки, ошибка " + lastError,
@@ -396,7 +448,9 @@ public final class DownloadPlaylistPatch {
                                    List<TrackInfo> downloadable, List<String> unavailableTitles) {
         int unavailable = total - downloaded - downloading - downloadable.size();
         StringBuilder summary = new StringBuilder();
-        summary.append(text("Треков в плейлисте: ", "Tracks in the playlist: ")).append(total + imported).append('\n');
+        summary.append(playlistId == null
+                ? text("Лайкнутых треков: ", "Liked tracks: ")
+                : text("Треков в плейлисте: ", "Tracks in the playlist: ")).append(total + imported).append('\n');
         if (imported > 0) summary.append(text("Импортированы с телефона: ", "Imported from the phone: ")).append(imported).append('\n');
         summary.append(text("Уже скачано: ", "Already downloaded: ")).append(downloaded).append('\n');
         if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
@@ -409,7 +463,9 @@ public final class DownloadPlaylistPatch {
 
         app.revanced.extension.soundcloud.shared.ArsoundDialog builder = new app.revanced.extension.soundcloud.shared.ArsoundDialog(context);
         // Everything available is on the phone: the playlist counts as downloaded.
-        if (downloadable.isEmpty() && downloading == 0 && downloaded > 0) setPlaylistDownloaded(playlistId, true);
+        if (playlistId != null && downloadable.isEmpty() && downloading == 0 && downloaded > 0) {
+            setPlaylistDownloaded(playlistId, true);
+        }
         if (downloadable.isEmpty()) {
             builder.setTitle(downloaded + downloading + imported > 0
                             ? text("Всё доступное уже скачано", "Everything available is downloaded")
@@ -438,7 +494,7 @@ public final class DownloadPlaylistPatch {
 
     private static void downloadAll(Context context, String playlistId, List<TrackInfo> tracks) {
         Context appContext = context.getApplicationContext();
-        setPlaylistDownloaded(playlistId, true);
+        if (playlistId != null) setPlaylistDownloaded(playlistId, true);
         List<String> ids = new ArrayList<>();
         for (TrackInfo track : tracks) ids.add(track.id);
         ProgressPill.onDownloadsQueued(ids);
