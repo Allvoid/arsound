@@ -160,7 +160,7 @@ private class ThemeDesign(
 )
 
 private fun tokenMap(block: String, key: String): Map<String, String> {
-    val body = Regex("\"$key\":\\s*\\{([^}]*)}").find(block)?.groupValues?.get(1).orEmpty()
+    val body = Regex("\"$key\":\\s*\\{([^}]*)\\}").find(block)?.groupValues?.get(1).orEmpty()
     return Regex("\"(\\w+)\":\\s*\"(#[0-9A-Fa-f]{6,8})\"").findAll(body).associate { it.groupValues[1] to it.groupValues[2] }
 }
 
@@ -180,7 +180,7 @@ private fun readThemeDesigns(json: String): List<ThemeDesign> = json.split("\"id
  * tokens as Android's #aarrggbb, ${token@NN} the same colour with NN % opacity.
  */
 private fun render(text: String, design: ThemeDesign, tokens: Map<String, String>, file: String): String =
-    Regex("\\$\\{(\\w+)(?:@(\\d{1,3}))?}").replace(text) { match ->
+    Regex("\\$\\{(\\w+)(?:@(\\d{1,3}))?\\}").replace(text) { match ->
         val name = match.groupValues[1]
         if (name == "theme") return@replace design.id
         val hex = tokens[name] ?: error("Theme ${design.id} has no token \"$name\" used by $file")
@@ -202,7 +202,7 @@ private val themeResourcesPatch = resourcePatch {
         val assets = get("assets").resolve("arsound").apply { mkdirs() }
         assets.resolve("themes.json").writeBytes(json)
         val fonts = assets.resolve("fonts").apply { mkdirs() }
-        val fontNames = Regex("\"fonts\":\\s*\\{([^}]*)}").findAll(String(json))
+        val fontNames = Regex("\"fonts\":\\s*\\{([^}]*)\\}").findAll(String(json))
             .flatMap { block -> Regex("\"(\\w+_\\d{3})\"").findAll(block.groupValues[1]) }
             .map { it.groupValues[1] }.toSet()
         fontNames.forEach { name -> resource("fonts/$name.ttf").use { fonts.resolve("$name.ttf").writeBytes(it.readBytes()) } }
@@ -240,7 +240,7 @@ private val themeResourcesPatch = resourcePatch {
                 // A theme with a light look gets each coloured file twice: light in res/<type>, dark in
                 // res/<type>-night, and Android picks the one of the phone's mode. A file marked arsound:one-look
                 // (the player, dark in every mode) keeps the dark colours.
-                val coloured = Regex("\\$\\{(?!theme})\\w+").containsMatchIn(text)
+                val coloured = Regex("\\$\\{(?!theme\\})\\w+").containsMatchIn(text)
                 if (design.tokensLight.isNotEmpty() && coloured && !text.contains("arsound:one-look")) {
                     write(type, design.tokensLight)
                     write("$type-night", design.tokens)
