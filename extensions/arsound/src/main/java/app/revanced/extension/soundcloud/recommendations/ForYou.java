@@ -429,7 +429,8 @@ public final class ForYou {
         report(listener, text("Собираю вашу библиотеку…", "Reading your library…"));
         Set<String> known = new HashSet<>();
         List<Seed> seeds = collectSeeds(context, known);
-        if (seeds.isEmpty()) return done(text("В библиотеке нет треков, от которых можно оттолкнуться", "No tracks in the library to start from"));
+        // Not "done": right after a login the library on the phone is still empty, and the next try is only half an hour away.
+        if (seeds.isEmpty()) return text("В библиотеке нет треков, от которых можно оттолкнуться", "No tracks in the library to start from");
         List<Seed> picked = pickSeeds(seeds);
         Logger.printInfo(() -> "For you: " + seeds.size() + " seeds, asking about " + picked.size());
 

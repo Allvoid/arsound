@@ -95,6 +95,17 @@ public final class DownloadTrackPatch {
         }
     }
 
+    /**
+     * Assembles HLS tracks two at a time. The shared background pool starts a thread for every task, so a
+     * whole playlist assembled at once held every segment in memory and ran the app out of heap.
+     */
+    private static final java.util.concurrent.ExecutorService hlsAssembly =
+            java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+                Thread thread = new Thread(r, "arsound-hls-assembly");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     private static final ThreadLocal<Object> currentTrackItem = new ThreadLocal<>();
 
     /**
@@ -245,15 +256,57 @@ public final class DownloadTrackPatch {
         });
     }
 
+    private static final int RATE_LIMIT_RETRIES = 3;
+    /** The shortest pause between two API requests of the app, whichever threads send them. */
+    private static final long API_GAP_MS = 120;
+    private static long nextApiSlot;
+
+    /** Spaces the requests out, so a playlist of hundreds of tracks does not hit the server all at once. */
+    private static void waitForApiSlot() throws InterruptedException {
+        long wait;
+        synchronized (DownloadTrackPatch.class) {
+            long now = System.currentTimeMillis();
+            long slot = Math.max(now, nextApiSlot);
+            nextApiSlot = slot + API_GAP_MS;
+            wait = slot - now;
+        }
+        if (wait > 0) Thread.sleep(wait);
+    }
+
+    /** The pause the server asked for in Retry-After, or a growing one when it did not say. */
+    private static long retryAfterMs(HttpURLConnection connection, int attempt) {
+        long seconds = 0;
+        try {
+            String header = connection.getHeaderField("Retry-After");
+            if (header != null) seconds = Long.parseLong(header.trim());
+        } catch (NumberFormatException ignored) {
+            // A date instead of seconds: the growing pause below is good enough.
+        }
+        long pause = seconds > 0 ? seconds * 1000 : 2000L << attempt;
+        return Math.min(pause, 15_000);
+    }
+
     /**
      * @return The response code and body of an authorized GET request to the SoundCloud API.
      */
     public static String[] apiGet(String url) throws Exception {
-        HttpURLConnection connection = openApiConnection(url);
-
-        int code = connection.getResponseCode();
+        HttpURLConnection connection = null;
+        int code = 0;
+        // HTTP 429 is "too many requests": wait as long as the server asks and ask again, instead of
+        // reading it as "this track has no such file".
+        for (int attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt++) {
+            waitForApiSlot();
+            connection = openApiConnection(url);
+            code = connection.getResponseCode();
+            if (code != 429 || attempt == RATE_LIMIT_RETRIES) break;
+            long pause = retryAfterMs(connection, attempt);
+            connection.disconnect();
+            Logger.printInfo(() -> "API rate limit for " + url + ", waiting " + pause + " ms");
+            Thread.sleep(pause);
+        }
         if (code != HttpURLConnection.HTTP_OK) {
-            Logger.printInfo(() -> "API request failed, HTTP " + code + " for " + url);
+            int failed = code;
+            Logger.printInfo(() -> "API request failed, HTTP " + failed + " for " + url);
             return new String[]{String.valueOf(code), null};
         }
 
@@ -313,10 +366,11 @@ public final class DownloadTrackPatch {
             showToast(context, text("Собираю трек из потока, это займёт немного времени…",
                     "Assembling the track from its stream, this takes a moment…"));
         }
-        Utils.runOnBackgroundThread(() -> {
+        hlsAssembly.execute(() -> {
             String fileName = null;
             try {
-                fileName = HlsDownloader.download(context, trackId, source.url, source.mimeType);
+                TrackSource current = freshHlsSource(trackId, source);
+                fileName = HlsDownloader.download(context, trackId, current.url, current.mimeType);
             } finally {
                 if (fileName != null) {
                     rememberDownload(trackId, fileName);
@@ -327,6 +381,20 @@ public final class DownloadTrackPatch {
                 DownloadProgress.onAssemblyFinished(trackId);
             }
         });
+    }
+
+    /** How long an HLS link stays good: a track that waited its turn in the assembly queue asks for a new one. */
+    private static final long HLS_LINK_FRESH_MS = 60_000;
+
+    private static TrackSource freshHlsSource(String trackId, TrackSource source) {
+        if (source.isFresh(HLS_LINK_FRESH_MS)) return source;
+        try {
+            TrackSource renewed = resolveSource(trackId);
+            if (renewed.status == TrackSource.Status.REQUIRES_HLS_PROCESSING && renewed.isDownloadable()) return renewed;
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not renew the stream link of " + trackId + ": " + ex);
+        }
+        return source;
     }
 
     /** Why a track cannot be downloaded, for the toast of the track menu. */
@@ -361,18 +429,37 @@ public final class DownloadTrackPatch {
      * playlist, and finally the same request as other client profiles.
      */
     static TrackSource resolveSource(String trackId) throws Exception {
-        String[] directDownload = apiGet(API_ROOT + "/tracks/" + trackId + "/download");
-        if (directDownload[1] != null) {
-            String redirect = new JSONObject(directDownload[1]).optString("redirectUri");
-            if (!redirect.isEmpty()) return TrackSource.progressive(redirect);
+        return resolveSource(trackId, null);
+    }
+
+    /**
+     * @param known The track as the API already returned it (for instance in a list of tracks), or null to
+     *              request it. It saves one request, and the author-provided file is only asked for when the
+     *              track says it has one: for the others that request always ended with HTTP 404, and a
+     *              whole playlist of them ran into the rate limit (HTTP 429).
+     */
+    static TrackSource resolveSource(String trackId, JSONObject known) throws Exception {
+        TrackSource source = TrackSource.unavailable(TrackSource.Status.UNAVAILABLE);
+        JSONObject track = known;
+        if (track == null) {
+            String[] trackResponse = apiGet(API_ROOT + "/tracks/" + trackId);
+            if (trackResponse[1] == null) {
+                Logger.printInfo(() -> "Could not load stream metadata for " + trackId + ", HTTP " + trackResponse[0]);
+            } else {
+                track = new JSONObject(trackResponse[1]);
+            }
         }
 
-        TrackSource source = TrackSource.unavailable(TrackSource.Status.UNAVAILABLE);
-        String[] trackResponse = apiGet(API_ROOT + "/tracks/" + trackId);
-        if (trackResponse[1] == null) {
-            Logger.printInfo(() -> "Could not load stream metadata for " + trackId + ", HTTP " + trackResponse[0]);
-        } else {
-            source = sourceOfTrack(trackId, new JSONObject(trackResponse[1]), DownloadTrackPatch::resolveStreamUrl);
+        if (track == null || track.optBoolean("downloadable", true)) {
+            String[] directDownload = apiGet(API_ROOT + "/tracks/" + trackId + "/download");
+            if (directDownload[1] != null) {
+                String redirect = new JSONObject(directDownload[1]).optString("redirectUri");
+                if (!redirect.isEmpty()) return TrackSource.progressive(redirect);
+            }
+        }
+
+        if (track != null) {
+            source = sourceOfTrack(trackId, track, DownloadTrackPatch::resolveStreamUrl);
             if (source.isDownloadable()) return source;
         }
 
