@@ -6,6 +6,7 @@ import app.arsound.patches.soundcloud.analytics.disableTelemetryPatch
 import app.arsound.patches.soundcloud.debug.playbackTimelinePatch
 import app.arsound.patches.soundcloud.debug.playerBarLogPatch
 import app.arsound.patches.soundcloud.download.downloadTrackPatch
+import app.arsound.patches.soundcloud.download.headerDownloadButtonPatch
 import app.arsound.patches.soundcloud.library.hideImportBannerPatch
 import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
@@ -92,6 +93,7 @@ val arsoundDownloadsGroup = arsoundGroup(
     "Скачивание доступных треков в «Музыка/Arsound» и воспроизведение скачанного из файла.",
     downloadTrackPatch,
     downloadedPlaybackPatch,
+    headerDownloadButtonPatch,
 )
 
 @Suppress("unused")
