@@ -88,7 +88,7 @@ between Russian and English in Settings → Arsound → Appearance.)
 - The SoundCloud interface is translated into Russian. The app language is chosen in the same "Appearance" section: as in the system, Russian or English. The home screen mixes arrive from the SoundCloud server in English.
 - The icon can be changed: 141 variants — eight new ones (tile, letter, glow, deep, flowers, kawaii, night, sticker) in the six theme colours, solid, gradients, iridescent, a coloured letter, glowing and neon letters, space, glacier, paint splashes, comic, matrix, chrome and others, as well as an icon in the wallpaper colours (Android 12+) (Settings → Arsound → App icon). Some launchers remove the shortcut from the home screen on a change — it can be brought back from the app list.
 - Arsound update check: when a new version is out, the app offers to download the APK from the Telegram channel or the patches from GitHub. It downloads and installs nothing by itself.
-- Logs for the developer: the playback log is always written and kept for two days, the detailed mod log is turned on separately (at most 2 MB). If something breaks — Settings → Arsound → Developer → "Save the logs": both logs are saved as one file in "Downloads", the app shows the path to the file and offers to send it.
+- Logs for the developer: the playback log is always written and kept for two days, the detailed mod log is turned on separately (at most 2 MB). If something breaks — Settings → Arsound → Developer → "Save the logs": both logs are saved as one file in "Downloads" (if the app crashed, the file starts with the error that closed it and with how Android says the app's last processes ended), the app shows the path to the file and offers to send it.
 
 ## How to install
 
