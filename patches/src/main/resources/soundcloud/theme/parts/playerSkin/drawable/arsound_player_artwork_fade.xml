@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- arsound:one-look: the player is dark in every mode, so this file keeps the dark colours. -->
+<!-- New player (beta): the fades over the artwork. The artwork reaches 40dp under the button bar, so the bottom fade
+     ends 40dp above its edge, where the bar begins, and the strip under the bar is the plain background. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:gravity="top|fill_horizontal" android:height="300dp"
+        android:drawable="@drawable/arsound_${theme}__arsound_player_top_scrim" />
+    <item android:gravity="bottom|fill_horizontal" android:height="320dp" android:bottom="40dp"
+        android:drawable="@drawable/arsound_${theme}__arsound_player_bottom_scrim" />
+    <item android:gravity="bottom|fill_horizontal" android:height="41dp">
+        <shape android:shape="rectangle">
+            <solid android:color="${bg}" />
+        </shape>
+    </item>
+</layer-list>

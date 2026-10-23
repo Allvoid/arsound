@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- arsound:one-look: the player is dark in every mode, so this file keeps the dark colours. -->
+<!-- New player: the artwork melts into the theme's background under the waveform and the button bar. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="90" android:startColor="${bg}" android:centerColor="${bg@70}" android:endColor="${bg@0}" />
+</shape>

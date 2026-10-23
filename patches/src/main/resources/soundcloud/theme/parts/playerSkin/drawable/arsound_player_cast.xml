@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- New player (beta): the cast button with SoundCloud's light icon, for the dark glass circle (the original is dark). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="true" android:state_checked="true" android:drawable="@drawable/ic_actions_chromecast_active" />
+    <item android:drawable="@drawable/ic_actions_chromecast" />
+</selector>

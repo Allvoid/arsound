@@ -9,8 +9,8 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * Entry point injected into {@code OkHttpClient.Builder.build()}, so it reaches every OkHttp client
  * of SoundCloud: API, streaming, images and downloads.
  * <p>
- * Currently it adds the developer option that slows down every request, to reproduce a poor
- * connection on a fast network. Custom DNS and region guard will hook in here as well.
+ * It adds the developer option that slows down every request, to reproduce a poor connection on a
+ * fast network, the region guard, the custom DNS, and one shared download per cover ({@link SharedArtwork}).
  */
 @SuppressWarnings("unused")
 public final class NetworkPatch {
@@ -95,12 +95,17 @@ public final class NetworkPatch {
                         (String) pathMethod.invoke(url))) {
                     throw new java.io.IOException("Arsound: background report blocked to save power");
                 }
-                try {
-                    return proceedMethod.invoke(chain, request);
-                } catch (java.lang.reflect.InvocationTargetException ex) {
-                    // Rethrow the original IOException, OkHttp handles it.
-                    throw ex.getCause();
-                }
+                SharedArtwork.Call call = () -> {
+                    try {
+                        return proceedMethod.invoke(chain, request);
+                    } catch (java.lang.reflect.InvocationTargetException ex) {
+                        // Rethrow the original IOException, OkHttp handles it.
+                        throw ex.getCause();
+                    }
+                };
+                String path = (String) pathMethod.invoke(url);
+                if (SharedArtwork.applies(host, path)) return SharedArtwork.load(url.toString(), request, call);
+                return call.proceed();
             });
 
             builder.getClass().getMethod("addInterceptor", interceptorClass).invoke(builder, interceptor);

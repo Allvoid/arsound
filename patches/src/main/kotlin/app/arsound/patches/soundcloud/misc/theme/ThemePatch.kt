@@ -26,6 +26,9 @@ import org.w3c.dom.Element
 
 private const val THEME_RESOURCES = "soundcloud/theme"
 
+/** Parts every theme has, but that apply only once switched on in Settings → Arsound → Appearance (ArsoundTheme). */
+private val OPTIONAL_PARTS = listOf("playerSkin")
+
 private val BytecodePatchContext.themeApplicationOnCreateMethod by gettingFirstMethodDeclaratively {
     name("onCreate")
     definingClass("Lcom/soundcloud/android/app/RealSoundCloudApplication;")
@@ -210,6 +213,16 @@ private val themeResourcesPatch = resourcePatch {
         // SoundCloud's resource of that name at them; names starting with arsound_ are additions used by other files.
         val index = resource("index.txt").use { String(it.readBytes()) }.lines().filter { it.endsWith(".xml") }
         val replaced = StringBuilder("{")
+        // The resources of the parts the user switches on in the settings: the app leaves them out while off.
+        val optional = OPTIONAL_PARTS.associateWith { part ->
+            index.filter { it.startsWith("parts/$part/") }.map { path ->
+                val (type, file) = path.split("/").takeLast(2)
+                "\"$type/${file.removeSuffix(".xml")}\""
+            }.filter { !it.contains("/arsound_") }
+        }
+        replaced.append("\n  \"_optional\": {")
+            .append(optional.entries.joinToString(", ") { (part, names) -> "\"$part\": [${names.joinToString(", ")}]" })
+            .append("}")
         for (design in readThemeDesigns(String(json))) {
             // The theme's own files come last, so they win over a part's file of the same name.
             val files = index.filter { path -> design.parts.any { path.startsWith("parts/$it/") } } +

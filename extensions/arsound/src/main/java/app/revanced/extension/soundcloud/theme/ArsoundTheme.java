@@ -268,6 +268,15 @@ public final class ArsoundTheme {
         }
     }
 
+    /**
+     * The surface and the accent of the chosen theme's dark look, whatever the look drawn now: for what is always
+     * dark, like the notification picture. Null for the original look.
+     */
+    public static int[] darkColors(Context context) {
+        Theme theme = currentTheme(context);
+        return theme == null ? null : new int[]{theme.surface(true), theme.accent(true)};
+    }
+
     /** The id of the chosen theme's animated background, or null: the theme id unless themes.json names another. */
     public static String effect(Context context) {
         Theme theme = currentTheme(context);
@@ -277,6 +286,15 @@ public final class ArsoundTheme {
     /** A colour written as in themes.json: #rrggbb or #rrggbbaa. */
     public static int color(String hex) {
         return parse(hex);
+    }
+
+    /** The setting of the new player: the "playerSkin" part of the themes, a beta that is off by default. */
+    public static final String PLAYER_SKIN_KEY = "arsound_player_skin";
+    private static final String PLAYER_SKIN_PART = "playerSkin";
+
+    /** Whether the player is drawn in the theme's own style; applies after {@link #restartApp}. */
+    public static boolean isPlayerSkinEnabled() {
+        return Settings.getBoolean(PLAYER_SKIN_KEY, false);
     }
 
     /** The chosen theme id, {@link #SOUNDCLOUD} for the original look. */
@@ -449,13 +467,22 @@ public final class ArsoundTheme {
         // theme patch as arsound_<theme>__<name> and listed in theme-resources.json, stands in for SoundCloud's.
         // Files whose name starts with "arsound_" are the theme's additions, used by its other files.
         JSONArray replaced = null;
+        java.util.Set<String> switchedOff = new java.util.HashSet<>();
         try (InputStream input = context.getAssets().open(ASSETS + "theme-resources.json")) {
-            replaced = new JSONObject(new String(readAll(input), "UTF-8")).optJSONArray(theme.id);
+            JSONObject index = new JSONObject(new String(readAll(input), "UTF-8"));
+            replaced = index.optJSONArray(theme.id);
+            // Parts switched on in the settings ("_optional": part -> its resources) stay out while off.
+            JSONObject optional = index.optJSONObject("_optional");
+            JSONArray playerSkin = optional == null ? null : optional.optJSONArray(PLAYER_SKIN_PART);
+            if (playerSkin != null && !isPlayerSkinEnabled()) {
+                for (int i = 0; i < playerSkin.length(); i++) switchedOff.add(playerSkin.optString(i));
+            }
         } catch (Exception ex) {
             Logger.printException(() -> "Theme: could not read the theme resources", ex);
         }
         if (replaced != null) {
             for (int i = 0; i < replaced.length(); i++) {
+                if (switchedOff.contains(replaced.optString(i))) continue;
                 String[] typeAndName = replaced.optString(i).split("/", 2);
                 if (typeAndName.length != 2 || typeAndName[1].startsWith("arsound_")) continue;
                 ids.alias(table, typeAndName[0], typeAndName[1], "arsound_" + theme.id + "__" + typeAndName[1]);

@@ -23,10 +23,12 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * answers (filtered or throttled), the player stayed in "buffering" forever although the file was
  * on the phone, and switching tracks queued up behind the stuck request.
  * <p>
- * Now a downloaded track gets its playback item straight from the file, and playback does not wait
- * for the metadata at all. The metadata takes about 1.5 s even on a good connection (and never comes
- * offline), and it is set on the notification by itself when it arrives, so waiting for it only
- * delayed the sound.
+ * Now a downloaded track gets its playback item straight from the file, and no track waits for the
+ * metadata at all. The metadata carries the 500x500 cover for the notification: it takes about 1.5 s
+ * even on a good connection, many seconds on a slow one, and never comes offline. It is set on the
+ * notification by itself when it arrives, so waiting for it only delayed the sound. Worse, while a
+ * streamed track waited, the previous one kept playing: the player screen already showed the new
+ * track at 0:00 and the old track's position, and the notification the old title.
  * <p>
  * Instead of the metadata, playback gets Arsound's own failure right away. SoundCloud also starts
  * the current track on its first metadata if the player is playing (this is how a skip starts the
@@ -101,14 +103,11 @@ public final class InstantFilePlayback {
      *
      * @param metadata  {@code Observable<MediaMetadataFetchResult>}.
      * @param queueItem The {@code PlayQueueItemWithContext}.
-     * @return The metadata, which for downloaded tracks reports a failure if it takes too long.
-     * SoundCloud then starts playback anyway.
+     * @return The metadata, which reports a failure if it takes too long. SoundCloud then starts
+     * playback anyway, downloaded and streamed tracks alike.
      */
     public static Object metadata(Object metadata, Object queueItem) {
         try {
-            Object urn = queueItem.getClass().getMethod("getUrn").invoke(queueItem);
-            if (downloadedFile(urn) == null) return metadata;
-
             ClassLoader loader = metadata.getClass().getClassLoader();
             Object failure = instantFailure(loader);
 
@@ -127,7 +126,7 @@ public final class InstantFilePlayback {
      * Injection point. Called with each notification metadata result of the current queue item.
      *
      * @param result A {@code MediaMetadataFetchResult}.
-     * @return Whether it is the failure a downloaded track starts with, which SoundCloud should treat
+     * @return Whether it is the failure a track starts with, which SoundCloud should treat
      * as its first metadata.
      */
     public static boolean isStartWithoutMetadata(Object result) {
@@ -169,7 +168,7 @@ public final class InstantFilePlayback {
             handler.postDelayed(() -> {
                 if (disposed.getAndSet(true)) return;
                 try {
-                    Logger.printInfo(() -> "Starting the downloaded file without waiting for the metadata");
+                    Logger.printInfo(() -> "Starting the track without waiting for the metadata");
                     onNext.invoke(observer, value);
                     onComplete.invoke(observer);
                 } catch (Exception ex) {

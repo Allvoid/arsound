@@ -322,9 +322,9 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(createToggleRow(
                 text("Анимация темы", "Theme animation"),
                 text("Лёгкий живой фон: искры у «Алого», звёзды у «Кобальта», светлячки у «Мяты», лепестки у «Сакуры», "
-                                + "сканер у «Лайма». Замирает в режиме экономии батареи и когда анимации выключены в Android.",
+                                + "сканер у «Лайма», снег и иней у «Зимы». Замирает в режиме экономии батареи и когда анимации выключены в Android.",
                         "A light living background: sparks for Scarlet, stars for Cobalt, fireflies for Mint, petals for "
-                                + "Sakura, a scanner for Lime. Stands still in battery saver mode and when Android's "
+                                + "Sakura, a scanner for Lime, snow and frost for Winter. Stands still in battery saver mode and when Android's "
                                 + "animations are off."),
                 Settings.isThemeEffectsEnabled(),
                 (button, checked) -> {
@@ -336,6 +336,34 @@ public final class ReVancedSettingsActivity extends Activity {
                 Settings.THEME_EFFECTS_DENSITY, 100, new long[]{50, 100, 160},
                 new String[]{text("Меньше", "Fewer"), text("Как в макете", "As designed"), text("Больше", "More")},
                 this::recreate));
+        list.addView(createToggleRow(
+                text("Новый плеер (бета)", "New player (beta)"),
+                text("Полноэкранный плеер в стиле темы: обложка плавно уходит в цвет темы, название и исполнитель без "
+                                + "чёрных плашек, волна и время в акценте, кнопки — тёмное стекло, в уведомлении — фон темы. "
+                                + "Работает с темами Arsound, "
+                                + "не с видом SoundCloud. Приложение перезапустится.",
+                        "The full screen player in the theme's style: the artwork fades into the theme's colour, the title "
+                                + "and artist without black boxes, the waveform and time in the accent, the buttons in dark "
+                                + "glass, the theme's background in the notification. Works with the Arsound themes, not with the SoundCloud look. The app restarts."),
+                ArsoundTheme.isPlayerSkinEnabled(),
+                (button, checked) -> {
+                    Settings.putBoolean(ArsoundTheme.PLAYER_SKIN_KEY, checked);
+                    if (!ArsoundTheme.SOUNDCLOUD.equals(ArsoundTheme.current())) ArsoundTheme.restartApp(this);
+                }
+        ));
+        // Part of the new player, so it shows only with it.
+        View trackColors = createToggleRow(
+                text("Плеер в уведомлении под цвет трека", "Notification player in the track's colours"),
+                text("Плеер в уведомлении и на экране блокировки берёт обложку и цвета играющего трека. Выключено — "
+                                + "фон и цвета темы. Действует со следующего трека.",
+                        "The player in the notification and on the lock screen takes the cover and colours of the "
+                                + "playing track. Off: the theme's background and colours. Applies from the next track."),
+                app.revanced.extension.soundcloud.player.NotificationArtwork.isTrackColorsEnabled(),
+                (button, checked) -> Settings.putBoolean(
+                        app.revanced.extension.soundcloud.player.NotificationArtwork.TRACK_COLORS_KEY, checked)
+        );
+        trackColors.setVisibility(ArsoundTheme.isPlayerSkinEnabled() ? View.VISIBLE : View.GONE);
+        list.addView(trackColors);
 
         list.addView(createSubHeading(text("Ещё", "More")));
         list.addView(openScreenRow(text("Иконка приложения", "App icon"),
@@ -1560,6 +1588,16 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private void addDeveloperSection(LinearLayout list) {
+        // First and outside the developer options: a user who hit a bug only needs this button.
+        list.addView(createActionRow(
+                text("Сохранить журналы", "Save the logs"),
+                text("Сохраняет журналы за последние два дня одним файлом в «Загрузки». Если что-то работает "
+                                + "не так — нажмите и отправьте файл разработчику.",
+                        "Saves the logs of the last two days as one file in Downloads. If something goes wrong, "
+                                + "tap here and send the file to the developer."),
+                v -> saveLogs()
+        ));
+
         LinearLayout developerOptions = new LinearLayout(this);
         developerOptions.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
@@ -1730,13 +1768,13 @@ public final class ReVancedSettingsActivity extends Activity {
 
         container.addView(createToggleRow(
                 text("Журнал воспроизведения", "Playback log"),
-                text("Записывает каждый старт трека: сколько он ждал и почему, состояние сети, ошибки. Нужен, чтобы "
-                                + "разобраться, почему трек запускается медленно. Файлы за два дня лежат в "
+                text("Записывает каждый старт и переключение трека: сколько он ждал и почему, состояние сети, ошибки. "
+                                + "Нужен, чтобы разобраться в поломке воспроизведения. Хранится два дня в "
                                 + "Android/data/<пакет>/files/playback-log. Применится после перезапуска.",
-                        "Writes every track start: how long it waited and why, the network, errors. Helps find out why a "
-                                + "track starts slowly. Files of two days are kept in Android/data/<package>/files/playback-log. "
+                        "Writes every track start and switch: how long it waited and why, the network, errors. Helps find "
+                                + "out what broke playback. Kept for two days in Android/data/<package>/files/playback-log. "
                                 + "Applies after a restart."),
-                Settings.getBoolean(app.revanced.extension.soundcloud.debug.PlaybackTimeline.ENABLED, false),
+                app.revanced.extension.soundcloud.debug.PlaybackTimeline.isEnabled(),
                 (button, checked) -> Settings.putBoolean(app.revanced.extension.soundcloud.debug.PlaybackTimeline.ENABLED, checked)
         ));
 
@@ -1753,88 +1791,156 @@ public final class ReVancedSettingsActivity extends Activity {
         container.addView(createToggleRow(
                 text("Журнал в файл", "Write the log to a file"),
                 text("Пишет подробный журнал работы мода в файл внутри приложения. Нужен, чтобы поймать редкую "
-                                + "поломку: включите и пользуйтесь как обычно, а когда баг повторится — сохраните журнал. "
-                                + "Журнал занимает не больше 2 МБ: самые старые записи затираются новыми.",
+                                + "поломку: включите и пользуйтесь как обычно, а когда баг повторится — нажмите "
+                                + "«Сохранить журналы» вверху. Журнал занимает не больше 2 МБ: самые старые записи "
+                                + "затираются новыми.",
                         "Writes a detailed log of the mod into a file inside the app. Use it to catch a rare bug: "
-                                + "turn it on, keep using the app, and save the log once the bug shows up again. "
-                                + "The log never grows past 2 MB: the oldest lines are dropped."),
+                                + "turn it on, keep using the app, and tap \"Save the logs\" at the top once the bug "
+                                + "shows up again. The log never grows past 2 MB: the oldest lines are dropped."),
                 Settings.isFileLoggingEnabled(),
                 (button, checked) -> {
                     Settings.setFileLoggingEnabled(checked);
                     // Without this the detailed lines are never written at all.
                     app.revanced.extension.shared.settings.BaseSettings.DEBUG.save(checked);
-                    if (logDescription[0] != null) logDescription[0].setText(logSizeDescription());
+                    if (logDescription[0] != null) logDescription[0].setText(clearLogDescription());
                 }
         ));
 
-        View saveRow = createActionRow(
-                text("Сохранить журнал", "Save the log"),
-                logSizeDescription(),
-                v -> saveLogToDownloads()
-        );
-        logDescription[0] = (TextView) ((ViewGroup) saveRow).getChildAt(1);
-        container.addView(saveRow);
-
-        container.addView(createActionRow(
+        View clearRow = createActionRow(
                 text("Очистить журнал", "Clear the log"),
-                text("Удаляет накопленные записи. Делайте это перед тем, как ловить баг заново.",
-                        "Deletes what was written so far. Do this before trying to catch a bug again."),
+                clearLogDescription(),
                 v -> {
                     app.revanced.extension.shared.debug.LogFile.clear();
-                    if (logDescription[0] != null) logDescription[0].setText(logSizeDescription());
+                    if (logDescription[0] != null) logDescription[0].setText(clearLogDescription());
                     Toast.makeText(this, text("Журнал очищен", "The log is cleared"), Toast.LENGTH_SHORT).show();
                 }
-        ));
+        );
+        logDescription[0] = (TextView) ((ViewGroup) clearRow).getChildAt(1);
+        container.addView(clearRow);
     }
 
-    private String logSizeDescription() {
+    private String clearLogDescription() {
         long size = app.revanced.extension.shared.debug.LogFile.size();
-        if (size == 0) {
-            return text("Журнал пуст.", "The log is empty.");
-        }
-        String kilobytes = (size / 1024) + " " + text("КБ", "KB");
-        return text("Записано " + kilobytes + ". Нажмите, чтобы сохранить файл в Загрузки.",
-                kilobytes + " written. Tap to save the file to Downloads.");
+        String written = size == 0
+                ? text("Журнал пуст.", "The log is empty.")
+                : text("Записано ", "") + (size / 1024) + " " + text("КБ.", "KB written.");
+        return written + " " + text("Удаляет накопленные записи. Делайте это перед тем, как ловить баг заново.",
+                "Deletes what was written so far. Do this before trying to catch a bug again.");
     }
 
-    private void saveLogToDownloads() {
+    /**
+     * Saves the playback log of the last two days and the mod log as one file in Downloads,
+     * then shows where the file is and offers to send it.
+     */
+    private void saveLogs() {
         Utils.runOnBackgroundThread(() -> {
-            String log = app.revanced.extension.shared.debug.LogFile.read();
-            if (log.isEmpty()) {
-                Utils.runOnMainThread(() -> Toast.makeText(this,
-                        text("Журнал пуст", "The log is empty"), Toast.LENGTH_SHORT).show());
+            java.io.File[] playbackFiles = app.revanced.extension.shared.debug.PlaybackLog.files();
+            String modLog = app.revanced.extension.shared.debug.LogFile.read();
+            if (playbackFiles.length == 0 && modLog.isEmpty()) {
+                Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                        .setTitle(text("Журналов пока нет", "No logs yet"))
+                        .setMessage(app.revanced.extension.soundcloud.debug.PlaybackTimeline.isEnabled()
+                                ? text("Журнал воспроизведения начнёт писаться после перезапуска приложения. "
+                                        + "Перезапустите SoundCloud, повторите проблему и нажмите кнопку снова.",
+                                "The playback log starts after the app restarts. Restart SoundCloud, make the "
+                                        + "problem happen again and tap the button once more.")
+                                : text("Журнал воспроизведения выключен ниже, в настройках для разработчика.",
+                                "The playback log is turned off below, in the developer options."))
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show());
                 return;
             }
 
-            String name = "arsound-log-"
+            String name = "arsound-logs-"
                     + new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US)
                     .format(new java.util.Date()) + ".txt";
             try {
-                android.content.ContentValues values = new android.content.ContentValues();
-                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
-                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
-                        android.os.Environment.DIRECTORY_DOWNLOADS);
+                android.net.Uri uri = null;
+                String shownPath;
+                java.io.OutputStream output;
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    android.content.ContentValues values = new android.content.ContentValues();
+                    values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                    values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                            android.os.Environment.DIRECTORY_DOWNLOADS);
+                    uri = getContentResolver().insert(
+                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) throw new java.io.IOException("The file could not be created");
+                    output = getContentResolver().openOutputStream(uri);
+                    shownPath = text("Загрузки/", "Downloads/") + name;
+                } else {
+                    // Before Android 10 the app cannot write to Downloads without a permission.
+                    java.io.File base = getExternalFilesDir(null);
+                    java.io.File file = new java.io.File(base != null ? base : getFilesDir(), name);
+                    output = new java.io.FileOutputStream(file);
+                    shownPath = file.getAbsolutePath();
+                }
+                if (output == null) throw new java.io.IOException("The file could not be opened");
 
-                android.net.Uri uri = getContentResolver().insert(
-                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                if (uri == null) throw new java.io.IOException("The file could not be created");
-
-                try (java.io.OutputStream output = getContentResolver().openOutputStream(uri)) {
-                    if (output == null) throw new java.io.IOException("The file could not be opened");
-                    output.write(log.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                try (java.io.OutputStream out = output) {
+                    out.write(logHeader().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    for (java.io.File file : playbackFiles) {
+                        out.write(("\n==== " + file.getName() + " ====\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        try (java.io.InputStream input = new java.io.FileInputStream(file)) {
+                            byte[] buffer = new byte[64 * 1024];
+                            int count;
+                            while ((count = input.read(buffer)) > 0) out.write(buffer, 0, count);
+                        }
+                    }
+                    if (!modLog.isEmpty()) {
+                        out.write(("\n==== arsound-log ====\n" + modLog).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
                 }
 
-                Utils.runOnMainThread(() -> Toast.makeText(this,
-                        text("Сохранено: Загрузки/" + name, "Saved to Downloads/" + name),
-                        Toast.LENGTH_LONG).show());
+                android.net.Uri saved = uri;
+                Utils.runOnMainThread(() -> showSavedLogs(shownPath, saved));
             } catch (Exception ex) {
-                Logger.printException(() -> "Could not save the log", ex);
+                Logger.printException(() -> "Could not save the logs", ex);
                 Utils.runOnMainThread(() -> Toast.makeText(this,
-                        text("Не удалось сохранить журнал", "Could not save the log"),
+                        text("Не удалось сохранить журналы", "Could not save the logs"),
                         Toast.LENGTH_LONG).show());
             }
         });
+    }
+
+    /** What the log came from: without the versions a log of a fixed bug looks like a new one. */
+    private String logHeader() {
+        String soundCloud = "?";
+        try {
+            soundCloud = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {
+        }
+        return "Arsound " + UpdateChecker.VERSION + ", SoundCloud " + soundCloud + ", " + getPackageName() + "\n"
+                + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                + ", Android " + android.os.Build.VERSION.RELEASE + " (API " + android.os.Build.VERSION.SDK_INT + ")\n"
+                + "Saved " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", java.util.Locale.US)
+                .format(new java.util.Date()) + "\n";
+    }
+
+    /**
+     * @param uri The saved file, or null if it cannot be shared (then only the path is shown).
+     */
+    private void showSavedLogs(String path, android.net.Uri uri) {
+        app.revanced.extension.soundcloud.shared.ArsoundDialog dialog = new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                .setTitle(text("Журналы сохранены", "The logs are saved"))
+                .setMessage(text("Файл: ", "File: ") + path + "\n\n"
+                        + text("Отправьте этот файл разработчику.", "Send this file to the developer."));
+        if (uri != null) {
+            dialog.setNegativeButton(text("Закрыть", "Close"), null);
+            dialog.setPositiveButton(text("Отправить", "Send"), (d, which) -> {
+                android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("text/plain")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                // Lets the share sheet itself read the file, so it shows the file name instead of its number.
+                send.setClipData(android.content.ClipData.newUri(getContentResolver(), path, uri));
+                startActivity(android.content.Intent.createChooser(send, text("Отправить журналы", "Send the logs")));
+            });
+        } else {
+            dialog.setPositiveButton(android.R.string.ok, null);
+        }
+        dialog.show();
     }
 
     private String networkDelayDescription() {
