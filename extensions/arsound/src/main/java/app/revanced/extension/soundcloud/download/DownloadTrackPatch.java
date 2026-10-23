@@ -655,6 +655,21 @@ public final class DownloadTrackPatch {
         return !file.exists();
     }
 
+    /**
+     * The file of a downloaded track as it stands, also one that cannot be read (made before a reinstall):
+     * for counting the space and for removing. Null if the file is not known or is gone.
+     */
+    public static java.io.File knownFile(String trackId) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || trackId == null) return null;
+        String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+        if (fileName == null) return null;
+        java.io.File file = new java.io.File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound/" + fileName);
+        if (!file.exists() && !fileName.contains(".")) file = new java.io.File(file.getPath() + ".mp3");
+        return file.exists() ? file : null;
+    }
+
     /** Whether the track was downloaded by Arsound, so a "delete" row makes sense for it. */
     public static boolean isDownloaded(String trackId) {
         return trackId != null && getDownloadedTracks().contains(trackId);
