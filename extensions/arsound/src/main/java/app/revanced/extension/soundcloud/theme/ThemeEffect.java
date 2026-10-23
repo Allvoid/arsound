@@ -40,7 +40,7 @@ public final class ThemeEffect extends Drawable implements Runnable {
     private final float dp;
     private final boolean night;
     private final int accent;
-    private final boolean still;
+    private boolean still;
     private final Particle[] particles;
     private final long start = SystemClock.uptimeMillis();
 
@@ -95,6 +95,17 @@ public final class ThemeEffect extends Drawable implements Runnable {
         this.accent = accent;
         this.still = isStill(context);
         this.particles = build(kind, density);
+    }
+
+    /**
+     * Stops or restarts the animation after battery saver or Android's animations were switched while it was on
+     * screen. Without this it stayed as it was made until the app restarted.
+     */
+    public void refreshStill(Context context) {
+        boolean now = isStill(context);
+        if (now == still) return;
+        still = now;
+        invalidateSelf();
     }
 
     private static boolean isStill(Context context) {
