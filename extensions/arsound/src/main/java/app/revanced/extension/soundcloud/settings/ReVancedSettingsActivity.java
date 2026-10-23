@@ -1286,6 +1286,33 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(deleteRow);
         countDownloads();
 
+        // Unplayed tracks: off by default; their files are deleted, which the texts say plainly.
+        LinearLayout unplayedOptions = new LinearLayout(this);
+        unplayedOptions.setOrientation(LinearLayout.VERTICAL);
+        TextView[] unplayedDescription = new TextView[1];
+        View unplayedToggle = createToggleRow(
+                text("Удалять файлы неслушанных треков", "Delete files of unplayed tracks"),
+                text("Если скачанный трек не слушали дольше срока ниже, его файл удаляется с телефона. Трек остаётся "
+                                + "в SoundCloud: его можно слушать из сети и скачать снова. Проверка — при запуске приложения.",
+                        "If a downloaded track was not played for longer than the period below, its file is deleted from "
+                                + "the phone. The track stays in SoundCloud: it can be streamed and downloaded again. "
+                                + "Checked when the app starts."),
+                app.revanced.extension.soundcloud.download.UnplayedDownloads.isEnabled(),
+                (button, checked) -> {
+                    Settings.putBoolean(app.revanced.extension.soundcloud.download.UnplayedDownloads.ENABLED, checked);
+                    unplayedOptions.setVisibility(checked ? View.VISIBLE : View.GONE);
+                    countUnplayed(unplayedDescription[0]);
+                }
+        );
+        list.addView(unplayedToggle);
+        View periodRow = createActionRow(text("Срок", "Period"), "", v -> chooseUnplayedPeriod(unplayedDescription[0]));
+        unplayedDescription[0] = (TextView) ((ViewGroup) periodRow).getChildAt(1);
+        unplayedOptions.addView(periodRow);
+        unplayedOptions.setVisibility(app.revanced.extension.soundcloud.download.UnplayedDownloads.isEnabled()
+                ? View.VISIBLE : View.GONE);
+        list.addView(unplayedOptions);
+        countUnplayed(unplayedDescription[0]);
+
         list.addView(createSubHeading(text("Кэш потоков", "Stream cache")));
         View cacheRow = openScreenRow(text("Кэш потоков", "Stream cache"), "", SCREEN_PLAYBACK);
         TextView cacheDescription = (TextView) ((ViewGroup) cacheRow).getChildAt(1);
@@ -1300,6 +1327,80 @@ public final class ReVancedSettingsActivity extends Activity {
                     "Used: " + size + ". Parts of tracks streamed from the network. Size, lifetime and clearing are "
                             + "in Offline and playback.")));
         });
+    }
+
+    /** The chosen period and how many tracks fall under it now. */
+    private void countUnplayed(TextView description) {
+        String period = daysText(app.revanced.extension.soundcloud.download.UnplayedDownloads.days());
+        description.setText(period);
+        Utils.runOnBackgroundThread(() -> {
+            java.util.List<Object[]> tracks = app.revanced.extension.soundcloud.download.UnplayedDownloads.unplayed();
+            long bytes = 0;
+            for (Object[] track : tracks) bytes += ((java.io.File) track[1]).length();
+            String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
+            Utils.runOnMainThread(() -> description.setText(period + "\n" + (tracks.isEmpty()
+                    ? text("Сейчас под это не попадает ни один трек.", "No track falls under it now.")
+                    : text("Сейчас под это попадает: " + tracksText(tracks.size()) + ", " + size + ".",
+                    "Falls under it now: " + tracks.size() + (tracks.size() == 1 ? " track, " : " tracks, ") + size + "."))));
+        });
+    }
+
+    private void chooseUnplayedPeriod(TextView description) {
+        long[] presets = {7, 30, 90, 365};
+        String[] labels = {daysText(7), daysText(30), daysText(90), daysText(365),
+                text("Своё число дней…", "Custom number of days…")};
+        new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                .setTitle(text("Не слушали дольше", "Not played for longer than"))
+                .setItems(labels, (dialog, which) -> {
+                    if (which < presets.length) {
+                        Settings.putLong(app.revanced.extension.soundcloud.download.UnplayedDownloads.DAYS, presets[which]);
+                        countUnplayed(description);
+                    } else {
+                        enterUnplayedDays(description);
+                    }
+                })
+                .show();
+    }
+
+    private void enterUnplayedDays(TextView description) {
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setHint(text("От 1 до 365", "From 1 to 365"));
+        input.setText(String.valueOf(app.revanced.extension.soundcloud.download.UnplayedDownloads.days()));
+        // Typing replaces the current value.
+        input.setSelectAllOnFocus(true);
+        input.requestFocus();
+        LinearLayout form = new LinearLayout(this);
+        form.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        form.addView(input, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                .setTitle(text("Сколько дней", "How many days"))
+                .setView(form)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    long days;
+                    try {
+                        days = Long.parseLong(input.getText().toString().trim());
+                    } catch (NumberFormatException ex) {
+                        days = 0;
+                    }
+                    if (days < 1 || days > app.revanced.extension.soundcloud.download.UnplayedDownloads.MAX_DAYS) {
+                        Toast.makeText(this, text("Нужно число от 1 до 365", "Enter a number from 1 to 365"),
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    Settings.putLong(app.revanced.extension.soundcloud.download.UnplayedDownloads.DAYS, days);
+                    countUnplayed(description);
+                })
+                .show();
+    }
+
+    /** "1 день", "3 дня", "30 дней", "год". */
+    private static String daysText(long days) {
+        if (days == 365) return text("Год", "A year");
+        long tens = days % 100, ones = days % 10;
+        String word = tens >= 11 && tens <= 14 ? "дней" : ones == 1 ? "день" : ones >= 2 && ones <= 4 ? "дня" : "дней";
+        return text(days + " " + word, days + (days == 1 ? " day" : " days"));
     }
 
     /** The downloaded tracks: how many, and the bytes of their files that are there. */
