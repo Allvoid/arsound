@@ -2114,7 +2114,8 @@ public final class ReVancedSettingsActivity extends Activity {
         Utils.runOnBackgroundThread(() -> {
             java.io.File[] playbackFiles = app.revanced.extension.shared.debug.PlaybackLog.files();
             String modLog = app.revanced.extension.shared.debug.LogFile.read();
-            if (playbackFiles.length == 0 && modLog.isEmpty()) {
+            String crashes = app.revanced.extension.soundcloud.debug.CrashLog.report(this);
+            if (playbackFiles.length == 0 && modLog.isEmpty() && crashes.isEmpty()) {
                 Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
                         .setTitle(text("Журналов пока нет", "No logs yet"))
                         .setMessage(app.revanced.extension.soundcloud.debug.PlaybackTimeline.isEnabled()
@@ -2158,6 +2159,10 @@ public final class ReVancedSettingsActivity extends Activity {
 
                 try (java.io.OutputStream out = output) {
                     out.write(logHeader().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    // Crashes first: they are what a user who saw the app close sends the file for.
+                    if (!crashes.isEmpty()) {
+                        out.write(("\n" + crashes).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
                     for (java.io.File file : playbackFiles) {
                         out.write(("\n==== " + file.getName() + " ====\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
                         try (java.io.InputStream input = new java.io.FileInputStream(file)) {
