@@ -44,6 +44,7 @@ DESIGNS = {
 GROUPS = {
     "scarlet": ("Алые", "Scarlet"), "cobalt": ("Синие", "Blue"), "mint": ("Мятные", "Mint"),
     "sakura": ("Розовые", "Pink"), "lime": ("Лаймовые", "Lime"),
+    "winter": ("Зимние", "Winter"),
 }
 START, END = "// region design icons (tools/branding/design_icons.py)", "// endregion design icons"
 

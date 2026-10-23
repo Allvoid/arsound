@@ -1,6 +1,6 @@
 # Playback log
 
-Off by default: Settings → Arsound → Developer → Playback log, applies after a restart. It records why a track starts slowly.
+On by default (Settings → Arsound → Developer → Playback log, a change applies after a restart). It records every track start and switch, so a playback bug a user reports can be looked at afterwards.
 
 - SoundCloud logs every playback step through Timber. The release app plants no tree, so the lines are lost.
   `PlaybackTimeline` plants one at app start and writes playback lines, all warnings and errors,
@@ -13,7 +13,11 @@ Off by default: Settings → Arsound → Developer → Playback log, applies aft
   the network at that moment, errors on the way and, for slow starts, the likely cause.
 - A pause mid-track while waiting for data is logged as `STALL` with its length.
 
-Pull the logs:
+A user saves the logs with Settings → Arsound → Developer → "Save the logs" (the first row): the playback log files
+and the mod log (`arsound-log.txt`, if it is on) go into one file `Downloads/arsound-logs-YYYY-MM-DD-HHmm.txt`
+with the Arsound, SoundCloud and Android versions on top. The app shows the path and offers to send the file.
+
+Pull the logs with adb:
 
 ```
 adb pull /sdcard/Android/data/com.soundcloud.android.revanced/files/playback-log

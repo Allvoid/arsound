@@ -139,6 +139,14 @@ final class AppIconList {
             {"d_kawaii_lime", "Каваи", "Kawaii", "Лаймовые", "Lime"},
             {"d_night_lime", "Ночная", "Night", "Лаймовые", "Lime"},
             {"d_sticker_lime", "Стикер", "Sticker", "Лаймовые", "Lime"},
+            {"d_alaya_winter", "Плитка", "Tile", "Зимние", "Winter"},
+            {"d_noir_winter", "Буква", "Letter", "Зимние", "Winter"},
+            {"d_glow_winter", "Свечение", "Glow", "Зимние", "Winter"},
+            {"d_blood_winter", "Глубокая", "Deep", "Зимние", "Winter"},
+            {"d_sakura_winter", "Цветы", "Flowers", "Зимние", "Winter"},
+            {"d_kawaii_winter", "Каваи", "Kawaii", "Зимние", "Winter"},
+            {"d_night_winter", "Ночная", "Night", "Зимние", "Winter"},
+            {"d_sticker_winter", "Стикер", "Sticker", "Зимние", "Winter"},
             // endregion design icons
     };
 

@@ -22,6 +22,7 @@ import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
 import app.arsound.patches.soundcloud.player.equalizerPatch
 import app.arsound.patches.soundcloud.player.listeningStatsPatch
+import app.arsound.patches.soundcloud.player.notificationArtworkPatch
 import app.arsound.patches.soundcloud.player.streamCachePatch
 import app.arsound.patches.soundcloud.recommendations.duplicateFilterPatch
 import app.arsound.patches.soundcloud.upsell.hideSubscriptionOffersPatch
@@ -71,6 +72,7 @@ val arsoundBaseGroup = arsoundGroup(
     disableTelemetryPatch,
     playerBarLogPatch,
     playbackTimelinePatch,
+    notificationArtworkPatch,
 )
 
 @Suppress("unused")

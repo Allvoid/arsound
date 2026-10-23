@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- arsound:one-look: the player is dark in every mode, so this file keeps the dark colours. -->
+<!-- New player (beta): SoundCloud's track page with the same views and ids, restyled in the theme. The artwork
+     fades into the theme's background at the top and under the waveform, the title and artist stand on that fade
+     without black boxes, the waveform is in the accent. -->
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@id/player_track_page" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:importantForAccessibility="no" android:layoutDirection="ltr">
+    <View android:id="@id/track_page_background" android:background="${bg}" android:layout_width="match_parent" android:layout_height="match_parent" />
+    <FrameLayout android:id="@id/banner_ad_container" android:background="@drawable/banner_ad_container_border" android:visibility="gone" android:layout_width="match_parent" android:layout_height="@dimen/player_banner_ad_height" android:layout_marginBottom="@dimen/spacing_s" android:layout_marginStart="@dimen/spacing_m" android:layout_marginEnd="@dimen/spacing_m" />
+    <!-- The fades lie on the artwork itself as its foreground: views next to it do not cover a moving (video) artwork. -->
+    <com.soundcloud.android.artwork.PlayerTrackArtworkView android:id="@id/track_page_artwork" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginBottom="-40.0dp" android:layout_above="@id/player_bottom_bar" android:layout_below="@id/banner_ad_container" android:importantForAccessibility="no" android:foreground="@drawable/arsound_${theme}__arsound_player_artwork_fade">
+        <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="@integer/waveform_ratio_top" />
+        <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="@integer/waveform_ratio_top" />
+    </com.soundcloud.android.artwork.PlayerTrackArtworkView>
+    <com.google.android.material.imageview.ShapeableImageView android:id="@id/artwork_overlay_dark" android:layout_below="@id/banner_ad_container" style="@style/PlayerTrackArtworkOverlay" />
+    <View android:id="@id/track_page_top_left_corner" android:layout_below="@id/banner_ad_container" android:rotation="90.0" android:layout_width="24.0dp" android:layout_height="24.0dp" android:background="@drawable/arsound_${theme}__arsound_player_corner" />
+    <View android:id="@id/track_page_top_right_corner" android:layout_below="@id/banner_ad_container" android:rotation="180.0" android:layout_alignParentEnd="true" android:layout_width="24.0dp" android:layout_height="24.0dp" android:background="@drawable/arsound_${theme}__arsound_player_corner" />
+    <LinearLayout android:orientation="vertical" android:id="@id/waveform_container" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_above="@id/player_bottom_bar" android:layout_below="@id/banner_ad_container">
+        <com.soundcloud.android.player.progress.waveform.WaveformView android:id="@id/track_page_waveform" android:paddingTop="@dimen/timestamp_height" android:visibility="gone" android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="@integer/waveform_ratio_bottom" style="@style/Waveform"
+            app:progressAbove="${accent}" app:progressBelow="${accent@45}" app:unplayedAbove="#E6FFFFFF" app:unplayedBelow="${text2@40}" app:maskPaint="#66FFFFFF" />
+    </LinearLayout>
+    <com.soundcloud.android.player.ui.TimestampView android:id="@id/timestamp" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_above="@id/player_bottom_bar" android:layout_below="@id/banner_ad_container" android:importantForAccessibility="noHideDescendants" />
+    <androidx.compose.ui.platform.ComposeView android:id="@id/quick_comments_compose_view" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_alignBottom="@id/waveform_container" />
+    <include android:id="@id/player_bottom_bar" android:layout_width="match_parent" android:layout_height="@dimen/player_bottom_bar" android:layout_marginTop="@dimen/spacing_m" android:layout_alignParentBottom="true" layout="@layout/player_action_button_bar" />
+    <LinearLayout android:orientation="horizontal" android:id="@id/track_page_header" android:layout_width="wrap_content" android:layout_height="wrap_content" android:baselineAligned="false" android:layout_below="@id/banner_ad_container" android:layout_marginStart="@dimen/spacing_m" android:layout_alignParentStart="true" android:layout_alignParentEnd="true">
+        <LinearLayout android:orientation="vertical" android:id="@id/track_info" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_weight="1.0" android:paddingTop="@dimen/spacing_s">
+            <LinearLayout android:orientation="vertical" android:id="@id/profile_link" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                <com.soundcloud.android.ui.components.text.ShrinkWrapTextView android:id="@id/track_page_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textAlignment="viewStart" style="@style/Widget.SoundCloud.Card.Text.Title"
+                    app:shrinkwrap_background="#00000000" android:textSize="24sp" android:lineSpacingExtra="2sp" android:textColor="#FFFFFFFF"
+                    android:shadowColor="#80000000" android:shadowRadius="10" android:shadowDy="1" />
+                <com.soundcloud.android.ui.components.text.ShrinkWrapTextView android:id="@id/track_page_user" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textAlignment="viewStart" style="@style/Widget.SoundCloud.Card.Text.Username"
+                    app:shrinkwrap_background="#00000000" android:textSize="16sp" android:textColor="${pink}"
+                    android:shadowColor="#80000000" android:shadowRadius="8" android:shadowDy="1" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:id="@id/track_page_follower_exclusive" android:background="@drawable/player_follower_exclusive_badge_bg" android:paddingTop="@dimen/spacing_xxs" android:paddingBottom="@dimen/spacing_xxs" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_xxs" android:paddingStart="@dimen/spacing_s" android:paddingEnd="@dimen/spacing_s">
+                <ImageView android:layout_width="16.0dp" android:layout_height="16.0dp" android:src="@drawable/ic_labels_follower_exclusive" android:importantForAccessibility="no" />
+                <com.soundcloud.android.ui.components.text.ShrinkWrapTextView android:id="@id/track_page_follower_exclusive_text" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/follower_exclusive_label" android:contentDescription="@string/follower_exclusive_label" android:layout_marginStart="4.0dp" style="@style/PlayerFollowerExclusiveLabel" />
+            </LinearLayout>
+            <!-- ShrinkWrapTextView paints its own line boxes and ignores a background; SoundCloud hides this line for
+                 some tracks, so it gets no frame around it either (an empty frame would stay). -->
+            <com.soundcloud.android.ui.components.text.ShrinkWrapTextView android:gravity="center_vertical" android:id="@id/track_page_behind" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_xs" android:text="@string/track_page_behind_track" android:drawablePadding="@dimen/player_shrinkwrap_padding" android:layout_marginEnd="@dimen/spacing_l" style="@style/Widget.SoundCloud.Card.Text.Meta"
+                app:shrinkwrap_background="#00000000" android:textColor="${text2}" android:shadowColor="#80000000" android:shadowRadius="6" />
+            <com.soundcloud.android.ui.components.text.ShrinkWrapTextView android:gravity="center_vertical" android:id="@id/track_page_context" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/spacing_xs" android:drawablePadding="@dimen/player_shrinkwrap_padding" style="@style/Widget.SoundCloud.Card.Text.Meta"
+                app:shrinkwrap_background="#00000000" android:textColor="${text2}" />
+        </LinearLayout>
+        <include android:id="@id/player_expanded_top_bar" android:layout_width="wrap_content" android:layout_height="wrap_content" layout="@layout/player_vertical_top_bar" />
+    </LinearLayout>
+    <include android:id="@id/play_controls" android:layout_width="match_parent" android:layout_height="match_parent" layout="@layout/player_play_controls" />
+    <ViewStub android:id="@id/track_page_empty_stub" android:layout="@layout/track_page_empty" android:inflatedId="@id/track_page_empty" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_below="@id/banner_ad_container" />
+    <ViewStub android:id="@id/track_page_error_stub" android:background="@null" android:layout="@layout/track_page_error" android:inflatedId="@id/track_page_error" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_below="@id/banner_ad_container" />
+    <include android:id="@id/footer_controls" android:layout_width="match_parent" android:layout_height="@dimen/player_footer_control" android:layout_marginBottom="@dimen/spacing_xs" android:layout_marginHorizontal="@dimen/mini_player_horizontal_padding" layout="@layout/player_footer_controls" />
+    <androidx.compose.ui.platform.ComposeView android:id="@id/emoji_animation_container_compose_view" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginBottom="@dimen/spacing_xs" />
+</RelativeLayout>

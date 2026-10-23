@@ -138,6 +138,14 @@ internal val APP_ICONS = listOf(
     "d_kawaii_lime",
     "d_night_lime",
     "d_sticker_lime",
+    "d_alaya_winter",
+    "d_noir_winter",
+    "d_glow_winter",
+    "d_blood_winter",
+    "d_sakura_winter",
+    "d_kawaii_winter",
+    "d_night_winter",
+    "d_sticker_winter",
     // endregion design icons
 )
 
@@ -212,5 +220,13 @@ internal val BITMAP_APP_ICONS = setOf(
     "d_kawaii_lime",
     "d_night_lime",
     "d_sticker_lime",
+    "d_alaya_winter",
+    "d_noir_winter",
+    "d_glow_winter",
+    "d_blood_winter",
+    "d_sakura_winter",
+    "d_kawaii_winter",
+    "d_night_winter",
+    "d_sticker_winter",
     // endregion design icons
 )

@@ -16,8 +16,8 @@ import java.util.concurrent.Executors;
 import app.revanced.extension.shared.Utils;
 
 /**
- * Personal build only: a playback log that is always written and kept for two days,
- * to find out why switching tracks is slow on a bad connection.
+ * A playback log kept for two days, to find out afterwards what went wrong with playback:
+ * a user who hit a bug saves it with one button and sends the file.
  * <p>
  * One file per day in {@code Android/data/<package>/files/playback-log/}, so it can be pulled with adb
  * without root. Files older than {@link #KEEP_MS} are deleted when a new day starts.
@@ -44,8 +44,28 @@ public final class PlaybackLog {
     private PlaybackLog() {
     }
 
-    /** Off unless the user turned the playback log on: then nothing is written. */
+    /** Off only if the user turned the playback log off: then nothing is written. */
     public static volatile boolean enabled;
+
+    /**
+     * The kept files, oldest day first. Waits a moment for lines that are still being written,
+     * so a saved copy includes what happened right before.
+     */
+    public static File[] files() {
+        try {
+            writer.submit(() -> {
+            }).get(2, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+        }
+
+        File directory = getDirectory();
+        File[] files = directory == null ? null : directory.listFiles(
+                (dir, name) -> name.startsWith("playback-") && name.endsWith(".txt"));
+        if (files == null) return new File[0];
+        // The names hold the date as yyyy-MM-dd, so sorting by name sorts by day.
+        java.util.Arrays.sort(files, (a, b) -> a.getName().compareTo(b.getName()));
+        return files;
+    }
 
     /** Appends one line. Never throws and never blocks the calling thread. */
     public static void append(String tag, String message) {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- arsound:one-look: the player is dark in every mode, so this file keeps the dark colours. -->
+<!-- New player (beta): the time over the waveform on a rounded pill of the theme instead of a black box. -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+    <View android:layout_width="match_parent" android:layout_height="0.0dp" android:layout_weight="1.0" />
+    <FrameLayout android:id="@id/timestamp_holder" android:layout_width="match_parent" android:layout_height="@dimen/player_waveform_height">
+        <RelativeLayout android:layout_gravity="top" android:id="@id/timestamp_layout" android:layout_width="match_parent" android:layout_height="@dimen/timestamp_height" android:layout_marginTop="@dimen/waveform_baseline_minus_timestamp_height">
+            <View android:id="@id/timestamp_background" android:background="@drawable/arsound_${theme}__arsound_player_timestamp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignLeft="@id/timestamp_progress" android:layout_alignRight="@id/timestamp_duration" android:layout_alignParentTop="true" android:layout_alignParentBottom="true" />
+            <View android:id="@id/timestamp_divider" android:background="@color/slightly_gray" android:layout_width="1.0dp" android:layout_height="@dimen/spacing_s" android:layout_centerInParent="true" />
+            <com.soundcloud.android.ui.components.text.SoundCloudTextView android:textAppearance="@style/Captions.Secondary.Dark" android:id="@id/timestamp_duration" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_toRightOf="@id/timestamp_divider" android:layout_centerVertical="true" android:paddingHorizontal="@dimen/spacing_xs" />
+            <com.soundcloud.android.ui.components.text.SoundCloudTextView android:textAppearance="@style/Captions.Light" android:id="@id/timestamp_progress" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_toLeftOf="@id/timestamp_divider" android:layout_centerVertical="true" android:paddingHorizontal="@dimen/spacing_xs" android:textColor="${accent}" />
+        </RelativeLayout>
+        <com.soundcloud.android.ui.components.text.SoundCloudTextView android:textAppearance="@style/Captions.Light" android:gravity="center_vertical" android:layout_gravity="center|top" android:id="@id/timestamp_preview" android:background="@drawable/arsound_${theme}__arsound_player_timestamp" android:visibility="invisible" android:layout_width="wrap_content" android:layout_height="@dimen/timestamp_height" android:layout_marginTop="@dimen/waveform_baseline" android:text="@string/upsell_track_preview" android:textAllCaps="true" android:paddingHorizontal="@dimen/spacing_xs" />
+    </FrameLayout>
+</merge>
