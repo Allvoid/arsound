@@ -298,6 +298,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private View searchBar;
     private EditText searchField;
     private boolean searchOpen;
+    private android.animation.Animator searchReveal;
     private SettingsSearchIndex searchIndex;
     private java.util.Set<SettingsSearchIndex.Entry> shownResults = new java.util.HashSet<>();
 
@@ -490,6 +491,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 if (keyboard != null) keyboard.showSoftInput(searchField, 0);
             }
         });
+        cancelReveal();
+        searchReveal = grow;
         grow.start();
 
         searchTitleRow.animate().alpha(0f).setDuration(220).start();
@@ -521,6 +524,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 searchField.setText("");
             }
         });
+        cancelReveal();
+        searchReveal = shrink;
         shrink.start();
 
         searchTitleRow.animate().alpha(1f).setStartDelay(140).setDuration(240).start();
@@ -533,6 +538,12 @@ public final class ReVancedSettingsActivity extends Activity {
         searchSections.setAlpha(0f);
         searchSections.setVisibility(View.VISIBLE);
         searchSections.animate().alpha(1f).setStartDelay(120).setDuration(260).start();
+    }
+
+    /** A quick tap on the button again must not run the growing and the shrinking of the field at once. */
+    private void cancelReveal() {
+        if (searchReveal != null) searchReveal.cancel();
+        searchReveal = null;
     }
 
     /** The middle of the search button, in the coordinates of the field: where the field starts to grow. */
@@ -656,7 +667,9 @@ public final class ReVancedSettingsActivity extends Activity {
     private void revealRow(String title) {
         if (screenScroll == null || screenScroll.getChildCount() == 0) return;
         View content = screenScroll.getChildAt(0);
-        TextView label = findLabel(content, title);
+        // The row, not a sub-heading that happens to carry the same words.
+        TextView label = findLabel(content, title, true);
+        if (label == null) label = findLabel(content, title, false);
         if (label == null) return;
         View row = label;
         // A row is its title two levels up: the title line (or the constraint layout) inside the row container.
@@ -689,12 +702,17 @@ public final class ReVancedSettingsActivity extends Activity {
         pulse.start();
     }
 
-    private static TextView findLabel(View view, String title) {
-        if (view instanceof TextView && title.contentEquals(((TextView) view).getText())) return (TextView) view;
+    private static TextView findLabel(View view, String title, boolean inClickableRow) {
+        if (view instanceof TextView && title.contentEquals(((TextView) view).getText())) {
+            // A row container is two levels above its title and takes the tap.
+            View row = view.getParent() instanceof View && ((View) view.getParent()).getParent() instanceof View
+                    ? (View) ((View) view.getParent()).getParent() : null;
+            if (!inClickableRow || row != null && row.hasOnClickListeners()) return (TextView) view;
+        }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                TextView found = findLabel(group.getChildAt(i), title);
+                TextView found = findLabel(group.getChildAt(i), title, inClickableRow);
                 if (found != null) return found;
             }
         }

@@ -362,10 +362,18 @@ public final class PlayerCipher {
         AtomicReference<String> result = new AtomicReference<>();
         String script = "(function(){var v=window." + function + "(" + jsStringLiteral(input) + ");"
                 + "return v==null?null:String(v);})()";
-        main.post(() -> solver.evaluateJavascript(script, value -> {
-            result.set(unquoteJsString(value));
-            answered.countDown();
-        }));
+        main.post(() -> {
+            // The solver may have been dropped by a timeout while this waited for the main thread.
+            WebView current = solver;
+            if (current == null) {
+                answered.countDown();
+                return;
+            }
+            current.evaluateJavascript(script, value -> {
+                result.set(unquoteJsString(value));
+                answered.countDown();
+            });
+        });
         if (!answered.await(JS_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
             dropSolver(main);
             throw new IOException(function + " did not answer");

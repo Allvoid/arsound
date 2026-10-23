@@ -53,6 +53,10 @@ public final class CustomDns {
     }
 
     private static final Map<String, Entry> cache = new ConcurrentHashMap<>();
+    /** Hosts the custom servers failed for, until when: the system resolver answers them without the long wait. */
+    private static final Map<String, Long> failedUntil = new ConcurrentHashMap<>();
+    private static final long FAILURE_KEPT_MS = 30_000;
+    private static final int MAX_CACHED_HOSTS = 500;
 
     private CustomDns() {
     }
@@ -80,6 +84,9 @@ public final class CustomDns {
 
         Entry cached = cache.get(host);
         if (cached != null && cached.expiresAt > System.currentTimeMillis()) return cached.addresses;
+        // Unreachable servers cost several seconds per attempt; every new connection must not pay them again.
+        Long failed = failedUntil.get(host);
+        if (failed != null && failed > System.currentTimeMillis()) return null;
 
         String mode = Settings.getDnsMode();
         long[] ttl = new long[1];
@@ -93,14 +100,20 @@ public final class CustomDns {
         }
         if (result == null || result.isEmpty()) {
             Logger.printInfo(() -> "Custom DNS could not resolve " + host + ", using system DNS");
+            if (failedUntil.size() >= MAX_CACHED_HOSTS) failedUntil.clear();
+            failedUntil.put(host, System.currentTimeMillis() + FAILURE_KEPT_MS);
             return null;
         }
 
+        // Hosts of CDN shards come in thousands over a long session: the cache does not grow for ever.
+        if (cache.size() >= MAX_CACHED_HOSTS) cache.clear();
+        failedUntil.remove(host);
         cache.put(host, new Entry(result, ttl[0]));
         return result;
     }
 
     public static void clearCache() {
+        failedUntil.clear();
         cache.clear();
     }
 

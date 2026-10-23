@@ -160,8 +160,11 @@ public final class ForYou {
 
     /** Builds the playlist again. Blocks: call it off the main thread. */
     public static void refresh(Listener listener) {
-        if (running) return;
-        running = true;
+        // The midnight job and the button can start together: only one of them builds, or two playlists appear.
+        synchronized (ForYou.class) {
+            if (running) return;
+            running = true;
+        }
         String result;
         boolean filled = false;
         lastOutcome = Outcome.RETRY;
@@ -222,8 +225,11 @@ public final class ForYou {
     public static String artistKey(String artist) {
         String value = artist == null ? "" : artist.toLowerCase(Locale.ROOT);
         // The first of several artists: "A, B", "A & B", "A feat. B".
-        value = value.split("\\s*(,|&|\\bfeat\\.?|\\bft\\.?|\\bx\\b|\\bи\\b)\\s*")[0];
-        return value.replaceAll("[^\\p{L}\\p{N}]+", "");
+        String[] parts = value.split("\\s*(,|&|\\bfeat\\.?|\\bft\\.?|\\bx\\b|\\bи\\b)\\s*");
+        String key = (parts.length == 0 ? "" : parts[0]).replaceAll("[^\\p{L}\\p{N}]+", "");
+        // An artist called "X" or "&", or one that starts with a separator word ("X Ambassadors"), has nothing before it:
+        // the whole name is the key then, instead of an empty one that matches every such artist.
+        return key.isEmpty() ? value.replaceAll("[^\\p{L}\\p{N}]+", "") : key;
     }
 
     static String songKey(String artist, String title) {
@@ -466,15 +472,23 @@ public final class ForYou {
         for (int i = 0; i < Math.min(EXPANDED_ARTISTS, topArtists.size()); i++) {
             String artist = artistNames.get(topArtists.get(i).getKey());
             report(listener, text("Похожие исполнители: ", "Similar artists: ") + artist);
+            List<LastFm.Song> related;
             try {
-                for (LastFm.Song similar : LastFm.similarArtists(artist, 5)) {
+                related = LastFm.similarArtists(artist, 5);
+            } catch (java.io.IOException ex) {
+                Logger.printInfo(() -> "For you: no similar artists for " + artist + ": " + ex);
+                continue;
+            }
+            for (LastFm.Song similar : related) {
+                // One failed request costs one artist, not the rest of the list.
+                try {
                     List<String> titles = LastFm.topTracks(similar.artist, 2);
                     for (int k = 0; k < titles.size(); k++) {
                         addCandidate(candidates, known, similar.artist, titles.get(k), 0.6 * similar.match * (1 - 0.3 * k));
                     }
+                } catch (java.io.IOException ex) {
+                    Logger.printInfo(() -> "For you: no top songs for " + similar.artist + ": " + ex);
                 }
-            } catch (java.io.IOException ex) {
-                Logger.printInfo(() -> "For you: no similar artists for " + artist + ": " + ex);
             }
         }
 
@@ -563,7 +577,11 @@ public final class ForYou {
                         Logger.printInfo(() -> "For you: SoundCloud search failed for " + key + ": " + ex);
                         continue;
                     }
-                    cache.put(key, new JSONObject().put("urn", urn).put("time", now));
+                    // A match read from the cache keeps its first date, so it expires after two weeks, however often it is used.
+                    JSONObject earlier = cache.optJSONObject(key);
+                    long since = earlier != null && urn.equals(earlier.optString("urn"))
+                            && now - earlier.optLong("time") < MATCH_KEPT_MS ? earlier.optLong("time") : now;
+                    cache.put(key, new JSONObject().put("urn", urn).put("time", since));
                     if (urn.isEmpty() || disliked.contains(urn) || entries.contains(urn)) continue;
                     // The last batch may find more than the playlist takes.
                     if (entries.size() >= PLAYLIST_SIZE) continue;

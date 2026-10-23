@@ -111,9 +111,19 @@ public final class ListeningStats {
         String pending = preferences == null ? null : preferences.getString(PENDING, null);
         String[] parts = pending == null ? new String[0] : pending.split("\t");
         if (parts.length != 3 || !parts[1].equals(urn)) return false;
+        long start;
+        long played;
+        try {
+            start = Long.parseLong(parts[0]);
+            played = Long.parseLong(parts[2]);
+        } catch (NumberFormatException ex) {
+            // A damaged mark of an earlier listen: forgotten, or it would be read again at every track.
+            if (preferences != null) preferences.edit().remove(PENDING).apply();
+            return false;
+        }
         currentUrn = urn;
-        currentStart = Long.parseLong(parts[0]);
-        playedMs = Long.parseLong(parts[2]);
+        currentStart = start;
+        playedMs = played;
         playingSince = 0;
         Logger.printInfo(() -> "Listening stats: the listen saved at the pause goes on: " + urn);
         return true;
@@ -259,8 +269,17 @@ public final class ListeningStats {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         String[] parts = line.split("\t");
-                        if (parts.length != 3 || Long.parseLong(parts[0]) < since) continue;
-                        long played = Long.parseLong(parts[2]);
+                        long started;
+                        long played;
+                        try {
+                            if (parts.length != 3) continue;
+                            started = Long.parseLong(parts[0]);
+                            played = Long.parseLong(parts[2]);
+                        } catch (NumberFormatException ex) {
+                            // One damaged line must not hide the rest of the history.
+                            continue;
+                        }
+                        if (started < since) continue;
                         Entry entry = tracks.get(parts[1]);
                         if (entry == null) tracks.put(parts[1], entry = new Entry(parts[1]));
                         entry.playedMs += played;

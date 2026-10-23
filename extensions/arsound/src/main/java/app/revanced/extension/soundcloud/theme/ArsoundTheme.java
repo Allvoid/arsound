@@ -111,6 +111,8 @@ public final class ArsoundTheme {
     }
 
     private static int parse(String hex) {
+        // A role missing from themes.json gives an empty string; a pink placeholder is better than no theme at all.
+        if (hex == null || hex.length() < 2) return 0xFFFF00FF;
         String value = hex.substring(1);
         // #rrggbbaa as in the design, to Android's aarrggbb.
         if (value.length() == 8) value = value.substring(6) + value.substring(0, 6);

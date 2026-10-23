@@ -178,11 +178,27 @@ public final class LocalMusic {
         return "track-" + System.currentTimeMillis() + ".mp3";
     }
 
+    private static String cutToBytes(String text, int limit) {
+        int bytes = 0;
+        int end = 0;
+        while (end < text.length()) {
+            int point = text.codePointAt(end);
+            int size = new String(Character.toChars(point)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (bytes + size > limit) break;
+            bytes += size;
+            end += Character.charCount(point);
+        }
+        return text.substring(0, end);
+    }
+
     private static File uniqueFile(File directory, String name) {
         File file = new File(directory, name);
         int dot = name.lastIndexOf('.');
         String base = dot > 0 ? name.substring(0, dot) : name;
         String extension = dot > 0 ? name.substring(dot) : "";
+        // A file name is at most 255 bytes, and a long title in Cyrillic or hieroglyphs needs two or three per letter.
+        base = cutToBytes(base, 200 - extension.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        file = new File(directory, base + extension);
         for (int i = 2; file.exists(); i++) file = new File(directory, base + " (" + i + ")" + extension);
         return file;
     }

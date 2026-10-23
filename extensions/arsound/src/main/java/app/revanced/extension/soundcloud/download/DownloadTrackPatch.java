@@ -307,6 +307,7 @@ public final class DownloadTrackPatch {
         if (code != HttpURLConnection.HTTP_OK) {
             int failed = code;
             Logger.printInfo(() -> "API request failed, HTTP " + failed + " for " + url);
+            connection.disconnect();
             return new String[]{String.valueOf(code), null};
         }
 
