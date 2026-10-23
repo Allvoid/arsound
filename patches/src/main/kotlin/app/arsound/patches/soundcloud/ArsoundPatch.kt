@@ -11,6 +11,7 @@ import app.arsound.patches.soundcloud.library.hideImportBannerPatch
 import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
 import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatch
+import app.arsound.patches.soundcloud.misc.playservices.playServicesDialogPatch
 import app.arsound.patches.soundcloud.misc.appname.appNamePatch
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
 import app.arsound.patches.soundcloud.misc.translation.russianTranslationPatch
@@ -48,6 +49,7 @@ private val basePatch = bytecodePatch {
         settingsPatch,
         accountTypePatch,
         removePhonePermissionPatch,
+        playServicesDialogPatch,
         appNamePatch,
         brandingPatch,
         russianTranslationPatch,
