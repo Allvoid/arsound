@@ -101,12 +101,15 @@ public final class ClientProfiles {
         public final String user;
         /** ALLOW, MONETIZE, SNIP (preview only) or BLOCK. */
         public final String policy;
+        /** Full length in milliseconds, 0 if the search did not say. */
+        public final long duration;
 
-        FoundTrack(String id, String title, String user, String policy) {
+        FoundTrack(String id, String title, String user, String policy, long duration) {
             this.id = id;
             this.title = title;
             this.user = user;
             this.policy = policy;
+            this.duration = duration;
         }
 
         /** Playable in full, not just a preview. */
@@ -128,7 +131,8 @@ public final class ClientProfiles {
             JSONObject track = collection.getJSONObject(i);
             JSONObject user = track.optJSONObject("user");
             tracks.add(new FoundTrack(String.valueOf(track.optLong("id")), track.optString("title"),
-                    user == null ? "" : user.optString("username"), track.optString("policy")));
+                    user == null ? "" : user.optString("username"), track.optString("policy"),
+                    track.optLong("full_duration", track.optLong("duration"))));
         }
         return tracks;
     }

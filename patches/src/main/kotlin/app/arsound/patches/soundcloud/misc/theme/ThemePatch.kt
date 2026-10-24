@@ -5,6 +5,7 @@ import app.revanced.patcher.definingClass
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.wideLiteral
 import app.revanced.patcher.gettingFirstMethodDeclaratively
@@ -42,6 +43,13 @@ private val BytecodePatchContext.shortcutHeaderStaticMethod by gettingFirstMetho
 private val BytecodePatchContext.sectionsShortcutsStaticMethod by gettingFirstMethodDeclaratively {
     name("<clinit>")
     definingClass("Lcom/soundcloud/android/sections/ui/components/ShortcutsKt;")
+}
+
+/** The picture behind a page title ("Your likes", purchases): CollapsableAppBarBackground.Drawable(resource, 1f). */
+private val BytecodePatchContext.appBarPictureMethod by gettingFirstMethodDeclaratively {
+    name("a")
+    definingClass("Lcom/soundcloud/android/ui/components/compose/toolbars/CollapsableAppBarBackground\$Companion;")
+    returnType("Lcom/soundcloud/android/ui/components/compose/toolbars/CollapsableAppBarBackground\$Drawable;")
 }
 
 /** Builds the rows of the Library tab ("Your likes", "Playlists", ...), each without a leading icon. */
@@ -317,6 +325,19 @@ val themePatch = bytecodePatch {
         val rows = addLibraryRowIcons(libraryHeaderItemConstructorMethod) +
             addLibraryRowIcon(libraryDownloadsStateMethod, "downloads")
         if (rows < 9) error("Library rows not found ($rows)")
+        // The picture behind a page title takes its opacity from HeaderArtwork (zero hides it): the constant 1f
+        // is replaced by the call, its result goes into the same register.
+        appBarPictureMethod.apply {
+            val index = indexOfFirstInstructionOrThrow { opcode == Opcode.CONST_HIGH16 }
+            val register = getInstruction<OneRegisterInstruction>(index).registerA
+            // The resource id is the last parameter, an int: the method's last register.
+            val resource = implementation!!.registerCount - 1
+            replaceInstruction(
+                index,
+                "invoke-static { v$resource }, Lapp/revanced/extension/soundcloud/theme/HeaderArtwork;->alpha(I)F",
+            )
+            addInstruction(index + 1, "move-result v$register")
+        }
         // The theme may lighten the veil over the "Your likes" bar, so the bar shows the theme's colours.
         for (method in listOf(shortcutHeaderStaticMethod, sectionsShortcutsStaticMethod)) {
             method.apply {

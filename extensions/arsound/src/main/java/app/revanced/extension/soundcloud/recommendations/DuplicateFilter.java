@@ -94,6 +94,11 @@ public final class DuplicateFilter {
         }
     }
 
+    /** The same song under two titles and lengths, whatever the user chose for the lists. For the "For you" playlist. */
+    static boolean sameSong(String titleA, long durationA, String titleB, long durationB) {
+        return song(titleA, durationA).sameAs(song(titleB, durationB));
+    }
+
     static boolean isEdited(String title) {
         String value = title == null ? "" : title.toLowerCase(Locale.ROOT);
         return EDIT_MARKERS.matcher(value).find() || SPEED.matcher(value).find();
