@@ -328,6 +328,14 @@ public final class Settings {
         return preferences == null || preferences.getBoolean(THEME_EFFECTS, true);
     }
 
+    public static final String HIDE_HEADER_ARTWORK = "hide_header_artwork";
+
+    /** Removes the picture behind the title of "Your likes" (the hearts) and of the purchases page. Off by default. */
+    public static boolean isHeaderArtworkHidden() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(HIDE_HEADER_ARTWORK, false);
+    }
+
     /** How many particles the theme animation draws, in percent of the design. */
     public static final String THEME_EFFECTS_DENSITY = "theme_effects_density";
 
