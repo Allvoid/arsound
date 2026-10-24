@@ -50,6 +50,16 @@ public final class YouTubeAccount {
         }
     }
 
+    /**
+     * YouTube took the requests of this network for a bot ("Sign in to confirm that you're not a bot"), and refused
+     * the web player with BotGuard tokens too. Without an account, signing in may help; with one, another network.
+     */
+    public static final class BotCheckException extends IOException {
+        BotCheckException(String message) {
+            super(message);
+        }
+    }
+
     private static SharedPreferences preferences() {
         Context context = Utils.getContext();
         return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
@@ -125,6 +135,22 @@ public final class YouTubeAccount {
     static AudioStream audio(String videoId) throws Exception {
         String cookies = cookies();
         if (cookies == null || cookie(cookies, "SAPISID") == null) throw new SignInRequiredException();
+        return webAudio(videoId, cookies);
+    }
+
+    /**
+     * The best audio of a track that NewPipe was refused as a bot: the app clients it asks as carry no proof
+     * that a real player is asking. The web player sends BotGuard's tokens, which YouTube often accepts
+     * from the same network, and the account is used if there is one.
+     */
+    static AudioStream botCheckedAudio(String videoId) throws Exception {
+        String cookies = cookies();
+        boolean signedIn = cookies != null && cookie(cookies, "SAPISID") != null;
+        return webAudio(videoId, signedIn ? cookies : null);
+    }
+
+    /** @param cookies The session of the account, or null to ask as a visitor. */
+    private static AudioStream webAudio(String videoId, String cookies) throws Exception {
         Context context = Utils.getContext();
         if (context == null) throw new IOException("No context");
 
@@ -160,12 +186,14 @@ public final class YouTubeAccount {
         connection.setRequestProperty("User-Agent", DESKTOP_USER_AGENT);
         connection.setRequestProperty("Origin", MUSIC_ORIGIN);
         connection.setRequestProperty("X-Origin", MUSIC_ORIGIN);
-        connection.setRequestProperty("X-Goog-AuthUser", "0");
         connection.setRequestProperty("X-YouTube-Client-Name", "67");
         connection.setRequestProperty("X-YouTube-Client-Version", version);
         if (visitorData != null) connection.setRequestProperty("X-Goog-Visitor-Id", visitorData);
-        connection.setRequestProperty("Cookie", cookies);
-        connection.setRequestProperty("Authorization", authorization(cookies, MUSIC_ORIGIN));
+        if (cookies != null) {
+            connection.setRequestProperty("X-Goog-AuthUser", "0");
+            connection.setRequestProperty("Cookie", cookies);
+            connection.setRequestProperty("Authorization", authorization(cookies, MUSIC_ORIGIN));
+        }
         try (OutputStream output = connection.getOutputStream()) {
             output.write(body.toString().getBytes(StandardCharsets.UTF_8));
         }
@@ -184,6 +212,12 @@ public final class YouTubeAccount {
             // kept. The saved session is dropped, else the sign-in page would find its cookies and save the
             // same dead session again.
             String lowerReason = reason.toLowerCase(Locale.ROOT);
+            if (cookies == null) {
+                if (lowerReason.contains("bot")) throw new BotCheckException("YouTube refused the visitor as a bot: " + reason);
+                // Age-restricted: a visitor never gets it.
+                if ("LOGIN_REQUIRED".equalsIgnoreCase(status)) throw new SignInRequiredException();
+                throw new IOException("YouTube refused the visitor request: " + status + " " + reason);
+            }
             // A signed-in account that has not confirmed its age is asked to "sign in to confirm your age": its
             // session is fine, and signing in again would change nothing.
             if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && lowerReason.contains("age")) {
@@ -193,6 +227,7 @@ public final class YouTubeAccount {
                 signOut();
                 throw new SignInRequiredException("YouTube no longer accepts the saved session: sign in again");
             }
+            if (lowerReason.contains("bot")) throw new BotCheckException("YouTube refused the account as a bot: " + reason);
             throw new IOException("YouTube refused the signed-in request: " + status + " " + reason);
         }
         if (!response.has("streamingData")) throw new IOException("No streaming data");
@@ -217,13 +252,13 @@ public final class YouTubeAccount {
                 .build();
     }
 
-    /** Visitor data, data sync id and client version from the YouTube Music page of the account. */
+    /** Visitor data, data sync id and client version from the YouTube Music page of the account or the visitor. */
     private static String[] musicPage(String cookies) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(MUSIC_ORIGIN + "/").openConnection();
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(30_000);
         connection.setRequestProperty("User-Agent", DESKTOP_USER_AGENT);
-        connection.setRequestProperty("Cookie", cookies);
+        if (cookies != null) connection.setRequestProperty("Cookie", cookies);
         String html;
         try (InputStream input = connection.getInputStream()) {
             html = read(input);

@@ -24,6 +24,9 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/upsell/HidePaywallPatch;"
 
+private const val UPGRADE_TAB_CLASS_DESCRIPTOR =
+    "Lapp/revanced/extension/soundcloud/upsell/UpgradeTabPage;"
+
 private const val EMPTY_ACTIVITY_CLASS = "app.revanced.extension.soundcloud.upsell.EmptyActivity"
 
 /**
@@ -34,6 +37,22 @@ internal val BytecodePatchContext.paywallSetupUiMethod by gettingFirstMethodDecl
     name("x")
     returnType("V")
     parameterTypes()
+}
+
+/**
+ * The subscription shop, drawn by the Upgrade tab. It sells only through Google Play, so in the mod it always
+ * ends in "Oops"; the tab explains that instead.
+ */
+internal val BytecodePatchContext.paywallFragmentCreateViewMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/payments/paywall/SimplePaywallFragment;")
+    name("onCreateView")
+    returnType("Landroid/view/View;")
+}
+
+internal val BytecodePatchContext.paywallFragmentViewCreatedMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/payments/paywall/SimplePaywallFragment;")
+    name("onViewCreated")
+    returnType("V")
 }
 
 internal val BytecodePatchContext.destinationPaywallIntentMethod by gettingFirstMethodDeclaratively {
@@ -219,6 +238,34 @@ val hideSubscriptionOffersPatch = bytecodePatch {
                     return-void
                 """,
                 ExternalLabel("show", getInstruction(0)),
+            )
+        }
+
+        // The Upgrade tab: an explanation instead of the shop that cannot sell anything here.
+        paywallFragmentCreateViewMethod.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    invoke-static { p1, p2 }, $UPGRADE_TAB_CLASS_DESCRIPTOR->createView(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Landroid/view/View;
+                    move-result-object v0
+                    if-eqz v0, :shop
+                    return-object v0
+                """,
+                ExternalLabel("shop", getInstruction(0)),
+            )
+        }
+        // Under the explanation the shop must not load its offers: their failure is the "Oops".
+        paywallFragmentViewCreatedMethod.apply {
+            val superIndex = indexOfFirstInstructionOrThrow(Opcode.INVOKE_SUPER)
+            addInstructionsWithLabels(
+                superIndex + 1,
+                """
+                    invoke-static { p1 }, $UPGRADE_TAB_CLASS_DESCRIPTOR->isPage(Landroid/view/View;)Z
+                    move-result v0
+                    if-eqz v0, :load
+                    return-void
+                """,
+                ExternalLabel("load", getInstruction(superIndex + 1)),
             )
         }
 

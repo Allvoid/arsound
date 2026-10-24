@@ -25,6 +25,7 @@ import app.arsound.patches.soundcloud.power.powerSavingPatch
 import app.arsound.patches.soundcloud.player.equalizerPatch
 import app.arsound.patches.soundcloud.player.listeningStatsPatch
 import app.arsound.patches.soundcloud.player.notificationArtworkPatch
+import app.arsound.patches.soundcloud.player.playModePatch
 import app.arsound.patches.soundcloud.player.streamCachePatch
 import app.arsound.patches.soundcloud.player.vivoMusicCardPatch
 import app.arsound.patches.soundcloud.recommendations.duplicateFilterPatch
@@ -77,6 +78,7 @@ val arsoundBaseGroup = arsoundGroup(
     playerBarLogPatch,
     playbackTimelinePatch,
     notificationArtworkPatch,
+    playModePatch,
     vivoMusicCardPatch,
 )
 
