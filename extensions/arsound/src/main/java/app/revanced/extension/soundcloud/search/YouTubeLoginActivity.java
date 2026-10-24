@@ -6,7 +6,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -45,30 +47,57 @@ public final class YouTubeLoginActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        web = new WebView(this);
-        WebSettings settings = web.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        // Google refuses sign-in in pages that call themselves an embedded browser ("; wv").
-        settings.setUserAgentString(settings.getUserAgentString().replace("; wv", ""));
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                String host = Uri.parse(url).getHost();
-                if (host == null || !host.endsWith("youtube.com")) return;
-                CookieManager.getInstance().flush();
-                if (YouTubeAccount.saveSession(null)) {
-                    Toast.makeText(YouTubeLoginActivity.this,
-                            text("Вход в YouTube Music выполнен", "Signed in to YouTube Music"), Toast.LENGTH_SHORT).show();
-                    setResult(RESULT_OK);
-                    finish();
+        try {
+            web = new WebView(this);
+            WebSettings settings = web.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            // Google refuses sign-in in pages that call themselves an embedded browser ("; wv").
+            settings.setUserAgentString(settings.getUserAgentString().replace("; wv", ""));
+            CookieManager.getInstance().setAcceptCookie(true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+            web.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    String host = url == null ? null : Uri.parse(url).getHost();
+                    if (host == null || !host.endsWith("youtube.com")) return;
+                    CookieManager.getInstance().flush();
+                    if (YouTubeAccount.saveSession(null)) {
+                        Toast.makeText(YouTubeLoginActivity.this,
+                                text("Вход в YouTube Music выполнен", "Signed in to YouTube Music"), Toast.LENGTH_SHORT).show();
+                        setResult(RESULT_OK);
+                        finish();
+                    }
                 }
-            }
-        });
-        setContentView(web);
-        web.loadUrl(START_URL);
+
+                @Override
+                public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                    // Not consumed, the framework would take the whole app down with the renderer.
+                    Logger.printInfo(() -> "YouTube login WebView render process gone");
+                    // A WebView whose renderer died cannot be used again: the screen closes, the next try starts fresh.
+                    try {
+                        if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
+                        view.destroy();
+                    } catch (RuntimeException ex) {
+                        Logger.printException(() -> "Could not close the crashed sign-in page", ex);
+                    }
+                    if (web == view) web = null;
+                    Toast.makeText(YouTubeLoginActivity.this,
+                            text("Страница входа закрылась, попробуйте ещё раз", "The sign-in page closed, try again"),
+                            Toast.LENGTH_SHORT).show();
+                    finish();
+                    return true;
+                }
+            });
+            setContentView(web);
+            web.loadUrl(START_URL);
+        } catch (RuntimeException | LinkageError ex) {
+            // No usable system WebView (disabled, removed, being updated): the screen closes, the app stays.
+            Logger.printException(() -> "WebView is not available", ex);
+            Toast.makeText(this, text("Нужен Android System WebView: он отключён или не установлен",
+                    "Android System WebView is disabled or missing"), Toast.LENGTH_LONG).show();
+            finish();
+        }
     }
 
     @Override

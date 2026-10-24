@@ -44,6 +44,10 @@ public final class YouTubeAccount {
         SignInRequiredException() {
             super("The track is age-restricted: sign in to YouTube Music");
         }
+
+        SignInRequiredException(String message) {
+            super(message);
+        }
     }
 
     private static SharedPreferences preferences() {
@@ -82,6 +86,10 @@ public final class YouTubeAccount {
         if (preferences != null) preferences.edit().clear().apply();
         CookieManager.getInstance().removeAllCookies(null);
         CookieManager.getInstance().flush();
+        // The hidden WebViews of the age-restricted lookups stay alive otherwise. Neither call waits for
+        // the lookup lock, which a lookup holds for tens of seconds: the sign-out click runs on the main thread.
+        PoTokenWebView.releaseAll();
+        PlayerCipher.releaseSolver();
     }
 
     private static String cookie(String cookies, String name) {
@@ -171,6 +179,20 @@ public final class YouTubeAccount {
         String status = playability == null ? "" : playability.optString("status");
         if (!"OK".equalsIgnoreCase(status)) {
             String reason = playability == null ? "" : playability.optString("reason");
+            // A session that Google revoked (signed out on all devices, new password) answers like a visitor
+            // with LOGIN_REQUIRED. A bot check asks for it too, but says nothing about the session, so it is
+            // kept. The saved session is dropped, else the sign-in page would find its cookies and save the
+            // same dead session again.
+            String lowerReason = reason.toLowerCase(Locale.ROOT);
+            // A signed-in account that has not confirmed its age is asked to "sign in to confirm your age": its
+            // session is fine, and signing in again would change nothing.
+            if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && lowerReason.contains("age")) {
+                throw new IOException("YouTube asks this account to confirm its age: " + reason);
+            }
+            if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && !lowerReason.contains("bot")) {
+                signOut();
+                throw new SignInRequiredException("YouTube no longer accepts the saved session: sign in again");
+            }
             throw new IOException("YouTube refused the signed-in request: " + status + " " + reason);
         }
         if (!response.has("streamingData")) throw new IOException("No streaming data");

@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.revanced.extension.shared.Logger;
@@ -62,18 +63,24 @@ public final class SearchSourceSwitch {
     private static final ExecutorService network = Executors.newFixedThreadPool(3);
     /** Album and artist searches, run next to the track search without taking its threads. */
     private static final ExecutorService extra = Executors.newFixedThreadPool(2);
+    /** Downloads have their own threads: a long queue of them must not hold back search, pages and previews. */
+    private static final ExecutorService downloads = Executors.newFixedThreadPool(2);
     /** Track URL → download percent, while downloading. Survives leaving and opening the tab again. */
     private static final Map<String, Integer> downloading = new HashMap<>();
     private static final Set<String> downloaded = new HashSet<>();
 
     private static WeakReference<Activity> activity = new WeakReference<>(null);
     private static ViewTreeObserver.OnGlobalLayoutListener layoutListener;
+    /** The decor that {@link #layoutListener} was added to, so the listener is removed from the right one. */
+    private static WeakReference<View> listenedDecor = new WeakReference<>(null);
     private static boolean arsoundSelected;
     private static WeakReference<Screen> screen = new WeakReference<>(null);
 
     private static MediaPlayer player;
     private static String playingUrl;
     private static boolean preparing;
+    /** Changes with every tap and every stop, so a stream lookup of an earlier tap cannot start a second player. */
+    private static volatile int previewToken;
     private static AudioFocusRequest focusRequest;
 
     private SearchSourceSwitch() {
@@ -101,8 +108,18 @@ public final class SearchSourceSwitch {
         if (!resumed.getClass().getName().endsWith(".MainActivity")) return;
         activity = new WeakReference<>(resumed);
         View decor = resumed.getWindow().getDecorView();
-        if (layoutListener != null) decor.getViewTreeObserver().removeOnGlobalLayoutListener(layoutListener);
-        layoutListener = () -> attach(decor);
+        // A recreated activity has a new decor: the old listener comes off the decor it was added to.
+        View previous = listenedDecor.get();
+        if (previous != null && layoutListener != null) {
+            previous.getViewTreeObserver().removeOnGlobalLayoutListener(layoutListener);
+        }
+        // The decor is held weakly: this static listener must not keep a destroyed activity alive.
+        WeakReference<View> weakDecor = new WeakReference<>(decor);
+        layoutListener = () -> {
+            View current = weakDecor.get();
+            if (current != null) attach(current);
+        };
+        listenedDecor = weakDecor;
         decor.getViewTreeObserver().addOnGlobalLayoutListener(layoutListener);
         attach(decor);
     }
@@ -146,7 +163,10 @@ public final class SearchSourceSwitch {
         final LinearLayout tabsBar;
         final LinearLayout tabs;
         String shownQuery;
-        int generation;
+        /** Changes with every search and page load; background work of an older one is dropped. */
+        volatile int generation;
+        /** Changes when the user goes back or changes the tab, which drops a page that is still loading. */
+        volatile int pageToken;
 
         Screen(LinearLayout coordinator, View soundCloudResults, EditText edit) {
             context = coordinator.getContext();
@@ -304,6 +324,9 @@ public final class SearchSourceSwitch {
             if (query.equals(shownQuery)) return;
             shownQuery = query;
             int current = ++generation;
+            // The tabs must not bring back the results of the previous query.
+            root = null;
+            shown = null;
             list.removeAllViews();
             rows.clear();
             if (query.isEmpty()) {
@@ -317,11 +340,17 @@ public final class SearchSourceSwitch {
             status.setVisibility(View.GONE);
             spinner.setVisibility(View.VISIBLE);
             network.execute(() -> {
+                // Typed over while waiting in the queue: the three requests are not needed any more.
+                if (current != generation) return;
                 // Albums and artists are asked for at the same time as tracks; their failure only hides them.
-                java.util.concurrent.Future<List<OtherSource.Album>> albums =
-                        extra.submit(() -> OtherSource.searchAlbums(query));
-                java.util.concurrent.Future<List<OtherSource.Artist>> artists =
-                        extra.submit(() -> OtherSource.searchArtists(query));
+                java.util.concurrent.Future<List<OtherSource.Album>> albums = extra.submit(() -> {
+                    if (current != generation) return new java.util.ArrayList<OtherSource.Album>();
+                    return OtherSource.searchAlbums(query);
+                });
+                java.util.concurrent.Future<List<OtherSource.Artist>> artists = extra.submit(() -> {
+                    if (current != generation) return new java.util.ArrayList<OtherSource.Artist>();
+                    return OtherSource.searchArtists(query);
+                });
                 List<OtherSource.Track> found = null;
                 Exception error = null;
                 try {
@@ -329,6 +358,12 @@ public final class SearchSourceSwitch {
                 } catch (Exception ex) {
                     error = ex;
                     Logger.printException(() -> "Arsound search failed", ex);
+                }
+                if (current != generation) {
+                    // Replaced while the tracks were searched: free this thread without waiting for the rest.
+                    albums.cancel(true);
+                    artists.cancel(true);
+                    return;
                 }
                 List<OtherSource.Album> foundAlbums = resultOrEmpty(albums);
                 List<OtherSource.Artist> foundArtists = resultOrEmpty(artists);
@@ -376,6 +411,8 @@ public final class SearchSourceSwitch {
             styleTabs();
             // Opened albums and artists belong to the results of the previous tab.
             back.clear();
+            // A page that is still loading belongs to the previous tab.
+            pageToken++;
             if (root != null) root.run();
         }
 
@@ -418,12 +455,16 @@ public final class SearchSourceSwitch {
             list.addView(linkRow(album.title, subtitle, () -> open(() -> showAlbum(album))));
         }
 
-        void addTracks(List<OtherSource.Track> tracks) {
+        /** Adds a row for each track and returns the rows that were added. */
+        List<Row> addTracks(List<OtherSource.Track> tracks) {
+            List<Row> added = new java.util.ArrayList<>(tracks.size());
             for (OtherSource.Track track : tracks) {
                 Row row = new Row(this, track);
                 rows.put(track.url, row);
                 list.addView(row.view);
+                added.add(row);
             }
+            return added;
         }
 
         /** Opens a page; the back row returns to the page shown now. */
@@ -434,7 +475,10 @@ public final class SearchSourceSwitch {
 
         void goBack() {
             Runnable previous = back.poll();
-            if (previous != null) previous.run();
+            if (previous == null) return;
+            // A page that is still loading is left behind; a page opened again takes a new token.
+            pageToken++;
+            previous.run();
         }
 
         /** Shows a page title with a back row, then loads the page content off the main thread. */
@@ -442,11 +486,14 @@ public final class SearchSourceSwitch {
                           java.util.function.Consumer<T> show) {
             shown = self;
             int current = ++generation;
+            int token = ++pageToken;
             clearList();
             list.addView(linkRow("←  " + text("Назад", "Back"), null, this::goBack));
             list.addView(header(title));
             spinner.setVisibility(View.VISIBLE);
             network.execute(() -> {
+                // Replaced or left while waiting in the queue: nothing to load.
+                if (current != generation || token != pageToken) return;
                 T value = null;
                 Exception error = null;
                 try {
@@ -458,7 +505,7 @@ public final class SearchSourceSwitch {
                 T loaded = value;
                 boolean failed = error != null;
                 handler.post(() -> {
-                    if (current != generation) return;
+                    if (current != generation || token != pageToken) return;
                     spinner.setVisibility(View.GONE);
                     if (failed) {
                         list.addView(note(text("Не получилось открыть: проверьте интернет.",
@@ -483,11 +530,13 @@ public final class SearchSourceSwitch {
                     list.addView(note(text("В альбоме нет треков.", "The album has no tracks.")));
                     return;
                 }
+                // Only the tracks of this album: the count in the row has to match what is downloaded.
+                List<Row> albumRows = new java.util.ArrayList<>();
                 list.addView(linkRow(text("Скачать всё", "Download all") + " (" + tracks.size() + ")",
                         text("В плейлист «Импортированные»", "To the imported music"), () -> {
-                            for (Row row : new java.util.ArrayList<>(rows.values())) startDownload(row);
+                            for (Row row : albumRows) startDownload(row);
                         }));
-                addTracks(tracks);
+                albumRows.addAll(addTracks(tracks));
             });
         }
 
@@ -648,17 +697,21 @@ public final class SearchSourceSwitch {
         stopPreview();
         Context context = row.screen.context.getApplicationContext();
         String url = row.track.url;
+        final int token = ++previewToken;
         playingUrl = url;
         preparing = true;
         refreshScreen();
         network.execute(() -> {
+            // Stopped or tapped again while waiting in the queue: no need to look the stream up.
+            if (token != previewToken) return;
             try {
                 AudioStream stream = OtherSource.bestAudio(url);
                 OtherSource.PartSource source = new OtherSource.PartSource(stream.getContent());
                 handler.post(() -> {
-                    if (!url.equals(playingUrl)) return;
+                    if (token != previewToken) return;
+                    MediaPlayer created = null;
                     try {
-                        MediaPlayer created = new MediaPlayer();
+                        created = new MediaPlayer();
                         created.setAudioAttributes(new AudioAttributes.Builder()
                                 .setUsage(AudioAttributes.USAGE_MEDIA)
                                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -683,13 +736,21 @@ public final class SearchSourceSwitch {
                         created.prepareAsync();
                     } catch (Exception ex) {
                         Logger.printException(() -> "Could not start the preview", ex);
+                        // A player that did not reach the field yet is not released by stopPreview.
+                        if (created != null && created != player) {
+                            try {
+                                created.release();
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        source.close();
                         stopPreview();
                     }
                 });
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not get the stream", ex);
                 handler.post(() -> {
-                    if (!url.equals(playingUrl)) return;
+                    if (token != previewToken) return;
                     stopPreview();
                     if (needsSignIn(ex)) {
                         offerSignIn();
@@ -703,6 +764,8 @@ public final class SearchSourceSwitch {
     }
 
     private static void stopPreview() {
+        // Drops the stream lookup and the player start of the preview that is being stopped.
+        previewToken++;
         if (player != null) {
             try {
                 player.release();
@@ -734,54 +797,66 @@ public final class SearchSourceSwitch {
         context.getSystemService(AudioManager.class).requestAudioFocus(focusRequest);
     }
 
+    /** Redraws one row: a download tick or an end must not redraw the whole list. */
+    private static void refreshRow(String url) {
+        Screen current = screen.get();
+        Row row = current == null ? null : current.rows.get(url);
+        if (row != null) row.refresh();
+    }
+
     private static void startDownload(Row row) {
         String url = row.track.url;
         if (downloading.containsKey(url) || downloaded.contains(url)) return;
         Context context = row.screen.context.getApplicationContext();
         OtherSource.Track track = row.track;
         downloading.put(url, 0);
-        refreshScreen();
-        network.execute(() -> {
+        refreshRow(url);
+        downloads.execute(() -> {
+            // The audio is written to a part file that the library does not list, and moved into the
+            // imported music when whole: a killed download must not leave a cut track there.
+            File part = null;
             File file = null;
+            boolean finished = false;
             try {
                 for (int attempt = 1; ; attempt++) {
                     AudioStream stream = OtherSource.bestAudio(url);
                     String name = (track.artist.isEmpty() ? "" : track.artist + " - ") + track.title
                             + "." + OtherSource.extensionOf(stream);
-                    file = LocalMusic.newImportFile(context, name);
+                    part = LocalMusic.newPartFile(context);
                     int[] shown = {-1};
-                    try (OutputStream output = new FileOutputStream(file)) {
+                    try (OutputStream output = new FileOutputStream(part)) {
                         OtherSource.download(stream.getContent(), output, value -> {
                             if (value == shown[0]) return;
                             shown[0] = value;
                             handler.post(() -> {
                                 if (downloading.containsKey(url)) downloading.put(url, value);
-                                refreshScreen();
+                                refreshRow(url);
                             });
                         });
-                        break;
                     } catch (OtherSource.RefusedException ex) {
                         //noinspection ResultOfMethodCallIgnored
-                        file.delete();
+                        part.delete();
                         if (attempt >= 3) throw ex;
+                        continue;
                     }
+                    file = LocalMusic.moveIntoImports(context, part, name);
+                    break;
                 }
                 app.revanced.extension.soundcloud.local.LocalCovers.save(file, track.coverUrl);
                 LocalMusic.onFileAdded();
+                finished = true;
                 handler.post(() -> {
                     downloading.remove(url);
                     downloaded.add(url);
-                    refreshScreen();
+                    refreshRow(url);
                     toast(context, text("Скачано: «" + track.title + "» — в плейлисте «Импортированные»",
                             "Downloaded \"" + track.title + "\" to the imported music"));
                 });
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not download " + url, ex);
-                if (file != null) //noinspection ResultOfMethodCallIgnored
-                    file.delete();
                 handler.post(() -> {
                     downloading.remove(url);
-                    refreshScreen();
+                    refreshRow(url);
                     if (needsSignIn(ex)) {
                         offerSignIn();
                         return;
@@ -792,6 +867,14 @@ public final class SearchSourceSwitch {
                             : text("Не получилось скачать «" + track.title + "».",
                             "Could not download \"" + track.title + "\"."));
                 });
+            } finally {
+                // Also for an Error, which the catch above does not take.
+                if (!finished) {
+                    if (part != null) //noinspection ResultOfMethodCallIgnored
+                        part.delete();
+                    if (file != null) //noinspection ResultOfMethodCallIgnored
+                        file.delete();
+                }
             }
         });
     }
@@ -803,8 +886,10 @@ public final class SearchSourceSwitch {
 
     private static <T> List<T> resultOrEmpty(java.util.concurrent.Future<List<T>> future) {
         try {
-            return future.get();
+            // The tracks wait for this: a stuck lookup must not hold them for ever.
+            return future.get(20, TimeUnit.SECONDS);
         } catch (Exception ex) {
+            future.cancel(true);
             Logger.printException(() -> "Arsound album or artist search failed", ex);
             return new java.util.ArrayList<>();
         }

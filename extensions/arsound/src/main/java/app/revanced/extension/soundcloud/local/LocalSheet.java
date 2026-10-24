@@ -38,14 +38,20 @@ public final class LocalSheet {
     private LocalSheet() {
     }
 
-    public static void show(Context context, String title, String subtitle, List<Item> items) {
-        show(context, title, subtitle, items, null);
+    /** Rows built when the sheet opens, and added each time the list is scrolled near its end. */
+    private static final int ROWS_PER_STEP = 40;
+
+    /** @return The dialog shown, or null if the sheet could not be shown. */
+    public static Dialog show(Context context, String title, String subtitle, List<Item> items) {
+        return show(context, title, subtitle, items, null);
     }
 
     /**
      * @param onCancel Runs when the sheet is closed without choosing an item (swipe, tap outside, back).
+     *                 It does not run if the sheet could not be shown: the result is null then.
+     * @return The dialog shown, or null if the sheet could not be shown.
      */
-    public static void show(Context context, String title, String subtitle, List<Item> items, Runnable onCancel) {
+    public static Dialog show(Context context, String title, String subtitle, List<Item> items, Runnable onCancel) {
         try {
             Dialog dialog = (Dialog) Class.forName("com.google.android.material.bottomsheet.BottomSheetDialog")
                     .getConstructor(Context.class, int.class)
@@ -91,22 +97,47 @@ public final class LocalSheet {
 
             LinearLayout list = new LinearLayout(context);
             list.setOrientation(LinearLayout.VERTICAL);
-            for (Item item : items) {
-                list.addView(DownloadTrackPatch.createMenuRow(context, item.title, item.icon, v -> {
-                    chosen[0] = true;
-                    dialog.dismiss();
-                    if (item.action != null) item.action.run();
-                }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            }
+            // A long list (a whole imported library) is built a part at a time: all rows at once are a long frame
+            // on the main thread and a lot of views.
+            List<Item> rows = new ArrayList<>(items);
+            int[] built = {0};
+            Runnable buildNextRows = () -> {
+                int end = Math.min(built[0] + ROWS_PER_STEP, rows.size());
+                for (; built[0] < end; built[0]++) {
+                    Item item = rows.get(built[0]);
+                    list.addView(DownloadTrackPatch.createMenuRow(context, item.title, item.icon, v -> {
+                        chosen[0] = true;
+                        dialog.dismiss();
+                        if (item.action != null) item.action.run();
+                    }), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                }
+            };
+            buildNextRows.run();
             ScrollView scroll = new ScrollView(context);
             scroll.addView(list);
+            if (rows.size() > ROWS_PER_STEP) {
+                scroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+                    // Less than one screen left below: add the next rows before the end is reached.
+                    if (built[0] < rows.size() && list.getBottom() - (scrollY + scroll.getHeight()) < scroll.getHeight()) {
+                        try {
+                            buildNextRows.run();
+                        } catch (Exception ex) {
+                            // The sheet is open already, so a failing row must not close the app; the list ends here.
+                            Logger.printException(() -> "Could not add more rows to the sheet", ex);
+                            built[0] = rows.size();
+                        }
+                    }
+                });
+            }
             content.addView(scroll);
 
             content.setBackgroundColor(themeColor(context, "themeColorSurface"));
             dialog.setContentView(content);
             dialog.show();
+            return dialog;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not show the sheet", ex);
+            return null;
         }
     }
 

@@ -14,9 +14,11 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -41,6 +43,18 @@ public final class ListeningStats {
     /** The listen in progress, saved on every pause so it survives the app being closed. */
     private static final String PENDING = "pending";
     private static final String TITLES = "titles";
+    /**
+     * Tracks the server did not return when their titles were asked for (deleted, private, blocked in
+     * the region), by track id, with the time of the answer.
+     */
+    private static final String NOT_FOUND = "not_found";
+    private static final long NOT_FOUND_RETRY_MS = 3L * 24 * 60 * 60 * 1000;
+
+    /**
+     * Guards the history file. The listen in progress is guarded by the class itself instead: the
+     * player calls the hooks below on its own thread and must not wait for a file to be read.
+     */
+    private static final Object FILE_LOCK = new Object();
 
     private static String currentUrn;
     private static long currentStart;
@@ -186,7 +200,7 @@ public final class ListeningStats {
     private static void append(long start, String urn, long played) {
         Logger.printInfo(() -> "Listening stats: " + urn + " played " + played / 1000 + " s");
         Utils.runOnBackgroundThread(() -> {
-            synchronized (ListeningStats.class) {
+            synchronized (FILE_LOCK) {
                 File file = file();
                 if (file == null) return;
                 //noinspection ResultOfMethodCallIgnored
@@ -202,6 +216,8 @@ public final class ListeningStats {
 
     public static synchronized void clear() {
         File file = file();
+        // Not under FILE_LOCK: this is called on the main thread, which must not wait for a reader. A reader
+        // that has the file open finishes the old history, and a listen written just now is lost with it.
         //noinspection ResultOfMethodCallIgnored
         if (file != null) file.delete();
         SharedPreferences preferences = preferences();
@@ -242,13 +258,19 @@ public final class ListeningStats {
         Map<String, Long> result = new HashMap<>();
         File file = file();
         if (file == null || !file.isFile()) return result;
-        synchronized (ListeningStats.class) {
+        synchronized (FILE_LOCK) {
             try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     String[] parts = line.split("\t");
                     if (parts.length != 3) continue;
-                    long start = Long.parseLong(parts[0]);
+                    long start;
+                    try {
+                        start = Long.parseLong(parts[0]);
+                    } catch (NumberFormatException ex) {
+                        // One damaged line must not hide the rest of the history: the tracks after it would count as unplayed.
+                        continue;
+                    }
                     Long known = result.get(parts[1]);
                     if (known == null || known < start) result.put(parts[1], start);
                 }
@@ -264,7 +286,7 @@ public final class ListeningStats {
         Map<String, Entry> tracks = new HashMap<>();
         File file = file();
         if (file != null && file.isFile()) {
-            synchronized (ListeningStats.class) {
+            synchronized (FILE_LOCK) {
                 try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -373,12 +395,9 @@ public final class ListeningStats {
      */
     private static void resolveTitles(List<Entry> entries) {
         SharedPreferences preferences = preferences();
-        JSONObject titles;
-        try {
-            titles = new JSONObject(preferences == null ? "{}" : preferences.getString(TITLES, "{}"));
-        } catch (Exception ex) {
-            titles = new JSONObject();
-        }
+        JSONObject titles = storedObject(preferences, TITLES);
+        JSONObject notFound = storedObject(preferences, NOT_FOUND);
+        long now = System.currentTimeMillis();
         List<String> missing = new ArrayList<>();
         for (Entry entry : entries) {
             File local = LocalAdditions.importedFileOf(entry.key);
@@ -406,19 +425,30 @@ public final class ListeningStats {
         List<String> ids = new ArrayList<>();
         for (String urn : missing) {
             String id = DownloadTrackPatch.parseTrackId(urn);
-            if (id != null) ids.add(id);
+            // A track the server did not return a short while ago is not asked for again at once.
+            if (id != null && now - notFound.optLong(id, 0) > NOT_FOUND_RETRY_MS) ids.add(id);
         }
         for (int start = 0; start < ids.size(); start += 50) {
             try {
+                List<String> batch = ids.subList(start, Math.min(ids.size(), start + 50));
                 String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks?ids="
-                        + String.join(",", ids.subList(start, Math.min(ids.size(), start + 50))));
+                        + String.join(",", batch));
                 if (response[1] == null) break;
                 JSONArray array = new JSONArray(response[1]);
+                Set<String> returned = new HashSet<>();
                 for (int i = 0; i < array.length(); i++) {
                     JSONObject track = array.getJSONObject(i);
                     JSONObject user = track.optJSONObject("user");
                     putTitle(titles, "soundcloud:tracks:" + track.getLong("id"), track.optString("title"),
                             user == null ? "" : user.optString("username"));
+                    returned.add(String.valueOf(track.getLong("id")));
+                    changed = true;
+                }
+                // The answer was read to the end, so an id missing from it is not available to this user.
+                // Not marked after a failure: a dropped connection must not look like a deleted track.
+                for (String id : batch) {
+                    if (returned.contains(id)) continue;
+                    notFound.put(id, now);
                     changed = true;
                 }
             } catch (Exception ex) {
@@ -426,7 +456,9 @@ public final class ListeningStats {
                 break;
             }
         }
-        if (changed && preferences != null) preferences.edit().putString(TITLES, titles.toString()).apply();
+        if (changed && preferences != null) {
+            preferences.edit().putString(TITLES, titles.toString()).putString(NOT_FOUND, notFound.toString()).apply();
+        }
 
         for (Entry entry : entries) {
             if (entry.title != null) continue;
@@ -437,6 +469,14 @@ public final class ListeningStats {
                 entry.title = entry.key;
                 entry.artist = "";
             }
+        }
+    }
+
+    private static JSONObject storedObject(SharedPreferences preferences, String key) {
+        try {
+            return new JSONObject(preferences == null ? "{}" : preferences.getString(key, "{}"));
+        } catch (Exception ex) {
+            return new JSONObject();
         }
     }
 

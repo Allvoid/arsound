@@ -237,7 +237,8 @@ public class Utils {
 
     /**
      * General purpose pool for network calls and other background tasks.
-     * All tasks run at max thread priority.
+     * Tasks run at normal priority: file copies and downloads at max priority took frames from the screen
+     * on weak phones.
      */
     private static final ThreadPoolExecutor backgroundThreadPool = new ThreadPoolExecutor(
             3, // 3 threads always ready to go.
@@ -247,12 +248,19 @@ public class Utils {
             new SynchronousQueue<>(),
             r -> { // ThreadFactory
                 Thread t = new Thread(r);
-                t.setPriority(Thread.MAX_PRIORITY); // Run at max priority.
+                t.setPriority(Thread.NORM_PRIORITY);
                 return t;
             });
 
     public static void runOnBackgroundThread(Runnable task) {
-        backgroundThreadPool.execute(task);
+        backgroundThreadPool.execute(() -> {
+            try {
+                task.run();
+            } catch (Throwable ex) {
+                // An error thrown out of a pool thread ends the whole app; a failed background task should not.
+                Logger.printException(() -> "Background task failed", ex);
+            }
+        });
     }
 
     public static <T> Future<T> submitOnBackgroundThread(Callable<T> call) {

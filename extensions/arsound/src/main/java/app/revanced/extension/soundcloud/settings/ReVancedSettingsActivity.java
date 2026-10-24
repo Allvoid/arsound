@@ -1145,6 +1145,27 @@ public final class ReVancedSettingsActivity extends Activity {
             inRow++;
         }
         if (row != null) fillRow(row, inRow, columns);
+        loadIconPictures(cells, ids);
+    }
+
+    /**
+     * Puts the pictures into the grid one variant at a time, off the main thread. The bitmap variants are large
+     * images: all of them read at once freeze the screen for a while and take over a hundred megabytes.
+     */
+    private void loadIconPictures(java.util.List<View> cells, java.util.List<String> ids) {
+        int size = dp(60);
+        java.util.List<android.widget.ImageView> images = new java.util.ArrayList<>();
+        for (View cell : cells) images.add((android.widget.ImageView) ((ViewGroup) cell).getChildAt(0));
+        Utils.runOnBackgroundThread(() -> {
+            for (int i = 0; i < images.size(); i++) {
+                if (isFinishing() || isDestroyed()) return;
+                android.graphics.drawable.Drawable picture =
+                        app.revanced.extension.soundcloud.branding.AppIcons.thumbnail(this, ids.get(i), size);
+                if (picture == null) continue;
+                android.widget.ImageView image = images.get(i);
+                Utils.runOnMainThread(() -> image.setImageDrawable(picture));
+            }
+        });
     }
 
     /** Empty cells keep the last row of a group aligned with the full rows. */
@@ -1172,8 +1193,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 android.content.res.ColorStateList.valueOf(0x22888888), background, null);
         cell.setBackground(ripple);
 
+        // The picture comes later, see loadIconPictures.
         android.widget.ImageView image = new android.widget.ImageView(this);
-        image.setImageDrawable(app.revanced.extension.soundcloud.branding.AppIcons.drawable(this, icon.id));
         cell.addView(image, new LinearLayout.LayoutParams(dp(60), dp(60)));
 
         TextView name = createText("Body.Secondary", icon.name);
@@ -1304,8 +1325,10 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(row);
     }
 
+    /** The bands and presets of the phone do not change while the app runs, so they are read once. */
+    private static volatile app.revanced.extension.soundcloud.player.AudioEqualizer.Info equalizerInfo;
+
     private void addEqualizerSection(LinearLayout list) {
-        app.revanced.extension.soundcloud.player.AudioEqualizer.Info info = app.revanced.extension.soundcloud.player.AudioEqualizer.readInfo();
         LinearLayout options = new LinearLayout(this);
         options.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
@@ -1327,6 +1350,33 @@ public final class ReVancedSettingsActivity extends Activity {
         ));
         options.setVisibility(app.revanced.extension.soundcloud.player.AudioEqualizer.isEnabled() ? View.VISIBLE : View.GONE);
         list.addView(options);
+
+        app.revanced.extension.soundcloud.player.AudioEqualizer.Info known = equalizerInfo;
+        if (known != null) {
+            showEqualizerPanel(known, options);
+            return;
+        }
+        // Reading the effect is a series of calls to the audio service, so the screen opens first.
+        Utils.runOnBackgroundThread(() -> {
+            app.revanced.extension.soundcloud.player.AudioEqualizer.Info info =
+                    app.revanced.extension.soundcloud.player.AudioEqualizer.readInfo();
+            if (isComplete(info)) equalizerInfo = info;
+            Utils.runOnMainThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showEqualizerPanel(info, options);
+            });
+        });
+    }
+
+    /** Whether the read got every preset; a failed read is not kept, the next visit tries again. */
+    private static boolean isComplete(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info) {
+        if (info.centerFrequenciesHz.length == 0 || info.maxLevel <= info.minLevel) return false;
+        if (info.presets.length != info.presetLevels.length) return false;
+        for (short[] levels : info.presetLevels) if (levels == null) return false;
+        return true;
+    }
+
+    private void showEqualizerPanel(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info, LinearLayout options) {
         if (info.centerFrequenciesHz.length == 0) {
             options.addView(createText("Body.Secondary", text("Эквалайзер недоступен на этом телефоне.", "The equalizer is not available on this phone.")));
             return;
@@ -1346,6 +1396,8 @@ public final class ReVancedSettingsActivity extends Activity {
         private LinearLayout header, list;
         private android.widget.ImageView chevron;
         private EqualizerGraph graph;
+        /** What the header row says now, to tell a drag step (only the curve moves) from a new choice. */
+        private String shownTitle, shownNote;
 
         EqualizerPanel(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info, LinearLayout options) {
             this.info = info;
@@ -1452,6 +1504,14 @@ public final class ReVancedSettingsActivity extends Activity {
                 title = text("Своя настройка", "Custom");
                 note = text("Не сохранена", "Not saved");
             }
+            // Every step of a drag lands here: while the words stay the same, only the small curve is redrawn.
+            View thumbnail = header.findViewWithTag("curve");
+            if (thumbnail != null && title.equals(shownTitle) && note.equals(shownNote)) {
+                thumbnail.setBackground(curveThumbnail(shape));
+                return;
+            }
+            shownTitle = title;
+            shownNote = note;
             TextView old = header.getChildCount() > 0 ? (TextView) header.findViewWithTag("name") : null;
             boolean changed = old == null || !title.equals(old.getText().toString());
             header.removeAllViews();
@@ -1509,6 +1569,12 @@ public final class ReVancedSettingsActivity extends Activity {
             }
         }
 
+        /** A narrower scale than the big curve (±10 dB), so gentle presets still show their shape. */
+        private CurveThumbnail curveThumbnail(short[] shape) {
+            return new CurveThumbnail(shape, (short) -1000, (short) 1000, accent,
+                    (primary & 0x00FFFFFF) | 0x14000000, dp(1));
+        }
+
         /** A preset row: a small picture of its curve, the name and the note, a tick when chosen. */
         private View presetRow(String title, String note, short[] shape, boolean selected) {
             LinearLayout row = new LinearLayout(ReVancedSettingsActivity.this);
@@ -1518,9 +1584,8 @@ public final class ReVancedSettingsActivity extends Activity {
             row.setPadding(dp(14), dp(10), dp(14), dp(10));
 
             View curve = new View(ReVancedSettingsActivity.this);
-            // A narrower scale than the big curve (±10 dB), so gentle presets still show their shape.
-            curve.setBackground(new CurveThumbnail(shape, (short) -1000, (short) 1000, accent,
-                    (primary & 0x00FFFFFF) | 0x14000000, dp(1)));
+            curve.setTag("curve");
+            curve.setBackground(curveThumbnail(shape));
             LinearLayout.LayoutParams curveParams = new LinearLayout.LayoutParams(dp(56), dp(36));
             curveParams.rightMargin = dp(14);
             row.addView(curve, curveParams);
@@ -1631,6 +1696,9 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private void showStats(LinearLayout content) {
+        // Counts run in parallel and can finish in any order: only the latest call may paint.
+        Object token = new Object();
+        content.setTag(token);
         content.removeAllViews();
         content.addView(createText("Body.Secondary", text("Считаю…", "Counting…")));
         long days = Settings.getLong("stats_period", 30);
@@ -1639,6 +1707,7 @@ public final class ReVancedSettingsActivity extends Activity {
             app.revanced.extension.soundcloud.player.ListeningStats.Summary summary =
                     app.revanced.extension.soundcloud.player.ListeningStats.summarize(since, 10);
             Utils.runOnMainThread(() -> {
+                if (content.getTag() != token || isFinishing() || isDestroyed()) return;
                 content.removeAllViews();
                 TextView total = createText("H4.Primary", text("Прослушано: ", "Listened: ") + duration(summary.playedMs));
                 total.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), 0);
@@ -1814,10 +1883,12 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Удалять и импортированные треки", "Delete imported tracks too"),
                 text("Треки, импортированные с телефона, тоже удаляются по этому сроку. Выключено — они не "
                                 + "удаляются никогда. Удалённый трек можно импортировать снова, если исходный файл "
-                                + "ещё есть на телефоне.",
+                                + "ещё есть на телефоне. Копии скачанных треков, которые удалены в SoundCloud, не "
+                                + "удаляются никогда.",
                         "Tracks imported from the phone are deleted by the same period too. Off: they are never "
                                 + "deleted. A deleted track can be imported again while its original file is still "
-                                + "on the phone."),
+                                + "on the phone. Copies of downloaded tracks that SoundCloud deleted are never "
+                                + "deleted."),
                 app.revanced.extension.soundcloud.download.UnplayedDownloads.isImportedIncluded(),
                 (button, checked) -> {
                     Settings.putBoolean(app.revanced.extension.soundcloud.download.UnplayedDownloads.IMPORTED, checked);
@@ -1974,33 +2045,76 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /**
+     * Downloads whose files the app could not remove and handed to Android's confirmation. Static, so the answer is
+     * still matched with them if the screen is recreated while that dialog is open.
+     */
+    private static java.util.List<String> undeletedDownloadIds = new java.util.ArrayList<>();
+
+    /**
      * Removes every downloaded file. Files made before a reinstall belong to the old install for Android, so the app
      * may not remove them itself: those are handed to Android's own confirmation (Android 11 and later).
+     * A track whose file is still there stays in the list, until Android has removed the file.
      */
     private void deleteAllDownloads() {
         downloadsDescription.setText(text("Удаляю…", "Deleting…"));
         Utils.runOnBackgroundThread(() -> {
             java.util.List<String> left = new java.util.ArrayList<>();
+            java.util.List<String> keptIds = new java.util.ArrayList<>();
             int deleted = 0;
             for (String id : app.revanced.extension.soundcloud.download.DownloadTrackPatch.getDownloadedTrackIds()) {
                 java.io.File file = app.revanced.extension.soundcloud.download.DownloadTrackPatch.knownFile(id);
-                app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                boolean removed = app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                if (!removed) keptIds.add(id);
                 if (file != null && file.exists()) left.add(file.getName());
-                else deleted++;
+                else if (removed) deleted++;
             }
             int done = deleted;
             java.util.List<android.net.Uri> uris = mediaStoreUris(left);
             Utils.runOnMainThread(() -> {
                 Toast.makeText(this, text("Удалено: " + tracksText(done), "Deleted: " + done), Toast.LENGTH_SHORT).show();
+                boolean asked = false;
                 if (!uris.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
                     try {
+                        undeletedDownloadIds = keptIds;
                         startIntentSenderForResult(android.provider.MediaStore.createDeleteRequest(getContentResolver(), uris)
                                 .getIntentSender(), REQUEST_DELETE_DOWNLOADS, null, 0, 0, 0);
+                        asked = true;
                     } catch (Exception ex) {
+                        undeletedDownloadIds = new java.util.ArrayList<>();
                         Logger.printException(() -> "Could not ask to delete the old downloads", ex);
                     }
                 }
+                if (!asked && !left.isEmpty()) {
+                    int remaining = left.size();
+                    Toast.makeText(this, text("Не удалось удалить файлов: " + remaining
+                                    + ". Разрешите доступ к музыке или удалите их в файловом менеджере.",
+                            "Could not delete " + remaining + (remaining == 1 ? " file" : " files")
+                                    + ": allow access to music or remove them in a file manager."),
+                            Toast.LENGTH_LONG).show();
+                }
                 countDownloads();
+            });
+        });
+    }
+
+    /** After Android's delete dialog: tracks whose files are gone are forgotten, the others stay in the list. */
+    private void forgetRemovedDownloads() {
+        java.util.List<String> ids = undeletedDownloadIds;
+        undeletedDownloadIds = new java.util.ArrayList<>();
+        if (ids.isEmpty()) {
+            if (downloadsDescription != null) countDownloads();
+            return;
+        }
+        Utils.runOnBackgroundThread(() -> {
+            for (String id : ids) {
+                try {
+                    app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not update the downloaded track " + id, ex);
+                }
+            }
+            Utils.runOnMainThread(() -> {
+                if (downloadsDescription != null) countDownloads();
             });
         });
     }
@@ -2618,8 +2732,10 @@ public final class ReVancedSettingsActivity extends Activity {
             String name = "arsound-logs-"
                     + new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US)
                     .format(new java.util.Date()) + ".txt";
+            // Kept outside the try, so a failed write can remove the half-written file.
+            android.net.Uri uri = null;
+            java.io.File logFile = null;
             try {
-                android.net.Uri uri = null;
                 String shownPath;
                 java.io.OutputStream output;
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
@@ -2628,6 +2744,8 @@ public final class ReVancedSettingsActivity extends Activity {
                     values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
                     values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
                             android.os.Environment.DIRECTORY_DOWNLOADS);
+                    // Hidden from Downloads until the whole file is written.
+                    values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
                     uri = getContentResolver().insert(
                             android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
                     if (uri == null) throw new java.io.IOException("The file could not be created");
@@ -2637,6 +2755,7 @@ public final class ReVancedSettingsActivity extends Activity {
                     // Before Android 10 the app cannot write to Downloads without a permission.
                     java.io.File base = getExternalFilesDir(null);
                     java.io.File file = new java.io.File(base != null ? base : getFilesDir(), name);
+                    logFile = file;
                     output = new java.io.FileOutputStream(file);
                     shownPath = file.getAbsolutePath();
                 }
@@ -2661,15 +2780,32 @@ public final class ReVancedSettingsActivity extends Activity {
                     }
                 }
 
+                if (uri != null) {
+                    android.content.ContentValues done = new android.content.ContentValues();
+                    done.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+                    getContentResolver().update(uri, done, null, null);
+                }
+
                 android.net.Uri saved = uri;
                 Utils.runOnMainThread(() -> showSavedLogs(shownPath, saved));
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not save the logs", ex);
+                discardLogFile(uri, logFile);
                 Utils.runOnMainThread(() -> Toast.makeText(this,
                         text("Не удалось сохранить журналы", "Could not save the logs"),
                         Toast.LENGTH_LONG).show());
             }
         });
+    }
+
+    /** Removes a half-written log file, so failed attempts do not pile up in Downloads. */
+    private void discardLogFile(android.net.Uri uri, java.io.File file) {
+        try {
+            if (uri != null) getContentResolver().delete(uri, null, null);
+            if (file != null && file.exists() && !file.delete()) Logger.printInfo(() -> "Could not remove " + file);
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not remove the unfinished log file: " + ex);
+        }
     }
 
     /** What the log came from: without the versions a log of a fixed bug looks like a new one. */
@@ -2756,7 +2892,14 @@ public final class ReVancedSettingsActivity extends Activity {
                             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
                             .setType("audio/*")
                             .putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
-                    startActivityForResult(intent, REQUEST_IMPORT);
+                    try {
+                        startActivityForResult(intent, REQUEST_IMPORT);
+                    } catch (android.content.ActivityNotFoundException | SecurityException ex) {
+                        // Some firmware has no system document picker.
+                        Logger.printException(() -> "Could not open the file picker", ex);
+                        Toast.makeText(this, text("Не найдено приложение для выбора файлов",
+                                "No app to pick files was found"), Toast.LENGTH_LONG).show();
+                    }
                 }
         ));
         list.addView(createSubHeading(text("Треки", "Tracks")));
@@ -2770,16 +2913,28 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> localTracks = new java.util.ArrayList<>();
 
+    /** Rows added to the list per frame, so a library of thousands of files does not freeze the screen. */
+    private static final int LOCAL_ROWS_PER_STEP = 30;
+    /** Bumped by every reload, so an older read that finishes late cannot replace a newer list. */
+    private int localLoadGeneration;
+    /** Bumped by every redraw of the list, so the rows of an older list stop being added. */
+    private int localRenderGeneration;
+
     private void reloadLocalTracks() {
+        int generation = ++localLoadGeneration;
         Utils.runOnBackgroundThread(() -> {
             java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks =
                     app.revanced.extension.soundcloud.local.LocalMusic.getTracks(this);
-            Utils.runOnMainThread(() -> showLocalTracks(tracks));
+            Utils.runOnMainThread(() -> {
+                if (generation != localLoadGeneration || isFinishing() || isDestroyed()) return;
+                showLocalTracks(tracks);
+            });
         });
     }
 
     private void showLocalTracks(java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks) {
         localTracks = tracks;
+        int generation = ++localRenderGeneration;
         localTrackList.removeAllViews();
         if (tracks.isEmpty()) {
             TextView empty = createText("Body.Secondary", text("Пока пусто. Нажмите «Импортировать файлы».",
@@ -2789,7 +2944,16 @@ public final class ReVancedSettingsActivity extends Activity {
             return;
         }
 
-        for (int i = 0; i < tracks.size(); i++) {
+        addLocalTrackRows(tracks, 0, generation);
+    }
+
+    /** Adds the next few rows and schedules the rest, so no single frame builds thousands of views. */
+    private void addLocalTrackRows(java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks,
+                                   int from, int generation) {
+        if (generation != localRenderGeneration || isFinishing() || isDestroyed()) return;
+
+        int to = Math.min(from + LOCAL_ROWS_PER_STEP, tracks.size());
+        for (int i = from; i < to; i++) {
             app.revanced.extension.soundcloud.local.LocalMusic.Track track = tracks.get(i);
             int index = i;
             long seconds = track.durationMs / 1000;
@@ -2802,15 +2966,23 @@ public final class ReVancedSettingsActivity extends Activity {
                         .setNeutralButton(text("В плейлист…", "To playlist…"), (dialog, which) ->
                                 app.revanced.extension.soundcloud.local.LocalAdditions.pickPlaylist(this, app.revanced.extension.soundcloud.local.LocalAdditions.fileEntry(track.file)))
                         .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(text("Удалить файл", "Delete file"), (dialog, which) -> {
-                            app.revanced.extension.soundcloud.local.LocalMusic.delete(track);
-                            reloadLocalTracks();
-                        })
+                        .setPositiveButton(text("Удалить файл", "Delete file"), (dialog, which) ->
+                                // Deleting also writes the cover prefs and scans the covers folder.
+                                Utils.runOnBackgroundThread(() -> {
+                                    try {
+                                        app.revanced.extension.soundcloud.local.LocalMusic.delete(track);
+                                    } catch (Exception ex) {
+                                        Logger.printException(() -> "Could not delete " + track.file, ex);
+                                    }
+                                    Utils.runOnMainThread(this::reloadLocalTracks);
+                                }))
                         .show();
                 return true;
             });
             localTrackList.addView(row);
         }
+
+        if (to < tracks.size()) localTrackList.post(() -> addLocalTrackRows(tracks, to, generation));
     }
 
     private void playLocal(int index, boolean shuffle) {
@@ -2830,7 +3002,7 @@ public final class ReVancedSettingsActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_DELETE_DOWNLOADS) {
-            if (downloadsDescription != null) countDownloads();
+            forgetRemovedDownloads();
             return;
         }
         if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null) return;

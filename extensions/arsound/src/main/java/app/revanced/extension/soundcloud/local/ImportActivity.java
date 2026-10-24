@@ -30,6 +30,15 @@ public final class ImportActivity extends Activity {
     private static final int REQUEST_COVER = 2;
     private static final int REQUEST_FOLDER = 3;
     private static final String EXTRA_WATCH_FOLDER = "arsound_watch_folder";
+    /** A picked picture bigger than this is refused: it is read into memory before it is made smaller. */
+    private static final int MAX_PICTURE_BYTES = 32 * 1024 * 1024;
+    /**
+     * Most picked files whose access is kept for the copy. The system keeps few such grants per app (128
+     * before Android 11) and drops the oldest first, which would be the watched folder.
+     */
+    private static final int MAX_KEPT_ACCESS = 100;
+    /** Files whose kept access an import in progress still needs. */
+    private static final java.util.Set<Uri> COPYING = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Opens the folder picker for the watched folder. */
     public static void pickWatchFolder(Context context) {
@@ -129,6 +138,25 @@ public final class ImportActivity extends Activity {
         }
     }
 
+    /** Reads the whole stream, or returns null if it is longer than the limit. */
+    private static byte[] readLimited(java.io.InputStream input, int limit) throws java.io.IOException {
+        // Sized by what the stream says is left, so a picture is held once, not copied while it grows.
+        byte[] data = new byte[Math.min(Math.max(input.available(), 64 * 1024), limit)];
+        int size = 0;
+        while (true) {
+            if (size == data.length) {
+                int next = input.read();
+                if (next == -1) return data;
+                if (size >= limit) return null;
+                data = java.util.Arrays.copyOf(data, (int) Math.min((long) size * 2, limit));
+                data[size++] = (byte) next;
+            }
+            int read = input.read(data, size, data.length - size);
+            if (read == -1) return size == data.length ? data : java.util.Arrays.copyOf(data, size);
+            size += read;
+        }
+    }
+
     private void onCoverPicked(Uri uri) {
         Context context = getApplicationContext();
         String file = getIntent().getStringExtra(EXTRA_COVER_FILE);
@@ -136,15 +164,16 @@ public final class ImportActivity extends Activity {
         Utils.runOnBackgroundThread(() -> {
             boolean saved = false;
             try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
-                java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
-                byte[] buffer = new byte[16 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-                byte[] image = output.toByteArray();
-                saved = file != null
-                        ? LocalCovers.setUserCover(new File(file), image)
-                        : LocalCovers.setPlaylistCover(playlistUrn, image);
-            } catch (Exception ex) {
+                // Read at once: the access to the picture goes with this screen. LocalCovers makes a big picture smaller.
+                byte[] image = input == null ? null : readLimited(input, MAX_PICTURE_BYTES);
+                if (image == null) {
+                    Logger.printInfo(() -> "The picked picture is missing or bigger than " + MAX_PICTURE_BYTES + " bytes");
+                } else {
+                    saved = file != null
+                            ? LocalCovers.setUserCover(new File(file), image)
+                            : LocalCovers.setPlaylistCover(playlistUrn, image);
+                }
+            } catch (Exception | OutOfMemoryError ex) {
                 Logger.printException(() -> "Could not read the picked picture", ex);
             }
             boolean done = saved;
@@ -193,9 +222,15 @@ public final class ImportActivity extends Activity {
 
         Context context = getApplicationContext();
         String playlistUrn = getIntent().getStringExtra(EXTRA_PLAYLIST_URN);
+        List<Uri> kept = keepAccess(uris);
         Toast.makeText(context, text("Импортирую…", "Importing…"), Toast.LENGTH_SHORT).show();
         Utils.runOnBackgroundThread(() -> {
-            List<File> files = LocalMusic.importFileList(context, uris);
+            List<File> files;
+            try {
+                files = LocalMusic.importFileList(context, uris);
+            } finally {
+                releaseAccess(context, kept);
+            }
             // The saved playlist already shows every imported file.
             boolean addToPlaylist = playlistUrn != null && !SavedPlaylist.isSavedPlaylist(playlistUrn);
             if (addToPlaylist) {
@@ -205,8 +240,59 @@ public final class ImportActivity extends Activity {
             Utils.runOnMainThread(() -> {
                 if (addToPlaylist) LocalAdditions.notifyPlaylistChanged(playlistUrn);
                 if (saved != null) LocalAdditions.notifyPlaylistChanged(saved);
-                Toast.makeText(context, text("Импортировано: ", "Imported: ") + files.size(), Toast.LENGTH_SHORT).show();
+                // Files that could not be copied are told, not silently left out.
+                String count = files.size() < uris.size() ? files.size() + text(" из ", " of ") + uris.size() : String.valueOf(files.size());
+                Toast.makeText(context, text("Импортировано: ", "Imported: ") + count, Toast.LENGTH_SHORT).show();
             });
         });
+    }
+
+    /**
+     * The system lets this screen read the picked files only while it is open. It is closed at once and
+     * the copy goes on in the background, so the later files could not be read. A persistable grant
+     * outlives the screen; it is given back when the copy is over.
+     *
+     * @return The files whose access is kept: at most {@link #MAX_KEPT_ACCESS} of the first ones.
+     */
+    private List<Uri> keepAccess(List<Uri> uris) {
+        // Access kept by an import that the system cut short (the app was closed during the copy) is given back
+        // now; only the watched folder, a folder grant, keeps its access for good.
+        try {
+            for (android.content.UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+                Uri uri = permission.getUri();
+                if (permission.isReadPermission() && !android.provider.DocumentsContract.isTreeUri(uri)
+                        && !COPYING.contains(uri)) {
+                    getContentResolver().releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not give back old file access: " + ex);
+        }
+        List<Uri> kept = new ArrayList<>();
+        int failed = 0;
+        for (Uri uri : uris.subList(0, Math.min(uris.size(), MAX_KEPT_ACCESS))) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                kept.add(uri);
+                COPYING.add(uri);
+            } catch (Exception ex) {
+                // Not every provider gives access that outlives the screen.
+                failed++;
+            }
+        }
+        int count = failed;
+        if (count > 0) Logger.printInfo(() -> "Access to " + count + " picked files cannot be kept");
+        return kept;
+    }
+
+    private static void releaseAccess(Context context, List<Uri> kept) {
+        for (Uri uri : kept) {
+            COPYING.remove(uri);
+            try {
+                context.getContentResolver().releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Could not give back the access to " + uri + ": " + ex);
+            }
+        }
     }
 }

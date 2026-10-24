@@ -9,6 +9,7 @@ import android.os.Build;
 import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.shared.Utils;
 
 /**
  * Asks for access to music files, so downloaded tracks stay playable after the app is reinstalled.
@@ -23,6 +24,7 @@ public final class MusicAccess {
     private static final String ASKED = "asked";
 
     private static boolean shownThisLaunch;
+    private static boolean checkedThisLaunch;
 
     private MusicAccess() {
     }
@@ -49,8 +51,36 @@ public final class MusicAccess {
         if (isGranted(activity) || DownloadTrackPatch.getDownloadedTrackIds().isEmpty()) return;
 
         SharedPreferences preferences = activity.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
-        // Asked before and refused: ask again only if a downloaded file is known to be unreadable.
-        if (preferences.getBoolean(ASKED, false) && !DownloadTrackPatch.hasUnreadableDownloads()) return;
+        if (preferences.getBoolean(ASKED, false)) {
+            // Asked before and refused: ask again only if a downloaded file is known to be unreadable.
+            // Files become unreadable by a reinstall, which restarts the process, so once per launch is
+            // enough. The check looks at every downloaded file, so it runs off the main thread.
+            if (checkedThisLaunch) return;
+            checkedThisLaunch = true;
+            Utils.runOnBackgroundThread(() -> {
+                try {
+                    if (!DownloadTrackPatch.hasUnreadableDownloads()) return;
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not check downloaded files for access", ex);
+                    return;
+                }
+                Utils.runOnMainThread(() -> {
+                    // The screen may have closed, or access may have been given, while the files were checked.
+                    if (shownThisLaunch || isGranted(activity)) return;
+                    if (activity.isFinishing() || activity.isDestroyed()) {
+                        // Recreated (turned, dark mode): the new screen checks again.
+                        checkedThisLaunch = false;
+                        return;
+                    }
+                    ask(activity, preferences);
+                });
+            });
+            return;
+        }
+        ask(activity, preferences);
+    }
+
+    private static void ask(Activity activity, SharedPreferences preferences) {
         shownThisLaunch = true;
 
         try {

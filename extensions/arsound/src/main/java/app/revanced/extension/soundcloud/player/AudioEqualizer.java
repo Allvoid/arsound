@@ -6,6 +6,7 @@ import android.media.audiofx.Equalizer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -26,6 +27,10 @@ public final class AudioEqualizer {
 
     private static final List<Equalizer> active = new ArrayList<>();
     private static final int MAX_EFFECTS = 4;
+    /** Applies run one at a time, each reading the settings when it writes: the last one always leaves the newest sound. */
+    private static final Object applyLock = new Object();
+    /** A background apply is waiting for its turn, so more band changes need no new one. */
+    private static final AtomicBoolean applyPending = new AtomicBoolean();
 
     private AudioEqualizer() {
     }
@@ -73,25 +78,52 @@ public final class AudioEqualizer {
         for (Equalizer equalizer : effects) apply(equalizer);
     }
 
-    private static void apply(Equalizer equalizer) {
+    /**
+     * Applies the settings off the main thread, many calls in a row becoming one run. Every band change of a drag
+     * costs a binder call per band and effect, which a slow audio HAL turns into dropped frames.
+     */
+    private static void applyAllSoon() {
+        if (!applyPending.compareAndSet(false, true)) return;
         try {
-            boolean enabled = isEnabled();
-            if (enabled) {
-                long preset = Settings.getLong(PRESET, CUSTOM);
-                if (preset >= 0 && preset < equalizer.getNumberOfPresets()) {
-                    equalizer.usePreset((short) preset);
-                } else {
-                    short[] levels = levels(equalizer.getNumberOfBands());
-                    for (short band = 0; band < levels.length; band++) equalizer.setBandLevel(band, levels[band]);
+            Utils.runOnBackgroundThread(() -> {
+                try {
+                    synchronized (applyLock) {
+                        // Cleared once this run has its turn: changes made while it waited are in the settings it
+                        // reads now, and a change made while it works schedules one more run.
+                        applyPending.set(false);
+                        applyAll();
+                    }
+                } catch (Throwable ex) {
+                    Logger.printException(() -> "Could not apply the equalizer", ex);
                 }
-            }
-            equalizer.setEnabled(enabled);
+            });
         } catch (Throwable ex) {
-            // The session ended: the effect is dropped.
-            synchronized (active) {
-                active.remove(equalizer);
+            applyPending.set(false);
+            Logger.printException(() -> "Could not schedule the equalizer", ex);
+        }
+    }
+
+    private static void apply(Equalizer equalizer) {
+        synchronized (applyLock) {
+            try {
+                boolean enabled = isEnabled();
+                if (enabled) {
+                    long preset = Settings.getLong(PRESET, CUSTOM);
+                    if (preset >= 0 && preset < equalizer.getNumberOfPresets()) {
+                        equalizer.usePreset((short) preset);
+                    } else {
+                        short[] levels = levels(equalizer.getNumberOfBands());
+                        for (short band = 0; band < levels.length; band++) equalizer.setBandLevel(band, levels[band]);
+                    }
+                }
+                equalizer.setEnabled(enabled);
+            } catch (Throwable ex) {
+                // The session ended: the effect is dropped.
+                synchronized (active) {
+                    active.remove(equalizer);
+                }
+                equalizer.release();
             }
-            equalizer.release();
         }
     }
 
@@ -112,7 +144,9 @@ public final class AudioEqualizer {
     public static void setLevel(int band, short level, int bands) {
         short[] levels = levels(bands);
         levels[band] = level;
-        setLevels(levels, "");
+        // Called for every step of a drag: the sound follows from a background thread.
+        save(levels, "");
+        applyAllSoon();
     }
 
     /**
@@ -122,12 +156,16 @@ public final class AudioEqualizer {
      *               "" the user's own band levels.
      */
     public static void setLevels(short[] levels, String choice) {
+        save(levels, choice);
+        applyAll();
+    }
+
+    private static void save(short[] levels, String choice) {
         StringBuilder value = new StringBuilder();
         for (int i = 0; i < levels.length; i++) value.append(i == 0 ? "" : ",").append(levels[i]);
         Settings.putString(LEVELS, value.toString());
         Settings.putLong(PRESET, CUSTOM);
         Settings.putString(CHOICE, choice);
-        applyAll();
     }
 
     // region Presets

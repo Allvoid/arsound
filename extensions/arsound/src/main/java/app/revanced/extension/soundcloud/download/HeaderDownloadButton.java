@@ -42,7 +42,13 @@ public final class HeaderDownloadButton {
         try {
             String playlistId = playlistId(metadata);
             View button = actionBar.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "download_action"));
-            if (playlistId == null || button == null) return;
+            if (button == null) return;
+            if (playlistId == null) {
+                // A playlist made by SoundCloud ("Related tracks", mixes) has no playlist id to check: SoundCloud's
+                // own tap opened the hidden subscription offer, so the button did nothing at all.
+                button.setVisibility(View.GONE);
+                return;
+            }
             // Without a subscription and without its offer SoundCloud hides the button.
             button.setVisibility(View.VISIBLE);
             View badge = actionBar.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "plan_badge"));

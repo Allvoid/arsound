@@ -202,7 +202,14 @@ public final class DownloadPlaylistPatch {
         Utils.runOnBackgroundThread(() -> {
             try {
                 List<String> downloaded = downloadedTracksOf(playlistId);
+                if (downloaded == null) {
+                    DownloadTrackPatch.showToast(context, text("Не удалось получить треки, ошибка " + lastError,
+                            "Could not load the tracks, error " + lastError));
+                    return;
+                }
                 if (downloaded.isEmpty()) {
+                    // A playlist whose downloads all failed or were deleted elsewhere leaves the Downloads screen.
+                    setPlaylistDownloaded(playlistId, false);
                     DownloadTrackPatch.showToast(context,
                             text("В этом плейлисте нет скачанных треков", "No downloaded tracks in this playlist"));
                     return;
@@ -226,11 +233,14 @@ public final class DownloadPlaylistPatch {
         });
     }
 
-    /** The tracks of the playlist that Arsound downloaded. */
+    /** The tracks of the playlist that Arsound downloaded, or null if the server did not answer. */
     private static List<String> downloadedTracksOf(String playlistId) throws Exception {
+        List<String> ids = trackIdsOf(playlistId, null);
+        if (ids == null) return null;
         List<String> downloaded = new ArrayList<>();
-        for (String id : trackIdsOf(playlistId, null)) {
-            if (DownloadTrackPatch.isDownloaded(id)) downloaded.add(id);
+        for (String id : ids) {
+            // A track still being assembled has no record yet, but would get one once packed.
+            if (DownloadTrackPatch.isDownloaded(id) || DownloadProgress.isAssembling(id)) downloaded.add(id);
         }
         return downloaded;
     }
@@ -359,10 +369,21 @@ public final class DownloadPlaylistPatch {
                 // Tracks on the phone are counted at once; the rest wait for their file links below.
                 List<JSONObject> toResolve = new ArrayList<>();
                 int[] checked = {0};
+                // Tracks of requests the server did not answer: unknown, not "unavailable".
+                int[] unchecked = {0};
                 for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
                     List<String> chunk = ids.subList(start, Math.min(ids.size(), start + TRACKS_PER_REQUEST));
-                    String[] tracks = DownloadTrackPatch.apiGet(
-                            "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", chunk));
+                    String chunkUrl = "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", chunk);
+                    String[] tracks = DownloadTrackPatch.apiGet(chunkUrl);
+                    // One more try for a server error: a whole chunk of 50 tracks is worth it.
+                    if (tracks[1] == null && tracks[0].startsWith("5")) {
+                        Thread.sleep(2_000);
+                        tracks = DownloadTrackPatch.apiGet(chunkUrl);
+                    }
+                    if (tracks[1] == null) {
+                        lastError = tracks[0];
+                        unchecked[0] += chunk.size();
+                    }
                     int answered = 0;
                     if (tracks[1] != null) {
                         JSONArray array = new JSONArray(tracks[1]);
@@ -388,8 +409,9 @@ public final class DownloadPlaylistPatch {
                             }
                         }
                     }
-                    // Tracks missing from the answer count as checked.
-                    checked[0] += chunk.size() - answered;
+                    // Tracks missing from the answer (deleted on the server) count as checked.
+                    if (tracks[1] != null) checked[0] += chunk.size() - answered;
+                    else checked[0] += chunk.size();
                     ProgressPill.onChecked(checked[0]);
                 }
 
@@ -399,43 +421,56 @@ public final class DownloadPlaylistPatch {
                 TrackInfo[] found = new TrackInfo[toResolve.size()];
                 String[] unavailable = new String[toResolve.size()];
                 ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL_CHECKS, toResolve.size())));
-                for (int i = 0; i < toResolve.size(); i++) {
-                    int index = i;
-                    pool.execute(() -> {
-                        JSONObject track = toResolve.get(index);
-                        String id = String.valueOf(track.optLong("id"));
-                        String title = track.optString("title");
-                        TrackSource source = UnavailableTracks.get(id);
-                        if (source == null) {
-                            try {
-                                source = DownloadTrackPatch.resolveSource(id, track);
-                                if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
-                            } catch (Exception ex) {
-                                Logger.printInfo(() -> "No file link for " + id + ": " + ex);
+                try {
+                    for (int i = 0; i < toResolve.size(); i++) {
+                        int index = i;
+                        pool.execute(() -> {
+                            JSONObject track = toResolve.get(index);
+                            String id = String.valueOf(track.optLong("id"));
+                            String title = track.optString("title");
+                            TrackSource source = UnavailableTracks.get(id);
+                            boolean failed = false;
+                            if (source == null) {
+                                try {
+                                    source = DownloadTrackPatch.resolveSource(id, track);
+                                    if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
+                                } catch (Exception ex) {
+                                    // A network or server failure says nothing about the track: it is not remembered.
+                                    failed = true;
+                                    Logger.printInfo(() -> "No file link for " + id + ": " + ex);
+                                }
                             }
-                        }
-                        if (source != null && source.isDownloadable()) {
-                            found[index] = new TrackInfo(id, title, source);
-                        } else {
-                            unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
-                        }
-                        synchronized (checked) {
-                            ProgressPill.onChecked(++checked[0]);
-                        }
-                    });
+                            if (source != null && source.isDownloadable()) {
+                                found[index] = new TrackInfo(id, title, source);
+                            } else if (!failed) {
+                                unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
+                            }
+                            synchronized (checked) {
+                                if (failed) unchecked[0]++;
+                                ProgressPill.onChecked(++checked[0]);
+                            }
+                        });
+                    }
+                    pool.shutdown();
+                    if (!pool.awaitTermination(1, TimeUnit.HOURS)) Logger.printInfo(() -> "Playlist check timed out");
+                } finally {
+                    // Stops the checks still waiting (also their pauses for the rate limit) if this one was cut short.
+                    pool.shutdownNow();
                 }
-                pool.shutdown();
-                pool.awaitTermination(1, TimeUnit.HOURS);
-                for (int i = 0; i < found.length; i++) {
-                    if (found[i] != null) downloadable.add(found[i]);
-                    else if (unavailable[i] != null) unavailableTitles.add(unavailable[i]);
+                synchronized (checked) {
+                    for (int i = 0; i < found.length; i++) {
+                        if (found[i] != null) downloadable.add(found[i]);
+                        else if (unavailable[i] != null) unavailableTitles.add(unavailable[i]);
+                    }
                 }
                 ProgressPill.onCheckFinished();
 
+                int notChecked = unchecked[0];
                 Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, imported " + imported[0]
-                        + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download " + downloadable.size());
+                        + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download "
+                        + downloadable.size() + ", not checked " + notChecked);
                 Utils.runOnMainThread(() -> showResult(context, playlistId, ids.size(), imported[0], alreadyDownloaded[0], alreadyDownloaded[1],
-                        downloadable, unavailableTitles));
+                        notChecked, downloadable, unavailableTitles));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
                 ProgressPill.onCheckFinished();
@@ -444,9 +479,12 @@ public final class DownloadPlaylistPatch {
         });
     }
 
+    /**
+     * @param notChecked Tracks the server gave no answer about (network, rate limit or server error).
+     */
     private static void showResult(Context context, String playlistId, int total, int imported, int downloaded, int downloading,
-                                   List<TrackInfo> downloadable, List<String> unavailableTitles) {
-        int unavailable = total - downloaded - downloading - downloadable.size();
+                                   int notChecked, List<TrackInfo> downloadable, List<String> unavailableTitles) {
+        int unavailable = total - downloaded - downloading - downloadable.size() - notChecked;
         StringBuilder summary = new StringBuilder();
         summary.append(playlistId == null
                 ? text("Лайкнутых треков: ", "Liked tracks: ")
@@ -455,6 +493,10 @@ public final class DownloadPlaylistPatch {
         summary.append(text("Уже скачано: ", "Already downloaded: ")).append(downloaded).append('\n');
         if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
         summary.append(text("Можно скачать: ", "Can be downloaded: ")).append(downloadable.size()).append('\n');
+        if (notChecked > 0) {
+            summary.append(text("Не удалось проверить (нет ответа сервера, попробуйте позже): ",
+                    "Could not be checked (no answer from the server, try again later): ")).append(notChecked).append('\n');
+        }
         if (unavailable > 0) {
             summary.append(text("Недоступно (заблокировано в регионе, по подписке, отрывки или закрытые): ",
                     "Not available (blocked in your region, subscription, previews or private): ")).append(unavailable).append('\n');
@@ -463,11 +505,13 @@ public final class DownloadPlaylistPatch {
 
         app.revanced.extension.soundcloud.shared.ArsoundDialog builder = new app.revanced.extension.soundcloud.shared.ArsoundDialog(context);
         // Everything available is on the phone: the playlist counts as downloaded.
-        if (playlistId != null && downloadable.isEmpty() && downloading == 0 && downloaded > 0) {
+        if (playlistId != null && downloadable.isEmpty() && downloading == 0 && downloaded > 0 && notChecked == 0) {
             setPlaylistDownloaded(playlistId, true);
         }
         if (downloadable.isEmpty()) {
-            builder.setTitle(downloaded + downloading + imported > 0
+            builder.setTitle(notChecked > 0
+                            ? text("Не все треки удалось проверить", "Not every track could be checked")
+                            : downloaded + downloading + imported > 0
                             ? text("Всё доступное уже скачано", "Everything available is downloaded")
                             : text("Нечего скачать", "Nothing to download"))
                     .setMessage(summary.toString().trim())
@@ -494,7 +538,6 @@ public final class DownloadPlaylistPatch {
 
     private static void downloadAll(Context context, String playlistId, List<TrackInfo> tracks) {
         Context appContext = context.getApplicationContext();
-        if (playlistId != null) setPlaylistDownloaded(playlistId, true);
         List<String> ids = new ArrayList<>();
         for (TrackInfo track : tracks) ids.add(track.id);
         ProgressPill.onDownloadsQueued(ids);
@@ -505,14 +548,22 @@ public final class DownloadPlaylistPatch {
                 try {
                     // Checked again: the dialog may have stayed open while the same track was downloaded elsewhere.
                     if (DownloadTrackPatch.getDownloadState(appContext, track.id)
-                            != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) continue;
+                            != DownloadTrackPatch.DownloadState.NOT_DOWNLOADED) {
+                        ok = true;
+                        started++;
+                        if (playlistId != null) setPlaylistDownloaded(playlistId, true);
+                        continue;
+                    }
                     ok = DownloadTrackPatch.downloadSilently(appContext, track.id, track.source, playlistId);
                     if (ok) started++;
                 } catch (Exception ex) {
-                    Logger.printException(() -> "Download failure for track " + track.id, ex);
+                    // One summary toast below covers the tracks that did not start, instead of a toast for each.
+                    Logger.printInfo(() -> "Download failure for track " + track.id, ex);
                 } finally {
                     ProgressPill.onDownloadStarted(track.id, ok);
                 }
+                // Listed on the Downloads screen once something of it really is on the way.
+                if (ok && playlistId != null) setPlaylistDownloaded(playlistId, true);
             }
 
             int count = started;

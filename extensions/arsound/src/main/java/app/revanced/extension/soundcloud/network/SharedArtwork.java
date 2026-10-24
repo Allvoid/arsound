@@ -98,9 +98,12 @@ final class SharedArtwork {
         boolean kept = false;
         try {
             Object response = call.proceed();
-            if (!read(entry, response)) return response;
+            byte[] data = read(entry, response);
+            if (data == null) return response;
             entry.response = response;
             entry.at = System.currentTimeMillis();
+            // Last, and volatile: a waiter that sees the body also sees the response, the type and the time.
+            entry.body = data;
             kept = true;
             return copy(entry, request);
         } finally {
@@ -121,16 +124,18 @@ final class SharedArtwork {
         }
     }
 
-    /** Reads a successful answer into the entry. False leaves the answer untouched: an error, or too big. */
-    private static boolean read(Entry entry, Object response) throws Throwable {
+    /**
+     * Reads the body of a successful answer; the caller publishes it. Null leaves the answer untouched: an error, or
+     * too big.
+     */
+    private static byte[] read(Entry entry, Object response) throws Throwable {
         lookUp(response);
-        if ((int) code.invoke(response) != 200) return false;
+        if ((int) code.invoke(response) != 200) return null;
         Object responseBody = body.invoke(response);
-        if (responseBody == null || (long) contentLength.invoke(responseBody) > MAX_BYTES) return false;
+        if (responseBody == null || (long) contentLength.invoke(responseBody) > MAX_BYTES) return null;
         entry.mediaType = contentType.invoke(responseBody);
         // Reading the whole body also completes the loader's own disk cache entry.
-        entry.body = (byte[]) bytes.invoke(responseBody);
-        return true;
+        return (byte[]) bytes.invoke(responseBody);
     }
 
     /** The kept answer with a fresh body, for the given request. */

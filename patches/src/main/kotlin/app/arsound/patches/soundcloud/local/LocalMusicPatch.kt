@@ -56,13 +56,20 @@ private val importActivityPatch = resourcePatch {
                     setAttribute("android:name", "app.revanced.extension.soundcloud.search.YouTubeLoginActivity")
                     setAttribute("android:exported", "false")
                     setAttribute("android:theme", "@android:style/Theme.Material.NoActionBar")
+                    // The WebView handles these itself; a restart would reload the sign-in page and lose what was typed.
+                    setAttribute(
+                        "android:configChanges",
+                        "orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|fontScale",
+                    )
                 },
             )
             // Batch downloads started from a computer over adb; reads lists from the app's own folder only.
+            // Only a sender holding DUMP itself (the adb shell) may start it; the app never starts it.
             document.getNode("application").appendChild(
                 document.createElement("activity").apply {
                     setAttribute("android:name", "app.revanced.extension.soundcloud.local.BatchActivity")
                     setAttribute("android:exported", "true")
+                    setAttribute("android:permission", "android.permission.DUMP")
                     setAttribute("android:theme", "@android:style/Theme.Translucent.NoTitleBar")
                     setAttribute("android:excludeFromRecents", "true")
                 },

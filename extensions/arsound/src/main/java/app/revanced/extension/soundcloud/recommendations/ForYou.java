@@ -288,7 +288,8 @@ public final class ForYou {
                 }
             }
 
-            List<Seed> seeds = new ArrayList<>();
+            // By song key, so a song met again is found at once and its key is computed once.
+            Map<String, Seed> seeds = new LinkedHashMap<>();
             resolveTitles(core, weights, seeds, known);
 
             for (LocalMusic.Track track : LocalMusic.getTracks(context)) {
@@ -312,27 +313,26 @@ public final class ForYou {
                     }
                 }
             }
-            return seeds;
+            return new ArrayList<>(seeds.values());
         } finally {
             if (collections != null) collections.close();
             if (core != null) core.close();
         }
     }
 
-    private static void addSeed(List<Seed> seeds, Set<String> known, String artist, String title, double weight) {
+    private static void addSeed(Map<String, Seed> seeds, Set<String> known, String artist, String title, double weight) {
         if (artist == null || title == null || artist.trim().isEmpty() || title.trim().isEmpty()) return;
         String key = songKey(artist, title);
         known.add(key);
-        for (Seed seed : seeds) {
-            if (songKey(seed.artist, seed.title).equals(key)) {
-                seed.weight = Math.max(seed.weight, weight) + 0.2;
-                return;
-            }
+        Seed existing = seeds.get(key);
+        if (existing != null) {
+            existing.weight = Math.max(existing.weight, weight) + 0.2;
+            return;
         }
-        seeds.add(new Seed(artist.trim(), title.trim(), weight));
+        seeds.put(key, new Seed(artist.trim(), title.trim(), weight));
     }
 
-    private static void resolveTitles(SQLiteDatabase core, Map<String, Double> weights, List<Seed> seeds, Set<String> known) {
+    private static void resolveTitles(SQLiteDatabase core, Map<String, Double> weights, Map<String, Seed> seeds, Set<String> known) {
         if (core == null || weights.isEmpty()) return;
         List<String> urns = new ArrayList<>(weights.keySet());
         for (int start = 0; start < urns.size(); start += 400) {
@@ -614,9 +614,10 @@ public final class ForYou {
     }
 
     /**
-     * The "For you" playlist already on the server: the oldest one with a known title. Empty copies next to it
-     * (left by older versions or a failed check) are deleted. Null if there is none or the server could not be asked;
-     * in the second case nothing is created either.
+     * The "For you" playlist already on the server: the oldest empty one with a known title (the oldest one if none
+     * is empty). Empty copies next to it (left by older versions or a failed check) are deleted, unless tracks were
+     * added to them on this phone. Null if there is none or the server could not be asked; in the second case
+     * nothing is created either.
      */
     private static String adoptFromServer() throws Exception {
         String[] me = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
@@ -630,20 +631,31 @@ public final class ForYou {
         for (int i = 0; playlists != null && i < playlists.length(); i++) {
             JSONObject playlist = playlists.getJSONObject(i);
             if (KNOWN_TITLES.contains(playlist.optString("title"))) {
-                copies.add(new long[]{playlist.getLong("id"), playlist.optInt("track_count")});
+                // -1 when the server does not say: then the playlist is not known to be empty.
+                copies.add(new long[]{playlist.getLong("id"), playlist.optInt("track_count", -1)});
             }
         }
         if (copies.isEmpty()) return null;
         copies.sort((a, b) -> Long.compare(a[0], b[0]));
-        for (int i = 1; i < copies.size(); i++) {
-            long[] copy = copies.get(i);
+        // Ours is empty on the server, so the oldest empty one is taken before a playlist with tracks of someone's own.
+        long[] adopted = copies.get(0);
+        for (long[] copy : copies) {
+            if (copy[1] == 0) {
+                adopted = copy;
+                break;
+            }
+        }
+        for (long[] copy : copies) {
+            if (copy == adopted) continue;
             // Tracks of this playlist exist only on the phone; a copy with tracks on the server is someone's own.
             if (copy[1] != 0) continue;
+            // Tracks added on this phone mean an older version used the copy.
+            if (!LocalAdditions.getEntries("soundcloud:playlists:" + copy[0]).isEmpty()) continue;
             int code = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiDelete(
                     "https://api-v2.soundcloud.com/playlists/" + copy[0]);
             Logger.printInfo(() -> "For you: deleted the extra copy " + copy[0] + ", HTTP " + code);
         }
-        String urn = "soundcloud:playlists:" + copies.get(0)[0];
+        String urn = "soundcloud:playlists:" + adopted[0];
         Logger.printInfo(() -> "For you: using the existing playlist " + urn);
         return urn;
     }
