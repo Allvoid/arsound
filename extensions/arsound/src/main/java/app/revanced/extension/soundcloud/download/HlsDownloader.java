@@ -138,8 +138,7 @@ public final class HlsDownloader {
                 Logger.printInfo(() -> "HLS track " + trackId + " saved without remuxing");
             }
 
-            publish(context, source, fileName);
-            return fileName;
+            return publish(context, source, fileName);
         } catch (Exception ex) {
             Logger.printException(() -> "HLS download failure for " + trackId, ex);
             return null;
@@ -487,8 +486,11 @@ public final class HlsDownloader {
     /**
      * Moves the packed file into Music/Arsound, next to the files of the download manager.
      * Since Android 10 an app cannot write there directly, so the media store creates the file.
+     *
+     * @return The name the file got. A file of an earlier install cannot be deleted, and the media store then
+     * names the new file "name (1)": the track has to remember that name, not the old file it cannot read.
      */
-    private static void publish(Context context, File packed, String fileName) throws Exception {
+    private static String publish(Context context, File packed, String fileName) throws Exception {
         File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
         File target = new File(folder, fileName);
         if (target.exists() && !target.delete()) Logger.printInfo(() -> "Could not replace " + target);
@@ -496,7 +498,7 @@ public final class HlsDownloader {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Music/Arsound could not be created");
             copy(packed, new FileOutputStream(target));
-            return;
+            return fileName;
         }
 
         ContentValues values = new ContentValues();
@@ -518,6 +520,21 @@ public final class HlsDownloader {
         } catch (Exception ex) {
             context.getContentResolver().delete(uri, null, null);
             throw ex;
+        }
+        String saved = savedName(context, uri);
+        if (saved == null || saved.equals(fileName)) return fileName;
+        Logger.printInfo(() -> "Saved as " + saved + ": " + fileName + " belongs to an earlier install");
+        return saved;
+    }
+
+    /** The name the media store gave the file, or null if it cannot be asked. */
+    private static String savedName(Context context, Uri uri) {
+        try (android.database.Cursor cursor = context.getContentResolver()
+                .query(uri, new String[]{MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+            return cursor != null && cursor.moveToFirst() ? cursor.getString(0) : null;
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not read the name of " + uri + ": " + ex);
+            return null;
         }
     }
 

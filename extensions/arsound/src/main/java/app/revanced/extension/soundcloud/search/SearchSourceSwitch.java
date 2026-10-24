@@ -752,8 +752,12 @@ public final class SearchSourceSwitch {
                 handler.post(() -> {
                     if (token != previewToken) return;
                     stopPreview();
+                    if (isBotCheck(ex) && YouTubeAccount.isSignedIn()) {
+                        toast(context, botCheckText());
+                        return;
+                    }
                     if (needsSignIn(ex)) {
-                        offerSignIn();
+                        offerSignIn(isBotCheck(ex));
                         return;
                     }
                     toast(context, isRegionBlock(ex) ? regionBlockedText()
@@ -857,8 +861,12 @@ public final class SearchSourceSwitch {
                 handler.post(() -> {
                     downloading.remove(url);
                     refreshRow(url);
+                    if (isBotCheck(ex) && YouTubeAccount.isSignedIn()) {
+                        toast(context, botCheckText());
+                        return;
+                    }
                     if (needsSignIn(ex)) {
-                        offerSignIn();
+                        offerSignIn(isBotCheck(ex));
                         return;
                     }
                     toast(context, isRegionBlock(ex) ? regionBlockedText() : refused(ex)
@@ -904,23 +912,45 @@ public final class SearchSourceSwitch {
 
     private static boolean needsSignIn(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
-            if (cause instanceof YouTubeAccount.SignInRequiredException) return true;
+            if (cause instanceof YouTubeAccount.SignInRequiredException
+                    || cause instanceof YouTubeAccount.BotCheckException) return true;
         }
         return false;
     }
 
+    private static boolean isBotCheck(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof YouTubeAccount.BotCheckException) return true;
+        }
+        return false;
+    }
+
+    private static String botCheckText() {
+        return text("YouTube принимает запросы из этой сети за бота. Попробуйте другую сеть или другой сервер VPN.",
+                "YouTube takes the requests of this network for a bot. Try another network or VPN server.");
+    }
+
     private static boolean signInOffered;
 
-    /** An age-restricted track without an account: offers to sign in, once at a time. */
-    private static void offerSignIn() {
+    /**
+     * A track YouTube gives only to an account: offers to sign in, once at a time.
+     *
+     * @param botCheck YouTube took the network for a bot; otherwise the track is age-restricted.
+     */
+    private static void offerSignIn(boolean botCheck) {
         Activity current = activity.get();
         if (current == null || current.isFinishing() || signInOffered) return;
         signInOffered = true;
         try {
             new app.revanced.extension.soundcloud.shared.ArsoundDialog(current)
                     .setView(WelcomePermissions.createDialogContent(current,
-                            text("У трека возрастное ограничение: YouTube отдаёт его только после входа в аккаунт.",
-                                    "The track is age-restricted: YouTube gives it only to signed-in listeners."),
+                            botCheck
+                                    ? text("YouTube принял запросы из этой сети за бота и просит войти в аккаунт. "
+                                                    + "Так бывает с VPN и общими адресами; другая сеть тоже может помочь.",
+                                            "YouTube took the requests of this network for a bot and asks to sign in. "
+                                                    + "This happens with VPNs and shared addresses; another network may help too.")
+                                    : text("У трека возрастное ограничение: YouTube отдаёт его только после входа в аккаунт.",
+                                            "The track is age-restricted: YouTube gives it only to signed-in listeners."),
                             text("Войти в YouTube Music? Это по желанию: пароль вводится на странице Google, "
                                             + "а выйти можно в Настройках → Arsound → Аккаунт.",
                                     "Sign in to YouTube Music? It is optional: the password is typed into Google's page, "

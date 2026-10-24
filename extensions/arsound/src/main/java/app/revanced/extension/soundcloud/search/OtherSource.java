@@ -31,6 +31,7 @@ import app.arsound.shaded.newpipe.extractor.downloader.Downloader;
 import app.arsound.shaded.newpipe.extractor.downloader.Request;
 import app.arsound.shaded.newpipe.extractor.downloader.Response;
 import app.arsound.shaded.newpipe.extractor.exceptions.AgeRestrictedContentException;
+import app.arsound.shaded.newpipe.extractor.exceptions.SignInConfirmNotBotException;
 import app.arsound.shaded.newpipe.extractor.search.SearchInfo;
 import app.arsound.shaded.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory;
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
@@ -227,6 +228,10 @@ public final class OtherSource {
         } catch (AgeRestrictedContentException ex) {
             // Anonymous requests cannot get age-restricted tracks; a signed-in account can.
             return YouTubeAccount.audio(Uri.parse(url).getQueryParameter("v"));
+        } catch (SignInConfirmNotBotException ex) {
+            // YouTube blocks the app clients of NewPipe for some networks (VPN, data centre addresses).
+            Logger.printInfo(() -> "YouTube asks to confirm this is not a bot, trying the web player: " + ex.getMessage());
+            return YouTubeAccount.botCheckedAudio(Uri.parse(url).getQueryParameter("v"));
         }
         AudioStream best = null;
         AudioStream bestM4a = null;
