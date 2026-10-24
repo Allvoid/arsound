@@ -5,6 +5,7 @@ import app.arsound.patches.soundcloud.ads.playbackAdsPatch
 import app.arsound.patches.soundcloud.analytics.disableTelemetryPatch
 import app.arsound.patches.soundcloud.debug.playbackTimelinePatch
 import app.arsound.patches.soundcloud.debug.playerBarLogPatch
+import app.arsound.patches.soundcloud.download.downloadButtonsPatch
 import app.arsound.patches.soundcloud.download.downloadTrackPatch
 import app.arsound.patches.soundcloud.download.headerDownloadButtonPatch
 import app.arsound.patches.soundcloud.library.hideImportBannerPatch
@@ -12,6 +13,7 @@ import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
 import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatch
 import app.arsound.patches.soundcloud.misc.playservices.playServicesDialogPatch
+import app.arsound.patches.soundcloud.misc.screenshot.screenshotSharePatch
 import app.arsound.patches.soundcloud.misc.appname.appNamePatch
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
 import app.arsound.patches.soundcloud.misc.translation.russianTranslationPatch
@@ -24,6 +26,7 @@ import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
 import app.arsound.patches.soundcloud.player.equalizerPatch
 import app.arsound.patches.soundcloud.player.listeningStatsPatch
+import app.arsound.patches.soundcloud.player.mixWithOtherAppsPatch
 import app.arsound.patches.soundcloud.player.notificationArtworkPatch
 import app.arsound.patches.soundcloud.player.playModePatch
 import app.arsound.patches.soundcloud.player.streamCachePatch
@@ -85,19 +88,23 @@ val arsoundBaseGroup = arsoundGroup(
 @Suppress("unused")
 val arsoundNoAdsGroup = arsoundGroup(
     "Arsound: без лишнего",
-    "Без предложений подписки Go и Go+, баннера «Transfer your gems» и лишних вставок в интерфейсе.",
+    "Без предложений подписки Go и Go+, баннера «Transfer your gems», окна «Поделиться скриншотом» и лишних вставок " +
+        "в интерфейсе.",
     playbackAdsPatch,
     hideSubscriptionOffersPatch,
     hideImportBannerPatch,
+    screenshotSharePatch,
 )
 
 @Suppress("unused")
 val arsoundDownloadsGroup = arsoundGroup(
     "Arsound: скачивание",
-    "Скачивание доступных треков в «Музыка/Arsound» и воспроизведение скачанного из файла.",
+    "Скачивание доступных треков в «Музыка/Arsound» и воспроизведение скачанного из файла. Кнопки скачивания " +
+        "SoundCloud скачивают через Arsound.",
     downloadTrackPatch,
     downloadedPlaybackPatch,
     headerDownloadButtonPatch,
+    downloadButtonsPatch,
 )
 
 @Suppress("unused")
@@ -117,7 +124,7 @@ val arsoundPlaylistsGroup = arsoundGroup(
 @Suppress("unused")
 val arsoundNetworkGroup = arsoundGroup(
     "Arsound: сеть и батарея",
-    "Свой DNS, запрет выхода в сеть с российского IP, статус сети, вопрос перед проверкой устройства, экономия батареи.",
+    "Свой DNS, запрет выхода в сеть с IP выбранных стран, статус сети, вопрос перед проверкой устройства, экономия батареи.",
     networkPatch,
     powerSavingPatch,
 )
@@ -132,8 +139,9 @@ val arsoundRecommendationsGroup = arsoundGroup(
 @Suppress("unused")
 val arsoundPlayerGroup = arsoundGroup(
     "Arsound: плеер",
-    "Эквалайзер, размер и срок хранения кэша потоков, статистика прослушиваний.",
+    "Эквалайзер, размер и срок хранения кэша потоков, статистика прослушиваний, игра вместе с другими приложениями.",
     streamCachePatch,
     listeningStatsPatch,
     equalizerPatch,
+    mixWithOtherAppsPatch,
 )

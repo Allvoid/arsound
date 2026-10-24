@@ -236,6 +236,50 @@ public final class Settings {
         return preferences != null && preferences.getBoolean(REGION_GUARD, false);
     }
 
+    public static final String REGION_GUARD_COUNTRIES = "region_guard_countries";
+    /** The countries that were blocked before the choice existed. */
+    private static final String DEFAULT_GUARD_COUNTRIES = "RU";
+
+    /** The stored text and the set parsed from it, swapped together so a reader never sees one without the other. */
+    private static final class GuardCountries {
+        final String text;
+        final java.util.Set<String> codes;
+
+        GuardCountries(String text) {
+            java.util.Set<String> parsed = new java.util.LinkedHashSet<>();
+            for (String code : text.split(",")) {
+                code = code.trim().toUpperCase(java.util.Locale.US);
+                if (code.matches("[A-Z]{2}")) parsed.add(code);
+            }
+            this.text = text;
+            this.codes = java.util.Collections.unmodifiableSet(parsed);
+        }
+    }
+
+    private static volatile GuardCountries guardCountries = new GuardCountries(DEFAULT_GUARD_COUNTRIES);
+
+    /**
+     * Two-letter codes of the countries whose IP addresses keep the app offline, upper case. Read on every request,
+     * so the parsed set is kept until the stored text changes.
+     */
+    public static java.util.Set<String> getRegionGuardCountries() {
+        String text = getString(REGION_GUARD_COUNTRIES, DEFAULT_GUARD_COUNTRIES);
+        GuardCountries known = guardCountries;
+        if (text.equals(known.text)) return known.codes;
+        GuardCountries parsed = new GuardCountries(text);
+        guardCountries = parsed;
+        return parsed.codes;
+    }
+
+    public static void setRegionGuardCountries(java.util.Collection<String> codes) {
+        StringBuilder text = new StringBuilder();
+        for (String code : codes) {
+            if (text.length() > 0) text.append(',');
+            text.append(code);
+        }
+        putString(REGION_GUARD_COUNTRIES, text.toString());
+    }
+
     public static final String REGION_RECHECK_ON_CHANGE = "region_recheck_on_change";
 
     /** Checks the IP country again when the network or the VPN changes. On by default. */
@@ -250,6 +294,30 @@ public final class Settings {
     public static boolean isRegionRecheckPeriodicEnabled() {
         SharedPreferences preferences = getPreferences();
         return preferences == null || preferences.getBoolean(REGION_RECHECK_PERIODIC, true);
+    }
+
+    public static final String MIX_WITH_OTHER_APPS = "mix_with_other_apps";
+
+    /** Plays without taking the audio focus, so other apps do not pause SoundCloud. Off by default. */
+    public static boolean isMixWithOtherAppsEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(MIX_WITH_OTHER_APPS, false);
+    }
+
+    public static final String INTERCEPT_DOWNLOAD_BUTTONS = "intercept_download_buttons";
+
+    /** SoundCloud's own download buttons download with Arsound instead of offering a subscription. On by default. */
+    public static boolean isInterceptDownloadButtonsEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(INTERCEPT_DOWNLOAD_BUTTONS, true);
+    }
+
+    public static final String SCREENSHOT_SHARE = "screenshot_share";
+
+    /** SoundCloud's "Share screenshot" sheet after a screenshot. Off by default. */
+    public static boolean isScreenshotShareEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(SCREENSHOT_SHARE, false);
     }
 
     public static final String THEME_EFFECTS = "theme_effects";

@@ -376,8 +376,7 @@ public final class SearchSourceSwitch {
                     if (tracks.isEmpty() && foundAlbums.isEmpty() && foundArtists.isEmpty()) {
                         status.setVisibility(View.VISIBLE);
                         status.setText(blocked
-                                ? text("Российский IP — поиск Arsound отключён (Настройки → Arsound → сеть).",
-                                "Russian IP: the Arsound search is off (Settings → Arsound → network).")
+                                ? regionBlockedText() + text(" (Настройки → Arsound → сеть)", " (Settings → Arsound → network)")
                                 : failed
                                 ? text("Не получилось найти: проверьте интернет.", "Search failed: check the connection.")
                                 : text("Ничего не нашлось.", "Nothing found."));
@@ -888,8 +887,14 @@ public final class SearchSourceSwitch {
     }
 
     private static String regionBlockedText() {
-        return text("Российский IP — поиск Arsound отключён.",
-            "Russian IP: the Arsound search is off.");
+        String country = app.revanced.extension.soundcloud.network.RegionGuard.lastCountry();
+        if (country == null) {
+            return text("Страна IP не проверена — поиск Arsound ждёт проверки.",
+                    "The IP country is not checked: the Arsound search waits for the check.");
+        }
+        String russian = app.revanced.extension.soundcloud.network.RegionGuard.describeIp(country, true);
+        return text(Character.toUpperCase(russian.charAt(0)) + russian.substring(1) + " — поиск Arsound отключён.",
+                app.revanced.extension.soundcloud.network.RegionGuard.describeIp(country, false) + ": the Arsound search is off.");
     }
 
     private static <T> List<T> resultOrEmpty(java.util.concurrent.Future<List<T>> future) {
