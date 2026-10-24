@@ -144,21 +144,36 @@ public final class MixWithOtherApps {
         }
     }
 
+    /** How often the mode is asked again while the music waits for a call to end. */
+    private static final long CALL_RECHECK_MS = 1_000;
+
+    private static final Runnable RECHECK = () -> {
+        Context context = Utils.getContext();
+        AudioManager audio = context == null ? null : (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio != null) onModeChanged(audio.getMode());
+    };
+
     /** Main thread. Pauses for a call and resumes after it, through SoundCloud's own focus listener. */
     private static void onModeChanged(int mode) {
         boolean call = isCall(mode);
-        if (call == pausedForCall) return;
-        if (call && !withoutFocus) return;
-        AudioManager.OnAudioFocusChangeListener listener = focusListener();
-        if (listener == null) return;
-        pausedForCall = call;
-        Logger.printDebug(() -> "Mix with other apps: " + (call ? "call started, mode " + mode : "call ended"));
-        try {
-            // A call takes the focus for a while: SoundCloud pauses if it plays and remembers to resume.
-            listener.onAudioFocusChange(call ? AudioManager.AUDIOFOCUS_LOSS_TRANSIENT : AudioManager.AUDIOFOCUS_GAIN);
-        } catch (Throwable ex) {
-            Logger.printException(() -> "Mix with other apps: the focus listener failed", ex);
+        if (call != pausedForCall && (!call || withoutFocus)) {
+            AudioManager.OnAudioFocusChangeListener listener = focusListener();
+            if (listener != null) {
+                pausedForCall = call;
+                Logger.printDebug(() -> "Mix with other apps: " + (call ? "call started, mode " + mode : "call ended"));
+                try {
+                    // A call takes the focus for a while: SoundCloud pauses if it plays and remembers to resume.
+                    listener.onAudioFocusChange(call ? AudioManager.AUDIOFOCUS_LOSS_TRANSIENT : AudioManager.AUDIOFOCUS_GAIN);
+                } catch (Throwable ex) {
+                    Logger.printException(() -> "Mix with other apps: the focus listener failed", ex);
+                }
+            }
         }
+        // Before Android 12 the phone call state turns idle a moment before the mode does, and nothing reports the
+        // end of a messenger call, so the music stayed paused after the call. While it waits for a call to end, the
+        // mode is asked again every second.
+        main.removeCallbacks(RECHECK);
+        if (pausedForCall) main.postDelayed(RECHECK, CALL_RECHECK_MS);
     }
 
     private static AudioManager.OnAudioFocusChangeListener focusListener() {
