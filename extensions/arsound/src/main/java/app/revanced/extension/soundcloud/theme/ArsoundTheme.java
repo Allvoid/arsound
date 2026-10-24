@@ -579,6 +579,29 @@ public final class ArsoundTheme {
             table.put(animation, "raw", "loading_animation", ArscWriter.Value.file(night), true);
         }
 
+        // The pictures behind page titles (the hearts of "Your likes"), recoloured into the accent.
+        for (String name : HeaderArtwork.NAMES) {
+            int picture = resources.getIdentifier(name, "drawable", packageName);
+            if (picture == 0) {
+                Logger.printInfo(() -> "Theme: no drawable " + name);
+                continue;
+            }
+            try {
+                byte[] day = HeaderArtwork.tint(resources, picture, theme.accent(false));
+                byte[] night = HeaderArtwork.tint(resources, picture, theme.accent(true));
+                if (day == null || night == null) continue;
+                // A path under res/, as for the fonts; the provider below reads it from the files folder.
+                String dayPath = "arsound/theme/" + theme.id + "-" + name + ".png";
+                String nightPath = "arsound/theme/" + theme.id + "-" + name + "-night.png";
+                write(new File(context.getFilesDir(), dayPath), day);
+                write(new File(context.getFilesDir(), nightPath), night);
+                table.put(picture, "drawable", name, ArscWriter.Value.file("res/" + dayPath), false);
+                table.put(picture, "drawable", name, ArscWriter.Value.file("res/" + nightPath), true);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Theme: could not recolour " + name, ex);
+            }
+        }
+
         write(arsc, table.build());
     }
 
