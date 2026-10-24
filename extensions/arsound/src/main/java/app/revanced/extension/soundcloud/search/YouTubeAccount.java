@@ -35,6 +35,9 @@ public final class YouTubeAccount {
     private static final String COOKIES = "cookies";
     private static final String NAME = "name";
     private static final String ORIGIN = "https://www.youtube.com";
+    /** Whole words of a refusal reason: "bot" is not in "both", "age" is not in "page" or "message". */
+    private static final java.util.regex.Pattern BOT = java.util.regex.Pattern.compile("\\bbots?\\b");
+    private static final java.util.regex.Pattern AGE = java.util.regex.Pattern.compile("\\bage\\b");
 
     private YouTubeAccount() {
     }
@@ -213,21 +216,21 @@ public final class YouTubeAccount {
             // same dead session again.
             String lowerReason = reason.toLowerCase(Locale.ROOT);
             if (cookies == null) {
-                if (lowerReason.contains("bot")) throw new BotCheckException("YouTube refused the visitor as a bot: " + reason);
+                if (BOT.matcher(lowerReason).find()) throw new BotCheckException("YouTube refused the visitor as a bot: " + reason);
                 // Age-restricted: a visitor never gets it.
                 if ("LOGIN_REQUIRED".equalsIgnoreCase(status)) throw new SignInRequiredException();
                 throw new IOException("YouTube refused the visitor request: " + status + " " + reason);
             }
             // A signed-in account that has not confirmed its age is asked to "sign in to confirm your age": its
             // session is fine, and signing in again would change nothing.
-            if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && lowerReason.contains("age")) {
+            if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && AGE.matcher(lowerReason).find()) {
                 throw new IOException("YouTube asks this account to confirm its age: " + reason);
             }
-            if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && !lowerReason.contains("bot")) {
+            if ("LOGIN_REQUIRED".equalsIgnoreCase(status) && !BOT.matcher(lowerReason).find()) {
                 signOut();
                 throw new SignInRequiredException("YouTube no longer accepts the saved session: sign in again");
             }
-            if (lowerReason.contains("bot")) throw new BotCheckException("YouTube refused the account as a bot: " + reason);
+            if (BOT.matcher(lowerReason).find()) throw new BotCheckException("YouTube refused the account as a bot: " + reason);
             throw new IOException("YouTube refused the signed-in request: " + status + " " + reason);
         }
         if (!response.has("streamingData")) throw new IOException("No streaming data");

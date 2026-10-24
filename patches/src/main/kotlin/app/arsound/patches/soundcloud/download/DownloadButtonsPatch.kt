@@ -1,6 +1,7 @@
 package app.arsound.patches.soundcloud.download
 
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+import app.arsound.util.indexOfFirstInstructionReversedOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructions
@@ -12,6 +13,7 @@ import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
+import com.android.tools.smali.dexlib2.Opcode
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/download/DownloadButtons;"
@@ -28,6 +30,12 @@ private val BytecodePatchContext.selectiveDownloadItemConstructor by gettingFirs
     definingClass("Lcom/soundcloud/android/features/bottomsheet/track/TrackMenuItem\$SelectiveDownload;")
     name("<init>")
     parameterTypes("Lcom/soundcloud/android/foundation/domain/TrackUrn;", "Z", "Z")
+}
+
+/** SoundCloud's plan features; the extension asks it whether the user's subscription includes downloads. */
+private val BytecodePatchContext.featureOperationsConstructor by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/configuration/features/DefaultFeatureOperations;")
+    name("<init>")
 }
 
 /**
@@ -49,6 +57,13 @@ internal val downloadButtonsPatch = bytecodePatch {
             """,
             ExternalLabel("navigate", navigateMethod.getInstruction(0)),
         )
+
+        featureOperationsConstructor.apply {
+            addInstructions(
+                indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID),
+                "invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->setFeatureOperations(Ljava/lang/Object;)V",
+            )
+        }
 
         // Only parameters are changed before the super constructor call, which the verifier allows.
         selectiveDownloadItemConstructor.addInstructions(
