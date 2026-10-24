@@ -144,9 +144,9 @@ public final class NetworkBanner {
         return value.isEmpty() ? value : Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 
-    /** "a Russian IP", "an IP from DE". */
+    /** "a Russian IP", "a Ukrainian IP", "an IP from DE": by the sound, so a "U" said as "you" takes "a". */
     private static String article(String value) {
-        return ("AEIOU".indexOf(Character.toUpperCase(value.charAt(0))) >= 0 ? "an " : "a ") + value;
+        return ("AEIO".indexOf(Character.toUpperCase(value.charAt(0))) >= 0 ? "an " : "a ") + value;
     }
 
     /** @param answer The user asked for a check: the result is spelled out even if nothing changed. */

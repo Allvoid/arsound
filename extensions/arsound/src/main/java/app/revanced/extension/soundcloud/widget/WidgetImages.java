@@ -30,7 +30,6 @@ public final class WidgetImages {
 
     /** Covers of the widget downloaded here, when the HTTP cache has no picture for them. */
     private static final String CACHE_FOLDER = "arsound-widget";
-    private static final int TIMEOUT_MS = 15_000;
     /** Covers are tens of kilobytes; anything far bigger is not a cover. */
     private static final int MAX_BYTES = 4_000_000;
     /** The widget shows ten tracks in three sizes; older covers beyond this are deleted. */
@@ -92,48 +91,110 @@ public final class WidgetImages {
         return options.outWidth > 0 && options.outHeight > 0;
     }
 
-    /** Downloads a cover into {@code target}, through a temporary file so a half-written one is never used. */
+    /** A cover the server refused (a missing avatar answers 404) is not asked for again for this long. */
+    private static final long MISS_KEPT_MS = 6 * 60 * 60 * 1000L;
+
+    /** SoundCloud's HTTP client with the Arsound network rules, made once. */
+    private static volatile Object client;
+
+    /**
+     * An OkHttp client of the app's own library, built through its builder: the network patch adds to it the custom
+     * DNS and the block by IP country, as to every client of SoundCloud.
+     */
+    private static Object client() throws Exception {
+        Object known = client;
+        if (known != null) return known;
+        synchronized (WidgetImages.class) {
+            if (client == null) {
+                Object builder = Class.forName("okhttp3.OkHttpClient$Builder", true, WidgetImages.class.getClassLoader())
+                        .getConstructor().newInstance();
+                client = builder.getClass().getMethod("build").invoke(builder);
+            }
+            return client;
+        }
+    }
+
+    /** The mark of a cover the server refused, next to the place of the cover. */
+    private static File missMark(File target) {
+        return new File(target.getPath() + ".miss");
+    }
+
+    /**
+     * Downloads a cover into {@code target}, through a temporary file so a half-written one is never used. A cover
+     * the server refused is marked, so the widget's every update does not ask for it again.
+     */
     private static boolean download(String url, File target) {
-        java.net.HttpURLConnection connection = null;
         File part = new File(target.getPath() + ".part");
+        File miss = missMark(target);
+        if (miss.isFile() && System.currentTimeMillis() - miss.lastModified() < MISS_KEPT_MS) return false;
+        java.io.Closeable response = null;
         try {
-            java.net.URL address = new java.net.URL(url);
-            // The same rule as for the app's own requests: nothing goes out from an IP of a chosen country.
-            app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlocked(address.getHost());
             File folder = target.getParentFile();
             if (folder != null && !folder.isDirectory() && !folder.mkdirs()) return false;
-            connection = (java.net.HttpURLConnection) address.openConnection();
-            connection.setConnectTimeout(TIMEOUT_MS);
-            connection.setReadTimeout(TIMEOUT_MS);
-            int code = connection.getResponseCode();
+            ClassLoader loader = WidgetImages.class.getClassLoader();
+            Class<?> requestClass = Class.forName("okhttp3.Request", true, loader);
+            Object requestBuilder = Class.forName("okhttp3.Request$Builder", true, loader).getConstructor().newInstance();
+            requestBuilder.getClass().getMethod("url", String.class).invoke(requestBuilder, url);
+            Object request = requestBuilder.getClass().getMethod("build").invoke(requestBuilder);
+            Object http = client();
+            Object call = http.getClass().getMethod("newCall", requestClass).invoke(http, request);
+            response = (java.io.Closeable) Class.forName("okhttp3.Call", true, loader).getMethod("execute").invoke(call);
+            int code = (int) response.getClass().getMethod("code").invoke(response);
             if (code != 200) {
                 Logger.printInfo(() -> "Widget: cover answered " + code + ": " + url);
+                if (code >= 400 && code < 500 && code != 408 && code != 429) markMiss(miss);
                 return false;
             }
-            try (java.io.InputStream input = connection.getInputStream();
+            Object body = response.getClass().getMethod("body").invoke(response);
+            try (java.io.InputStream input = (java.io.InputStream) body.getClass().getMethod("byteStream").invoke(body);
                  java.io.FileOutputStream output = new java.io.FileOutputStream(part)) {
                 byte[] buffer = new byte[16 * 1024];
                 int total = 0;
                 for (int read; (read = input.read(buffer)) != -1; ) {
                     total += read;
-                    if (total > MAX_BYTES) return false;
+                    if (total > MAX_BYTES) {
+                        markMiss(miss);
+                        return false;
+                    }
                     output.write(buffer, 0, read);
                 }
             }
             if (!isPicture(part)) {
                 Logger.printInfo(() -> "Widget: the download is not a picture: " + describe(part.getPath()));
+                markMiss(miss);
                 return false;
             }
             if (!part.renameTo(target)) return false;
+            //noinspection ResultOfMethodCallIgnored
+            miss.delete();
             trim(folder);
             return true;
         } catch (Throwable ex) {
-            Logger.printInfo(() -> "Widget: could not download the cover " + url + ": " + ex);
+            // A network error or the country block: the cover is asked for again at the next update.
+            Throwable cause = ex instanceof java.lang.reflect.InvocationTargetException && ex.getCause() != null ? ex.getCause() : ex;
+            Logger.printInfo(() -> "Widget: could not download the cover " + url + ": " + cause);
             return false;
         } finally {
-            if (connection != null) connection.disconnect();
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (Throwable ignored) {
+                    // Closed with its body.
+                }
+            }
             //noinspection ResultOfMethodCallIgnored
             part.delete();
+        }
+    }
+
+    private static void markMiss(File miss) {
+        try {
+            if (!miss.createNewFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                miss.setLastModified(System.currentTimeMillis());
+            }
+        } catch (Throwable ignored) {
+            // Asked for again at the next update.
         }
     }
 

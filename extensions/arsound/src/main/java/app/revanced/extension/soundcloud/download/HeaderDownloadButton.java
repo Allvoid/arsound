@@ -18,7 +18,7 @@ import kotlin.jvm.functions.Function0;
  * The round download button at the top left of a playlist, an album and "Your likes". SoundCloud made it download
  * for its own offline mode, which needs a Go+ subscription, so without one it opened the subscription offer. Here it
  * checks the tracks and downloads the available ones with Arsound, like "Check track downloads" in the menu.
- * Only while "SoundCloud download buttons" is on, see {@link DownloadButtons}.
+ * Only while "SoundCloud download buttons" is on and the subscription has no downloads, see {@link DownloadButtons}.
  */
 @SuppressWarnings("unused")
 public final class HeaderDownloadButton {
@@ -40,8 +40,9 @@ public final class HeaderDownloadButton {
      * @param metadata  The {@code PlaylistDetailsMetadata}, which holds the playlist urn.
      */
     public static void onPlaylistHeaderBound(View actionBar, Object metadata) {
-        // Turned off: the button is SoundCloud's own again, for those with a subscription.
-        if (!app.revanced.extension.soundcloud.settings.Settings.isInterceptDownloadButtonsEnabled()) return;
+        // Turned off, or a subscription with downloads: the button is SoundCloud's own.
+        if (!app.revanced.extension.soundcloud.settings.Settings.isInterceptDownloadButtonsEnabled()
+                || DownloadButtons.subscriptionDownloads()) return;
         try {
             String playlistId = playlistId(metadata);
             View button = actionBar.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "download_action"));
@@ -68,7 +69,8 @@ public final class HeaderDownloadButton {
      * @return The Arsound check of the liked tracks instead of SoundCloud's offline mode.
      */
     public static Function0<Unit> likesAction(Function0<Unit> original) {
-        return app.revanced.extension.soundcloud.settings.Settings.isInterceptDownloadButtonsEnabled() ? LIKES_TAP : original;
+        return app.revanced.extension.soundcloud.settings.Settings.isInterceptDownloadButtonsEnabled()
+                && !DownloadButtons.subscriptionDownloads() ? LIKES_TAP : original;
     }
 
     /** The urn is a field of the metadata; field names are obfuscated, so it is found by its value. */

@@ -106,9 +106,14 @@ public final class UpgradeTabPage {
         hide.setOnClickListener(view -> {
             Settings.setHideUpgradeTabEnabled(true);
             Context viewContext = view.getContext();
-            Activity activity = viewContext instanceof Activity ? (Activity) viewContext : null;
+            Activity activity = viewContext instanceof Activity ? (Activity) viewContext
+                    : app.revanced.extension.soundcloud.update.UpdateChecker.resumedActivity();
+            if (activity == null) {
+                Utils.showToastShort(text("Вкладка скрыта после перезапуска SoundCloud", "The tab is hidden once SoundCloud restarts"));
+                return;
+            }
             Utils.showToastShort(text("Вкладка скрыта, SoundCloud перезапускается", "Tab hidden, SoundCloud restarts"));
-            if (activity != null) ArsoundTheme.restartApp(activity);
+            ArsoundTheme.restartApp(activity);
         });
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

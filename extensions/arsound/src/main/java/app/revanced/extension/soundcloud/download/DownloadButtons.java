@@ -20,8 +20,9 @@ import app.revanced.extension.soundcloud.update.UpdateChecker;
  * the subscription offer, which Arsound hides, so a tap did nothing and people took downloading for broken. With the
  * setting on, the offer is replaced by the Arsound download of the same track, playlist or likes.
  * <p>
- * With a subscription SoundCloud downloads by itself and opens no offer, so its own download keeps working. The
- * setting can be turned off to get the original buttons back entirely.
+ * With a subscription SoundCloud downloads by itself and opens no offer, so its own download keeps working; the round
+ * button, which Arsound sets up itself, is left to SoundCloud then ({@link #subscriptionDownloads}). The setting can
+ * be turned off to get the original buttons back entirely.
  */
 @SuppressWarnings("unused")
 public final class DownloadButtons {
@@ -29,7 +30,30 @@ public final class DownloadButtons {
     private static final Pattern TRACK_URN = Pattern.compile("^soundcloud:tracks:(\\d+)$");
     private static final Pattern PLAYLIST_URN = Pattern.compile("^soundcloud:playlists:(\\d+)$");
 
+    /** SoundCloud's DefaultFeatureOperations, a single instance. */
+    private static volatile java.lang.ref.WeakReference<Object> featureOperations = new java.lang.ref.WeakReference<>(null);
+
     private DownloadButtons() {
+    }
+
+    /** Injection point: the end of the constructor of SoundCloud's plan features. */
+    public static void setFeatureOperations(Object operations) {
+        featureOperations = new java.lang.ref.WeakReference<>(operations);
+    }
+
+    /**
+     * True if the user's SoundCloud subscription includes downloads (Go, Go+): SoundCloud's own buttons work then,
+     * and the ones Arsound takes over without an offer to replace (the round button on top of a list) stay its own.
+     */
+    static boolean subscriptionDownloads() {
+        Object operations = featureOperations.get();
+        if (operations == null) return false;
+        try {
+            return (boolean) operations.getClass().getMethod("isOfflineContentEnabled").invoke(operations);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Could not read whether the subscription includes downloads", ex);
+            return false;
+        }
     }
 
     /**

@@ -12,10 +12,12 @@ import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.extensions.replaceInstruction
+import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
+import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.returnType
@@ -25,13 +27,45 @@ import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 private const val EXTENSION_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/player/PlayModeButton;"
 private const val QUEUE_MANAGER = "Lcom/soundcloud/android/features/playqueue/PlayQueueManager;"
 
+private const val PLAY_QUEUE = "Lcom/soundcloud/android/foundation/playqueue/PlayQueue;"
+private const val PLAYBACK_STATE = "Landroid/support/v4/media/session/PlaybackStateCompat;"
+
+/**
+ * Methods the extension finds by reflection, beside those looked up below: class, name and parameter types. Their
+ * classes are kept by name, the methods may still change with a SoundCloud update.
+ */
+private val reflectedMethods = listOf(
+    Triple(PLAY_QUEUE, "shuffle", listOf("I")),
+    Triple(PLAY_QUEUE, "size", emptyList()),
+    Triple(PLAY_QUEUE, "getRepeatMode", emptyList()),
+    Triple(PLAY_QUEUE, "items", emptyList()),
+    Triple(PLAY_QUEUE, "indexOfPlayQueueItem", listOf("Lcom/soundcloud/android/foundation/playqueue/PlayQueueItem;")),
+    Triple(PLAY_QUEUE, "addAllPlayQueueItems", listOf("Ljava/util/List;", "Ljava/lang/String;")),
+    Triple("Lcom/soundcloud/android/foundation/playqueue/PlayQueue\$Shuffled;", "getOriginalQueue", emptyList()),
+    Triple(PLAYBACK_STATE, "getCustomActions", emptyList()),
+    Triple(PLAYBACK_STATE, "getState", emptyList()),
+    Triple("Landroid/support/v4/media/session/PlaybackStateCompat\$Builder;", "<init>", listOf(PLAYBACK_STATE)),
+    Triple(
+        "Landroid/support/v4/media/session/PlaybackStateCompat\$Builder;",
+        "addCustomAction",
+        listOf("Ljava/lang/String;", "Ljava/lang/String;", "I"),
+    ),
+    Triple("Landroid/support/v4/media/session/PlaybackStateCompat\$Builder;", "build", emptyList()),
+    Triple(
+        "Landroidx/core/app/NotificationCompat\$Action;",
+        "<init>",
+        listOf("I", "Ljava/lang/CharSequence;", "Landroid/app/PendingIntent;"),
+    ),
+)
+
 /** SoundCloud's play queue holder, a single instance. */
 private val BytecodePatchContext.queueManagerConstructorMethod by gettingFirstMethodDeclaratively {
     definingClass(QUEUE_MANAGER)
     name("<init>")
 }
 
-// The extension calls these by name; the patch fails here, not silently in the app, if a SoundCloud update renames them.
+// The extension calls these by name; the patch fails here, not silently in the app, if a SoundCloud update renames
+// them. The others it calls are in reflectedMethods above.
 private val BytecodePatchContext.queueManagerSetRepeatMethod by gettingFirstMethodDeclaratively {
     definingClass(QUEUE_MANAGER)
     name("E")
@@ -146,6 +180,12 @@ val playModePatch = bytecodePatch {
             queueManagerPositionMethod,
             notificationManagerUpdateMethod,
         ).forEach { it.name }
+        reflectedMethods.forEach { (type, name, parameters) ->
+            val found = firstClassDef(type).methods.any { method ->
+                method.name == name && method.parameterTypes.map { it.toString() } == parameters
+            }
+            if (!found) throw PatchException("$type->$name$parameters not found: the play mode button would not work")
+        }
 
         notificationManagerConstructorMethod.apply {
             val returnIndex = indexOfFirstInstructionReversedOrThrow(Opcode.RETURN_VOID)
