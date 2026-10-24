@@ -92,8 +92,9 @@ public final class LogFile {
         if (!isEnabled()) return;
 
         try {
-            String line = TIME.format(new Date()) + " " + level + " " + tag + ": " + message + "\n";
-            writer.execute(() -> write(line));
+            // Formatted on the single writer thread: SimpleDateFormat breaks when threads share it.
+            long now = System.currentTimeMillis();
+            writer.execute(() -> write(TIME.format(new Date(now)) + " " + level + " " + tag + ": " + message + "\n"));
         } catch (Exception ignored) {
         }
     }

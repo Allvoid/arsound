@@ -218,11 +218,20 @@ public final class ArsoundDialog {
             window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setDimAmount(0.55f);
         }
+        // A result that arrives after its screen was left has no window to open in.
+        if (context instanceof android.app.Activity
+                && (((android.app.Activity) context).isFinishing() || ((android.app.Activity) context).isDestroyed())) {
+            return dialog;
+        }
         card.setAlpha(0f);
         card.setScaleX(.94f);
         card.setScaleY(.94f);
         card.setTranslationY(dp(12));
-        dialog.show();
+        try {
+            dialog.show();
+        } catch (android.view.WindowManager.BadTokenException ex) {
+            return dialog;
+        }
         SHOWN.add(dialog);
         card.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0).setDuration(220)
                 .setInterpolator(new DecelerateInterpolator(1.8f)).start();

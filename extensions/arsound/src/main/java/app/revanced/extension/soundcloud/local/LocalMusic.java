@@ -9,13 +9,14 @@ import android.provider.OpenableColumns;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.shared.Rx;
@@ -30,6 +31,13 @@ import app.revanced.extension.soundcloud.shared.Rx;
 @SuppressWarnings("unused")
 public final class LocalMusic {
     private static final String IMPORT_DIRECTORY = "arsound/imported";
+    /** Unfinished copies and downloads, in the cache directory: they never show up as tracks. */
+    private static final String PART_DIRECTORY = "arsound-part";
+    /** A copy this old was left by a killed process (another process may be copying right now). */
+    private static final long STALE_PART_MS = 6 * 60 * 60 * 1000L;
+    private static final AtomicBoolean partsSwept = new AtomicBoolean();
+    /** Choosing a free name and moving a finished copy onto it must not interleave between imports. */
+    private static final Object IMPORT_LOCK = new Object();
 
     private static volatile Object playbackInitiator;
 
@@ -129,25 +137,68 @@ public final class LocalMusic {
         List<File> imported = new java.util.ArrayList<>();
         for (Uri uri : uris) {
             String name = displayName(resolver, uri);
-            File target = uniqueFile(directory(context), name);
-            try (InputStream input = resolver.openInputStream(uri);
-                 OutputStream output = new FileOutputStream(target)) {
-                if (input == null) {
-                    //noinspection ResultOfMethodCallIgnored
-                    target.delete();
-                    continue;
+            // Copied aside and moved onto its name when complete: a process killed mid-copy must not leave
+            // a truncated file in the import directory.
+            File part = null;
+            boolean moved = false;
+            try {
+                part = newPartFile(context);
+                try (InputStream input = resolver.openInputStream(uri);
+                     FileOutputStream output = new FileOutputStream(part)) {
+                    if (input == null) {
+                        Logger.printInfo(() -> "Could not open " + uri);
+                        continue;
+                    }
+                    byte[] buffer = new byte[64 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                    output.getFD().sync();
                 }
-                byte[] buffer = new byte[64 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-                imported.add(target);
+                imported.add(moveIntoImports(context, part, name));
+                moved = true;
             } catch (Exception ex) {
-                //noinspection ResultOfMethodCallIgnored
-                target.delete();
                 Logger.printException(() -> "Could not import " + uri, ex);
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                if (!moved && part != null) part.delete();
             }
         }
         return imported;
+    }
+
+    /**
+     * A temporary file for a copy or a download that goes into the import directory: write it fully, then
+     * move it with {@link File#renameTo} onto a name from {@link #newImportFile}, and delete it if that fails.
+     * Leftovers of killed processes are removed here, once per process.
+     */
+    public static File newPartFile(Context context) throws IOException {
+        File directory = new File(context.getCacheDir(), PART_DIRECTORY);
+        //noinspection ResultOfMethodCallIgnored
+        directory.mkdirs();
+        if (partsSwept.compareAndSet(false, true)) {
+            File[] parts = directory.listFiles((dir, fileName) -> fileName.endsWith(".part"));
+            long limit = System.currentTimeMillis() - STALE_PART_MS;
+            if (parts != null) {
+                for (File stale : parts) {
+                    if (stale.lastModified() < limit && !stale.delete()) {
+                        Logger.printInfo(() -> "Could not delete the unfinished copy " + stale);
+                    }
+                }
+            }
+        }
+        return File.createTempFile("import", ".part", directory);
+    }
+
+    /**
+     * Moves a finished part file into the import directory under a free name. Every import goes through here: the
+     * name is chosen and taken in one step, as renameTo would silently replace a file another import just made.
+     */
+    public static File moveIntoImports(Context context, File part, String name) throws IOException {
+        synchronized (IMPORT_LOCK) {
+            File target = newImportFile(context, name);
+            if (!part.renameTo(target)) throw new IOException("Could not move " + part + " to " + target);
+            return target;
+        }
     }
 
     /** A new file in the import directory, for a track downloaded from another source. */
@@ -163,7 +214,14 @@ public final class LocalMusic {
     public static boolean delete(Track track) {
         LocalAdditions.clearLocalTrackCache();
         boolean deleted = track.file.delete();
-        if (deleted) LocalCovers.onDeleted(track.file);
+        if (deleted) {
+            LocalCovers.onDeleted(track.file);
+            // The next file with this name gets the same path: it must not inherit the playlists it was
+            // added to, or the removal from the Imported playlist.
+            String entry = LocalAdditions.fileEntry(track.file);
+            LocalAdditions.forgetEntry(entry);
+            SavedPlaylist.unexclude(entry);
+        }
         return deleted;
     }
 
@@ -178,11 +236,27 @@ public final class LocalMusic {
         return "track-" + System.currentTimeMillis() + ".mp3";
     }
 
+    private static String cutToBytes(String text, int limit) {
+        int bytes = 0;
+        int end = 0;
+        while (end < text.length()) {
+            int point = text.codePointAt(end);
+            int size = new String(Character.toChars(point)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (bytes + size > limit) break;
+            bytes += size;
+            end += Character.charCount(point);
+        }
+        return text.substring(0, end);
+    }
+
     private static File uniqueFile(File directory, String name) {
         File file = new File(directory, name);
         int dot = name.lastIndexOf('.');
         String base = dot > 0 ? name.substring(0, dot) : name;
         String extension = dot > 0 ? name.substring(dot) : "";
+        // A file name is at most 255 bytes, and a long title in Cyrillic or hieroglyphs needs two or three per letter.
+        base = cutToBytes(base, 200 - extension.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        file = new File(directory, base + extension);
         for (int i = 2; file.exists(); i++) file = new File(directory, base + " (" + i + ")" + extension);
         return file;
     }

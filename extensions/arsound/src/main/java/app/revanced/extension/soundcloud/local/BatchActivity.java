@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,6 +51,8 @@ public final class BatchActivity extends Activity {
     private static volatile boolean running;
     private static final int TRACK_LIMIT_MINUTES = 3;
     private static java.util.concurrent.ExecutorService worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+    /** Tags of imported files read during this process (file path, time and size to the track), so a miss does not read them all again. */
+    private static final Map<String, LocalMusic.Track> TAGS = new ConcurrentHashMap<>();
 
     @Override
     protected void attachBaseContext(android.content.Context base) {
@@ -350,7 +353,7 @@ public final class BatchActivity extends Activity {
             String wanted = normalize(title.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
             // The title from the file tags (the file name may be a SoundCloud id). Only a title holding the
             // whole wanted one: a short title must not match a longer one.
-            for (LocalMusic.Track existing : LocalMusic.getTracks(context)) {
+            for (LocalMusic.Track existing : importedTracks(context)) {
                 if (!wanted.isEmpty() && normalize(existing.title).contains(wanted) && namesVersion(existing.title, title)) {
                     result[0] = existing.file;
                     return "OK\t" + key + "\t" + existing.title + "\timported\t" + existing.file.getPath();
@@ -367,22 +370,51 @@ public final class BatchActivity extends Activity {
         }
         for (int attempt = 1; file == null; attempt++) {
             AudioStream stream = OtherSource.bestAudio(match.url);
-            file = LocalMusic.newImportFile(context, match.artist + " - " + match.title + "." + OtherSource.extensionOf(stream));
-            try (OutputStream output = new FileOutputStream(file)) {
-                OtherSource.download(stream.getContent(), output, value -> {
-                });
-                break;
+            String name = match.artist + " - " + match.title + "." + OtherSource.extensionOf(stream);
+            // Written under a temporary name: a process killed in the middle must not leave a cut file that looks done.
+            File part = LocalMusic.newPartFile(context);
+            boolean moved = false;
+            try {
+                try (OutputStream output = new FileOutputStream(part)) {
+                    OtherSource.download(stream.getContent(), output, value -> {
+                    });
+                }
+                file = LocalMusic.moveIntoImports(context, part, name);
+                moved = true;
             } catch (Exception ex) {
-                //noinspection ResultOfMethodCallIgnored
-                file.delete();
-                file = null;
                 if (!(ex instanceof OtherSource.RefusedException) || attempt >= 3) throw ex;
+            } finally {
+                if (!moved) {
+                    //noinspection ResultOfMethodCallIgnored
+                    part.delete();
+                }
             }
         }
         if (!LocalCovers.hasCover(file)) LocalCovers.save(file, match.coverUrl);
         LocalMusic.onFileAdded();
         result[0] = file;
         return "OK\t" + key + "\t" + match.title + "\t" + match.url + "\t" + file.getPath();
+    }
+
+    /** Imported tracks with their tags. The tags of a file are read once: every miss of a long list asks for all of them. */
+    private static List<LocalMusic.Track> importedTracks(Context context) throws InterruptedException {
+        List<LocalMusic.Track> tracks = new ArrayList<>();
+        Set<String> current = new HashSet<>();
+        for (File file : LocalMusic.getFiles(context)) {
+            // A track given up on after the time limit stops here instead of reading the rest of the files.
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            String key = file.getPath() + '/' + file.lastModified() + '/' + file.length();
+            current.add(key);
+            LocalMusic.Track track = TAGS.get(key);
+            if (track == null) {
+                track = LocalMusic.readTrack(file);
+                TAGS.put(key, track);
+            }
+            tracks.add(track);
+        }
+        // Files deleted or changed since are forgotten.
+        TAGS.keySet().retainAll(current);
+        return tracks;
     }
 
     private static String normalize(String text) {

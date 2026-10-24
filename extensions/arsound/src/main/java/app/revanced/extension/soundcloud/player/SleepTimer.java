@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.player;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -118,8 +119,11 @@ public final class SleepTimer {
 
     /** Injection point. Called when the track menu receives its data, after {@link #setMenuConsumer}. */
     public static void onTrackMenu(Dialog dialog) {
+        Object consumer = menuConsumer;
+        // Used once: kept in the field, it would hold the closed menu, its dialog and the whole activity.
+        menuConsumer = null;
         try {
-            if (!isPlayerMenu(menuConsumer)) return;
+            if (!isPlayerMenu(consumer)) return;
             View menuItems = dialog.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "menuItems"));
             if (menuItems == null || !(menuItems.getParent() instanceof LinearLayout)) return;
             LinearLayout parent = (LinearLayout) menuItems.getParent();
@@ -177,6 +181,8 @@ public final class SleepTimer {
         final int accent, primary, secondary;
         final SharedPreferences preferences;
         boolean atClock;
+        /** The window on screen; null until it is shown. */
+        Dialog shown;
 
         final TextView inTimeTab, atClockTab;
         final NumberPicker hours, minutes;
@@ -257,7 +263,9 @@ public final class SleepTimer {
                         SleepTimer.start(context, chosenStop());
                     });
             if (active) dialog.setNeutralButton(text("Выключить", "Turn off"), (d, which) -> cancel(context));
-            dialog.show();
+            shown = dialog.show();
+            // The buttons exist only now: "Start" is off while no time is chosen.
+            refresh();
         }
 
         /** Hours and minutes on wheels, over a soft band that marks the chosen row. */
@@ -320,6 +328,8 @@ public final class SleepTimer {
                 separator.setVisibility(View.VISIBLE);
             } else {
                 int saved = preferences.getInt("minutes", 30);
+                // Zero was remembered by older versions and would leave "Start" off on every opening.
+                if (saved <= 0) saved = 30;
                 setRange(hours, 0, 12, 1, false);
                 setRange(minutes, 0, 60 - MINUTE_STEP, MINUTE_STEP, false);
                 hours.setValue(saved / 60);
@@ -378,6 +388,13 @@ public final class SleepTimer {
         /** The line under the wheels, the chosen preset and whether "Start" can be pressed. */
         void refresh() {
             boolean empty = !atClock && chosenMinutes() == 0;
+            if (shown != null) {
+                TextView ok = ArsoundDialog.getButton(shown, DialogInterface.BUTTON_POSITIVE);
+                if (ok != null) {
+                    ok.setEnabled(!empty);
+                    ok.setAlpha(empty ? 0.4f : 1f);
+                }
+            }
             if (empty) {
                 summary.setText(text("Выберите, через сколько остановить музыку", "Choose when to stop the music"));
                 summary.setTextColor(secondary);

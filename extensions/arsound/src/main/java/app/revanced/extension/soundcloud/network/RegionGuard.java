@@ -11,6 +11,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -29,6 +30,8 @@ public final class RegionGuard {
 
     private static volatile String country;
     private static volatile boolean listening;
+    /** The default network last reported, to tell the first report of the current one from a real change. */
+    private static volatile Network lastNetwork;
     private static volatile boolean toastShown;
 
     private RegionGuard() {
@@ -52,6 +55,16 @@ public final class RegionGuard {
     private static final long BLOCKED_RECHECK_MS = 30_000;
     private static volatile long checkedAt;
     private static volatile boolean recheckRunning;
+    /** Only one background check waits in the pool for a connectivity query; see {@link #isConnected}. */
+    private static final AtomicBoolean checkQueued = new AtomicBoolean();
+
+    /**
+     * Guards {@link #generation} and the writes of a check's answer. Not the class monitor: {@link #check()} holds
+     * that for the whole request, and the network callback must not wait for it.
+     */
+    private static final Object STATE = new Object();
+    /** Counts network changes. An answer of a check that started before a change belongs to the old network. */
+    private static int generation;
 
     /** @return True if the request to this host must not be sent. Called on network threads. */
     public static boolean shouldBlock(String host) {
@@ -113,7 +126,23 @@ public final class RegionGuard {
             return false;
         }
         // Unknown yet: report the network as connected, the requests themselves wait for the check.
-        Utils.runOnBackgroundThread(RegionGuard::check);
+        // This is asked for every list row and playback event, so one queued check is enough: the others would
+        // only park on its lock, each in a thread of its own. A failed check is not repeated inside the backoff.
+        if (System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS && checkQueued.compareAndSet(false, true)) {
+            try {
+                Utils.runOnBackgroundThread(() -> {
+                    try {
+                        check();
+                    } finally {
+                        checkQueued.set(false);
+                    }
+                });
+            } catch (Throwable t) {
+                // A thread that cannot be started must not reach SoundCloud's connectivity method.
+                checkQueued.set(false);
+                Logger.printException(() -> "Region guard: could not start the country check", t);
+            }
+        }
         return true;
     }
 
@@ -131,9 +160,7 @@ public final class RegionGuard {
         Utils.runOnBackgroundThread(() -> {
             lastFailedCheck = 0;
             toastShown = false;
-            String fresh = fetchCountry();
-            if (fresh != null) country = fresh;
-            else lastFailedCheck = System.currentTimeMillis();
+            fetchAndPublish();
             if (onDone != null) Utils.runOnMainThread(onDone);
         });
     }
@@ -149,17 +176,23 @@ public final class RegionGuard {
         recheckRunning = true;
         Utils.runOnBackgroundThread(() -> {
             try {
+                int started = currentGeneration();
                 String previous = country;
                 String fresh = fetchCountry();
-                if (fresh != null) {
-                    country = fresh;
-                    if (!fresh.equals(previous)) toastShown = false;
-                } else if (previous != null && !BLOCKED_COUNTRY.equals(previous)) {
-                    // A failed check on an allowed network means the route is unstable, and a VPN may be
-                    // reconnecting. Requests wait for a successful check instead of trusting the old answer.
-                    country = null;
-                    lastFailedCheck = System.currentTimeMillis();
-                    toastShown = false;
+                synchronized (STATE) {
+                    // The network changed during the check: its answer belongs to the old one and must not replace
+                    // the state of the new one. The unknown country makes the next request check again.
+                    if (started != generation) return;
+                    if (fresh != null) {
+                        country = fresh;
+                        if (!fresh.equals(previous)) toastShown = false;
+                    } else if (previous != null && !BLOCKED_COUNTRY.equals(previous)) {
+                        // A failed check on an allowed network means the route is unstable, and a VPN may be
+                        // reconnecting. Requests wait for a successful check instead of trusting the old answer.
+                        country = null;
+                        lastFailedCheck = System.currentTimeMillis();
+                        toastShown = false;
+                    }
                 }
             } finally {
                 recheckRunning = false;
@@ -170,10 +203,47 @@ public final class RegionGuard {
     /** Checks the country once for all waiting requests. Null means the check failed. */
     private static synchronized String check() {
         if (country != null) return country;
-        String fresh = fetchCountry();
-        if (fresh != null) country = fresh;
-        else lastFailedCheck = System.currentTimeMillis();
-        return fresh;
+        // Threads that queued on this lock while one check failed take its answer instead of each running a check
+        // of 6 s connect and 6 s read of their own.
+        if (lastFailedCheck != 0 && System.currentTimeMillis() - lastFailedCheck <= FAILED_CHECK_BACKOFF_MS) return null;
+        return fetchAndPublish();
+    }
+
+    private static int currentGeneration() {
+        synchronized (STATE) {
+            return generation;
+        }
+    }
+
+    /** The network changed: forgets the known country, and answers of checks that are still running are dropped. */
+    private static void networkChanged(boolean resetFailedCheck) {
+        synchronized (STATE) {
+            generation++;
+            country = null;
+            if (resetFailedCheck) {
+                lastFailedCheck = 0;
+                toastShown = false;
+            }
+        }
+    }
+
+    /**
+     * Checks the country and keeps the answer, unless the network changed while the check ran: then the answer
+     * is for the old network, and the check is made once more. Null means the check failed.
+     */
+    private static String fetchAndPublish() {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            int started = currentGeneration();
+            String fresh = fetchCountry();
+            synchronized (STATE) {
+                if (started == generation) {
+                    if (fresh != null) country = fresh;
+                    else lastFailedCheck = System.currentTimeMillis();
+                    return fresh;
+                }
+            }
+        }
+        return null;
     }
 
     /** Asks Cloudflare for the country of the current public IP. Null means the check failed. */
@@ -230,11 +300,14 @@ public final class RegionGuard {
             manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
+                    // Right after registering, Android reports the network already in use: not a change, and
+                    // treating it as one would throw away the check that is running for it.
+                    Network previous = lastNetwork;
+                    lastNetwork = network;
+                    if (previous == null || previous.equals(network)) return;
                     // Turned off by the user: the known country stays until a check by hand.
                     if (!Settings.isRegionRecheckOnChangeEnabled()) return;
-                    country = null;
-                    lastFailedCheck = 0;
-                    toastShown = false;
+                    networkChanged(true);
                 }
 
                 @Override
@@ -249,7 +322,7 @@ public final class RegionGuard {
                 @Override
                 public void onLost(Network network) {
                     if (!Settings.isRegionRecheckOnChangeEnabled()) return;
-                    country = null;
+                    networkChanged(false);
                 }
             });
             listening = true;

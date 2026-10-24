@@ -103,7 +103,13 @@ final class LastFm {
         int code = connection.getResponseCode();
         InputStream stream = code / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
         String body = stream == null ? "" : read(stream);
-        JSONObject json = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+        JSONObject json;
+        try {
+            json = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+        } catch (org.json.JSONException ex) {
+            // A page from a proxy or a captive portal instead of an answer: one lost request, not a lost run.
+            throw new java.io.IOException("Last.fm sent a reply that is not JSON, HTTP " + code);
+        }
         // Unknown songs come back as error 6 ("not found"): no similar songs, not a failure.
         if (json.has("error") && json.optInt("error") != 6) {
             throw new java.io.IOException("Last.fm error " + json.optInt("error") + ": " + json.optString("message"));

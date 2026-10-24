@@ -40,6 +40,8 @@ public final class ThemeEffect extends Drawable implements Runnable {
     private static final String SCARLET = "scarlet", COBALT = "cobalt", MINT = "mint", SAKURA = "sakura", LIME = "lime", WINTER = "winter";
 
     private final String kind;
+    /** Kept to look again at battery saver and Android's animations whenever the effect comes back on screen. */
+    private final Context appContext;
     /** Pixels per design dp, with the size scale of a preview tile. */
     private final float dp;
     private final boolean night;
@@ -55,6 +57,7 @@ public final class ThemeEffect extends Drawable implements Runnable {
     private Shader glow, meteor, petalShader, scan;
     /** «Зима»: the ice along the top edge, drawn once per size; and the tips where it now and then glints. */
     private android.graphics.Bitmap frost;
+    private int frostWidth;
     private final java.util.List<float[]> frostTips = new java.util.ArrayList<>();
     private int alpha = 255;
 
@@ -94,6 +97,8 @@ public final class ThemeEffect extends Drawable implements Runnable {
 
     private ThemeEffect(Context context, String kind, float sizeScale, float density, boolean night, int accent) {
         this.kind = kind;
+        Context application = context.getApplicationContext();
+        this.appContext = application != null ? application : context;
         this.dp = context.getResources().getDisplayMetrics().density * sizeScale;
         this.night = night;
         this.accent = accent;
@@ -364,8 +369,13 @@ public final class ThemeEffect extends Drawable implements Runnable {
     @Override
     public boolean setVisible(boolean visible, boolean restart) {
         boolean changed = super.setVisible(visible, restart);
-        if (!visible) unscheduleSelf(this);
-        else if (changed) invalidateSelf();
+        if (!visible) {
+            unscheduleSelf(this);
+        } else {
+            // Battery saver or Android's animations may have been switched while the effect was off screen.
+            refreshStill(appContext);
+            if (changed) invalidateSelf();
+        }
         return changed;
     }
 
@@ -553,9 +563,12 @@ public final class ThemeEffect extends Drawable implements Runnable {
      * few short icicles. All of it faint, so it never competes with the content under it.
      */
     private void buildFrost(int w, int h) {
+        int height = Math.round(Math.min(h * .26f, 190 * dp));
+        // The ice depends on the width only: bounds that got shorter (the keyboard opened) just clip the same
+        // bitmap, so it is not drawn again with every change of the height.
+        if (frost != null && frostWidth == w && frost.getHeight() >= height && height >= 4) return;
         frost = null;
         frostTips.clear();
-        int height = Math.round(Math.min(h * .26f, 190 * dp));
         if (w <= 0 || height < 4) return;
         android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(w, height, android.graphics.Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
@@ -630,6 +643,7 @@ public final class ThemeEffect extends Drawable implements Runnable {
             tip[3] = -random.nextFloat() * tip[2];
         }
         frost = bitmap;
+        frostWidth = w;
     }
 
     /** A frost fern: a stroke with side twigs at a third and two thirds, each a smaller fern, and a shorter tip. */

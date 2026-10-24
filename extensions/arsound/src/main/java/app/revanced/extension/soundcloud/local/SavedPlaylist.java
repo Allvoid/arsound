@@ -203,9 +203,13 @@ public final class SavedPlaylist {
             for (int i = 0; i < playlists.length(); i++) {
                 org.json.JSONObject playlist = playlists.getJSONObject(i);
                 String copy = "soundcloud:playlists:" + playlist.getLong("id");
+                // The app creates its playlist with a title only: one with a description or artwork was edited
+                // by the user and is theirs. (isNull: optString gives the text "null" for a JSON null.)
                 boolean isCopy = !copy.equals(urn)
                         && KNOWN_TITLES.contains(playlist.optString("title"))
                         && playlist.optInt("track_count", -1) == 0
+                        && (playlist.isNull("description") || playlist.optString("description").isEmpty())
+                        && (playlist.isNull("artwork_url") || playlist.optString("artwork_url").isEmpty())
                         && LocalAdditions.getEntries(copy).isEmpty();
                 String title = playlist.optString("title");
                 int tracks = playlist.optInt("track_count", -1);
@@ -220,7 +224,9 @@ public final class SavedPlaylist {
             java.util.Set<String> hidden = new java.util.HashSet<>(preferences.getStringSet(DUPLICATES, new java.util.HashSet<>()));
             hidden.addAll(copies);
             SharedPreferences.Editor editor = preferences.edit().putStringSet(DUPLICATES, hidden);
-            if (deleted > 0 && failed == 0) editor.putBoolean(COPIES_DELETED, true);
+            // Also when there was nothing to delete: the scan is done, and a later start must not delete
+            // anything again (a playlist the user made with the same title in the meantime).
+            if (failed == 0) editor.putBoolean(COPIES_DELETED, true);
             editor.apply();
             int count = deleted;
             Logger.printInfo(() -> "Empty copies of the saved tracks playlist deleted: " + count);
@@ -388,6 +394,8 @@ public final class SavedPlaylist {
     }
 
     private static final String EXCLUDED = "saved_playlist_excluded";
+    /** Not the class lock: that one is held by the network scans above. */
+    private static final Object EXCLUDED_LOCK = new Object();
 
     public static Object playlistOperations() {
         return playlistOperations;
@@ -397,9 +405,24 @@ public final class SavedPlaylist {
     public static void exclude(String entry) {
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
-        java.util.Set<String> excluded = new java.util.HashSet<>(preferences.getStringSet(EXCLUDED, new java.util.HashSet<>()));
-        excluded.add(entry);
-        preferences.edit().putStringSet(EXCLUDED, excluded).apply();
+        synchronized (EXCLUDED_LOCK) {
+            java.util.Set<String> excluded = new java.util.HashSet<>(preferences.getStringSet(EXCLUDED, new java.util.HashSet<>()));
+            excluded.add(entry);
+            preferences.edit().putStringSet(EXCLUDED, excluded).apply();
+        }
+    }
+
+    /**
+     * Forgets the removal of a file from the saved playlist, once the file is deleted: the next file with
+     * the same name gets the same path and must show up in the playlist.
+     */
+    public static void unexclude(String entry) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return;
+        synchronized (EXCLUDED_LOCK) {
+            java.util.Set<String> excluded = new java.util.HashSet<>(preferences.getStringSet(EXCLUDED, new java.util.HashSet<>()));
+            if (excluded.remove(entry)) preferences.edit().putStringSet(EXCLUDED, excluded).apply();
+        }
     }
 
     /** Imported files, newest first. Tracks downloaded by Arsound are not part of this playlist. */
