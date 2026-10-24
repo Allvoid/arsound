@@ -40,7 +40,7 @@ final class EqualizerGraph extends View {
     private final Path curve = new Path();
     private final Path area = new Path();
     private final RectF rect = new RectF();
-    private ValueAnimator morph;
+    private ValueAnimator morph, grow, shrink;
     private int dragging = -1;
     private float dragGrow;
     private Listener listener;
@@ -210,10 +210,14 @@ final class EqualizerGraph extends View {
                 }
                 if (Math.abs(xOf(nearest) - event.getX()) > 40 * density) return false;
                 if (morph != null) morph.cancel();
+                // A handle let go of a moment ago is still shrinking: it must not end this drag when it finishes.
+                // Cancelling keeps the current dragGrow, the new grow goes on from it.
+                if (shrink != null) shrink.cancel();
+                if (grow != null) grow.cancel();
                 dragging = nearest;
                 getParent().requestDisallowInterceptTouchEvent(true);
                 performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-                ValueAnimator grow = ValueAnimator.ofFloat(dragGrow, 1);
+                grow = ValueAnimator.ofFloat(dragGrow, 1);
                 grow.setDuration(150);
                 grow.addUpdateListener(a -> {
                     dragGrow = (float) a.getAnimatedValue();
@@ -230,7 +234,9 @@ final class EqualizerGraph extends View {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (dragging < 0) return false;
-                ValueAnimator shrink = ValueAnimator.ofFloat(dragGrow, 0);
+                if (grow != null) grow.cancel();
+                if (shrink != null) shrink.cancel();
+                shrink = ValueAnimator.ofFloat(dragGrow, 0);
                 shrink.setDuration(200);
                 shrink.addUpdateListener(a -> {
                     dragGrow = (float) a.getAnimatedValue();

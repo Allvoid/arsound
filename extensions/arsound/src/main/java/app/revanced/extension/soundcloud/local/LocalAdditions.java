@@ -19,9 +19,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
@@ -119,8 +126,8 @@ public final class LocalAdditions {
         return entries;
     }
 
-    /** @return False if the entry was already added. */
-    public static boolean add(String playlistUrn, String entry) {
+    /** @return False if the entry was already added. Read and write happen under one lock: two imports must not lose each other. */
+    public static synchronized boolean add(String playlistUrn, String entry) {
         Map<String, List<String>> additions = readAdditions();
         List<String> entries = additions.get(playlistUrn);
         if (entries == null) additions.put(playlistUrn, entries = new ArrayList<>());
@@ -131,16 +138,27 @@ public final class LocalAdditions {
     }
 
     /** Replaces the added entries of a playlist, keeping the given order. */
-    public static void setEntries(String playlistUrn, List<String> entries) {
+    public static synchronized void setEntries(String playlistUrn, List<String> entries) {
         Map<String, List<String>> additions = readAdditions();
         additions.put(playlistUrn, new ArrayList<>(entries));
         writeAdditions(additions);
     }
 
-    public static void remove(String playlistUrn, String entry) {
+    public static synchronized void remove(String playlistUrn, String entry) {
         Map<String, List<String>> additions = readAdditions();
         List<String> entries = additions.get(playlistUrn);
         if (entries != null && entries.remove(entry)) writeAdditions(additions);
+    }
+
+    /**
+     * Removes an entry from every playlist, once its file is deleted: the next file with the same name gets
+     * the same path and must not turn up in playlists it was never added to. One write for all playlists.
+     */
+    public static synchronized void forgetEntry(String entry) {
+        Map<String, List<String>> additions = readAdditions();
+        boolean changed = false;
+        for (List<String> entries : additions.values()) changed |= entries.removeIf(entry::equals);
+        if (changed) writeAdditions(additions);
     }
 
     public static String fileEntry(File file) {
@@ -305,7 +323,10 @@ public final class LocalAdditions {
                             loadLocalTrackInBackground(repository, track, urn, strategy);
                             return null;
                         }
-                        return loadLocalTrack(repository, track, urn, strategy, left);
+                        Object item = loadLocalTrack(repository, track, urn, strategy, left);
+                        // Not ready within the budget, or another file is being read: it continues in the background.
+                        if (item == null) loadLocalTrackInBackground(repository, track, urn, strategy);
+                        return item;
                     });
                 } catch (Exception ex) {
                     Logger.printException(() -> "Could not merge local file tracks", ex);
@@ -319,27 +340,123 @@ public final class LocalAdditions {
     }
 
     private static final long LOCAL_TRACK_BUDGET_MS = 1_500;
-    private static final Map<String, Object> LOCAL_TRACK_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Object> LOCAL_TRACK_CACHE = new ConcurrentHashMap<>();
+    /** Files queued for or in a background load: a list refresh does not queue them again. */
+    private static final Set<String> LOADING = ConcurrentHashMap.newKeySet();
+    /** When a file last failed to load in the background, so a file that never loads is not retried at every refresh. */
+    private static final Map<String, Long> LOAD_FAILED_AT = new ConcurrentHashMap<>();
+    private static final long LOAD_RETRY_MS = 30_000;
+    /**
+     * SoundCloud reads the metadata of all files with one shared MediaMetadataRetriever, which breaks when
+     * loads overlap (wrong or garbled metadata, a native abort), so files load one at a time. Fair, so the
+     * list refresh waiting within its budget is not starved by the background loads.
+     */
+    private static final ReentrantLock LOAD_LOCK = new ReentrantLock(true);
+    /** Files loaded in the background since the playlists were last told to reload. */
+    private static final AtomicInteger LOADED_SINCE_REFRESH = new AtomicInteger();
+    private static final int REFRESH_EVERY = 100;
+    /** One thread of its own: Utils' background pool starts a new thread for every task over three. */
+    private static final ThreadPoolExecutor LOCAL_LOADER = createLoader();
+
+    private static ThreadPoolExecutor createLoader() {
+        ThreadPoolExecutor loader = new ThreadPoolExecutor(1, 1, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), task -> {
+            Thread thread = new Thread(task, "arsound-local-track");
+            thread.setDaemon(true);
+            return thread;
+        });
+        loader.allowCoreThreadTimeOut(true);
+        return loader;
+    }
 
     private static Object loadLocalTrack(Object repository, Method track, Object urn, Object strategy, long timeoutMs) {
+        boolean locked = false;
         try {
-            Object found = Rx.blockingFirst(track.invoke(repository, urn, strategy), timeoutMs, TimeUnit.MILLISECONDS);
+            long started = System.nanoTime();
+            locked = LOAD_LOCK.tryLock(timeoutMs, TimeUnit.MILLISECONDS);
+            if (!locked) {
+                Logger.printInfo(() -> "Local file track not loaded, another file is loading: " + urn);
+                return null;
+            }
+            // The time spent waiting for the lock counts against the timeout.
+            long left = timeoutMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            if (left <= 0) return null;
+            Object found = Rx.blockingFirst(track.invoke(repository, urn, strategy), left, TimeUnit.MILLISECONDS);
             Object item = found == null ? null : found.getClass().getMethod("getItem").invoke(found);
             if (item != null) LOCAL_TRACK_CACHE.put(String.valueOf(urn), item);
             return item;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception ex) {
             Logger.printInfo(() -> "Local file track unavailable: " + urn + " " + ex);
             return null;
+        } finally {
+            if (locked) LOAD_LOCK.unlock();
         }
     }
 
     /** Called when imported files change, so removed files are not shown from the cache. */
     public static void clearLocalTrackCache() {
         LOCAL_TRACK_CACHE.clear();
+        LOAD_FAILED_AT.clear();
     }
 
     private static void loadLocalTrackInBackground(Object repository, Method track, Object urn, Object strategy) {
-        Utils.runOnBackgroundThread(() -> loadLocalTrack(repository, track, urn, strategy, 5_000));
+        String key = String.valueOf(urn);
+        if (LOCAL_TRACK_CACHE.containsKey(key)) return;
+        Long failedAt = LOAD_FAILED_AT.get(key);
+        if (failedAt != null && System.currentTimeMillis() - failedAt < LOAD_RETRY_MS) return;
+        if (!LOADING.add(key)) return;
+        try {
+            LOCAL_LOADER.execute(() -> loadQueuedLocalTrack(repository, track, urn, strategy, key));
+        } catch (RejectedExecutionException | OutOfMemoryError ex) {
+            // No thread could be started: the file is queued again by a later refresh.
+            LOADING.remove(key);
+            Logger.printInfo(() -> "Could not queue local file track " + key + ": " + ex);
+        }
+    }
+
+    /** Runs on the loader thread. */
+    private static void loadQueuedLocalTrack(Object repository, Method track, Object urn, Object strategy, String key) {
+        try {
+            // The list refresh may have loaded it within its budget while this one waited in the queue.
+            if (!LOCAL_TRACK_CACHE.containsKey(key)) {
+                if (loadLocalTrack(repository, track, urn, strategy, 5_000) != null) {
+                    LOAD_FAILED_AT.remove(key);
+                    LOADED_SINCE_REFRESH.incrementAndGet();
+                } else {
+                    LOAD_FAILED_AT.put(key, System.currentTimeMillis());
+                }
+            }
+        } catch (Throwable ex) {
+            // An error escaping a pool thread would reach the default handler and close the app.
+            Logger.printException(() -> "Could not load local file track " + key, ex);
+        } finally {
+            LOADING.remove(key);
+        }
+        refreshAfterBackgroundLoads();
+    }
+
+    /**
+     * Files missing at the first read of a list are loaded afterwards. Once a batch is done (or every
+     * {@link #REFRESH_EVERY} files of a long one), the playlists reload their tracks, so the loaded files
+     * show up without reopening the screen. Only loaded files trigger it, so files that never load cannot repeat it.
+     */
+    private static void refreshAfterBackgroundLoads() {
+        int loaded = LOADED_SINCE_REFRESH.get();
+        if (loaded == 0 || (loaded < REFRESH_EVERY && !LOADING.isEmpty())) return;
+        LOADED_SINCE_REFRESH.addAndGet(-loaded);
+        try {
+            Set<String> playlists = new java.util.LinkedHashSet<>(PlaylistTracks.playlistsWithImportedTracks());
+            String saved = SavedPlaylist.getUrn();
+            if (saved != null) playlists.add(saved);
+            Utils.runOnMainThread(() -> {
+                for (String playlist : playlists) notifyPlaylistChanged(playlist);
+            });
+        } catch (Throwable ex) {
+            // Runs on the loader thread, where an error would close the app.
+            Logger.printException(() -> "Could not refresh the playlists after loading local files", ex);
+        }
     }
 
     private static Object mergeLocalTracks(ClassLoader loader, Object response, List<Object> requested,
@@ -381,9 +498,10 @@ public final class LocalAdditions {
      */
     public static Object withoutLocalAdditions(Object playlistUrn, Object tracks) {
         String playlist = String.valueOf(playlistUrn);
-        List<String> entries = getEntries(playlist);
         java.util.Set<Object> result = new java.util.LinkedHashSet<>();
         boolean addedLocally = false;
+        // The editors only see the server track list, so a SoundCloud urn here is a server track, even when
+        // the same track was also added locally: it stays, otherwise saving removes it from the server.
         for (Object urn : (Iterable<?>) tracks) {
             if (urn.getClass().getName().endsWith(".LocalTrackUrn")) {
                 // An imported file picked in the native "Add to playlist" screen.
@@ -391,7 +509,6 @@ public final class LocalAdditions {
                 if (entry != null && add(playlist, entry)) addedLocally = true;
                 continue;
             }
-            if (entries.contains(String.valueOf(urn))) continue;
             // A track deleted on SoundCloud, kept here greyed out: the server would not accept it.
             if (RemovedTracks.isKept(playlist, String.valueOf(urn))) continue;
             result.add(urn);
@@ -698,6 +815,7 @@ public final class LocalAdditions {
 
     /** Tells open playlist screens to reload their track list. */
     public static void notifyPlaylistChanged(String playlistUrn) {
+        LocalCovers.onPlaylistChanged(playlistUrn);
         Object operations = SavedPlaylist.playlistOperations();
         if (operations == null) return;
         try {

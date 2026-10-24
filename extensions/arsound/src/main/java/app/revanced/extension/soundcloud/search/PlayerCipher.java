@@ -4,8 +4,10 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -48,6 +50,13 @@ public final class PlayerCipher {
     private static final String IFRAME_API_URL = "https://www.youtube.com/iframe_api";
 
     private static final long CONFIG_CACHE_TTL_MS = TimeUnit.HOURS.toMillis(6);
+    // A player missing from a fresh table may mean the table is older than the player: it is fetched
+    // again, but not if it is that young, and not more often than this (the upstream table may lack the player too).
+    private static final long CONFIG_REFETCH_MIN_AGE_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final long CONFIG_REFETCH_INTERVAL_MS = TimeUnit.MINUTES.toMillis(10);
+    private static final long PLAYER_HASH_CACHE_TTL_MS = TimeUnit.MINUTES.toMillis(5);
+    // After the script of a player failed to load, it is not downloaded and run again for every track.
+    private static final long SOLVER_RETRY_DELAY_MS = TimeUnit.MINUTES.toMillis(5);
     private static final long CONFIG_FETCH_TIMEOUT_MS = 30_000L;
     private static final long NETWORK_READ_TIMEOUT_MS = 15_000L;
     private static final long JS_EVAL_TIMEOUT_MS = 20_000L;
@@ -66,6 +75,9 @@ public final class PlayerCipher {
 
     private static volatile Map<String, PlayerConfig> cachedConfigs;
     private static volatile long cachedConfigsAtMs;
+    private static volatile long lastConfigRefetchAtMs;
+    private static volatile String fetchedPlayerHash;
+    private static volatile long fetchedPlayerHashAtMs;
     private static volatile String cachedPlayerHash;
     private static volatile PlayerConfig cachedResolvedConfig;
 
@@ -109,6 +121,8 @@ public final class PlayerCipher {
     public static synchronized String decipherUrl(Context ctx, String signatureCipherOrNull, String urlOrNull) throws Exception {
         String baseUrl;
         String deciphered;
+        // One lookup of the player serves both the signature and the n parameter.
+        boolean resolved = false;
         if (signatureCipherOrNull != null) {
             Map<String, String> params = parseQueryString(signatureCipherOrNull);
             String s = params.get("s");
@@ -119,6 +133,7 @@ public final class PlayerCipher {
             String sp = params.containsKey("sp") ? params.get("sp") : "signature";
 
             resolveConfig(ctx);
+            resolved = true;
             deciphered = callSolver(ctx, "_cipherSigFunc", s);
             if (deciphered == null) {
                 throw new IOException("Failed to decipher signature");
@@ -134,7 +149,7 @@ public final class PlayerCipher {
         Uri uri = Uri.parse(baseUrl);
         String n = uri.getQueryParameter("n");
         if (n != null) {
-            resolveConfig(ctx);
+            if (!resolved) resolveConfig(ctx);
             String transformed = callSolver(ctx, "_nTransformFunc", n);
             if (transformed != null && !transformed.isEmpty()) {
                 baseUrl = setQueryParam(baseUrl, "n", transformed);
@@ -155,7 +170,7 @@ public final class PlayerCipher {
 
     private static PlayerConfig resolveConfig(Context ctx) throws Exception {
         String playerHash = fetchPlayerHash();
-        Map<String, PlayerConfig> configs = fetchConfigs();
+        Map<String, PlayerConfig> configs = fetchConfigs(false);
 
         PlayerConfig config = configs.get(playerHash);
         if (config == null) {
@@ -163,6 +178,9 @@ public final class PlayerCipher {
             // several player hashes under one config when YouTube reuses the same cipher logic
             // across builds).
             config = findByAlias(configs, playerHash);
+        }
+        if (config == null) {
+            config = refetchedConfig(playerHash);
         }
         if (config == null) {
             throw new IOException("Player " + playerHash + " is not in the cipher config");
@@ -182,21 +200,50 @@ public final class PlayerCipher {
         return configs.get(hash);
     }
 
+    /**
+     * Takes the table again for a player that a fresh table does not know: it may be older than the
+     * player. Tried rarely, so a player that the upstream table lacks too does not fetch it on every play.
+     */
+    private static PlayerConfig refetchedConfig(String playerHash) {
+        long now = System.currentTimeMillis();
+        if (now - cachedConfigsAtMs < CONFIG_REFETCH_MIN_AGE_MS
+                || now - lastConfigRefetchAtMs < CONFIG_REFETCH_INTERVAL_MS) {
+            return null;
+        }
+        lastConfigRefetchAtMs = now;
+        try {
+            Map<String, PlayerConfig> configs = fetchConfigs(true);
+            PlayerConfig config = configs.get(playerHash);
+            return config != null ? config : findByAlias(configs, playerHash);
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not fetch the cipher config again", ex);
+            return null;
+        }
+    }
+
     private static String fetchPlayerHash() throws Exception {
+        // The player changes rarely, so the page is not read for every track.
+        String known = fetchedPlayerHash;
+        if (known != null && System.currentTimeMillis() - fetchedPlayerHashAtMs < PLAYER_HASH_CACHE_TTL_MS) {
+            return known;
+        }
         // The script has its slashes escaped inside strings: "player\/7460dd14\/".
         String html = httpGet(IFRAME_API_URL, NETWORK_READ_TIMEOUT_MS).replace("\\/", "/");
         for (Pattern pattern : PLAYER_HASH_PATTERNS) {
             Matcher m = pattern.matcher(html);
             if (m.find()) {
-                return m.group(1);
+                String hash = m.group(1);
+                fetchedPlayerHash = hash;
+                fetchedPlayerHashAtMs = System.currentTimeMillis();
+                return hash;
             }
         }
         throw new IOException("Could not resolve YouTube player hash from iframe_api");
     }
 
-    private static Map<String, PlayerConfig> fetchConfigs() throws Exception {
+    private static Map<String, PlayerConfig> fetchConfigs(boolean force) throws Exception {
         Map<String, PlayerConfig> local = cachedConfigs;
-        if (local != null && System.currentTimeMillis() - cachedConfigsAtMs < CONFIG_CACHE_TTL_MS) {
+        if (!force && local != null && System.currentTimeMillis() - cachedConfigsAtMs < CONFIG_CACHE_TTL_MS) {
             return local;
         }
 
@@ -283,9 +330,21 @@ public final class PlayerCipher {
     private static final String PLAYER_IIFE_TRAILER = "})(_yt_player);";
     private static final String BASE_JS_URL = "https://www.youtube.com/s/player/%s/player_ias.vflset/en_US/base.js";
 
-    /** The WebView holding the player script of {@link #solverHash}; recreated when the player changes. */
-    private static WebView solver;
-    private static String solverHash;
+    private static final String RENDERER_GONE = "render process gone";
+
+    /**
+     * The WebView holding the player script of {@link #solverHash}; recreated when the player changes.
+     * Written on the main thread (renderer loss) and on the worker, hence volatile.
+     */
+    private static volatile WebView solver;
+    private static volatile String solverHash;
+    /** The wait of the lookup running now for the answer of the player script, or null. */
+    private static volatile CountDownLatch pendingAnswer;
+
+    // The last player whose script failed to load, and how: told again for a while instead of loading it anew.
+    private static String failedHash;
+    private static long failedAtMs;
+    private static String failedMessage;
 
     /**
      * Calls {@code window._cipherSigFunc} or {@code window._nTransformFunc} of the loaded player.
@@ -303,6 +362,9 @@ public final class PlayerCipher {
         Handler main = new Handler(Looper.getMainLooper());
 
         if (solver == null || !hash.equals(solverHash)) {
+            if (hash.equals(failedHash) && System.currentTimeMillis() - failedAtMs < SOLVER_RETRY_DELAY_MS) {
+                throw new IOException(failedMessage + " (not tried again yet)");
+            }
             String playerCode = httpGet(String.format(BASE_JS_URL, hash), CONFIG_FETCH_TIMEOUT_MS);
             String sigExpression = config.sigJsExpression.replace("INPUT", "sig");
             String nExpression = buildNJsExpression(config.nClass).replace("INPUT", "n");
@@ -321,6 +383,28 @@ public final class PlayerCipher {
                     //noinspection SetJavaScriptEnabled the player script is JavaScript
                     webView.getSettings().setJavaScriptEnabled(true);
                     webView.getSettings().setBlockNetworkLoads(true);
+                    webView.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                            // Not consumed, the framework would take the whole app down with the renderer.
+                            Logger.printInfo(() -> "Cipher WebView render process gone");
+                            if (solver == view) {
+                                solver = null;
+                                solverHash = null;
+                            }
+                            try {
+                                view.destroy();
+                            } catch (Exception ex) {
+                                Logger.printInfo(() -> "Cipher WebView teardown failed", ex);
+                            }
+                            // A load that still waits for the script ends now; the next call builds a new WebView.
+                            loadError.compareAndSet(null, RENDERER_GONE);
+                            loaded.countDown();
+                            CountDownLatch waiting = pendingAnswer;
+                            if (waiting != null) waiting.countDown();
+                            return true;
+                        }
+                    });
                     webView.addJavascriptInterface(new Object() {
                         @android.webkit.JavascriptInterface
                         public String code() {
@@ -348,29 +432,54 @@ public final class PlayerCipher {
             });
             if (!loaded.await(JS_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 dropSolver(main);
+                // A slow phone or a cold WebView says nothing about the player: the next call may try again.
                 throw new IOException("The player script did not load in " + JS_EVAL_TIMEOUT_MS + " ms");
             }
-            if (loadError.get() != null) {
+            String error = loadError.get();
+            if (error != null) {
                 dropSolver(main);
-                throw new IOException("The player script failed: " + loadError.get());
+                String message = "The player script failed: " + error;
+                // A dead renderer says nothing about the player: the next call may try again at once.
+                throw RENDERER_GONE.equals(error) ? new IOException(message) : rememberLoadFailure(hash, message);
             }
             solverHash = hash;
+            failedHash = null;
             Logger.printInfo(() -> "Player script " + hash + " loaded for deciphering");
         }
 
         CountDownLatch answered = new CountDownLatch(1);
+        // A renderer that dies now never calls back: its handler ends this wait instead of the full timeout.
+        pendingAnswer = answered;
         AtomicReference<String> result = new AtomicReference<>();
         String script = "(function(){var v=window." + function + "(" + jsStringLiteral(input) + ");"
                 + "return v==null?null:String(v);})()";
-        main.post(() -> solver.evaluateJavascript(script, value -> {
-            result.set(unquoteJsString(value));
-            answered.countDown();
-        }));
-        if (!answered.await(JS_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+        main.post(() -> {
+            // The solver may have been dropped by a timeout while this waited for the main thread.
+            WebView current = solver;
+            if (current == null) {
+                answered.countDown();
+                return;
+            }
+            current.evaluateJavascript(script, value -> {
+                result.set(unquoteJsString(value));
+                answered.countDown();
+            });
+        });
+        boolean done = answered.await(JS_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        pendingAnswer = null;
+        if (!done) {
             dropSolver(main);
             throw new IOException(function + " did not answer");
         }
+        if (result.get() == null && solver == null) throw new IOException(function + ": " + RENDERER_GONE);
         return result.get();
+    }
+
+    private static IOException rememberLoadFailure(String hash, String message) {
+        failedHash = hash;
+        failedAtMs = System.currentTimeMillis();
+        failedMessage = message;
+        return new IOException(message);
     }
 
     private static void dropSolver(Handler main) {
@@ -378,6 +487,15 @@ public final class PlayerCipher {
         solver = null;
         solverHash = null;
         if (old != null) main.post(old::destroy);
+    }
+
+    /**
+     * Closes the WebView with the player script, for a sign-out: it holds the whole script in memory.
+     * Not synchronized, unlike the lookups: one may hold the lock for tens of seconds, and a sign-out
+     * click runs on the main thread. A lookup that is running fails and the next one loads the script again.
+     */
+    public static void releaseSolver() {
+        dropSolver(new Handler(Looper.getMainLooper()));
     }
 
     private static String jsStringLiteral(String s) {

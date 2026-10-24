@@ -97,7 +97,9 @@ public final class NetworkBanner {
     private static void registerCallback(Context context) {
         if (callbackRegistered) return;
         try {
-            ConnectivityManager manager = context.getSystemService(ConnectivityManager.class);
+            // The application's manager: one made from an activity keeps that activity (and its whole screen)
+            // in memory for as long as the callback lives, which is forever.
+            ConnectivityManager manager = context.getApplicationContext().getSystemService(ConnectivityManager.class);
             manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
@@ -116,7 +118,8 @@ public final class NetworkBanner {
     }
 
     private static State currentState(Context context) {
-        ConnectivityManager manager = context.getSystemService(ConnectivityManager.class);
+        // Android keeps the last manager made in a static field; one made from an activity would keep it.
+        ConnectivityManager manager = context.getApplicationContext().getSystemService(ConnectivityManager.class);
         NetworkCapabilities capabilities = manager.getNetworkCapabilities(manager.getActiveNetwork());
         if (capabilities == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
             return State.OFFLINE;

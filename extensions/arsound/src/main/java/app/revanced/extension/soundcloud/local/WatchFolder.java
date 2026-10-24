@@ -11,10 +11,13 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -38,6 +41,8 @@ public final class WatchFolder {
 
     private static volatile long lastCheck;
     private static volatile boolean checking;
+    /** Document id to its size at the previous check, for files of a provider that does not tell when they changed. */
+    private static final Map<String, Long> PENDING_SIZES = new ConcurrentHashMap<>();
 
     private WatchFolder() {
     }
@@ -82,6 +87,7 @@ public final class WatchFolder {
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
         preferences.edit().putString(FOLDER, folder.toString()).remove(SEEN).putBoolean(ENABLED, true).apply();
+        PENDING_SIZES.clear();
         Logger.printInfo(() -> "Watch folder set: " + folder);
         check(context, true);
     }
@@ -113,8 +119,17 @@ public final class WatchFolder {
                 for (File file : LocalMusic.getFiles(context)) imported.add(file.getName() + '/' + file.length());
                 collect(context.getContentResolver(), folder, DocumentsContract.getTreeDocumentId(folder), seen, imported, found, foundIds, 0);
 
-                List<File> files = found.isEmpty() ? new ArrayList<>() : LocalMusic.importFileList(context, found);
+                // One by one, to know which file failed: only that one is tried again.
+                List<File> files = new ArrayList<>();
+                Set<String> failed = new HashSet<>();
+                for (Uri uri : found) {
+                    List<File> copied = LocalMusic.importFileList(context, Collections.singletonList(uri));
+                    if (copied.isEmpty()) failed.add(DocumentsContract.getDocumentId(uri));
+                    files.addAll(copied);
+                }
                 seen.addAll(foundIds);
+                // A file that could not be copied is tried again at the next check, not forgotten.
+                seen.removeAll(failed);
                 preferences.edit().putStringSet(SEEN, seen).apply();
                 Logger.printInfo(() -> "Watch folder: " + found.size() + " new, imported " + files.size());
                 if (files.isEmpty() && !report) return;
@@ -148,7 +163,8 @@ public final class WatchFolder {
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_SIZE}, null, null, null)) {
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED}, null, null, null)) {
             if (cursor == null) return;
             while (cursor.moveToNext()) {
                 String id = cursor.getString(0);
@@ -157,11 +173,30 @@ public final class WatchFolder {
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
                     collect(resolver, tree, id, seen, imported, found, foundIds, depth + 1);
                 } else if (!seen.contains(id) && isAudio(name, mime)) {
-                    if (!imported.contains(name + '/' + cursor.getLong(3))) found.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
+                    long modified = cursor.isNull(4) ? 0 : cursor.getLong(4);
+                    long size = cursor.isNull(3) ? -1 : cursor.getLong(3);
+                    if (modified > 0) {
+                        // A file written a moment ago may still be growing (a download, a copy): it waits for the next check.
+                        if (System.currentTimeMillis() - modified < SETTLE_MS) continue;
+                    } else if (size >= 0) {
+                        // The provider does not tell when the file changed: it waits until its size is the same at two checks.
+                        Long before = PENDING_SIZES.put(id, size);
+                        if (before == null || before != size) continue;
+                    }
+                    PENDING_SIZES.remove(id);
+                    if (!imported.contains(storedName(name) + '/' + size)) found.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
                     foundIds.add(id);
                 }
             }
         }
+    }
+
+    /** How long a file must stay untouched before it is imported. */
+    private static final long SETTLE_MS = 15_000;
+
+    /** The name an imported copy of the file gets, as the library holds it. */
+    private static String storedName(String name) {
+        return name == null ? "" : name.replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
     private static boolean isAudio(String name, String mime) {

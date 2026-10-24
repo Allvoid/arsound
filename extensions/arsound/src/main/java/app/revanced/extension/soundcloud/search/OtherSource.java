@@ -31,6 +31,7 @@ import app.arsound.shaded.newpipe.extractor.downloader.Downloader;
 import app.arsound.shaded.newpipe.extractor.downloader.Request;
 import app.arsound.shaded.newpipe.extractor.downloader.Response;
 import app.arsound.shaded.newpipe.extractor.exceptions.AgeRestrictedContentException;
+import app.arsound.shaded.newpipe.extractor.exceptions.SignInConfirmNotBotException;
 import app.arsound.shaded.newpipe.extractor.search.SearchInfo;
 import app.arsound.shaded.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory;
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
@@ -168,14 +169,19 @@ public final class OtherSource {
         return artists;
     }
 
+    /** Most continuation pages read for one album or artist. */
+    private static final int MAX_PAGES = 30;
+
     /** The tracks of an album, in album order. */
     public static List<Track> albumTracks(Album album) throws Exception {
         StreamingService service = service();
         PlaylistInfo info = PlaylistInfo.getInfo(service, album.url);
         List<StreamInfoItem> items = new ArrayList<>(info.getRelatedItems());
         Page page = info.getNextPage();
-        while (Page.isValid(page) && items.size() < 500) {
+        // A page without items ends the loop: a valid continuation that never fills would otherwise spin for ever.
+        for (int pages = 0; Page.isValid(page) && items.size() < 500 && pages < MAX_PAGES; pages++) {
             ListExtractor.InfoItemsPage<StreamInfoItem> more = PlaylistInfo.getMoreItems(service, album.url, page);
+            if (more.getItems().isEmpty()) break;
             items.addAll(more.getItems());
             page = more.getNextPage();
         }
@@ -200,8 +206,9 @@ public final class OtherSource {
             ChannelTabInfo info = ChannelTabInfo.getInfo(service, tab);
             List<InfoItem> items = new ArrayList<>(info.getRelatedItems());
             Page page = info.getNextPage();
-            while (Page.isValid(page) && items.size() < 300) {
+            for (int pages = 0; Page.isValid(page) && items.size() < 300 && pages < MAX_PAGES; pages++) {
                 ListExtractor.InfoItemsPage<InfoItem> more = ChannelTabInfo.getMoreItems(service, tab, page);
+                if (more.getItems().isEmpty()) break;
                 items.addAll(more.getItems());
                 page = more.getNextPage();
             }
@@ -221,6 +228,10 @@ public final class OtherSource {
         } catch (AgeRestrictedContentException ex) {
             // Anonymous requests cannot get age-restricted tracks; a signed-in account can.
             return YouTubeAccount.audio(Uri.parse(url).getQueryParameter("v"));
+        } catch (SignInConfirmNotBotException ex) {
+            // YouTube blocks the app clients of NewPipe for some networks (VPN, data centre addresses).
+            Logger.printInfo(() -> "YouTube asks to confirm this is not a bot, trying the web player: " + ex.getMessage());
+            return YouTubeAccount.botCheckedAudio(Uri.parse(url).getQueryParameter("v"));
         }
         AudioStream best = null;
         AudioStream bestM4a = null;
@@ -366,39 +377,42 @@ public final class OtherSource {
         public Response execute(Request request) throws IOException {
             app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlockedAnyHost();
             HttpURLConnection connection = (HttpURLConnection) new URL(request.url()).openConnection();
-            connection.setConnectTimeout(15_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestMethod(request.httpMethod());
-            connection.setRequestProperty("User-Agent", USER_AGENT);
-            for (Map.Entry<String, List<String>> header : request.headers().entrySet()) {
-                connection.setRequestProperty(header.getKey(), String.join(", ", header.getValue()));
-            }
-            byte[] data = request.dataToSend();
-            if (data != null) {
-                connection.setDoOutput(true);
-                try (OutputStream output = connection.getOutputStream()) {
-                    output.write(data);
+            // Disconnects also when the request or the read of the body fails.
+            try {
+                connection.setConnectTimeout(15_000);
+                connection.setReadTimeout(30_000);
+                connection.setRequestMethod(request.httpMethod());
+                connection.setRequestProperty("User-Agent", USER_AGENT);
+                for (Map.Entry<String, List<String>> header : request.headers().entrySet()) {
+                    connection.setRequestProperty(header.getKey(), String.join(", ", header.getValue()));
                 }
+                byte[] data = request.dataToSend();
+                if (data != null) {
+                    connection.setDoOutput(true);
+                    try (OutputStream output = connection.getOutputStream()) {
+                        output.write(data);
+                    }
+                }
+                int code = connection.getResponseCode();
+                String body = "";
+                try (InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
+                    if (input != null) {
+                        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                        byte[] buffer = new byte[16 * 1024];
+                        int read;
+                        while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
+                        body = bytes.toString("UTF-8");
+                    }
+                }
+                Map<String, List<String>> headers = new java.util.HashMap<>();
+                for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
+                    if (header.getKey() != null) headers.put(header.getKey(), header.getValue());
+                }
+                return new Response(code, connection.getResponseMessage(), headers,
+                        body, connection.getURL().toString());
+            } finally {
+                connection.disconnect();
             }
-            int code = connection.getResponseCode();
-            InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            String body = "";
-            if (input != null) {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] buffer = new byte[16 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
-                input.close();
-                body = bytes.toString("UTF-8");
-            }
-            Map<String, List<String>> headers = new java.util.HashMap<>();
-            for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
-                if (header.getKey() != null) headers.put(header.getKey(), header.getValue());
-            }
-            Response response = new Response(code, connection.getResponseMessage(), headers,
-                    body, connection.getURL().toString());
-            connection.disconnect();
-            return response;
         }
     }
 }

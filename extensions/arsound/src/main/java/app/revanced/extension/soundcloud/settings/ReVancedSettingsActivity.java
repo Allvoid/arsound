@@ -10,6 +10,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -72,6 +74,8 @@ public final class ReVancedSettingsActivity extends Activity {
                     : createSection(screen);
             addThemeEffect(content);
             setContentView(content);
+            String highlight = getIntent().getStringExtra(EXTRA_HIGHLIGHT);
+            if (highlight != null) content.postDelayed(() -> revealRow(highlight), 250);
         } catch (Exception ex) {
             Logger.printException(() -> "Failed to create ReVanced settings screen", ex);
             finish();
@@ -123,6 +127,7 @@ public final class ReVancedSettingsActivity extends Activity {
         root.addView(createToolbar());
 
         ScrollView scrollView = new ScrollView(this);
+        screenScroll = scrollView;
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         scrollView.addView(list);
@@ -161,8 +166,16 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private View openScreenRow(String title, String description, String screen) {
-        return createActionRow(title, description, v -> startActivity(
-                new android.content.Intent(this, ReVancedSettingsActivity.class).putExtra(EXTRA_SCREEN, screen)));
+        boolean sectionRow = searchCollector != null && searchScreen == null;
+        // On the main screen the row is a section of its own in the search; elsewhere it is a row like the others.
+        if (sectionRow) searchCollector.add(new SettingsSearchIndex.Entry(screen, title, title, description, true));
+        searchSkipRecord = sectionRow;
+        try {
+            return createActionRow(title, description, v -> startActivity(
+                    new android.content.Intent(this, ReVancedSettingsActivity.class).putExtra(EXTRA_SCREEN, screen)));
+        } finally {
+            searchSkipRecord = false;
+        }
     }
 
     /** The decoration of the chosen theme, or null. */
@@ -214,8 +227,16 @@ public final class ReVancedSettingsActivity extends Activity {
             background.setLayerGravity(1, Gravity.TOP);
             root.setBackground(background);
         }
-        list.addView(createTitle("Arsound", true));
+        list.addView(createSearchHeader(createTitle("Arsound", true)));
+        list.addView(searchSections);
+        list.addView(searchResults);
+        addSectionRows(searchSections);
+        addStrips(searchSections, 0);
+        return root;
+    }
 
+    /** One row per section of the main screen. */
+    private void addSectionRows(LinearLayout list) {
         list.addView(openScreenRow(text("Аккаунт", "Account"),
                 text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional"),
                 SCREEN_ACCOUNT));
@@ -258,72 +279,536 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(openScreenRow(text("Для разработчика", "Developer"),
                 text("Инструменты для проверки и отладки", "Testing and debugging tools"),
                 SCREEN_DEVELOPER));
-        addStrips(list, 1);
-        return root;
     }
+
+    // region Search
+
+    private static final String EXTRA_HIGHLIGHT = "arsound_highlight";
+    /** Screens whose rows the search knows; the equalizer, the statistics and the icon grid are found by their section row. */
+    private static final String[] SEARCHED_SCREENS = {SCREEN_ACCOUNT, SCREEN_APPEARANCE, SCREEN_NETWORK, SCREEN_PLAYBACK,
+            SCREEN_ADS, SCREEN_RECOMMENDATIONS, SCREEN_MUSIC, SCREEN_STORAGE, SCREEN_PRIVACY, SCREEN_UPDATES, SCREEN_DEVELOPER};
+    private static final int MAX_RESULTS = 30;
+    private static final int ANIMATED_RESULTS = 8;
+
+    private ScrollView screenScroll;
+    private LinearLayout searchSections;
+    private LinearLayout searchResults;
+    private View searchTitleRow;
+    private View searchButton;
+    private View searchBar;
+    private EditText searchField;
+    private boolean searchOpen;
+    private android.animation.Animator searchReveal;
+    private SettingsSearchIndex searchIndex;
+    private java.util.Set<SettingsSearchIndex.Entry> shownResults = new java.util.HashSet<>();
+
+    /** Set while the screens are built to fill the index, null otherwise. */
+    private SettingsSearchIndex searchCollector;
+    /** The screen being built for the index, null for the main screen. */
+    private String searchScreen;
+    private boolean searchSkipRecord;
+    private boolean searchIndexing;
+
+    private void recordForSearch(String title, String description) {
+        if (searchCollector == null || searchSkipRecord || title == null || title.isEmpty()) return;
+        String section = searchScreen == null ? null : sectionTitle(searchScreen);
+        searchCollector.add(new SettingsSearchIndex.Entry(searchScreen, section, title, description, false));
+    }
+
+    /** Work that fills the screen with numbers; it has no use while the screens are only read for the search. */
+    private void inBackground(Runnable task) {
+        if (!searchIndexing) Utils.runOnBackgroundThread(task);
+    }
+
+    /**
+     * Builds every searched screen once, off screen, and keeps what its rows say. Done while the main screen sits
+     * idle, so the first tap on the search finds it ready.
+     */
+    private void ensureSearchIndex() {
+        if (searchIndex != null) return;
+        SettingsSearchIndex index = new SettingsSearchIndex();
+        searchCollector = index;
+        searchIndexing = true;
+        try {
+            searchScreen = null;
+            addSectionRows(new LinearLayout(this));
+            for (String screen : SEARCHED_SCREENS) {
+                searchScreen = screen;
+                try {
+                    fillSection(screen, new LinearLayout(this));
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Search index: could not read the " + screen + " screen", ex);
+                }
+            }
+        } finally {
+            searchCollector = null;
+            searchScreen = null;
+            searchIndexing = false;
+        }
+        searchIndex = index;
+    }
+
+    /** The title row with the search button at its end, and the field that grows out of the button. */
+    private View createSearchHeader(View title) {
+        FrameLayout header = new FrameLayout(this);
+        searchSections = new LinearLayout(this);
+        searchSections.setOrientation(LinearLayout.VERTICAL);
+        searchResults = new LinearLayout(this);
+        searchResults.setOrientation(LinearLayout.VERTICAL);
+        searchResults.setVisibility(View.GONE);
+
+        searchTitleRow = title;
+        int accent = ArsoundTheme.palette(this, "special");
+        searchButton = createSearchButton(accent);
+        LinearLayout titleRow = (LinearLayout) title;
+        titleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        titleRow.addView(searchButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        header.addView(titleRow, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        searchBar = createSearchBar(accent);
+        FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52), Gravity.CENTER_VERTICAL);
+        barParams.leftMargin = barParams.rightMargin = dimen("spacing_m");
+        header.addView(searchBar, barParams);
+        searchBar.setVisibility(View.INVISIBLE);
+
+        // The index is read when the main thread has nothing else to do, before anyone taps the button.
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            if (!isFinishing()) {
+                try {
+                    ensureSearchIndex();
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Search index failed", ex);
+                }
+            }
+            return false;
+        });
+        return header;
+    }
+
+    private View createSearchButton(int accent) {
+        ImageButton button = new ImageButton(this);
+        android.graphics.drawable.GradientDrawable disc = new android.graphics.drawable.GradientDrawable();
+        disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        disc.setColor(ArsoundTheme.palette(this, "highlight"));
+        disc.setStroke(dp(1), (accent & 0x00FFFFFF) | 0x40000000);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x33000000), disc, null));
+        button.setImageDrawable(new SearchGlyph(SearchGlyph.MAGNIFIER, themeColor("themeColorPrimary")));
+        button.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setContentDescription(text("Поиск по настройкам", "Search settings"));
+        button.setOnClickListener(v -> openSearch());
+        return button;
+    }
+
+    private View createSearchBar(int accent) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(ArsoundTheme.palette(this, "highlight"));
+        shape.setCornerRadius(dp(26));
+        shape.setStroke(dp(1), (accent & 0x00FFFFFF) | 0x66000000);
+        bar.setBackground(shape);
+
+        android.widget.ImageView lens = new android.widget.ImageView(this);
+        lens.setImageDrawable(new SearchGlyph(SearchGlyph.MAGNIFIER, ArsoundTheme.palette(this, "secondary")));
+        lens.setPadding(dp(14), dp(14), dp(10), dp(14));
+        bar.addView(lens, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        searchField = new EditText(this);
+        searchField.setBackground(null);
+        searchField.setSingleLine(true);
+        searchField.setHint(text("Поиск по настройкам", "Search settings"));
+        searchField.setHintTextColor(ArsoundTheme.palette(this, "secondary"));
+        searchField.setTextColor(themeColor("themeColorPrimary"));
+        searchField.setHighlightColor((accent & 0x00FFFFFF) | 0x55000000);
+        searchField.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        searchField.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        searchField.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        searchField.setPadding(0, 0, 0, 0);
+        searchField.setOnEditorActionListener((view, action, event) -> {
+            hideKeyboard();
+            return true;
+        });
+        searchField.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                updateSearchResults(s.toString());
+            }
+        });
+        bar.addView(searchField, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+        ImageButton clear = new ImageButton(this);
+        clear.setImageDrawable(new SearchGlyph(SearchGlyph.CROSS, themeColor("themeColorPrimary")));
+        clear.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        clear.setPadding(dp(12), dp(12), dp(12), dp(12));
+        clear.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
+        clear.setContentDescription(text("Закрыть поиск", "Close search"));
+        // Clears what was typed; with an empty field it closes the search.
+        clear.setOnClickListener(v -> {
+            if (searchField.length() > 0) searchField.setText("");
+            else closeSearch();
+        });
+        bar.addView(clear, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        return bar;
+    }
+
+    /** The field grows out of the button over the title, the sections give way to the results. */
+    private void openSearch() {
+        if (searchOpen) return;
+        searchOpen = true;
+        try {
+            ensureSearchIndex();
+        } catch (Exception ex) {
+            Logger.printException(() -> "Search index failed", ex);
+        }
+
+        int[] reveal = revealCentre();
+        float far = (float) Math.hypot(Math.max(reveal[0], searchBar.getWidth() - reveal[0]), searchBar.getHeight());
+        searchBar.setVisibility(View.VISIBLE);
+        android.animation.Animator grow = android.view.ViewAnimationUtils.createCircularReveal(
+                searchBar, reveal[0], reveal[1], dp(22), far);
+        grow.setDuration(360);
+        grow.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
+        grow.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (!searchOpen) return;
+                searchField.requestFocus();
+                android.view.inputmethod.InputMethodManager keyboard = (android.view.inputmethod.InputMethodManager)
+                        getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (keyboard != null) keyboard.showSoftInput(searchField, 0);
+            }
+        });
+        cancelReveal();
+        searchReveal = grow;
+        grow.start();
+
+        searchTitleRow.animate().alpha(0f).setDuration(220).start();
+        searchSections.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+            if (searchOpen) searchSections.setVisibility(View.GONE);
+        }).start();
+        searchResults.setAlpha(0f);
+        searchResults.setVisibility(View.VISIBLE);
+        updateSearchResults(searchField.getText().toString());
+        searchResults.animate().alpha(1f).setStartDelay(120).setDuration(240).start();
+    }
+
+    private void closeSearch() {
+        if (!searchOpen) return;
+        searchOpen = false;
+        hideKeyboard();
+
+        int[] reveal = revealCentre();
+        float far = (float) Math.hypot(Math.max(reveal[0], searchBar.getWidth() - reveal[0]), searchBar.getHeight());
+        android.animation.Animator shrink = android.view.ViewAnimationUtils.createCircularReveal(
+                searchBar, reveal[0], reveal[1], far, dp(22));
+        shrink.setDuration(280);
+        shrink.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        shrink.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (searchOpen) return;
+                searchBar.setVisibility(View.INVISIBLE);
+                searchField.setText("");
+            }
+        });
+        cancelReveal();
+        searchReveal = shrink;
+        shrink.start();
+
+        searchTitleRow.animate().alpha(1f).setStartDelay(140).setDuration(240).start();
+        searchResults.animate().alpha(0f).setStartDelay(0).setDuration(150).withEndAction(() -> {
+            if (searchOpen) return;
+            searchResults.setVisibility(View.GONE);
+            searchResults.removeAllViews();
+            shownResults.clear();
+        }).start();
+        searchSections.setAlpha(0f);
+        searchSections.setVisibility(View.VISIBLE);
+        searchSections.animate().alpha(1f).setStartDelay(120).setDuration(260).start();
+    }
+
+    /** A quick tap on the button again must not run the growing and the shrinking of the field at once. */
+    private void cancelReveal() {
+        if (searchReveal != null) searchReveal.cancel();
+        searchReveal = null;
+    }
+
+    /** The middle of the search button, in the coordinates of the field: where the field starts to grow. */
+    private int[] revealCentre() {
+        int[] button = new int[2];
+        int[] bar = new int[2];
+        searchButton.getLocationInWindow(button);
+        searchBar.getLocationInWindow(bar);
+        int x = button[0] + searchButton.getWidth() / 2 - bar[0];
+        int y = button[1] + searchButton.getHeight() / 2 - bar[1];
+        return new int[]{Math.max(0, Math.min(searchBar.getWidth(), x)), Math.max(0, Math.min(searchBar.getHeight(), y))};
+    }
+
+    private void hideKeyboard() {
+        android.view.inputmethod.InputMethodManager keyboard = (android.view.inputmethod.InputMethodManager)
+                getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (keyboard != null && searchField != null) keyboard.hideSoftInputFromWindow(searchField.getWindowToken(), 0);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (searchOpen) {
+            closeSearch();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    private void updateSearchResults(String query) {
+        if (searchResults == null || !searchOpen && searchResults.getVisibility() != View.VISIBLE) return;
+        searchResults.removeAllViews();
+        if (query.trim().isEmpty()) {
+            shownResults.clear();
+            searchResults.addView(createSearchNote(text("Название настройки или слово из её описания",
+                    "A setting's name, or a word from its description")));
+            return;
+        }
+        java.util.List<SettingsSearchIndex.Entry> found = searchIndex == null
+                ? java.util.Collections.<SettingsSearchIndex.Entry>emptyList() : searchIndex.search(query, MAX_RESULTS);
+        if (found.isEmpty()) {
+            shownResults.clear();
+            searchResults.addView(createSearchNote(text("Ничего не нашлось", "Nothing found")));
+            return;
+        }
+
+        org.json.JSONArray strips = decor == null ? null : decor.optJSONArray("settingsStrips");
+        java.util.Set<SettingsSearchIndex.Entry> now = new java.util.HashSet<>();
+        int animated = 0;
+        for (int i = 0; i < found.size(); i++) {
+            SettingsSearchIndex.Entry entry = found.get(i);
+            View row = createSearchResult(entry, query);
+            if (strips != null && strips.length() > 0) {
+                row = withStrip(row, ArsoundTheme.color(strips.optString(i % strips.length())));
+            }
+            searchResults.addView(row);
+            now.add(entry);
+            // Rows already on screen stay where they are while the query narrows; only new ones slide in.
+            if (!shownResults.contains(entry) && animated < ANIMATED_RESULTS) {
+                row.setAlpha(0f);
+                row.setTranslationY(dp(14));
+                row.animate().alpha(1f).translationY(0f).setStartDelay(animated * 35L).setDuration(260)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+                animated++;
+            }
+        }
+        shownResults = now;
+    }
+
+    private View createSearchNote(String message) {
+        TextView note = createText("Body.Secondary", message);
+        note.setPadding(dimen("spacing_m"), dp(18), dimen("spacing_m"), dp(18));
+        note.setAlpha(0f);
+        note.animate().alpha(1f).setDuration(240).start();
+        return note;
+    }
+
+    private View createSearchResult(SettingsSearchIndex.Entry entry, String query) {
+        int accent = ArsoundTheme.palette(this, "special");
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
+        row.setPadding(dimen("spacing_m"), dp(10), dimen("spacing_m"), dp(10));
+
+        TextView title = createText("H4.Primary", "");
+        android.text.SpannableString spanned = new android.text.SpannableString(entry.title);
+        for (int[] range : SettingsSearchIndex.matches(entry.title, query)) {
+            spanned.setSpan(new android.text.style.ForegroundColorSpan(accent), range[0], range[1],
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            spanned.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), range[0], range[1],
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        title.setText(spanned);
+        row.addView(title);
+
+        TextView place = createText("Body.Secondary", entry.sectionRow
+                ? text("Раздел", "Section") : entry.section);
+        place.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        place.setTextColor((accent & 0x00FFFFFF) | 0xE6000000);
+        place.setPadding(0, dp(2), 0, 0);
+        row.addView(place);
+
+        if (!entry.description.isEmpty()) {
+            TextView description = createText("Body.Secondary", entry.description);
+            description.setMaxLines(2);
+            description.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            description.setPadding(0, dp(4), dp(24), 0);
+            row.addView(description);
+        }
+
+        row.setOnClickListener(v -> {
+            hideKeyboard();
+            android.content.Intent open = new android.content.Intent(this, ReVancedSettingsActivity.class)
+                    .putExtra(EXTRA_SCREEN, entry.screen);
+            if (!entry.sectionRow) open.putExtra(EXTRA_HIGHLIGHT, entry.title);
+            startActivity(open);
+        });
+        return row;
+    }
+
+    /** Scrolls to the row the search led to and lets it glow in the theme's accent a couple of times. */
+    private void revealRow(String title) {
+        if (screenScroll == null || screenScroll.getChildCount() == 0) return;
+        View content = screenScroll.getChildAt(0);
+        // The row, not a sub-heading that happens to carry the same words.
+        TextView label = findLabel(content, title, true);
+        if (label == null) label = findLabel(content, title, false);
+        if (label == null) return;
+        View row = label;
+        // A row is its title two levels up: the title line (or the constraint layout) inside the row container.
+        for (int level = 0; level < 2 && row.getParent() instanceof View && row.getParent() != content; level++) {
+            row = (View) row.getParent();
+        }
+        if (!row.isShown()) return;
+
+        int top = 0;
+        for (View view = row; view != content && view.getParent() instanceof View; view = (View) view.getParent()) {
+            top += view.getTop();
+        }
+        screenScroll.smoothScrollTo(0, Math.max(0, top - dp(140)));
+
+        android.graphics.drawable.ColorDrawable glow = new android.graphics.drawable.ColorDrawable(
+                ArsoundTheme.palette(this, "special"));
+        glow.setAlpha(0);
+        View target = row;
+        target.setForeground(glow);
+        android.animation.ValueAnimator pulse = android.animation.ValueAnimator.ofInt(0, 70, 8, 70, 0);
+        pulse.setStartDelay(300);
+        pulse.setDuration(1500);
+        pulse.addUpdateListener(animation -> glow.setAlpha((Integer) animation.getAnimatedValue()));
+        pulse.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                target.setForeground(null);
+            }
+        });
+        pulse.start();
+    }
+
+    private static TextView findLabel(View view, String title, boolean inClickableRow) {
+        if (view instanceof TextView && title.contentEquals(((TextView) view).getText())) {
+            // A row container is two levels above its title and takes the tap.
+            View row = view.getParent() instanceof View && ((View) view.getParent()).getParent() instanceof View
+                    ? (View) ((View) view.getParent()).getParent() : null;
+            if (!inClickableRow || row != null && row.hasOnClickListeners()) return (TextView) view;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                TextView found = findLabel(group.getChildAt(i), title, inClickableRow);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    // endregion
 
     private View createSection(String screen) {
         LinearLayout[] holder = new LinearLayout[1];
         LinearLayout root = createScreen(holder);
         LinearLayout list = holder[0];
+        list.addView(createTitle(sectionTitle(screen), false));
+        fillSection(screen, list);
+        return root;
+    }
+
+    /** The name of a section screen, also its row on the main screen. */
+    private String sectionTitle(String screen) {
         switch (screen) {
             case SCREEN_NETWORK:
-                list.addView(createTitle(text("Сеть", "Network"), false));
+                return text("Сеть", "Network");
+            case SCREEN_PLAYBACK:
+                return text("Офлайн и воспроизведение", "Offline and playback");
+            case SCREEN_ADS:
+                return text("Реклама и подписка", "Ads and subscription");
+            case SCREEN_RECOMMENDATIONS:
+                return text("Рекомендации", "Recommendations");
+            case SCREEN_MUSIC:
+                return text("Своя музыка", "Your music");
+            case SCREEN_STORAGE:
+                return text("Память", "Storage");
+            case SCREEN_PRIVACY:
+                return text("Батарея и конфиденциальность", "Battery and privacy");
+            case SCREEN_UPDATES:
+                return text("Обновления и данные", "Updates and data");
+            case SCREEN_EQUALIZER:
+                return text("Эквалайзер", "Equalizer");
+            case SCREEN_STATS:
+                return text("Статистика прослушиваний", "Listening statistics");
+            case SCREEN_APPEARANCE:
+                return text("Оформление", "Appearance");
+            case SCREEN_APP_ICON:
+                return text("Иконка приложения", "App icon");
+            case SCREEN_ACCOUNT:
+                return text("Аккаунт", "Account");
+            default:
+                return text("Для разработчика", "Developer");
+        }
+    }
+
+    /** The rows of a section screen, below its title. */
+    private void fillSection(String screen, LinearLayout list) {
+        switch (screen) {
+            case SCREEN_NETWORK:
                 addNetworkSection(list);
                 break;
             case SCREEN_PLAYBACK:
-                list.addView(createTitle(text("Офлайн и воспроизведение", "Offline and playback"), false));
                 addPlaybackSection(list);
                 break;
             case SCREEN_ADS:
-                list.addView(createTitle(text("Реклама и подписка", "Ads and subscription"), false));
                 addAdsSection(list);
                 break;
             case SCREEN_RECOMMENDATIONS:
-                list.addView(createTitle(text("Рекомендации", "Recommendations"), false));
                 addRecommendationsSection(list);
                 break;
             case SCREEN_MUSIC:
-                list.addView(createTitle(text("Своя музыка", "Your music"), false));
                 addMusicSection(list);
                 break;
             case SCREEN_STORAGE:
-                list.addView(createTitle(text("Память", "Storage"), false));
                 addStorageSection(list);
                 break;
             case SCREEN_PRIVACY:
-                list.addView(createTitle(text("Батарея и конфиденциальность", "Battery and privacy"), false));
                 addPrivacySection(list);
                 break;
             case SCREEN_UPDATES:
-                list.addView(createTitle(text("Обновления и данные", "Updates and data"), false));
                 addUpdatesSection(list);
                 break;
             case SCREEN_EQUALIZER:
-                list.addView(createTitle(text("Эквалайзер", "Equalizer"), false));
                 addEqualizerSection(list);
                 break;
             case SCREEN_STATS:
-                list.addView(createTitle(text("Статистика прослушиваний", "Listening statistics"), false));
                 addStatsSection(list);
                 break;
             case SCREEN_APPEARANCE:
-                list.addView(createTitle(text("Оформление", "Appearance"), false));
                 addAppearanceSection(list);
                 break;
             case SCREEN_APP_ICON:
-                list.addView(createTitle(text("Иконка приложения", "App icon"), false));
                 addAppIconSection(list);
                 break;
             case SCREEN_ACCOUNT:
-                list.addView(createTitle(text("Аккаунт", "Account"), false));
                 addAccountSection(list);
                 break;
             default:
-                list.addView(createTitle(text("Для разработчика", "Developer"), false));
                 addDeveloperSection(list);
         }
-        return root;
     }
 
     /** Theme, app icon and language. */
@@ -660,6 +1145,27 @@ public final class ReVancedSettingsActivity extends Activity {
             inRow++;
         }
         if (row != null) fillRow(row, inRow, columns);
+        loadIconPictures(cells, ids);
+    }
+
+    /**
+     * Puts the pictures into the grid one variant at a time, off the main thread. The bitmap variants are large
+     * images: all of them read at once freeze the screen for a while and take over a hundred megabytes.
+     */
+    private void loadIconPictures(java.util.List<View> cells, java.util.List<String> ids) {
+        int size = dp(60);
+        java.util.List<android.widget.ImageView> images = new java.util.ArrayList<>();
+        for (View cell : cells) images.add((android.widget.ImageView) ((ViewGroup) cell).getChildAt(0));
+        Utils.runOnBackgroundThread(() -> {
+            for (int i = 0; i < images.size(); i++) {
+                if (isFinishing() || isDestroyed()) return;
+                android.graphics.drawable.Drawable picture =
+                        app.revanced.extension.soundcloud.branding.AppIcons.thumbnail(this, ids.get(i), size);
+                if (picture == null) continue;
+                android.widget.ImageView image = images.get(i);
+                Utils.runOnMainThread(() -> image.setImageDrawable(picture));
+            }
+        });
     }
 
     /** Empty cells keep the last row of a group aligned with the full rows. */
@@ -687,8 +1193,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 android.content.res.ColorStateList.valueOf(0x22888888), background, null);
         cell.setBackground(ripple);
 
+        // The picture comes later, see loadIconPictures.
         android.widget.ImageView image = new android.widget.ImageView(this);
-        image.setImageDrawable(app.revanced.extension.soundcloud.branding.AppIcons.drawable(this, icon.id));
         cell.addView(image, new LinearLayout.LayoutParams(dp(60), dp(60)));
 
         TextView name = createText("Body.Secondary", icon.name);
@@ -819,8 +1325,10 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(row);
     }
 
+    /** The bands and presets of the phone do not change while the app runs, so they are read once. */
+    private static volatile app.revanced.extension.soundcloud.player.AudioEqualizer.Info equalizerInfo;
+
     private void addEqualizerSection(LinearLayout list) {
-        app.revanced.extension.soundcloud.player.AudioEqualizer.Info info = app.revanced.extension.soundcloud.player.AudioEqualizer.readInfo();
         LinearLayout options = new LinearLayout(this);
         options.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
@@ -842,6 +1350,33 @@ public final class ReVancedSettingsActivity extends Activity {
         ));
         options.setVisibility(app.revanced.extension.soundcloud.player.AudioEqualizer.isEnabled() ? View.VISIBLE : View.GONE);
         list.addView(options);
+
+        app.revanced.extension.soundcloud.player.AudioEqualizer.Info known = equalizerInfo;
+        if (known != null) {
+            showEqualizerPanel(known, options);
+            return;
+        }
+        // Reading the effect is a series of calls to the audio service, so the screen opens first.
+        Utils.runOnBackgroundThread(() -> {
+            app.revanced.extension.soundcloud.player.AudioEqualizer.Info info =
+                    app.revanced.extension.soundcloud.player.AudioEqualizer.readInfo();
+            if (isComplete(info)) equalizerInfo = info;
+            Utils.runOnMainThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                showEqualizerPanel(info, options);
+            });
+        });
+    }
+
+    /** Whether the read got every preset; a failed read is not kept, the next visit tries again. */
+    private static boolean isComplete(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info) {
+        if (info.centerFrequenciesHz.length == 0 || info.maxLevel <= info.minLevel) return false;
+        if (info.presets.length != info.presetLevels.length) return false;
+        for (short[] levels : info.presetLevels) if (levels == null) return false;
+        return true;
+    }
+
+    private void showEqualizerPanel(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info, LinearLayout options) {
         if (info.centerFrequenciesHz.length == 0) {
             options.addView(createText("Body.Secondary", text("Эквалайзер недоступен на этом телефоне.", "The equalizer is not available on this phone.")));
             return;
@@ -861,6 +1396,8 @@ public final class ReVancedSettingsActivity extends Activity {
         private LinearLayout header, list;
         private android.widget.ImageView chevron;
         private EqualizerGraph graph;
+        /** What the header row says now, to tell a drag step (only the curve moves) from a new choice. */
+        private String shownTitle, shownNote;
 
         EqualizerPanel(app.revanced.extension.soundcloud.player.AudioEqualizer.Info info, LinearLayout options) {
             this.info = info;
@@ -967,6 +1504,14 @@ public final class ReVancedSettingsActivity extends Activity {
                 title = text("Своя настройка", "Custom");
                 note = text("Не сохранена", "Not saved");
             }
+            // Every step of a drag lands here: while the words stay the same, only the small curve is redrawn.
+            View thumbnail = header.findViewWithTag("curve");
+            if (thumbnail != null && title.equals(shownTitle) && note.equals(shownNote)) {
+                thumbnail.setBackground(curveThumbnail(shape));
+                return;
+            }
+            shownTitle = title;
+            shownNote = note;
             TextView old = header.getChildCount() > 0 ? (TextView) header.findViewWithTag("name") : null;
             boolean changed = old == null || !title.equals(old.getText().toString());
             header.removeAllViews();
@@ -1024,6 +1569,12 @@ public final class ReVancedSettingsActivity extends Activity {
             }
         }
 
+        /** A narrower scale than the big curve (±10 dB), so gentle presets still show their shape. */
+        private CurveThumbnail curveThumbnail(short[] shape) {
+            return new CurveThumbnail(shape, (short) -1000, (short) 1000, accent,
+                    (primary & 0x00FFFFFF) | 0x14000000, dp(1));
+        }
+
         /** A preset row: a small picture of its curve, the name and the note, a tick when chosen. */
         private View presetRow(String title, String note, short[] shape, boolean selected) {
             LinearLayout row = new LinearLayout(ReVancedSettingsActivity.this);
@@ -1033,9 +1584,8 @@ public final class ReVancedSettingsActivity extends Activity {
             row.setPadding(dp(14), dp(10), dp(14), dp(10));
 
             View curve = new View(ReVancedSettingsActivity.this);
-            // A narrower scale than the big curve (±10 dB), so gentle presets still show their shape.
-            curve.setBackground(new CurveThumbnail(shape, (short) -1000, (short) 1000, accent,
-                    (primary & 0x00FFFFFF) | 0x14000000, dp(1)));
+            curve.setTag("curve");
+            curve.setBackground(curveThumbnail(shape));
             LinearLayout.LayoutParams curveParams = new LinearLayout.LayoutParams(dp(56), dp(36));
             curveParams.rightMargin = dp(14);
             row.addView(curve, curveParams);
@@ -1146,6 +1696,9 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     private void showStats(LinearLayout content) {
+        // Counts run in parallel and can finish in any order: only the latest call may paint.
+        Object token = new Object();
+        content.setTag(token);
         content.removeAllViews();
         content.addView(createText("Body.Secondary", text("Считаю…", "Counting…")));
         long days = Settings.getLong("stats_period", 30);
@@ -1154,6 +1707,7 @@ public final class ReVancedSettingsActivity extends Activity {
             app.revanced.extension.soundcloud.player.ListeningStats.Summary summary =
                     app.revanced.extension.soundcloud.player.ListeningStats.summarize(since, 10);
             Utils.runOnMainThread(() -> {
+                if (content.getTag() != token || isFinishing() || isDestroyed()) return;
                 content.removeAllViews();
                 TextView total = createText("H4.Primary", text("Прослушано: ", "Listened: ") + duration(summary.playedMs));
                 total.setPadding(dimen("spacing_m"), dimen("spacing_s"), dimen("spacing_m"), 0);
@@ -1277,7 +1831,7 @@ public final class ReVancedSettingsActivity extends Activity {
         });
         used[0] = (TextView) ((ViewGroup) clearRow).getChildAt(1);
         used[0].setText(text("Считаю…", "Counting…"));
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             long bytes = app.revanced.extension.soundcloud.player.StreamCache.usedBytes();
             boolean pending = Settings.getBoolean(app.revanced.extension.soundcloud.player.StreamCache.CLEAR_REQUESTED, false);
             String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
@@ -1329,10 +1883,12 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Удалять и импортированные треки", "Delete imported tracks too"),
                 text("Треки, импортированные с телефона, тоже удаляются по этому сроку. Выключено — они не "
                                 + "удаляются никогда. Удалённый трек можно импортировать снова, если исходный файл "
-                                + "ещё есть на телефоне.",
+                                + "ещё есть на телефоне. Копии скачанных треков, которые удалены в SoundCloud, не "
+                                + "удаляются никогда.",
                         "Tracks imported from the phone are deleted by the same period too. Off: they are never "
                                 + "deleted. A deleted track can be imported again while its original file is still "
-                                + "on the phone."),
+                                + "on the phone. Copies of downloaded tracks that SoundCloud deleted are never "
+                                + "deleted."),
                 app.revanced.extension.soundcloud.download.UnplayedDownloads.isImportedIncluded(),
                 (button, checked) -> {
                     Settings.putBoolean(app.revanced.extension.soundcloud.download.UnplayedDownloads.IMPORTED, checked);
@@ -1349,7 +1905,7 @@ public final class ReVancedSettingsActivity extends Activity {
         TextView cacheDescription = (TextView) ((ViewGroup) cacheRow).getChildAt(1);
         cacheDescription.setText(text("Считаю…", "Counting…"));
         list.addView(cacheRow);
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             String size = android.text.format.Formatter.formatShortFileSize(this,
                     app.revanced.extension.soundcloud.player.StreamCache.usedBytes());
             Utils.runOnMainThread(() -> cacheDescription.setText(text(
@@ -1364,7 +1920,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private void countUnplayed(TextView description) {
         String period = daysText(app.revanced.extension.soundcloud.download.UnplayedDownloads.days());
         description.setText(period);
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             java.util.List<app.revanced.extension.soundcloud.download.UnplayedDownloads.Unplayed> tracks =
                     app.revanced.extension.soundcloud.download.UnplayedDownloads.unplayed();
             long bytes = 0;
@@ -1450,7 +2006,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private void countDownloads() {
         downloadsDescription.setText(text("Считаю…", "Counting…"));
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             long[] usage = downloadsUsage();
             String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
             Utils.runOnMainThread(() -> downloadsDescription.setText(usage[0] == 0
@@ -1489,33 +2045,76 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /**
+     * Downloads whose files the app could not remove and handed to Android's confirmation. Static, so the answer is
+     * still matched with them if the screen is recreated while that dialog is open.
+     */
+    private static java.util.List<String> undeletedDownloadIds = new java.util.ArrayList<>();
+
+    /**
      * Removes every downloaded file. Files made before a reinstall belong to the old install for Android, so the app
      * may not remove them itself: those are handed to Android's own confirmation (Android 11 and later).
+     * A track whose file is still there stays in the list, until Android has removed the file.
      */
     private void deleteAllDownloads() {
         downloadsDescription.setText(text("Удаляю…", "Deleting…"));
         Utils.runOnBackgroundThread(() -> {
             java.util.List<String> left = new java.util.ArrayList<>();
+            java.util.List<String> keptIds = new java.util.ArrayList<>();
             int deleted = 0;
             for (String id : app.revanced.extension.soundcloud.download.DownloadTrackPatch.getDownloadedTrackIds()) {
                 java.io.File file = app.revanced.extension.soundcloud.download.DownloadTrackPatch.knownFile(id);
-                app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                boolean removed = app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                if (!removed) keptIds.add(id);
                 if (file != null && file.exists()) left.add(file.getName());
-                else deleted++;
+                else if (removed) deleted++;
             }
             int done = deleted;
             java.util.List<android.net.Uri> uris = mediaStoreUris(left);
             Utils.runOnMainThread(() -> {
                 Toast.makeText(this, text("Удалено: " + tracksText(done), "Deleted: " + done), Toast.LENGTH_SHORT).show();
+                boolean asked = false;
                 if (!uris.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
                     try {
+                        undeletedDownloadIds = keptIds;
                         startIntentSenderForResult(android.provider.MediaStore.createDeleteRequest(getContentResolver(), uris)
                                 .getIntentSender(), REQUEST_DELETE_DOWNLOADS, null, 0, 0, 0);
+                        asked = true;
                     } catch (Exception ex) {
+                        undeletedDownloadIds = new java.util.ArrayList<>();
                         Logger.printException(() -> "Could not ask to delete the old downloads", ex);
                     }
                 }
+                if (!asked && !left.isEmpty()) {
+                    int remaining = left.size();
+                    Toast.makeText(this, text("Не удалось удалить файлов: " + remaining
+                                    + ". Разрешите доступ к музыке или удалите их в файловом менеджере.",
+                            "Could not delete " + remaining + (remaining == 1 ? " file" : " files")
+                                    + ": allow access to music or remove them in a file manager."),
+                            Toast.LENGTH_LONG).show();
+                }
                 countDownloads();
+            });
+        });
+    }
+
+    /** After Android's delete dialog: tracks whose files are gone are forgotten, the others stay in the list. */
+    private void forgetRemovedDownloads() {
+        java.util.List<String> ids = undeletedDownloadIds;
+        undeletedDownloadIds = new java.util.ArrayList<>();
+        if (ids.isEmpty()) {
+            if (downloadsDescription != null) countDownloads();
+            return;
+        }
+        Utils.runOnBackgroundThread(() -> {
+            for (String id : ids) {
+                try {
+                    app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not update the downloaded track " + id, ex);
+                }
+            }
+            Utils.runOnMainThread(() -> {
+                if (downloadsDescription != null) countDownloads();
             });
         });
     }
@@ -2133,8 +2732,10 @@ public final class ReVancedSettingsActivity extends Activity {
             String name = "arsound-logs-"
                     + new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US)
                     .format(new java.util.Date()) + ".txt";
+            // Kept outside the try, so a failed write can remove the half-written file.
+            android.net.Uri uri = null;
+            java.io.File logFile = null;
             try {
-                android.net.Uri uri = null;
                 String shownPath;
                 java.io.OutputStream output;
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
@@ -2143,6 +2744,8 @@ public final class ReVancedSettingsActivity extends Activity {
                     values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
                     values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
                             android.os.Environment.DIRECTORY_DOWNLOADS);
+                    // Hidden from Downloads until the whole file is written.
+                    values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
                     uri = getContentResolver().insert(
                             android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
                     if (uri == null) throw new java.io.IOException("The file could not be created");
@@ -2152,6 +2755,7 @@ public final class ReVancedSettingsActivity extends Activity {
                     // Before Android 10 the app cannot write to Downloads without a permission.
                     java.io.File base = getExternalFilesDir(null);
                     java.io.File file = new java.io.File(base != null ? base : getFilesDir(), name);
+                    logFile = file;
                     output = new java.io.FileOutputStream(file);
                     shownPath = file.getAbsolutePath();
                 }
@@ -2176,15 +2780,32 @@ public final class ReVancedSettingsActivity extends Activity {
                     }
                 }
 
+                if (uri != null) {
+                    android.content.ContentValues done = new android.content.ContentValues();
+                    done.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+                    getContentResolver().update(uri, done, null, null);
+                }
+
                 android.net.Uri saved = uri;
                 Utils.runOnMainThread(() -> showSavedLogs(shownPath, saved));
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not save the logs", ex);
+                discardLogFile(uri, logFile);
                 Utils.runOnMainThread(() -> Toast.makeText(this,
                         text("Не удалось сохранить журналы", "Could not save the logs"),
                         Toast.LENGTH_LONG).show());
             }
         });
+    }
+
+    /** Removes a half-written log file, so failed attempts do not pile up in Downloads. */
+    private void discardLogFile(android.net.Uri uri, java.io.File file) {
+        try {
+            if (uri != null) getContentResolver().delete(uri, null, null);
+            if (file != null && file.exists() && !file.delete()) Logger.printInfo(() -> "Could not remove " + file);
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not remove the unfinished log file: " + ex);
+        }
     }
 
     /** What the log came from: without the versions a log of a fixed bug looks like a new one. */
@@ -2271,7 +2892,14 @@ public final class ReVancedSettingsActivity extends Activity {
                             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
                             .setType("audio/*")
                             .putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
-                    startActivityForResult(intent, REQUEST_IMPORT);
+                    try {
+                        startActivityForResult(intent, REQUEST_IMPORT);
+                    } catch (android.content.ActivityNotFoundException | SecurityException ex) {
+                        // Some firmware has no system document picker.
+                        Logger.printException(() -> "Could not open the file picker", ex);
+                        Toast.makeText(this, text("Не найдено приложение для выбора файлов",
+                                "No app to pick files was found"), Toast.LENGTH_LONG).show();
+                    }
                 }
         ));
         list.addView(createSubHeading(text("Треки", "Tracks")));
@@ -2285,16 +2913,28 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> localTracks = new java.util.ArrayList<>();
 
+    /** Rows added to the list per frame, so a library of thousands of files does not freeze the screen. */
+    private static final int LOCAL_ROWS_PER_STEP = 30;
+    /** Bumped by every reload, so an older read that finishes late cannot replace a newer list. */
+    private int localLoadGeneration;
+    /** Bumped by every redraw of the list, so the rows of an older list stop being added. */
+    private int localRenderGeneration;
+
     private void reloadLocalTracks() {
+        int generation = ++localLoadGeneration;
         Utils.runOnBackgroundThread(() -> {
             java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks =
                     app.revanced.extension.soundcloud.local.LocalMusic.getTracks(this);
-            Utils.runOnMainThread(() -> showLocalTracks(tracks));
+            Utils.runOnMainThread(() -> {
+                if (generation != localLoadGeneration || isFinishing() || isDestroyed()) return;
+                showLocalTracks(tracks);
+            });
         });
     }
 
     private void showLocalTracks(java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks) {
         localTracks = tracks;
+        int generation = ++localRenderGeneration;
         localTrackList.removeAllViews();
         if (tracks.isEmpty()) {
             TextView empty = createText("Body.Secondary", text("Пока пусто. Нажмите «Импортировать файлы».",
@@ -2304,7 +2944,16 @@ public final class ReVancedSettingsActivity extends Activity {
             return;
         }
 
-        for (int i = 0; i < tracks.size(); i++) {
+        addLocalTrackRows(tracks, 0, generation);
+    }
+
+    /** Adds the next few rows and schedules the rest, so no single frame builds thousands of views. */
+    private void addLocalTrackRows(java.util.List<app.revanced.extension.soundcloud.local.LocalMusic.Track> tracks,
+                                   int from, int generation) {
+        if (generation != localRenderGeneration || isFinishing() || isDestroyed()) return;
+
+        int to = Math.min(from + LOCAL_ROWS_PER_STEP, tracks.size());
+        for (int i = from; i < to; i++) {
             app.revanced.extension.soundcloud.local.LocalMusic.Track track = tracks.get(i);
             int index = i;
             long seconds = track.durationMs / 1000;
@@ -2317,15 +2966,23 @@ public final class ReVancedSettingsActivity extends Activity {
                         .setNeutralButton(text("В плейлист…", "To playlist…"), (dialog, which) ->
                                 app.revanced.extension.soundcloud.local.LocalAdditions.pickPlaylist(this, app.revanced.extension.soundcloud.local.LocalAdditions.fileEntry(track.file)))
                         .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(text("Удалить файл", "Delete file"), (dialog, which) -> {
-                            app.revanced.extension.soundcloud.local.LocalMusic.delete(track);
-                            reloadLocalTracks();
-                        })
+                        .setPositiveButton(text("Удалить файл", "Delete file"), (dialog, which) ->
+                                // Deleting also writes the cover prefs and scans the covers folder.
+                                Utils.runOnBackgroundThread(() -> {
+                                    try {
+                                        app.revanced.extension.soundcloud.local.LocalMusic.delete(track);
+                                    } catch (Exception ex) {
+                                        Logger.printException(() -> "Could not delete " + track.file, ex);
+                                    }
+                                    Utils.runOnMainThread(this::reloadLocalTracks);
+                                }))
                         .show();
                 return true;
             });
             localTrackList.addView(row);
         }
+
+        if (to < tracks.size()) localTrackList.post(() -> addLocalTrackRows(tracks, to, generation));
     }
 
     private void playLocal(int index, boolean shuffle) {
@@ -2345,7 +3002,7 @@ public final class ReVancedSettingsActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_DELETE_DOWNLOADS) {
-            if (downloadsDescription != null) countDownloads();
+            forgetRemovedDownloads();
             return;
         }
         if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null) return;
@@ -2423,6 +3080,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** @param help A {@link HelpBadge} shown right after the title, or null. */
     private View createActionRow(String title, String description, View help, View.OnClickListener listener) {
+        recordForSearch(title, description);
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
@@ -2449,7 +3107,7 @@ public final class ReVancedSettingsActivity extends Activity {
      * Shows the IP address and country this app uses, to diagnose region blocks caused by VPN routing.
      */
     private void checkNetwork(TextView view) {
-        Utils.runOnBackgroundThread(() -> {
+        inBackground(() -> {
             String result;
             try {
                 java.net.HttpURLConnection connection = (java.net.HttpURLConnection)
@@ -2488,7 +3146,7 @@ public final class ReVancedSettingsActivity extends Activity {
         back.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_back_primary"));
         back.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
         back.setContentDescription(text("Назад", "Back"));
-        back.setOnClickListener(v -> finish());
+        back.setOnClickListener(v -> onBackPressed());
         int size = dp(48);
         toolbar.addView(back, new LinearLayout.LayoutParams(size, size));
 
@@ -2505,6 +3163,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private View createToggleRow(String title, String description, boolean checked,
                                  CompoundButton.OnCheckedChangeListener listener) {
+        recordForSearch(title, description);
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));

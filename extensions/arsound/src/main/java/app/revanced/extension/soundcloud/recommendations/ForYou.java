@@ -160,8 +160,11 @@ public final class ForYou {
 
     /** Builds the playlist again. Blocks: call it off the main thread. */
     public static void refresh(Listener listener) {
-        if (running) return;
-        running = true;
+        // The midnight job and the button can start together: only one of them builds, or two playlists appear.
+        synchronized (ForYou.class) {
+            if (running) return;
+            running = true;
+        }
         String result;
         boolean filled = false;
         lastOutcome = Outcome.RETRY;
@@ -222,8 +225,11 @@ public final class ForYou {
     public static String artistKey(String artist) {
         String value = artist == null ? "" : artist.toLowerCase(Locale.ROOT);
         // The first of several artists: "A, B", "A & B", "A feat. B".
-        value = value.split("\\s*(,|&|\\bfeat\\.?|\\bft\\.?|\\bx\\b|\\bи\\b)\\s*")[0];
-        return value.replaceAll("[^\\p{L}\\p{N}]+", "");
+        String[] parts = value.split("\\s*(,|&|\\bfeat\\.?|\\bft\\.?|\\bx\\b|\\bи\\b)\\s*");
+        String key = (parts.length == 0 ? "" : parts[0]).replaceAll("[^\\p{L}\\p{N}]+", "");
+        // An artist called "X" or "&", or one that starts with a separator word ("X Ambassadors"), has nothing before it:
+        // the whole name is the key then, instead of an empty one that matches every such artist.
+        return key.isEmpty() ? value.replaceAll("[^\\p{L}\\p{N}]+", "") : key;
     }
 
     static String songKey(String artist, String title) {
@@ -282,7 +288,8 @@ public final class ForYou {
                 }
             }
 
-            List<Seed> seeds = new ArrayList<>();
+            // By song key, so a song met again is found at once and its key is computed once.
+            Map<String, Seed> seeds = new LinkedHashMap<>();
             resolveTitles(core, weights, seeds, known);
 
             for (LocalMusic.Track track : LocalMusic.getTracks(context)) {
@@ -306,27 +313,26 @@ public final class ForYou {
                     }
                 }
             }
-            return seeds;
+            return new ArrayList<>(seeds.values());
         } finally {
             if (collections != null) collections.close();
             if (core != null) core.close();
         }
     }
 
-    private static void addSeed(List<Seed> seeds, Set<String> known, String artist, String title, double weight) {
+    private static void addSeed(Map<String, Seed> seeds, Set<String> known, String artist, String title, double weight) {
         if (artist == null || title == null || artist.trim().isEmpty() || title.trim().isEmpty()) return;
         String key = songKey(artist, title);
         known.add(key);
-        for (Seed seed : seeds) {
-            if (songKey(seed.artist, seed.title).equals(key)) {
-                seed.weight = Math.max(seed.weight, weight) + 0.2;
-                return;
-            }
+        Seed existing = seeds.get(key);
+        if (existing != null) {
+            existing.weight = Math.max(existing.weight, weight) + 0.2;
+            return;
         }
-        seeds.add(new Seed(artist.trim(), title.trim(), weight));
+        seeds.put(key, new Seed(artist.trim(), title.trim(), weight));
     }
 
-    private static void resolveTitles(SQLiteDatabase core, Map<String, Double> weights, List<Seed> seeds, Set<String> known) {
+    private static void resolveTitles(SQLiteDatabase core, Map<String, Double> weights, Map<String, Seed> seeds, Set<String> known) {
         if (core == null || weights.isEmpty()) return;
         List<String> urns = new ArrayList<>(weights.keySet());
         for (int start = 0; start < urns.size(); start += 400) {
@@ -429,7 +435,8 @@ public final class ForYou {
         report(listener, text("Собираю вашу библиотеку…", "Reading your library…"));
         Set<String> known = new HashSet<>();
         List<Seed> seeds = collectSeeds(context, known);
-        if (seeds.isEmpty()) return done(text("В библиотеке нет треков, от которых можно оттолкнуться", "No tracks in the library to start from"));
+        // Not "done": right after a login the library on the phone is still empty, and the next try is only half an hour away.
+        if (seeds.isEmpty()) return text("В библиотеке нет треков, от которых можно оттолкнуться", "No tracks in the library to start from");
         List<Seed> picked = pickSeeds(seeds);
         Logger.printInfo(() -> "For you: " + seeds.size() + " seeds, asking about " + picked.size());
 
@@ -465,15 +472,23 @@ public final class ForYou {
         for (int i = 0; i < Math.min(EXPANDED_ARTISTS, topArtists.size()); i++) {
             String artist = artistNames.get(topArtists.get(i).getKey());
             report(listener, text("Похожие исполнители: ", "Similar artists: ") + artist);
+            List<LastFm.Song> related;
             try {
-                for (LastFm.Song similar : LastFm.similarArtists(artist, 5)) {
+                related = LastFm.similarArtists(artist, 5);
+            } catch (java.io.IOException ex) {
+                Logger.printInfo(() -> "For you: no similar artists for " + artist + ": " + ex);
+                continue;
+            }
+            for (LastFm.Song similar : related) {
+                // One failed request costs one artist, not the rest of the list.
+                try {
                     List<String> titles = LastFm.topTracks(similar.artist, 2);
                     for (int k = 0; k < titles.size(); k++) {
                         addCandidate(candidates, known, similar.artist, titles.get(k), 0.6 * similar.match * (1 - 0.3 * k));
                     }
+                } catch (java.io.IOException ex) {
+                    Logger.printInfo(() -> "For you: no top songs for " + similar.artist + ": " + ex);
                 }
-            } catch (java.io.IOException ex) {
-                Logger.printInfo(() -> "For you: no similar artists for " + artist + ": " + ex);
             }
         }
 
@@ -562,7 +577,11 @@ public final class ForYou {
                         Logger.printInfo(() -> "For you: SoundCloud search failed for " + key + ": " + ex);
                         continue;
                     }
-                    cache.put(key, new JSONObject().put("urn", urn).put("time", now));
+                    // A match read from the cache keeps its first date, so it expires after two weeks, however often it is used.
+                    JSONObject earlier = cache.optJSONObject(key);
+                    long since = earlier != null && urn.equals(earlier.optString("urn"))
+                            && now - earlier.optLong("time") < MATCH_KEPT_MS ? earlier.optLong("time") : now;
+                    cache.put(key, new JSONObject().put("urn", urn).put("time", since));
                     if (urn.isEmpty() || disliked.contains(urn) || entries.contains(urn)) continue;
                     // The last batch may find more than the playlist takes.
                     if (entries.size() >= PLAYLIST_SIZE) continue;
@@ -595,9 +614,10 @@ public final class ForYou {
     }
 
     /**
-     * The "For you" playlist already on the server: the oldest one with a known title. Empty copies next to it
-     * (left by older versions or a failed check) are deleted. Null if there is none or the server could not be asked;
-     * in the second case nothing is created either.
+     * The "For you" playlist already on the server: the oldest empty one with a known title (the oldest one if none
+     * is empty). Empty copies next to it (left by older versions or a failed check) are deleted, unless tracks were
+     * added to them on this phone. Null if there is none or the server could not be asked; in the second case
+     * nothing is created either.
      */
     private static String adoptFromServer() throws Exception {
         String[] me = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
@@ -611,20 +631,31 @@ public final class ForYou {
         for (int i = 0; playlists != null && i < playlists.length(); i++) {
             JSONObject playlist = playlists.getJSONObject(i);
             if (KNOWN_TITLES.contains(playlist.optString("title"))) {
-                copies.add(new long[]{playlist.getLong("id"), playlist.optInt("track_count")});
+                // -1 when the server does not say: then the playlist is not known to be empty.
+                copies.add(new long[]{playlist.getLong("id"), playlist.optInt("track_count", -1)});
             }
         }
         if (copies.isEmpty()) return null;
         copies.sort((a, b) -> Long.compare(a[0], b[0]));
-        for (int i = 1; i < copies.size(); i++) {
-            long[] copy = copies.get(i);
+        // Ours is empty on the server, so the oldest empty one is taken before a playlist with tracks of someone's own.
+        long[] adopted = copies.get(0);
+        for (long[] copy : copies) {
+            if (copy[1] == 0) {
+                adopted = copy;
+                break;
+            }
+        }
+        for (long[] copy : copies) {
+            if (copy == adopted) continue;
             // Tracks of this playlist exist only on the phone; a copy with tracks on the server is someone's own.
             if (copy[1] != 0) continue;
+            // Tracks added on this phone mean an older version used the copy.
+            if (!LocalAdditions.getEntries("soundcloud:playlists:" + copy[0]).isEmpty()) continue;
             int code = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiDelete(
                     "https://api-v2.soundcloud.com/playlists/" + copy[0]);
             Logger.printInfo(() -> "For you: deleted the extra copy " + copy[0] + ", HTTP " + code);
         }
-        String urn = "soundcloud:playlists:" + copies.get(0)[0];
+        String urn = "soundcloud:playlists:" + adopted[0];
         Logger.printInfo(() -> "For you: using the existing playlist " + urn);
         return urn;
     }

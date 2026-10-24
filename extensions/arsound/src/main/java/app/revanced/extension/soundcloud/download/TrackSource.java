@@ -56,7 +56,11 @@ public final class TrackSource {
 
     /** Stream links expire, so a link from a dialog left open for long is resolved again. */
     public boolean isFresh() {
-        return System.currentTimeMillis() - resolvedAt < 5 * 60_000;
+        return isFresh(5 * 60_000);
+    }
+
+    public boolean isFresh(long maxAgeMs) {
+        return System.currentTimeMillis() - resolvedAt < maxAgeMs;
     }
 
     /** Why the track cannot be downloaded, for the playlist check dialog. */

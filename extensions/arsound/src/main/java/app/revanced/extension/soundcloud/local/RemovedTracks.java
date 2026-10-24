@@ -8,6 +8,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -53,13 +54,25 @@ public final class RemovedTracks {
     /** Track id to "title — artist", remembered for downloaded tracks while they are on screen. */
     private static final String TITLES = "titles";
     private static final String LAST_SWEEP = "last_download_sweep";
+    /** Downloaded track ids already answered in the running check of downloads, so a cut-short check goes on. */
+    private static final String SWEEP_CHECKED = "sweep_checked";
 
     private static final String TRACK_PREFIX = "soundcloud:tracks:";
     private static final long SWEEP_INTERVAL_MS = 7L * 24 * 60 * 60 * 1000;
     /** A sync that returns far fewer tracks may be broken; at most this many tracks are checked at once. */
     private static final int MAX_CHECKS = 30;
+    /** How long a playlist is left alone after the API itself failed (an expired token, an outage, a rate limit). */
+    private static final long RETRY_DELAY_MS = 15L * 60 * 1000;
+    /** An answer that is neither "exists" nor "deleted" is asked again this many times, then the track is forgotten. */
+    private static final int MAX_FAILED_CHECKS = 3;
+    /** Failed requests in a row after which the check of downloads stops until the next start. */
+    private static final int MAX_SWEEP_FAILURES = 3;
 
     private static final Set<String> checking = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    /** Playlist to the time before which its removed tracks are not checked again. */
+    private static final Map<String, Long> retryAt = new ConcurrentHashMap<>();
+    /** Track urn to the number of checks that got an unclear answer. */
+    private static final Map<String, Integer> failedChecks = new ConcurrentHashMap<>();
     private static volatile Set<String> deletedCache;
     private static final Set<String> titledIds = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
@@ -94,6 +107,7 @@ public final class RemovedTracks {
         if (current.isEmpty() && !previous.isEmpty()) return;
 
         Set<String> now = new HashSet<>(current);
+        restoreListed(preferences, playlist, now);
         List<String> missing = new ArrayList<>();
         List<Integer> positions = new ArrayList<>();
         for (int i = 0; i < previous.size(); i++) {
@@ -109,7 +123,7 @@ public final class RemovedTracks {
         String value = String.join("\n", snapshot);
         if (!value.equals(stored)) preferences.edit().putString(SNAPSHOT_PREFIX + playlist, value).apply();
 
-        if (missing.isEmpty() || !checking.add(playlist)) return;
+        if (missing.isEmpty() || isPostponed(playlist) || !checking.add(playlist)) return;
         Logger.printInfo(() -> "Tracks gone from " + playlist + ": " + missing);
         Utils.runOnBackgroundThread(() -> {
             try {
@@ -132,7 +146,7 @@ public final class RemovedTracks {
             } catch (Exception ex) {
                 // No network: the track stays in the snapshot and is checked the next time.
                 Logger.printInfo(() -> "Could not check the removed track " + urn + ": " + ex);
-                return;
+                break;
             }
             if ("404".equals(code)) {
                 keepDeleted(playlist, urn, positions.get(i));
@@ -140,12 +154,59 @@ public final class RemovedTracks {
             } else if (code.startsWith("2") || "403".equals(code)) {
                 // The track exists: it was removed from the playlist on purpose.
                 Logger.printInfo(() -> "Track " + urn + " was removed from " + playlist + ", not deleted");
-            } else {
+            } else if (isApiFailure(code)) {
+                // The API itself is failing, so the answer says nothing about the track: the rest waits too.
+                Logger.printInfo(() -> "The API failed while checking " + playlist + ", the check is postponed");
+                retryAt.put(playlist, System.currentTimeMillis() + RETRY_DELAY_MS);
+                break;
+            } else if (failedChecks.merge(urn, 1, Integer::sum) < MAX_FAILED_CHECKS) {
                 continue;
+            } else {
+                // The same unclear answer again and again: it is not going to change, the track is forgotten.
+                Logger.printInfo(() -> "Gave up checking the removed track " + urn);
             }
+            failedChecks.remove(urn);
             removeFromSnapshot(playlist, urn);
         }
         if (changed) LocalAdditions.notifyPlaylistChanged(playlist);
+    }
+
+    /** The API itself failed (no valid response, an expired token, a rate limit, a server error). */
+    private static boolean isApiFailure(String code) {
+        return "-1".equals(code) || "401".equals(code) || "429".equals(code) || code.startsWith("5");
+    }
+
+    private static boolean isPostponed(String playlist) {
+        Long until = retryAt.get(playlist);
+        if (until == null) return false;
+        if (System.currentTimeMillis() < until) return true;
+        retryAt.remove(playlist);
+        return false;
+    }
+
+    /**
+     * A track kept in this playlist as deleted, which SoundCloud lists in it again, is not deleted: the earlier
+     * answer was wrong, or the track was restored. It is no longer kept here, and no longer greyed out unless
+     * another playlist keeps it too.
+     */
+    private static void restoreListed(SharedPreferences preferences, String playlist, Set<String> listed) {
+        Map<String, Integer> kept = readPositions(KEPT_PREFIX + playlist);
+        Set<String> restored = new HashSet<>(kept.keySet());
+        restored.retainAll(listed);
+        if (restored.isEmpty()) return;
+
+        Logger.printInfo(() -> "SoundCloud lists " + restored + " in " + playlist + " again, not deleted");
+        kept.keySet().removeAll(restored);
+        writePositions(KEPT_PREFIX + playlist, kept);
+        Set<String> unmarked = new HashSet<>(restored);
+        for (String key : new ArrayList<>(preferences.getAll().keySet())) {
+            if (key.startsWith(KEPT_PREFIX)) unmarked.removeAll(readPositions(key).keySet());
+        }
+        Set<String> deleted = new HashSet<>(preferences.getStringSet(DELETED, new HashSet<>()));
+        if (deleted.removeAll(unmarked)) {
+            preferences.edit().putStringSet(DELETED, deleted).apply();
+            deletedCache = deleted;
+        }
     }
 
     private static synchronized void removeFromSnapshot(String playlist, String urn) {
@@ -203,18 +264,28 @@ public final class RemovedTracks {
             int dot = name.lastIndexOf('.');
             String extension = dot > 0 ? name.substring(dot) : ".mp3";
             String title = getTitle(id);
-            File target = LocalMusic.newImportFile(context, (title != null ? title : "SoundCloud " + id) + extension);
-            try (InputStream input = new FileInputStream(download); OutputStream output = new FileOutputStream(target)) {
-                byte[] buffer = new byte[64 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            } catch (Exception ex) {
-                //noinspection ResultOfMethodCallIgnored
-                target.delete();
-                throw ex;
+            // Written under a temporary name: a process killed in the middle must not leave a half copy among the imports.
+            File part = LocalMusic.newPartFile(context);
+            File target;
+            boolean moved = false;
+            try {
+                try (InputStream input = new FileInputStream(download); OutputStream output = new FileOutputStream(part)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                }
+                // The name is taken only now, so no other import can take it while the copy is written.
+                target = LocalMusic.moveIntoImports(context, part, (title != null ? title : "SoundCloud " + id) + extension);
+                moved = true;
+            } finally {
+                if (!moved) {
+                    //noinspection ResultOfMethodCallIgnored
+                    part.delete();
+                }
             }
             converted.put(id, target.getPath());
-            preferences.edit().putString(CONVERTED, converted.toString()).apply();
+            // Written at once: a kill before the write would leave the copy unknown, and the next import would make a second one.
+            preferences.edit().putString(CONVERTED, converted.toString()).commit();
             LocalMusic.onFileAdded();
             return target;
         } catch (Exception ex) {
@@ -232,27 +303,74 @@ public final class RemovedTracks {
         if (preferences == null) return;
         if (System.currentTimeMillis() - preferences.getLong(LAST_SWEEP, 0) < SWEEP_INTERVAL_MS) return;
 
+        // Ids answered in this round so far: a round cut short by the network goes on from there at the next start.
+        Set<String> checked = new HashSet<>(preferences.getStringSet(SWEEP_CHECKED, new HashSet<>()));
         int found = 0;
+        int failures = 0;
+        boolean complete = true;
         for (String id : DownloadTrackPatch.getDownloadedTrackIds()) {
-            if (isConverted(id) || DownloadTrackPatch.getDownloadedFile(id) == null) continue;
+            if (checked.contains(id) || isConverted(id) || DownloadTrackPatch.getDownloadedFile(id) == null) continue;
+            String code = null;
             try {
-                String code = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id)[0];
-                if ("404".equals(code) && importDownload(id) != null) {
-                    found++;
-                    Logger.printInfo(() -> "Downloaded track " + id + " was deleted on SoundCloud, imported");
-                }
-                Thread.sleep(300);
+                code = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id)[0];
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                complete = false;
+                break;
             } catch (Exception ex) {
-                Logger.printInfo(() -> "Download check stopped: " + ex);
-                return;
+                Logger.printInfo(() -> "Could not check the downloaded track " + id + ": " + ex);
+            }
+            if (code == null || isApiFailure(code)) {
+                // No answer about this track: it waits for the next start. Several in a row mean the network is down.
+                // The round stays open, so the next start asks again about the tracks skipped here.
+                complete = false;
+                if (++failures >= MAX_SWEEP_FAILURES) {
+                    Logger.printInfo(() -> "Download check stopped, the network or the API is failing");
+                    break;
+                }
+                continue;
+            }
+            failures = 0;
+            if ("404".equals(code) && importDownload(id) != null) {
+                found++;
+                Logger.printInfo(() -> "Downloaded track " + id + " was deleted on SoundCloud, imported");
+            }
+            checked.add(id);
+            preferences.edit().putStringSet(SWEEP_CHECKED, new HashSet<>(checked)).apply();
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                complete = false;
+                break;
             }
         }
-        preferences.edit().putLong(LAST_SWEEP, System.currentTimeMillis()).apply();
+        if (complete) preferences.edit().putLong(LAST_SWEEP, System.currentTimeMillis()).remove(SWEEP_CHECKED).apply();
         int total = found;
         Logger.printInfo(() -> "Download check: deleted and imported " + total);
         if (found > 0) {
             String saved = SavedPlaylist.getUrn();
             if (saved != null) LocalAdditions.notifyPlaylistChanged(saved);
+        }
+    }
+
+    /**
+     * Whether a file in the imported music is the copy of a downloaded track that SoundCloud deleted.
+     * Nothing can bring such a file back, so it is never deleted as unplayed.
+     */
+    public static boolean isConvertedCopy(File file) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null || file == null) return false;
+        try {
+            JSONObject converted = new JSONObject(preferences.getString(CONVERTED, "{}"));
+            for (Iterator<String> keys = converted.keys(); keys.hasNext(); ) {
+                if (file.getPath().equals(converted.optString(keys.next(), null))) return true;
+            }
+            return false;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not read the imported copies of deleted tracks", ex);
+            // Unknown is protected: a file kept by mistake costs space, a file deleted by mistake is lost.
+            return true;
         }
     }
 

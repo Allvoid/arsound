@@ -12,12 +12,14 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.LocalMusic;
+import app.revanced.extension.soundcloud.local.RemovedTracks;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
  * Deletes the files of downloaded tracks nobody listened to for a while (Settings → Arsound → Storage), off by
  * default. The track itself stays in SoundCloud: it plays from the network and can be downloaded again. Tracks
- * imported from the phone are only included when the user asks for it separately.
+ * imported from the phone are only included when the user asks for it separately. The copy of a downloaded track
+ * that SoundCloud deleted is never included: nothing can bring it back.
  * <p>
  * A track counts as listened to when it starts playing (recorded here since this feature exists; before that, the
  * listening statistics know). A track never played counts from its download or import. The check runs once per app
@@ -106,6 +108,7 @@ public final class UnplayedDownloads {
                 if (file != null) importedListens.put(file.getPath(), listen.getValue());
             }
             for (LocalMusic.Track track : LocalMusic.getTracks(context)) {
+                if (RemovedTracks.isConvertedCopy(track.file)) continue;
                 String path = track.file.getPath();
                 // The copy is written at import, so its time is the import time.
                 long last = Math.max(track.file.lastModified(),
