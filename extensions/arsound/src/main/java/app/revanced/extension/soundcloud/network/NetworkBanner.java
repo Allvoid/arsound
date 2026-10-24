@@ -124,14 +124,29 @@ public final class NetworkBanner {
         if (capabilities == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
             return State.OFFLINE;
         }
-        if (Settings.isRegionGuardEnabled() && "RU".equals(RegionGuard.lastCountry())) return State.BLOCKED;
+        if (RegionGuard.blocksLastCountry()) return State.BLOCKED;
         return State.ONLINE;
     }
 
     private static String explanation(State state) {
         return state == State.OFFLINE
                 ? text("Нет сети — играют скачанные треки", "No network — downloaded tracks play")
-                : text("Российский IP — SoundCloud отключён", "Russian IP — SoundCloud is off");
+                : text(capitalize(blockedIp(true)) + " — SoundCloud отключён", capitalize(blockedIp(false)) + " — SoundCloud is off");
+    }
+
+    /** The country of the blocked address in words: "российский IP", "Ukrainian IP". */
+    private static String blockedIp(boolean russian) {
+        String country = RegionGuard.lastCountry();
+        return country == null ? "IP" : RegionGuard.describeIp(country, russian);
+    }
+
+    private static String capitalize(String value) {
+        return value.isEmpty() ? value : Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
+    /** "a Russian IP", "an IP from DE". */
+    private static String article(String value) {
+        return ("AEIOU".indexOf(Character.toUpperCase(value.charAt(0))) >= 0 ? "an " : "a ") + value;
     }
 
     /** @param answer The user asked for a check: the result is spelled out even if nothing changed. */
@@ -161,7 +176,7 @@ public final class NetworkBanner {
             holder.show();
             String message = explanation(state);
             if (answer && previous == state) message = state == State.BLOCKED
-                    ? text("Всё ещё российский IP", "Still a Russian IP") : text("Сети всё ещё нет", "Still no network");
+                    ? text("Всё ещё " + blockedIp(true), "Still " + article(blockedIp(false))) : text("Сети всё ещё нет", "Still no network");
             holder.say(message, MESSAGE_MS, null);
         } catch (Exception ex) {
             Logger.printException(() -> "Network icon: could not update", ex);

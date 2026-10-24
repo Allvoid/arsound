@@ -54,8 +54,25 @@ public final class AppIcons {
 
     public static List<Icon> all() {
         List<Icon> icons = new ArrayList<>();
-        for (String[] row : AppIconList.ICONS) icons.add(new Icon(row));
+        for (String[] row : rows()) icons.add(new Icon(row));
         return icons;
+    }
+
+    private static volatile List<String[]> rows;
+
+    /**
+     * The Arsound variants, then SoundCloud's own icons. A SoundCloud icon the patched version did not have has no
+     * picture and no launcher entry, so it is left out.
+     */
+    private static List<String[]> rows() {
+        List<String[]> known = rows;
+        if (known != null) return known;
+        List<String[]> all = new ArrayList<>(java.util.Arrays.asList(AppIconList.ICONS));
+        for (String[] row : SoundCloudIconList.ICONS) {
+            if (Utils.getResourceIdentifier(ResourceType.MIPMAP, "arsound_icon_" + row[0]) != 0) all.add(row);
+        }
+        rows = all;
+        return all;
     }
 
     private static ComponentName component(Context context, String id) {
@@ -65,7 +82,7 @@ public final class AppIcons {
     /** The variant whose launcher entry is enabled; the default one if the user never changed it. */
     public static String current(Context context) {
         PackageManager manager = context.getPackageManager();
-        for (String[] row : AppIconList.ICONS) {
+        for (String[] row : rows()) {
             try {
                 if (manager.getComponentEnabledSetting(component(context, row[0]))
                         == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
@@ -87,7 +104,7 @@ public final class AppIcons {
             PackageManager manager = context.getPackageManager();
             manager.setComponentEnabledSetting(component(context, id),
                     PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
-            for (String[] row : AppIconList.ICONS) {
+            for (String[] row : rows()) {
                 if (row[0].equals(id)) continue;
                 ComponentName other = component(context, row[0]);
                 int state = manager.getComponentEnabledSetting(other);
@@ -128,7 +145,16 @@ public final class AppIcons {
             Resources resources = context.getResources();
             int backgroundId = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon_bg_" + id);
             int foregroundId = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_icon_fg_" + id);
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || backgroundId == 0 || foregroundId == 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && (backgroundId == 0 || foregroundId == 0)) {
+                // SoundCloud's own icons: some layers are images, so the picture is drawn once at its size.
+                Drawable ready = drawable(context, id);
+                if (!(ready instanceof AdaptiveIconDrawable)) return ready;
+                Bitmap picture = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+                ready.setBounds(0, 0, size, size);
+                ready.draw(new Canvas(picture));
+                return new BitmapDrawable(resources, picture);
+            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
                     || !(isBitmap(resources, backgroundId) || isBitmap(resources, foregroundId))) {
                 // Vector variants are small, the ready icon costs next to nothing.
                 return drawable(context, id);

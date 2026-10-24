@@ -48,7 +48,7 @@ public final class PlaylistPreloader {
             try {
                 Thread.sleep(START_DELAY_MS);
                 app.revanced.extension.soundcloud.download.UnplayedDownloads.runAtStart();
-                if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
+                if (!RegionGuard.blocksLastCountry()) {
                     app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
                 }
                 // The library cells show how many tracks each playlist has and how many play from a file.
@@ -67,7 +67,7 @@ public final class PlaylistPreloader {
                 }
                 preload();
                 // Downloaded tracks deleted on SoundCloud before their playlists were watched.
-                if (!"RU".equals(RegionGuard.lastCountry()) || !Settings.isRegionGuardEnabled()) {
+                if (!RegionGuard.blocksLastCountry()) {
                     app.revanced.extension.soundcloud.local.RemovedTracks.sweepDownloads();
                 }
             } catch (Exception ex) {
@@ -90,7 +90,7 @@ public final class PlaylistPreloader {
             Logger.printInfo(() -> "Playlist preload: app not ready");
             return;
         }
-        if ("RU".equals(RegionGuard.lastCountry()) && Settings.isRegionGuardEnabled()) {
+        if (RegionGuard.blocksLastCountry()) {
             Logger.printInfo(() -> "Playlist preload: SoundCloud is switched off, skipped");
             return;
         }
