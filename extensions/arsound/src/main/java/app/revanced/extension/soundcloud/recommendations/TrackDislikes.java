@@ -28,6 +28,8 @@ import app.revanced.extension.soundcloud.settings.Settings;
 public final class TrackDislikes {
     public static final String ENABLED = "dislikes_enabled";
     private static final String PREFERENCES_NAME = "arsound_dislikes";
+    /** Track urn to the title and length of the song, for its re-uploads. Kept apart: the list above holds titles. */
+    private static final String SONGS_NAME = "arsound_dislike_songs";
     private static final String ROW_TAG = "arsound_dislike_row";
 
     /** Track urn to its title, read once. */
@@ -81,13 +83,42 @@ public final class TrackDislikes {
         dislikes().remove(urn);
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().remove(urn).apply();
+        SharedPreferences songs = songPreferences();
+        if (songs != null) songs.edit().remove(urn).apply();
+    }
+
+    private static SharedPreferences songPreferences() {
+        Context context = Utils.getContext();
+        return context == null ? null : context.getSharedPreferences(SONGS_NAME, Context.MODE_PRIVATE);
+    }
+
+    /**
+     * The title and length in milliseconds of each disliked track, so a re-upload of the same song is not
+     * recommended either. Tracks disliked before the length was kept have none.
+     */
+    static synchronized java.util.List<Object[]> songs() {
+        java.util.List<Object[]> result = new java.util.ArrayList<>();
+        SharedPreferences songs = songPreferences();
+        if (songs == null || !isEnabled()) return result;
+        for (Map.Entry<String, ?> entry : songs.getAll().entrySet()) {
+            if (!dislikes().containsKey(entry.getKey())) continue;
+            try {
+                JSONObject song = new JSONObject(String.valueOf(entry.getValue()));
+                long duration = song.optLong("dur");
+                String title = song.optString("title");
+                if (duration > 0 && !title.isEmpty()) result.add(new Object[]{title, duration});
+            } catch (Exception ignored) {
+                // A damaged entry: only its re-uploads are not caught.
+            }
+        }
+        return result;
     }
 
     private static synchronized void add(String urn) {
         dislikes().put(urn, urn);
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().putString(urn, urn).apply();
-        // The title is only for the list in the settings.
+        // The title is for the list in the settings, the song for the "For you" playlist.
         String id = DownloadTrackPatch.parseTrackId(urn);
         Utils.runOnBackgroundThread(() -> {
             try {
@@ -101,6 +132,10 @@ public final class TrackDislikes {
                     dislikes().put(urn, title);
                     SharedPreferences stored = preferences();
                     if (stored != null) stored.edit().putString(urn, title).apply();
+                    long duration = track.optLong("full_duration", track.optLong("duration"));
+                    SharedPreferences songs = songPreferences();
+                    if (songs != null && duration > 0) songs.edit().putString(urn, new JSONObject()
+                            .put("title", track.optString("title")).put("dur", duration).toString()).apply();
                 }
             } catch (Exception ex) {
                 Logger.printInfo(() -> "No title for the disliked track " + urn + ": " + ex);

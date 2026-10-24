@@ -167,6 +167,9 @@ public final class MixWithOtherApps {
                 } catch (Throwable ex) {
                     Logger.printException(() -> "Mix with other apps: the focus listener failed", ex);
                 }
+            } else if (!call) {
+                // The player is gone: nothing to resume, and the mode is not asked for again.
+                pausedForCall = false;
             }
         }
         // Before Android 12 the phone call state turns idle a moment before the mode does, and nothing reports the

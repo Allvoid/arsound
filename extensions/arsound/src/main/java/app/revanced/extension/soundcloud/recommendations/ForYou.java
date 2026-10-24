@@ -233,7 +233,9 @@ public final class ForYou {
     }
 
     static String songKey(String artist, String title) {
-        return artistKey(artist) + "|" + DuplicateFilter.songKey(title);
+        // Remixes and other speeds are other songs here, whatever the user chose for the lists: with them merged,
+        // a remix found on Last.fm took the cached match of the original.
+        return artistKey(artist) + "|" + DuplicateFilter.songKey(title, false);
     }
 
     private static SQLiteDatabase open(Context context, String name) {
@@ -431,6 +433,11 @@ public final class ForYou {
         if (context == null) throw new IllegalStateException("No context");
         if (!LastFm.hasKey()) return done(text("Нет ключа Last.fm в сборке", "No Last.fm key in this build"));
         if ("RU".equals(app.revanced.extension.soundcloud.network.RegionGuard.lastCountry())) return needsVpn();
+        // The user's own block of another country: every request would fail with a network error.
+        if (app.revanced.extension.soundcloud.network.RegionGuard.blocksLastCountry()) {
+            return text("Сеть выключена блоком по стране IP (Настройки → Arsound → Сеть)",
+                    "The network is off by the IP country block (Settings → Arsound → Network)");
+        }
 
         report(listener, text("Собираю вашу библиотеку…", "Reading your library…"));
         Set<String> known = new HashSet<>();
@@ -534,6 +541,8 @@ public final class ForYou {
         }
         long now = System.currentTimeMillis();
         Set<String> disliked = new HashSet<>(TrackDislikes.getAll().keySet());
+        // Another upload of a disliked song has its own urn: it is told by the title and length.
+        List<Object[]> dislikedSongs = TrackDislikes.songs();
 
         List<String> entries = new ArrayList<>();
         Set<String> chosenKeys = new HashSet<>();
@@ -593,7 +602,7 @@ public final class ForYou {
                     if (entries.size() >= PLAYLIST_SIZE) continue;
                     if (perArtist.getOrDefault(artistKey(candidate.artist), 0) >= PER_ARTIST) continue;
                     long length = Long.parseLong(hit[2]);
-                    if (isRepeat(chosenSongs, hit[1], length)) continue;
+                    if (isRepeat(chosenSongs, hit[1], length) || isRepeat(dislikedSongs, hit[1], length)) continue;
                     chosenSongs.add(new Object[]{hit[1], length});
                     perArtist.merge(artistKey(candidate.artist), 1, Integer::sum);
                     entries.add(urn);
@@ -622,7 +631,7 @@ public final class ForYou {
         return entries;
     }
 
-    /** True if a copy of this song (same title, length within two seconds) is already in the playlist. */
+    /** True if a copy of this song (same title, length within two seconds) is among these songs. */
     private static boolean isRepeat(List<Object[]> chosen, String title, long length) {
         if (title == null || title.isEmpty() || length <= 0) return false;
         for (Object[] song : chosen) {

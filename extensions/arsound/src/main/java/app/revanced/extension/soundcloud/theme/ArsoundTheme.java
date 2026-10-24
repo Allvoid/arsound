@@ -579,7 +579,11 @@ public final class ArsoundTheme {
             table.put(animation, "raw", "loading_animation", ArscWriter.Value.file(night), true);
         }
 
-        // The pictures behind page titles (the hearts of "Your likes"), recoloured into the accent.
+        // The pictures behind page titles (the hearts of "Your likes"), recoloured into the accent. Two of them have
+        // their own picture for wide screens (tablets, a phone on its side), which would win over a default-only
+        // copy: each is read at a narrow and a wide width, whatever the screen is now.
+        Resources narrow = resourcesAtWidth(context, 320);
+        Resources wide = resourcesAtWidth(context, ArscWriter.WIDE_DP);
         for (String name : HeaderArtwork.NAMES) {
             int picture = resources.getIdentifier(name, "drawable", packageName);
             if (picture == 0) {
@@ -587,22 +591,47 @@ public final class ArsoundTheme {
                 continue;
             }
             try {
-                byte[] day = HeaderArtwork.tint(resources, picture, theme.accent(false));
-                byte[] night = HeaderArtwork.tint(resources, picture, theme.accent(true));
-                if (day == null || night == null) continue;
-                // A path under res/, as for the fonts; the provider below reads it from the files folder.
-                String dayPath = "arsound/theme/" + theme.id + "-" + name + ".png";
-                String nightPath = "arsound/theme/" + theme.id + "-" + name + "-night.png";
-                write(new File(context.getFilesDir(), dayPath), day);
-                write(new File(context.getFilesDir(), nightPath), night);
-                table.put(picture, "drawable", name, ArscWriter.Value.file("res/" + dayPath), false);
-                table.put(picture, "drawable", name, ArscWriter.Value.file("res/" + nightPath), true);
+                tintPicture(context, table, theme, narrow, picture, name, false);
+                if (!sameFile(narrow, wide, picture)) tintPicture(context, table, theme, wide, picture, name, true);
             } catch (Exception ex) {
                 Logger.printException(() -> "Theme: could not recolour " + name, ex);
             }
         }
 
         write(arsc, table.build());
+    }
+
+    /** One picture behind a page title in the accent of day and night, for a narrow or a wide screen. */
+    private static void tintPicture(Context context, ArscWriter table, Theme theme, Resources source, int picture,
+                                    String name, boolean wide) throws Exception {
+        byte[] day = HeaderArtwork.tint(source, picture, theme.accent(false));
+        byte[] night = HeaderArtwork.tint(source, picture, theme.accent(true));
+        if (day == null || night == null) return;
+        // A path under res/, as for the fonts; the provider below reads it from the files folder.
+        String base = "arsound/theme/" + theme.id + "-" + name + (wide ? "-wide" : "");
+        String dayPath = base + ".png";
+        String nightPath = base + "-night.png";
+        write(new File(context.getFilesDir(), dayPath), day);
+        write(new File(context.getFilesDir(), nightPath), night);
+        table.put(picture, "drawable", name, ArscWriter.Value.file("res/" + dayPath), false, wide);
+        table.put(picture, "drawable", name, ArscWriter.Value.file("res/" + nightPath), true, wide);
+    }
+
+    /** The app's resources as on a screen this many dp wide. */
+    private static Resources resourcesAtWidth(Context context, int widthDp) {
+        android.content.res.Configuration configuration =
+                new android.content.res.Configuration(context.getResources().getConfiguration());
+        configuration.screenWidthDp = widthDp;
+        return context.createConfigurationContext(configuration).getResources();
+    }
+
+    /** True if the resource is the same file on both resources: the app has no picture of its own for one of them. */
+    private static boolean sameFile(Resources first, Resources second, int resource) {
+        android.util.TypedValue a = new android.util.TypedValue();
+        android.util.TypedValue b = new android.util.TypedValue();
+        first.getValue(resource, a, true);
+        second.getValue(resource, b, true);
+        return String.valueOf(a.string).equals(String.valueOf(b.string));
     }
 
     private static ResourcesProvider load(Context context, File file) throws Exception {

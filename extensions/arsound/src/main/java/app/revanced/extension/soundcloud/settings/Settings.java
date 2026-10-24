@@ -50,11 +50,12 @@ public final class Settings {
         return preferences != null && preferences.getBoolean(HIDE_UPGRADE_TAB, false);
     }
 
+    /** Written at once, not in the background: the Upgrade tab page restarts the app right after it. */
     public static void setHideUpgradeTabEnabled(boolean enabled) {
         SharedPreferences preferences = getPreferences();
         if (preferences == null) return;
 
-        preferences.edit().putBoolean(HIDE_UPGRADE_TAB, enabled).apply();
+        preferences.edit().putBoolean(HIDE_UPGRADE_TAB, enabled).commit();
     }
 
     public static final String UPDATE_CHECK = "update_check";
