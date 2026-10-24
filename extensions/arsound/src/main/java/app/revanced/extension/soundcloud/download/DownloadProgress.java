@@ -43,6 +43,8 @@ public final class DownloadProgress {
 
     private static WeakReference<Activity> resumed = new WeakReference<>(null);
     private static boolean polling;
+    /** Downloads that ended while the app was closed are settled at the first poll. */
+    private static volatile boolean settledOnce;
 
     private DownloadProgress() {
     }
@@ -64,14 +66,20 @@ public final class DownloadProgress {
         return trackId != null && assembling.contains(trackId);
     }
 
-    /** Called when the app starts to download and pack an HLS track itself. */
-    static void onAssemblyStarted(String trackId, String playlistId) {
+    /**
+     * Called when the app starts to download and pack an HLS track itself.
+     *
+     * @return False if the track is already being packed: two assemblies would write the same files.
+     */
+    static boolean tryBeginAssembly(String trackId, String playlistId) {
         synchronized (SETS) {
+            if (assembling.contains(trackId)) return false;
             Set<String> updated = new HashSet<>(assembling);
             updated.add(trackId);
             assembling = updated;
         }
         onStarted(trackId, playlistId);
+        return true;
     }
 
     /** Called when an HLS track is packed, or when packing failed. */
@@ -103,11 +111,18 @@ public final class DownloadProgress {
                 tracks.add(trackId);
             }
         }
-        Utils.runOnMainThread(() -> {
+        // A playlist queues its tracks in a quick loop: one redraw covers all of them.
+        if (!redrawQueued.compareAndSet(false, true)) return;
+        handler.postDelayed(() -> {
+            redrawQueued.set(false);
             redrawLists(resumed.get());
             startPolling();
-        });
+        }, REDRAW_DELAY_MS);
     }
+
+    private static final long REDRAW_DELAY_MS = 250;
+    private static final java.util.concurrent.atomic.AtomicBoolean redrawQueued =
+            new java.util.concurrent.atomic.AtomicBoolean();
 
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
     static void onDownloadsDeleted() {
@@ -149,15 +164,22 @@ public final class DownloadProgress {
         if (activity == null) return;
         Context context = activity.getApplicationContext();
         Utils.runOnBackgroundThread(() -> {
+            Set<String> before = downloading;
             Set<String> current = queryDownloading(context);
             boolean changed;
             synchronized (SETS) {
                 // Tracks packed by the app are not known to the download manager, so they are kept.
                 current.addAll(assembling);
+                // Tracks queued while the download manager was asked are not in its answer yet.
+                for (String id : downloading) if (!before.contains(id)) current.add(id);
                 changed = !current.equals(downloading);
                 downloading = current;
             }
-            // A finished download changes the numbers of files in the playlists.
+            // A finished download changes the numbers of files in the playlists; a failed one is forgotten.
+            if (changed || !settledOnce) {
+                settledOnce = true;
+                DownloadTrackPatch.settleDownloads(context);
+            }
             if (changed) {
                 app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
                 DownloadsScreen.refresh();

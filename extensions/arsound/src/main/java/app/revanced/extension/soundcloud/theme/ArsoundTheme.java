@@ -24,6 +24,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -418,13 +419,28 @@ public final class ArsoundTheme {
         Settings.putString(FORCED_NIGHT_KEY, dark ? "yes" : "");
     }
 
+    /** How often the build of a theme is tried in one process; a failure that stays would be repeated for every screen. */
+    private static final int MAX_BUILD_ATTEMPTS = 2;
+    private static String failedTheme;
+    private static int failedBuilds;
+
     /** Adds the loader of the chosen theme to these resources; nothing for the original look. */
     private static synchronized void apply(Resources resources) throws Exception {
         Theme theme = currentTheme(appContext);
         if (theme == null) return;
         if (loader == null || !theme.id.equals(loaderTheme)) {
+            // Each try is work on the main thread that gives no theme anyway; a later start tries again.
+            if (theme.id.equals(failedTheme) && failedBuilds >= MAX_BUILD_ATTEMPTS) return;
             ResourcesLoader created = new ResourcesLoader();
-            created.addProvider(provider(theme));
+            try {
+                created.addProvider(provider(theme));
+            } catch (Throwable ex) {
+                failedBuilds = theme.id.equals(failedTheme) ? failedBuilds + 1 : 1;
+                failedTheme = theme.id;
+                throw ex;
+            }
+            failedTheme = null;
+            failedBuilds = 0;
             loader = created;
             loaderTheme = theme.id;
         }
@@ -434,6 +450,45 @@ public final class ArsoundTheme {
 
     private static ResourcesProvider provider(Theme theme) throws Exception {
         Context context = appContext;
+        File file = new File(context.getCacheDir(), "arsound-theme-" + theme.id + ".arsc");
+        // The resource table and the files it names are the same until the app is updated (or the player skin is
+        // switched), so they are built once, not at every cold start. The stamp is written last: a build that
+        // stopped half way leaves no stamp, and its files are not trusted.
+        File stamp = new File(context.getFilesDir(), ASSETS + "theme/" + theme.id + ".stamp");
+        String key = cacheKey(context);
+        if (key != null && file.isFile() && key.equals(readText(stamp))) {
+            try {
+                return load(context, file);
+            } catch (Exception ex) {
+                // A damaged table is built again, not refused at every start.
+                Logger.printException(() -> "Theme: the kept resource table was refused, building it again", ex);
+            }
+        }
+        stamp.delete();
+        build(context, theme, file);
+        if (key != null) {
+            try {
+                write(stamp, key.getBytes("UTF-8"));
+            } catch (Exception ex) {
+                Logger.printException(() -> "Theme: could not remember the built theme", ex);
+            }
+        }
+        return load(context, file);
+    }
+
+    /** What the built files depend on: the installed app (the themes ship inside it) and the player skin switch. */
+    private static String cacheKey(Context context) {
+        try {
+            long updated = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).lastUpdateTime;
+            return updated + "/" + isPlayerSkinEnabled();
+        } catch (Exception ex) {
+            Logger.printException(() -> "Theme: could not read when the app was installed", ex);
+            return null;
+        }
+    }
+
+    /** Builds the resource table of a theme into {@code arsc}, with the fonts and the loading animation it names. */
+    private static void build(Context context, Theme theme, File arsc) throws Exception {
         // Built before any loader is added, so the original loading animation is read, not a recoloured one.
         Resources resources = context.getResources();
         // The resources keep SoundCloud's package name although the app is installed under another one.
@@ -524,8 +579,10 @@ public final class ArsoundTheme {
             table.put(animation, "raw", "loading_animation", ArscWriter.Value.file(night), true);
         }
 
-        File file = new File(context.getCacheDir(), "arsound-theme-" + theme.id + ".arsc");
-        write(file, table.build());
+        write(arsc, table.build());
+    }
+
+    private static ResourcesProvider load(Context context, File file) throws Exception {
         File filesDir = context.getFilesDir();
         try (ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) {
             return ResourcesProvider.loadFromTable(descriptor, new AssetsProvider() {
@@ -613,19 +670,44 @@ public final class ArsoundTheme {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             tinted.compress(Bitmap.CompressFormat.PNG, 100, output);
             asset.put("p", prefix + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+            frame.recycle();
+            tinted.recycle();
         }
         return animation.toString().getBytes("UTF-8");
     }
 
     /** Copies an asset to a file once; the file is kept while it has the same size. */
     private static boolean copyAsset(Context context, String asset, File target) {
-        try (InputStream input = context.getAssets().open(asset)) {
-            byte[] bytes = readAll(input);
-            if (!target.isFile() || target.length() != bytes.length) write(target, bytes);
+        try {
+            // The size is known without reading the asset, unless the APK keeps it compressed.
+            long size = assetSize(context, asset);
+            if (size >= 0 && target.isFile() && target.length() == size) return true;
+            try (InputStream input = context.getAssets().open(asset)) {
+                byte[] bytes = readAll(input);
+                if (!target.isFile() || target.length() != bytes.length) write(target, bytes);
+            }
             return true;
         } catch (Exception ex) {
             Logger.printException(() -> "Theme: could not copy " + asset, ex);
             return false;
+        }
+    }
+
+    /** The size of an asset, or -1 when it cannot be told without reading it (a compressed asset has no file descriptor). */
+    private static long assetSize(Context context, String asset) {
+        try (AssetFileDescriptor descriptor = context.getAssets().openFd(asset)) {
+            return descriptor.getLength();
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    /** The text of a small file, or null when there is none. */
+    private static String readText(File file) {
+        try {
+            return new String(readAll(new FileInputStream(file)), "UTF-8");
+        } catch (Exception ex) {
+            return null;
         }
     }
 

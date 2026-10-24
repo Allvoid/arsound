@@ -20,11 +20,13 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,6 +35,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.network.RegionGuard;
 
 /**
  * Saves a track that SoundCloud only offers as an HLS playlist.
@@ -51,6 +54,15 @@ public final class HlsDownloader {
     /** The sequence number of an {@code #EXT-X-MAP} segment, which is never encrypted. */
     private static final int INITIALISATION_SEGMENT = -1;
     private static final Pattern KEY_ATTRIBUTE = Pattern.compile("([A-Z0-9-]+)=(\"[^\"]*\"|[^,]*)");
+    /** How many times a request that failed for a passing reason is sent again, after a pause of 1, 2 and 4 seconds. */
+    private static final int MAX_RETRIES = 3;
+    /** The longest pause before a new try, also for a longer Retry-After. */
+    private static final long MAX_RETRY_PAUSE_MS = 15_000;
+    /** The start of the names of the cache files of an assembly. */
+    private static final String FILE_PREFIX = "arsound-hls-";
+    /** Files of an assembly older than this were left by a process that was killed. */
+    private static final long STALE_FILE_MS = 30 * 60 * 1000L;
+    private static final AtomicBoolean cacheSwept = new AtomicBoolean();
 
     private HlsDownloader() {
     }
@@ -83,9 +95,10 @@ public final class HlsDownloader {
      * @return The name of the saved file in Music/Arsound, or null if the track could not be saved.
      */
     static String download(Context context, String trackId, String playlistUrl, String mimeType) {
-        File transportStream = new File(context.getCacheDir(), "arsound-hls-" + trackId + ".ts");
-        File packed = new File(context.getCacheDir(), "arsound-hls-" + trackId + ".m4a");
-        File stripped = new File(context.getCacheDir(), "arsound-hls-" + trackId + ".mp4");
+        sweepStaleFiles(context);
+        File transportStream = new File(context.getCacheDir(), FILE_PREFIX + trackId + ".ts");
+        File packed = new File(context.getCacheDir(), FILE_PREFIX + trackId + ".m4a");
+        File stripped = new File(context.getCacheDir(), FILE_PREFIX + trackId + ".mp4");
         try {
             List<Segment> segments = parsePlaylist(playlistUrl);
             boolean hasAudio = false;
@@ -189,6 +202,25 @@ public final class HlsDownloader {
     }
 
     /**
+     * Deletes the files of assemblies that were cut short when the system killed the process, which skips the
+     * clean-up in {@link #download}. Done once per process, before its first assembly; the age keeps the files of
+     * an assembly running next to it safe.
+     */
+    private static void sweepStaleFiles(Context context) {
+        if (!cacheSwept.compareAndSet(false, true)) return;
+        try {
+            File[] stale = context.getCacheDir().listFiles((directory, name) -> name.startsWith(FILE_PREFIX));
+            if (stale == null) return;
+            long now = System.currentTimeMillis();
+            for (File file : stale) {
+                if (now - file.lastModified() > STALE_FILE_MS) delete(file);
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not sweep the old assembly files: " + ex);
+        }
+    }
+
+    /**
      * Whether the playlist is locked by FairPlay or Widevine. Such a stream hands out its key only to
      * a licence server inside a player, so it is left alone.
      */
@@ -212,7 +244,7 @@ public final class HlsDownloader {
     // region playlist
 
     private static List<Segment> parsePlaylist(String playlistUrl) throws Exception {
-        String playlist = readText(playlistUrl);
+        String playlist = withRetry(() -> readText(playlistUrl));
         List<Segment> segments = new ArrayList<>();
         Key key = new Key();
         int sequence = 0;
@@ -309,7 +341,8 @@ public final class HlsDownloader {
     }
 
     private static byte[] decrypt(Segment segment) throws Exception {
-        byte[] data = readBytes(segment.url);
+        // Only the download is repeated; a failure of the key or the cipher below would come out the same again.
+        byte[] data = withRetry(() -> readBytes(segment.url));
         Key key = segment.key;
         if ("NONE".equals(key.method)) return data;
         // The headers of a fragmented MP4 come in the clear, and decrypting them would destroy them.
@@ -356,7 +389,7 @@ public final class HlsDownloader {
     private static byte[] keyBytes(String uri) throws Exception {
         byte[] cached = keyCache.get(uri);
         if (cached != null) return cached;
-        byte[] key = readBytes(uri);
+        byte[] key = withRetry(() -> readBytes(uri));
         if (key.length != 16) throw new IOException("The AES key is " + key.length + " bytes, expected 16");
         keyCache.put(uri, key);
         return key;
@@ -508,6 +541,55 @@ public final class HlsDownloader {
 
     // region network
 
+    /** A reply other than 200, with the pause the server asked for. */
+    private static final class HttpStatusException extends IOException {
+        final int code;
+        /** The Retry-After of the reply in milliseconds, or 0 if it gave no number of seconds. */
+        final long retryAfterMs;
+
+        HttpStatusException(int code, String url, long retryAfterMs) {
+            super("HTTP " + code + " for " + url);
+            this.code = code;
+            this.retryAfterMs = retryAfterMs;
+        }
+    }
+
+    private interface NetworkCall<T> {
+        T run() throws Exception;
+    }
+
+    /**
+     * Runs one request again after a failure that may pass by itself: a timeout, a dropped connection or a busy
+     * server. A single request of a track of hundreds of segments must not throw all the others away.
+     */
+    private static <T> T withRetry(NetworkCall<T> call) throws Exception {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return call.run();
+            } catch (IOException ex) {
+                // pool.shutdownNow() interrupts the threads of an assembly that has already failed.
+                if (attempt >= MAX_RETRIES || !isTransient(ex) || Thread.currentThread().isInterrupted()) throw ex;
+                long pause = ex instanceof HttpStatusException && ((HttpStatusException) ex).retryAfterMs > 0
+                        ? ((HttpStatusException) ex).retryAfterMs
+                        : Math.min(1000L << attempt, MAX_RETRY_PAUSE_MS);
+                int retry = attempt + 1;
+                Logger.printInfo(() -> "HLS request failed (" + ex + "), retry " + retry + " of " + MAX_RETRIES
+                        + " in " + pause + " ms");
+                Thread.sleep(pause);
+            }
+        }
+    }
+
+    /** Whether asking again can help. A refusal (403, 404), the region guard and a broken link would answer the same. */
+    private static boolean isTransient(IOException ex) {
+        if (ex instanceof RegionGuard.BlockedException || ex instanceof MalformedURLException) return false;
+        if (ex instanceof HttpStatusException) {
+            int code = ((HttpStatusException) ex).code;
+            return code == 408 || code == 429 || code >= 500;
+        }
+        return true;
+    }
+
     private static byte[] readBytes(String url) throws Exception {
         HttpURLConnection connection = open(url);
         try (InputStream input = connection.getInputStream()) {
@@ -535,16 +617,35 @@ public final class HlsDownloader {
     }
 
     private static HttpURLConnection open(String url) throws Exception {
-        app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlocked(new URL(url).getHost());
+        RegionGuard.throwIfBlocked(new URL(url).getHost());
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
-        int code = connection.getResponseCode();
-        if (code != HttpURLConnection.HTTP_OK) {
-            connection.disconnect();
-            throw new IOException("HTTP " + code + " for " + url);
+        boolean opened = false;
+        try {
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(30_000);
+            int code = connection.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) throw new HttpStatusException(code, url, retryAfterMs(connection));
+            opened = true;
+            return connection;
+        } finally {
+            // A reply that failed to arrive must not leave its socket open, now that it is asked for again.
+            if (!opened) connection.disconnect();
         }
-        return connection;
+    }
+
+    /** The pause the server asked for in Retry-After, at most {@link #MAX_RETRY_PAUSE_MS}; 0 if it gave none. */
+    private static long retryAfterMs(HttpURLConnection connection) {
+        try {
+            String header = connection.getHeaderField("Retry-After");
+            if (header != null) {
+                long seconds = Long.parseLong(header.trim());
+                // Capped before the multiplication, so a huge number cannot overflow into a negative pause.
+                if (seconds > 0) return Math.min(seconds, MAX_RETRY_PAUSE_MS / 1000) * 1000;
+            }
+        } catch (NumberFormatException ignored) {
+            // A date instead of seconds: the growing pause is good enough.
+        }
+        return 0;
     }
 
     // endregion

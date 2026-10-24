@@ -42,6 +42,21 @@ internal val BytecodePatchContext.destinationPaywallIntentMethod by gettingFirst
     parameterTypes("Landroid/content/Context;", "Lcom/soundcloud/android/payments/paywall/PaywallNavArgs;", "Landroid/net/Uri;")
 }
 
+/**
+ * Builds the intent of the Go / Go+ plan picker screen. The picker variant of the paywall experiment
+ * and the navigation resolver's plan picker link both end here, bypassing the intent builder above.
+ */
+internal val BytecodePatchContext.planPickerIntentMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/listeners/navigation/DestinationIntents;")
+    returnType("Landroid/content/Intent;")
+    parameterTypes(
+        "Landroid/content/Context;",
+        "Lcom/soundcloud/android/foundation/actions/models/SelectedPlan;",
+        "Lcom/soundcloud/android/foundation/domain/upsell/UpsellData\$PlanBillingCycle;",
+        "Ljava/lang/String;",
+    )
+}
+
 internal val BytecodePatchContext.factoryPaywallIntentMethod by gettingFirstMethodDeclaratively {
     definingClass("Lcom/soundcloud/android/navigation/IntentFactoryImpl;")
     returnType("Landroid/content/Intent;")
@@ -177,6 +192,9 @@ val hideSubscriptionOffersPatch = bytecodePatch {
             )
         }
         destinationPaywallIntentMethod.filterReturnedIntent()
+        // The picker variant of the paywall experiment returns the intent of this builder from the method
+        // above before its last return, so that return alone does not cover it.
+        planPickerIntentMethod.filterReturnedIntent()
         factoryPaywallIntentMethod.filterReturnedIntent()
 
         // Fallback, in case the offer screen is opened some other way.

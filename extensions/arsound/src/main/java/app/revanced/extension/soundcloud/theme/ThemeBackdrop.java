@@ -23,8 +23,9 @@ public final class ThemeBackdrop {
     /** Over SoundCloud's content the particles are dimmer than on the design's empty background. */
     private static final float MAIN_SCREEN_OPACITY = .55f;
 
-    /** The effect over the main screen, told when battery saver is switched. */
-    private static java.lang.ref.WeakReference<ThemeEffect> mainEffect = new java.lang.ref.WeakReference<>(null);
+    /** Every effect that is alive (the main screen, the settings, the preview tiles), told when battery saver is switched. */
+    private static final java.util.Set<ThemeEffect> live =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     private static boolean powerSaveWatched;
 
     private ThemeBackdrop() {
@@ -38,26 +39,45 @@ public final class ThemeBackdrop {
     /** The effect of the chosen theme, or null when it has none or the animations are off. */
     public static ThemeEffect forCurrentTheme(Context context, float sizeScale) {
         if (!Settings.isThemeEffectsEnabled()) return null;
-        return ThemeEffect.create(context, ArsoundTheme.effect(context), sizeScale, density(),
-                ArsoundTheme.isNight(context), ArsoundTheme.palette(context, "special"));
+        return register(context, ThemeEffect.create(context, ArsoundTheme.effect(context), sizeScale, density(),
+                ArsoundTheme.isNight(context), ArsoundTheme.palette(context, "special")));
     }
 
     /** The effect of any theme in its dark look, for a preview tile. */
     public static ThemeEffect forTheme(Context context, ArsoundTheme.Theme theme, float sizeScale, float density) {
-        return ThemeEffect.create(context, theme.effect(), sizeScale, density, true, theme.accent(true));
+        return register(context, ThemeEffect.create(context, theme.effect(), sizeScale, density, true, theme.accent(true)));
+    }
+
+    /** Remembers a new effect, so battery saver reaches it wherever it is shown. */
+    private static ThemeEffect register(Context context, ThemeEffect effect) {
+        if (effect == null) return null;
+        synchronized (live) {
+            live.add(effect);
+        }
+        Context application = context.getApplicationContext();
+        watchPowerSave(application != null ? application : context);
+        return effect;
     }
 
     /** Battery saver stops the animation; switching it while the app is open now takes effect at once. */
     private static void watchPowerSave(Context context) {
         if (powerSaveWatched) return;
         powerSaveWatched = true;
-        context.registerReceiver(new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context receiverContext, Intent intent) {
-                ThemeEffect effect = mainEffect.get();
-                if (effect != null) effect.refreshStill(receiverContext);
-            }
-        }, new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+        try {
+            context.registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context receiverContext, Intent intent) {
+                    // A copy: refreshStill redraws, which could add or drop effects while this goes through them.
+                    java.util.List<ThemeEffect> effects;
+                    synchronized (live) {
+                        effects = new java.util.ArrayList<>(live);
+                    }
+                    for (ThemeEffect effect : effects) effect.refreshStill(receiverContext);
+                }
+            }, new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+        } catch (Exception ex) {
+            Logger.printException(() -> "Theme effect: could not watch battery saver", ex);
+        }
     }
 
     /** Called when an activity comes to the screen: adds, renews or removes the effect over the main screen. */
@@ -95,8 +115,6 @@ public final class ThemeBackdrop {
             // Right above SoundCloud's own views, so Arsound's pills added later stay on top.
             content.addView(layer, Math.min(1, content.getChildCount()), new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            mainEffect = new java.lang.ref.WeakReference<>(effect);
-            watchPowerSave(activity.getApplicationContext());
         } catch (Exception ex) {
             Logger.printException(() -> "Theme effect: could not add to the main screen", ex);
         }

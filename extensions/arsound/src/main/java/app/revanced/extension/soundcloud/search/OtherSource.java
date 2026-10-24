@@ -372,39 +372,42 @@ public final class OtherSource {
         public Response execute(Request request) throws IOException {
             app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlockedAnyHost();
             HttpURLConnection connection = (HttpURLConnection) new URL(request.url()).openConnection();
-            connection.setConnectTimeout(15_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestMethod(request.httpMethod());
-            connection.setRequestProperty("User-Agent", USER_AGENT);
-            for (Map.Entry<String, List<String>> header : request.headers().entrySet()) {
-                connection.setRequestProperty(header.getKey(), String.join(", ", header.getValue()));
-            }
-            byte[] data = request.dataToSend();
-            if (data != null) {
-                connection.setDoOutput(true);
-                try (OutputStream output = connection.getOutputStream()) {
-                    output.write(data);
+            // Disconnects also when the request or the read of the body fails.
+            try {
+                connection.setConnectTimeout(15_000);
+                connection.setReadTimeout(30_000);
+                connection.setRequestMethod(request.httpMethod());
+                connection.setRequestProperty("User-Agent", USER_AGENT);
+                for (Map.Entry<String, List<String>> header : request.headers().entrySet()) {
+                    connection.setRequestProperty(header.getKey(), String.join(", ", header.getValue()));
                 }
+                byte[] data = request.dataToSend();
+                if (data != null) {
+                    connection.setDoOutput(true);
+                    try (OutputStream output = connection.getOutputStream()) {
+                        output.write(data);
+                    }
+                }
+                int code = connection.getResponseCode();
+                String body = "";
+                try (InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
+                    if (input != null) {
+                        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                        byte[] buffer = new byte[16 * 1024];
+                        int read;
+                        while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
+                        body = bytes.toString("UTF-8");
+                    }
+                }
+                Map<String, List<String>> headers = new java.util.HashMap<>();
+                for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
+                    if (header.getKey() != null) headers.put(header.getKey(), header.getValue());
+                }
+                return new Response(code, connection.getResponseMessage(), headers,
+                        body, connection.getURL().toString());
+            } finally {
+                connection.disconnect();
             }
-            int code = connection.getResponseCode();
-            InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            String body = "";
-            if (input != null) {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] buffer = new byte[16 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
-                input.close();
-                body = bytes.toString("UTF-8");
-            }
-            Map<String, List<String>> headers = new java.util.HashMap<>();
-            for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
-                if (header.getKey() != null) headers.put(header.getKey(), header.getValue());
-            }
-            Response response = new Response(code, connection.getResponseMessage(), headers,
-                    body, connection.getURL().toString());
-            connection.disconnect();
-            return response;
         }
     }
 }

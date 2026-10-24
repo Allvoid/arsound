@@ -7,6 +7,7 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -36,6 +37,7 @@ public final class DragReorder {
     private final ClassLoader loader;
     private Object touchHelper;
     private boolean active;
+    private ViewTreeObserver.OnGlobalLayoutListener layoutListener;
     private final List<ObjectAnimator> wiggles = new ArrayList<>();
     private final GestureDetector gestures;
 
@@ -116,19 +118,28 @@ public final class DragReorder {
         //noinspection unchecked
         ((List<Object>) listeners.get(recycler)).add(0, listener);
 
+        // The observer of an attached view belongs to the whole window and keeps its listeners until the
+        // window is gone, so this one is taken off when the list detaches (and put back if it returns).
+        layoutListener = () -> {
+            if (active) wiggleChildren();
+        };
         recycler.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
+                ViewTreeObserver observer = view.getViewTreeObserver();
+                if (!observer.isAlive()) return;
+                observer.removeOnGlobalLayoutListener(layoutListener);
+                observer.addOnGlobalLayoutListener(layoutListener);
             }
 
             @Override
             public void onViewDetachedFromWindow(View view) {
                 stop();
+                ViewTreeObserver observer = view.getViewTreeObserver();
+                if (observer.isAlive()) observer.removeOnGlobalLayoutListener(layoutListener);
             }
         });
-        recycler.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-            if (active) wiggleChildren();
-        });
+        recycler.getViewTreeObserver().addOnGlobalLayoutListener(layoutListener);
         Logger.printDebug(() -> "Rearranging ready");
     }
 

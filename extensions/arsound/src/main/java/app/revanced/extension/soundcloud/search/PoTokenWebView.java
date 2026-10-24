@@ -278,7 +278,7 @@ public final class PoTokenWebView {
     // Leave 10 minutes of margin on the token's reported expiration, just to be safe.
     private static final long EXPIRATION_MARGIN_MS = TimeUnit.MINUTES.toMillis(10);
 
-    /** One cached minter per session id; recreated when expired, dead, or the session id changes. */
+    /** The cached minter, keyed by session id (a new one replaces the others); recreated when expired or dead. */
     private static final Map<String, PoTokenWebView> CACHE = new ConcurrentHashMap<>();
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -323,6 +323,9 @@ public final class PoTokenWebView {
                 // The streaming poToken must be minted exactly once, right after init, before
                 // any other (video) token is requested.
                 sessionToken = minter.generatePoTokenBlocking(sessionId);
+                // Only the current session needs a minter: the ones of another account, or of a visitor id
+                // that changed, would keep their WebView for nothing.
+                releaseAll();
                 CACHE.put(sessionId, minter);
             } else {
                 // Reuse: the streaming/session token was already minted when this entry was created.
@@ -338,6 +341,20 @@ public final class PoTokenWebView {
                 minter.close();
             }
             throw ex;
+        }
+    }
+
+    /**
+     * Closes every cached minter, for a sign-out. Not synchronized on purpose: {@link #tokens} holds the
+     * class lock for as long as a mint takes, and the sign-out click runs on the main thread. A mint that
+     * is running fails, and the next call builds a new minter.
+     */
+    public static void releaseAll() {
+        for (String key : CACHE.keySet()) {
+            PoTokenWebView minter = CACHE.remove(key);
+            if (minter != null) {
+                minter.close();
+            }
         }
     }
 
