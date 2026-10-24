@@ -862,6 +862,15 @@ public final class ReVancedSettingsActivity extends Activity {
         );
         trackColors.setVisibility(ArsoundTheme.isPlayerSkinEnabled() ? View.VISIBLE : View.GONE);
         list.addView(trackColors);
+        list.addView(createToggleRow(
+                text("Без картинки в шапке «Ваши лайки»", "No picture at the top of \"Your likes\""),
+                text("Убирает сердца за заголовком «Ваши лайки» и карточки за заголовком покупок: остаётся фон темы. "
+                                + "Выключено — картинка в цвете темы.",
+                        "Removes the hearts behind the \"Your likes\" title and the cards behind the purchases title: "
+                                + "the theme's background stays. Off: the picture in the theme's colour."),
+                Settings.isHeaderArtworkHidden(),
+                (button, checked) -> Settings.putBoolean(Settings.HIDE_HEADER_ARTWORK, checked)
+        ));
 
         list.addView(createSubHeading(text("Ещё", "More")));
         list.addView(openScreenRow(text("Иконка приложения", "App icon"),
