@@ -2,7 +2,9 @@ package app.revanced.extension.soundcloud.player;
 
 import android.content.Context;
 import android.media.AudioManager;
+import android.media.audiofx.DynamicsProcessing;
 import android.media.audiofx.Equalizer;
+import android.os.Build;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +17,7 @@ import app.revanced.extension.soundcloud.settings.Settings;
 /**
  * An equalizer on the player's sound: Android's own effect, attached to every audio session
  * the player creates. The chosen preset or band levels are applied at once to the sound that plays.
+ * The preamp, an overall gain apart from the curve, is Android's dynamics effect on the same session.
  */
 @SuppressWarnings("unused")
 public final class AudioEqualizer {
@@ -25,7 +28,42 @@ public final class AudioEqualizer {
     public static final String LEVELS = "equalizer_levels";
     public static final long CUSTOM = -1;
 
-    private static final List<Equalizer> active = new ArrayList<>();
+    /** Overall gain in millibels, applied apart from the equalizer: louder or quieter without changing the curve. */
+    public static final String PREAMP = "equalizer_preamp";
+    /** The preamp range of the settings screen, in millibels. */
+    public static final int PREAMP_MIN = -1200, PREAMP_MAX = 1200;
+
+    /** The effects of one audio session of the player. */
+    private static final class Session {
+        final int id;
+        final Equalizer equalizer;
+        /** The preamp (Android 9+), made on the first gain other than zero; null before that. */
+        Object gain;
+        /** The phone refused the gain effect: the preamp moves the equalizer bands instead. */
+        boolean gainFailed;
+
+        Session(int id, Equalizer equalizer) {
+            this.id = id;
+            this.equalizer = equalizer;
+        }
+
+        void release() {
+            try {
+                equalizer.release();
+            } catch (Throwable ignored) {
+                // Already released by the system.
+            }
+            if (gain != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                try {
+                    ((DynamicsProcessing) gain).release();
+                } catch (Throwable ignored) {
+                    // Already released by the system.
+                }
+            }
+        }
+    }
+
+    private static final List<Session> active = new ArrayList<>();
     private static final int MAX_EFFECTS = 4;
     /** Applies run one at a time, each reading the settings when it writes: the last one always leaves the newest sound. */
     private static final Object applyLock = new Object();
@@ -39,6 +77,18 @@ public final class AudioEqualizer {
         return Settings.getBoolean(ENABLED, false);
     }
 
+    /** The overall gain in millibels; 0 leaves the sound as it is. */
+    public static int preamp() {
+        long value = Settings.getLong(PREAMP, 0);
+        return (int) Math.max(PREAMP_MIN, Math.min(PREAMP_MAX, value));
+    }
+
+    /** Saves the overall gain and applies it to the sound that plays now, from a background thread. */
+    public static void setPreamp(int millibels) {
+        Settings.putLong(PREAMP, Math.max(PREAMP_MIN, Math.min(PREAMP_MAX, millibels)));
+        applyAllSoon();
+    }
+
     /**
      * Injection point: the player got a new audio session.
      *
@@ -47,22 +97,16 @@ public final class AudioEqualizer {
     public static void onAudioSession(int sessionId) {
         if (sessionId <= 0) return;
         try {
-            Equalizer equalizer = new Equalizer(0, sessionId);
+            Session session = new Session(sessionId, new Equalizer(0, sessionId));
             synchronized (active) {
-                active.add(equalizer);
-                // Every new player session brings an effect and the old sessions are gone: only the latest few are kept,
+                active.add(session);
+                // Every new player session brings effects and the old sessions are gone: only the latest few are kept,
                 // since the system allows a limited number of effects.
-                while (active.size() > MAX_EFFECTS) {
-                    Equalizer oldest = active.remove(0);
-                    try {
-                        oldest.release();
-                    } catch (Throwable ignored) {
-                        // Already released by the system.
-                    }
-                }
+                while (active.size() > MAX_EFFECTS) active.remove(0).release();
             }
-            apply(equalizer);
-            Logger.printInfo(() -> "Equalizer attached to audio session " + sessionId + ", enabled " + isEnabled());
+            apply(session);
+            Logger.printInfo(() -> "Equalizer attached to audio session " + sessionId + ", enabled " + isEnabled()
+                    + ", preamp " + preamp() + " mB");
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not attach the equalizer", ex);
         }
@@ -71,11 +115,11 @@ public final class AudioEqualizer {
     /** Applies the settings to the sound that plays now. */
     public static void applyAll() {
         // A dead effect removes itself from the list while it is applied: a copy is walked.
-        List<Equalizer> effects;
+        List<Session> sessions;
         synchronized (active) {
-            effects = new ArrayList<>(active);
+            sessions = new ArrayList<>(active);
         }
-        for (Equalizer equalizer : effects) apply(equalizer);
+        for (Session session : sessions) apply(session);
     }
 
     /**
@@ -103,27 +147,68 @@ public final class AudioEqualizer {
         }
     }
 
-    private static void apply(Equalizer equalizer) {
+    private static void apply(Session session) {
         synchronized (applyLock) {
+            Equalizer equalizer = session.equalizer;
             try {
                 boolean enabled = isEnabled();
-                if (enabled) {
+                int preamp = preamp();
+                // Where the gain effect is not available, the preamp lifts or lowers every band of the equalizer,
+                // which then works even with the equalizer itself turned off.
+                boolean gainOnBands = !applyGain(session, preamp) && preamp != 0;
+                if (enabled || gainOnBands) {
                     long preset = Settings.getLong(PRESET, CUSTOM);
-                    if (preset >= 0 && preset < equalizer.getNumberOfPresets()) {
+                    if (enabled && !gainOnBands && preset >= 0 && preset < equalizer.getNumberOfPresets()) {
                         equalizer.usePreset((short) preset);
                     } else {
-                        short[] levels = levels(equalizer.getNumberOfBands());
-                        for (short band = 0; band < levels.length; band++) equalizer.setBandLevel(band, levels[band]);
+                        short bands = equalizer.getNumberOfBands();
+                        short[] levels = enabled ? levels(bands) : new short[bands];
+                        short[] range = equalizer.getBandLevelRange();
+                        int offset = gainOnBands ? preamp : 0;
+                        for (short band = 0; band < levels.length; band++) {
+                            int level = Math.max(range[0], Math.min(range[1], levels[band] + offset));
+                            equalizer.setBandLevel(band, (short) level);
+                        }
                     }
                 }
-                equalizer.setEnabled(enabled);
+                equalizer.setEnabled(enabled || gainOnBands);
             } catch (Throwable ex) {
-                // The session ended: the effect is dropped.
+                // The session ended: its effects are dropped.
                 synchronized (active) {
-                    active.remove(equalizer);
+                    active.remove(session);
                 }
-                equalizer.release();
+                session.release();
             }
+        }
+    }
+
+    /**
+     * Sets the preamp on Android's dynamics effect: its input gain, with its limiter on while the sound is made
+     * louder, so loud tracks do not distort.
+     *
+     * @return False if the effect is not available and the gain must go on the equalizer bands.
+     */
+    private static boolean applyGain(Session session, int preamp) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || session.gainFailed) return false;
+        try {
+            DynamicsProcessing gain = (DynamicsProcessing) session.gain;
+            if (gain == null) {
+                // No gain asked yet: the effect is not made at all, so the sound path stays as SoundCloud has it.
+                if (preamp == 0) return true;
+                DynamicsProcessing.Config config = new DynamicsProcessing.Config.Builder(
+                        DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
+                        false, 0, false, 0, false, 0, true).build();
+                gain = new DynamicsProcessing(0, session.id, config);
+                session.gain = gain;
+            }
+            gain.setInputGainAllChannelsTo(preamp / 100f);
+            gain.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, preamp > 0, 0, 1f, 60f, 10f, -1f, 0f));
+            gain.setEnabled(preamp != 0);
+            return true;
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Preamp: the dynamics effect is not available, using the equalizer bands", ex);
+            session.gainFailed = true;
+            return false;
         }
     }
 

@@ -266,7 +266,7 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Сколько места занимают скачанные треки, удаление", "Space taken by downloaded tracks, removing them"),
                 SCREEN_STORAGE));
         list.addView(openScreenRow(text("Эквалайзер", "Equalizer"),
-                text("Громкость низких, средних и высоких частот", "Levels of low, middle and high frequencies"),
+                text("Преамп и громкость низких, средних и высоких частот", "Preamp and levels of low, middle and high frequencies"),
                 SCREEN_EQUALIZER));
         list.addView(openScreenRow(text("Статистика прослушиваний", "Listening statistics"),
                 text("Сколько и что вы слушали — только на этом телефоне", "What and how much you listened to, on this phone only"),
@@ -1462,6 +1462,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static volatile app.revanced.extension.soundcloud.player.AudioEqualizer.Info equalizerInfo;
 
     private void addEqualizerSection(LinearLayout list) {
+        addPreampRow(list);
         LinearLayout options = new LinearLayout(this);
         options.setOrientation(LinearLayout.VERTICAL);
         list.addView(createToggleRow(
@@ -1499,6 +1500,87 @@ public final class ReVancedSettingsActivity extends Activity {
                 showEqualizerPanel(info, options);
             });
         });
+    }
+
+    /** A preamp step: half a decibel. */
+    private static final int PREAMP_STEP = 50;
+
+    private static String preampText(int millibels) {
+        String value = String.format(java.util.Locale.US, "%+.1f", millibels / 100f);
+        return (millibels == 0 ? "0" : value).replace('.', russian() ? ',' : '.') + text(" дБ", " dB");
+    }
+
+    /**
+     * The overall volume: louder or quieter without touching the curve, and with the equalizer turned off too.
+     * Holding the row sets it back to zero.
+     */
+    private void addPreampRow(LinearLayout list) {
+        String title = text("Преамп", "Preamp");
+        String explanation = text("Общая громкость всего, что играет, — тише или громче, не меняя эквалайзер. Работает и с "
+                        + "выключенным эквалайзером. При усилении громкие места не хрипят: их придерживает ограничитель. "
+                        + "Удерживайте строку, чтобы вернуть 0.",
+                "The overall volume of everything that plays, quieter or louder, without changing the equalizer. Works "
+                        + "with the equalizer turned off too. When boosting, a limiter keeps loud parts from distorting. "
+                        + "Hold the row to set it back to 0.");
+        recordForSearch(title, explanation);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dimen("spacing_s"), 0, dimen("spacing_s"));
+        row.setBackgroundResource(themeAttribute(android.R.attr.selectableItemBackground));
+
+        LinearLayout titleLine = new LinearLayout(this);
+        titleLine.setOrientation(LinearLayout.HORIZONTAL);
+        titleLine.setGravity(Gravity.CENTER_VERTICAL);
+        titleLine.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        titleLine.addView(createText("H4.Primary", title),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        int accent = ArsoundTheme.palette(this, "special");
+        TextView value = createText("H4.Primary", preampText(app.revanced.extension.soundcloud.player.AudioEqualizer.preamp()));
+        value.setTextColor(accent);
+        titleLine.addView(value);
+        row.addView(titleLine);
+
+        int min = app.revanced.extension.soundcloud.player.AudioEqualizer.PREAMP_MIN;
+        int max = app.revanced.extension.soundcloud.player.AudioEqualizer.PREAMP_MAX;
+        android.widget.SeekBar slider = new android.widget.SeekBar(this);
+        slider.setMax((max - min) / PREAMP_STEP);
+        slider.setProgress((app.revanced.extension.soundcloud.player.AudioEqualizer.preamp() - min) / PREAMP_STEP);
+        slider.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
+        slider.setThumbTintList(android.content.res.ColorStateList.valueOf(accent));
+        slider.setSaveEnabled(false);
+        slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                int millibels = min + progress * PREAMP_STEP;
+                value.setText(preampText(millibels));
+                app.revanced.extension.soundcloud.player.AudioEqualizer.setPreamp(millibels);
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sliderParams.topMargin = dp(4);
+        row.addView(slider, sliderParams);
+
+        TextView description = createText("Body.Secondary", explanation);
+        description.setPadding(dimen("spacing_m"), dp(4), dp(72), 0);
+        row.addView(description);
+
+        row.setOnLongClickListener(v -> {
+            slider.setProgress(-min / PREAMP_STEP);
+            value.setText(preampText(0));
+            app.revanced.extension.soundcloud.player.AudioEqualizer.setPreamp(0);
+            return true;
+        });
+        list.addView(row);
     }
 
     /** Whether the read got every preset; a failed read is not kept, the next visit tries again. */
