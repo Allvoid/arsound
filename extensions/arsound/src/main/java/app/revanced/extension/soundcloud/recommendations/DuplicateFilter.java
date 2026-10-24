@@ -53,11 +53,16 @@ public final class DuplicateFilter {
     }
 
     static String songKey(String title) {
+        return songKey(title, Settings.isMergeEditedVersions());
+    }
+
+    /** @param mergeEdited Slowed, sped up and remixed versions get the key of the original. */
+    static String songKey(String title, boolean mergeEdited) {
         if (title == null) return "";
         String value = title.toLowerCase(Locale.ROOT);
         // Markers of a different version are kept apart from the brackets they are usually written in.
         StringBuilder markers = new StringBuilder();
-        if (!Settings.isMergeEditedVersions()) {
+        if (!mergeEdited) {
             java.util.regex.Matcher matcher = EDIT_MARKERS.matcher(value);
             while (matcher.find()) markers.append(' ').append(matcher.group(1));
             if (SPEED.matcher(value).find()) markers.append(" speed");
@@ -66,7 +71,7 @@ public final class DuplicateFilter {
         value = BRACKETS.matcher(value).replaceAll(" ");
         value = FEATURING.matcher(value).replaceAll(" ");
         value = NOISE.matcher(value).replaceAll(" ");
-        if (!Settings.isMergeEditedVersions()) value = EDIT_MARKERS.matcher(value).replaceAll(" ");
+        if (!mergeEdited) value = EDIT_MARKERS.matcher(value).replaceAll(" ");
         // "Artist - Title" uploads: the part after the dash is the title in most re-uploads.
         int dash = value.lastIndexOf(" - ");
         if (dash > 0 && dash < value.length() - 3) value = value.substring(dash + 3);
@@ -79,24 +84,30 @@ public final class DuplicateFilter {
         final long duration;
         /** Slowed, sped up, remixed and similar: another speed changes the duration. */
         final boolean edited;
+        /** Keyed with edited versions merged into the original. */
+        final boolean mergeEdited;
 
-        Song(String key, long duration, boolean edited) {
+        Song(String key, long duration, boolean edited, boolean mergeEdited) {
             this.key = key;
             this.duration = duration;
             this.edited = edited;
+            this.mergeEdited = mergeEdited;
         }
 
         boolean sameAs(Song other) {
             if (key.isEmpty() || !key.equals(other.key)) return false;
             // Merged versions have the same key; their durations differ with the speed.
-            if ((edited || other.edited) && Settings.isMergeEditedVersions()) return true;
+            if ((edited || other.edited) && mergeEdited && other.mergeEdited) return true;
             return Math.abs(duration - other.duration) <= DURATION_TOLERANCE_MS;
         }
     }
 
-    /** The same song under two titles and lengths, whatever the user chose for the lists. For the "For you" playlist. */
+    /**
+     * The same song under two titles and lengths, whatever the user chose for the lists: a remix or another speed is
+     * another song here. For the "For you" playlist.
+     */
     static boolean sameSong(String titleA, long durationA, String titleB, long durationB) {
-        return song(titleA, durationA).sameAs(song(titleB, durationB));
+        return song(titleA, durationA, false).sameAs(song(titleB, durationB, false));
     }
 
     static boolean isEdited(String title) {
@@ -105,7 +116,11 @@ public final class DuplicateFilter {
     }
 
     private static Song song(String title, long duration) {
-        return new Song(songKey(title), duration, isEdited(title));
+        return song(title, duration, Settings.isMergeEditedVersions());
+    }
+
+    private static Song song(String title, long duration, boolean mergeEdited) {
+        return new Song(songKey(title, mergeEdited), duration, isEdited(title), mergeEdited);
     }
 
     private static Object urnOf(Object track) {

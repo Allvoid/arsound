@@ -64,6 +64,7 @@ public final class AudioEqualizer {
     }
 
     private static final List<Session> active = new ArrayList<>();
+    /** Effects kept at once: an equalizer per session, and a dynamics effect too while the preamp is used. */
     private static final int MAX_EFFECTS = 4;
     /** Applies run one at a time, each reading the settings when it writes: the last one always leaves the newest sound. */
     private static final Object applyLock = new Object();
@@ -102,7 +103,9 @@ public final class AudioEqualizer {
                 active.add(session);
                 // Every new player session brings effects and the old sessions are gone: only the latest few are kept,
                 // since the system allows a limited number of effects.
-                while (active.size() > MAX_EFFECTS) active.remove(0).release();
+                // The new session gets the dynamics effect too if the preamp is set.
+                int perSession = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && preamp() != 0 ? 2 : 1;
+                while (active.size() > 1 && effects() + perSession - 1 > MAX_EFFECTS) active.remove(0).release();
             }
             apply(session);
             Logger.printInfo(() -> "Equalizer attached to audio session " + sessionId + ", enabled " + isEnabled()
@@ -112,8 +115,21 @@ public final class AudioEqualizer {
         }
     }
 
-    /** Applies the settings to the sound that plays now. */
-    public static void applyAll() {
+    /** Effects of the kept sessions. Called with {@link #active} held. */
+    private static int effects() {
+        int count = 0;
+        for (Session session : active) count += session.gain != null ? 2 : 1;
+        return count;
+    }
+
+    /** Turns the equalizer on or off for the sound that plays now, from a background thread. */
+    public static void setEnabled(boolean enabled) {
+        Settings.putBoolean(ENABLED, enabled);
+        applyAllSoon();
+    }
+
+    /** Applies the settings to the sound that plays now. Binder calls per band and effect: not on the main thread. */
+    private static void applyAll() {
         // A dead effect removes itself from the list while it is applied: a copy is walked.
         List<Session> sessions;
         synchronized (active) {
@@ -208,6 +224,12 @@ public final class AudioEqualizer {
         } catch (Throwable ex) {
             Logger.printException(() -> "Preamp: the dynamics effect is not available, using the equalizer bands", ex);
             session.gainFailed = true;
+            // A gain set before the failure would add to the one moved onto the bands.
+            try {
+                if (session.gain != null) ((DynamicsProcessing) session.gain).setEnabled(false);
+            } catch (Throwable ignored) {
+                // Released already.
+            }
             return false;
         }
     }
@@ -242,7 +264,7 @@ public final class AudioEqualizer {
      */
     public static void setLevels(short[] levels, String choice) {
         save(levels, choice);
-        applyAll();
+        applyAllSoon();
     }
 
     private static void save(short[] levels, String choice) {

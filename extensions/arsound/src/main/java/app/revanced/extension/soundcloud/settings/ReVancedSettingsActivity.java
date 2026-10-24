@@ -865,9 +865,10 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(createToggleRow(
                 text("Без картинки в шапке «Ваши лайки»", "No picture at the top of \"Your likes\""),
                 text("Убирает сердца за заголовком «Ваши лайки» и карточки за заголовком покупок: остаётся фон темы. "
-                                + "Выключено — картинка в цвете темы.",
+                                + "Выключено — картинка в цвете темы. Открытая страница меняется, когда её откроют снова.",
                         "Removes the hearts behind the \"Your likes\" title and the cards behind the purchases title: "
-                                + "the theme's background stays. Off: the picture in the theme's colour."),
+                                + "the theme's background stays. Off: the picture in the theme's colour. A page already "
+                                + "open changes when it is opened again."),
                 Settings.isHeaderArtworkHidden(),
                 (button, checked) -> Settings.putBoolean(Settings.HIDE_HEADER_ARTWORK, checked)
         ));
@@ -1269,10 +1270,11 @@ public final class ReVancedSettingsActivity extends Activity {
         list.addView(createToggleRow(
                 text("Показывать статус сети", "Show network status"),
                 text("Маленький значок перечёркнутого интернета внизу справа, над плеером, когда нет сети или "
-                                + "SoundCloud отключён из-за российского IP. Нажмите — сеть проверится снова; "
+                                + "SoundCloud отключён из-за IP выбранной страны. Нажмите — сеть проверится снова; "
                                 + "удерживайте — покажет, в чём дело.",
                         "A small crossed-out globe at the bottom right, above the player, when there is no connection "
-                                + "or SoundCloud is off because of a Russian IP. Tap it to check again, hold it to see why."),
+                                + "or SoundCloud is off because of an IP of a chosen country. Tap it to check again, "
+                                + "hold it to see why."),
                 Settings.isNetworkBannerEnabled(),
                 (button, checked) -> Settings.putBoolean(Settings.NETWORK_BANNER, checked)
         ));
@@ -1314,6 +1316,7 @@ public final class ReVancedSettingsActivity extends Activity {
                         if (checked) codes.add(code);
                         else codes.remove(code);
                         Settings.setRegionGuardCountries(codes);
+                        warnIfNoGuardCountries();
                     }));
         }
         TextView[] description = new TextView[1];
@@ -1322,6 +1325,13 @@ public final class ReVancedSettingsActivity extends Activity {
         description[0] = (TextView) ((ViewGroup) others).getChildAt(1);
         description[0].setText(otherGuardCountriesDescription());
         list.addView(others);
+    }
+
+    /** The switch stays on with no country left, and then blocks nothing: said once the last tick goes. */
+    private void warnIfNoGuardCountries() {
+        if (!Settings.isRegionGuardEnabled() || !Settings.getRegionGuardCountries().isEmpty()) return;
+        Toast.makeText(this, text("Ни одна страна не отмечена: блок по стране не действует",
+                "No country is ticked: the country block does nothing"), Toast.LENGTH_LONG).show();
     }
 
     private static java.util.List<String> otherGuardCountries() {
@@ -1369,6 +1379,7 @@ public final class ReVancedSettingsActivity extends Activity {
                     }
                     Settings.setRegionGuardCountries(chosen);
                     description.setText(otherGuardCountriesDescription());
+                    warnIfNoGuardCountries();
                 })
                 .show();
     }
@@ -1480,8 +1491,7 @@ public final class ReVancedSettingsActivity extends Activity {
                         "Changes the sound of everything SoundCloud plays, at once, without a restart. Uses Android's equalizer."),
                 app.revanced.extension.soundcloud.player.AudioEqualizer.isEnabled(),
                 (button, checked) -> {
-                    Settings.putBoolean(app.revanced.extension.soundcloud.player.AudioEqualizer.ENABLED, checked);
-                    app.revanced.extension.soundcloud.player.AudioEqualizer.applyAll();
+                    app.revanced.extension.soundcloud.player.AudioEqualizer.setEnabled(checked);
                     if (checked) {
                         options.setAlpha(0f);
                         options.setVisibility(View.VISIBLE);
