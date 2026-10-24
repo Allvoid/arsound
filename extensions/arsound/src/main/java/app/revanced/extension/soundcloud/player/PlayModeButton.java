@@ -32,6 +32,7 @@ public final class PlayModeButton {
     private static final String QUEUE_MANAGER = "com.soundcloud.android.features.playqueue.PlayQueueManager";
     private static final String PLAY_QUEUE = "com.soundcloud.android.foundation.playqueue.PlayQueue";
     private static final String SHUFFLED_QUEUE = PLAY_QUEUE + "$Shuffled";
+    private static final String PLAY_QUEUE_ITEM = "com.soundcloud.android.foundation.playqueue.PlayQueueItem";
     private static final String REPEAT_MODE = "com.soundcloud.android.foundation.domain.playqueue.RepeatMode";
     private static final String STATE_BUILDER = "android.support.v4.media.session.PlaybackStateCompat$Builder";
     private static final String STATE = "android.support.v4.media.session.PlaybackStateCompat";
@@ -242,18 +243,40 @@ public final class PlayModeButton {
                     manager.getClass().getMethod("C", Class.forName(PLAY_QUEUE)).invoke(manager, shuffled);
                     break;
                 }
-                default:
-                    if (Class.forName(SHUFFLED_QUEUE).isInstance(queue(manager))) {
+                default: {
+                    Object queue = queue(manager);
+                    if (Class.forName(SHUFFLED_QUEUE).isInstance(queue)) {
+                        keepAddedItems(queue);
                         manager.getClass().getMethod("F").invoke(manager);
                     }
                     setRepeat.invoke(manager, repeatMode(repeatModes, "REPEAT_NONE"), true);
                     break;
+                }
             }
             Logger.printDebug(() -> "Play mode: " + current + " -> " + next);
             refresh();
         } catch (Throwable ex) {
             Logger.printException(() -> "Play mode: could not change the mode", ex);
         }
+    }
+
+    /**
+     * Tracks added after shuffling (autoplay recommendations, "Play next") are only in the shuffled queue.
+     * SoundCloud's unshuffle goes back to the queue from before the shuffle and throws if the playing track is not
+     * in it, so the mode stayed on "Shuffle" once autoplay had started. The added tracks are appended to that
+     * queue first, in the order they play now.
+     */
+    private static void keepAddedItems(Object shuffled) throws Exception {
+        Object original = shuffled.getClass().getMethod("getOriginalQueue").invoke(shuffled);
+        Method indexOf = original.getClass().getMethod("indexOfPlayQueueItem", Class.forName(PLAY_QUEUE_ITEM));
+        java.util.List<Object> added = new java.util.ArrayList<>();
+        for (Object item : (java.util.List<?>) shuffled.getClass().getMethod("items").invoke(shuffled)) {
+            if ((int) indexOf.invoke(original, item) < 0) added.add(item);
+        }
+        if (added.isEmpty()) return;
+        original.getClass().getMethod("addAllPlayQueueItems", java.util.List.class, String.class)
+                .invoke(original, added, "reco");
+        Logger.printDebug(() -> "Play mode: kept " + added.size() + " tracks added after shuffling");
     }
 
     /** Sends the last playback state again, so the session and the notification show the new mode. */

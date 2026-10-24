@@ -18,14 +18,14 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
- * Stops all requests to SoundCloud while the app goes online from a Russian IP address.
+ * Stops all requests to SoundCloud while the app goes online from an IP address of a country the user chose
+ * (Russia by default; Ukraine, Belarus, Kazakhstan and any other country code can be added).
  * <p>
  * The country is checked through a neutral service (Cloudflare trace), over the same route the
  * app uses, including a VPN. Until the check finishes, requests wait for it instead of leaking the
  * address. The result is kept until the network changes.
  */
 public final class RegionGuard {
-    private static final String BLOCKED_COUNTRY = "RU";
     private static final int CHECK_TIMEOUT_MS = 6_000;
 
     private static volatile String country;
@@ -39,6 +39,21 @@ public final class RegionGuard {
 
     public static String lastCountry() {
         return country;
+    }
+
+    /** True while requests are blocked because the last known country is one of the chosen ones. */
+    public static boolean blocksLastCountry() {
+        String current = country;
+        return current != null && active() && Settings.getRegionGuardCountries().contains(current);
+    }
+
+    /** The guard is on and at least one country is chosen. */
+    private static boolean active() {
+        return Settings.isRegionGuardEnabled() && !Settings.getRegionGuardCountries().isEmpty();
+    }
+
+    private static boolean isBlockedCountry(String code) {
+        return Settings.getRegionGuardCountries().contains(code);
     }
 
     /**
@@ -68,19 +83,19 @@ public final class RegionGuard {
 
     /** @return True if the request to this host must not be sent. Called on network threads. */
     public static boolean shouldBlock(String host) {
-        if (!Settings.isRegionGuardEnabled() || host == null) return false;
+        if (host == null || !active()) return false;
         if (!isSoundCloudHost(host)) return false;
         return isBlockedNow();
     }
 
     /** Requests that bypass the host check: the Arsound search sends them to YouTube, not SoundCloud. */
     public static void throwIfBlockedAnyHost() throws IOException {
-        if (Settings.isRegionGuardEnabled() && isBlockedNow()) {
-            throw new BlockedException("Arsound: requests are blocked from a Russian IP address");
+        if (active() && isBlockedNow()) {
+            throw new BlockedException("Arsound: requests are blocked from an IP address of a chosen country");
         }
     }
 
-    /** Thrown instead of sending a request while the app is on a Russian IP or the country is unknown. */
+    /** Thrown instead of sending a request while the app is on an IP of a chosen country or the country is unknown. */
     public static final class BlockedException extends IOException {
         BlockedException(String message) {
             super(message);
@@ -93,7 +108,7 @@ public final class RegionGuard {
         if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) {
             current = check();
         }
-        boolean blocked = current == null || BLOCKED_COUNTRY.equals(current);
+        boolean blocked = current == null || isBlockedCountry(current);
         // An allowed answer is checked again too: a VPN that loses its tunnel on a bad network can send
         // requests directly without the network changing, and the old answer would let them through.
         recheckIfStale();
@@ -108,7 +123,7 @@ public final class RegionGuard {
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
-            throw new BlockedException("Arsound: requests to SoundCloud are blocked from a Russian IP address");
+            throw new BlockedException("Arsound: requests to SoundCloud are blocked from an IP address of a chosen country");
         }
     }
 
@@ -118,10 +133,10 @@ public final class RegionGuard {
      * Never checks on the calling thread; an unknown country starts a background check.
      */
     public static boolean isConnected(boolean connected) {
-        if (!connected || !Settings.isRegionGuardEnabled()) return connected;
+        if (!connected || !active()) return connected;
         String current = country;
         if (current != null) {
-            if (!BLOCKED_COUNTRY.equals(current)) return true;
+            if (!isBlockedCountry(current)) return true;
             recheckIfStale();
             return false;
         }
@@ -186,7 +201,7 @@ public final class RegionGuard {
                     if (fresh != null) {
                         country = fresh;
                         if (!fresh.equals(previous)) toastShown = false;
-                    } else if (previous != null && !BLOCKED_COUNTRY.equals(previous)) {
+                    } else if (previous != null && !isBlockedCountry(previous)) {
                         // A failed check on an allowed network means the route is unstable, and a VPN may be
                         // reconnecting. Requests wait for a successful check instead of trusting the old answer.
                         country = null;
@@ -340,8 +355,24 @@ public final class RegionGuard {
         String message = current == null
                 ? (russian ? "Arsound: не удалось проверить страну IP — SoundCloud отключён, играют скачанные треки"
                 : "Arsound: could not check the IP country, SoundCloud is off, downloaded tracks still play")
-                : (russian ? "Arsound: российский IP — SoundCloud отключён, играют скачанные треки"
-                : "Arsound: Russian IP, SoundCloud is off, downloaded tracks still play");
+                : (russian ? "Arsound: " + describeIp(current, true) + " — SoundCloud отключён, играют скачанные треки"
+                : "Arsound: " + describeIp(current, false) + ", SoundCloud is off, downloaded tracks still play");
         Utils.runOnMainThread(() -> Toast.makeText(context, message, Toast.LENGTH_LONG).show());
+    }
+
+    /** "российский IP", "Ukrainian IP", "IP страны DE": the country of the address in words. */
+    public static String describeIp(String code, boolean russian) {
+        switch (code) {
+            case "RU":
+                return russian ? "российский IP" : "Russian IP";
+            case "UA":
+                return russian ? "украинский IP" : "Ukrainian IP";
+            case "BY":
+                return russian ? "белорусский IP" : "Belarusian IP";
+            case "KZ":
+                return russian ? "казахстанский IP" : "Kazakh IP";
+            default:
+                return russian ? "IP страны " + code : "IP from " + code;
+        }
     }
 }

@@ -242,6 +242,23 @@ public final class DownloadTrackPatch {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
+    /**
+     * SoundCloud's own "Download" button of a track ({@link DownloadButtons}). A track downloaded already is not
+     * downloaded again by it: "Download file again" in the menu does that on purpose.
+     */
+    static void downloadFromSoundCloudButton(Context context, String trackId) {
+        Context appContext = context.getApplicationContext();
+        if (getDownloadedTracks().contains(trackId)) {
+            Toast.makeText(appContext, DownloadProgress.isDownloading(trackId)
+                            ? text("Этот трек уже скачивается", "This track is already downloading")
+                            : text("Трек уже скачан. Заново — «Скачать файл ещё раз» в меню",
+                            "Already downloaded. \"Download file again\" in the menu redoes it"),
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        requestDownload(appContext, trackId);
+    }
+
     private static void requestDownload(Context context, String trackId) {
         Toast.makeText(context, text("Подготавливаю скачивание…", "Preparing download…"), Toast.LENGTH_SHORT).show();
 
