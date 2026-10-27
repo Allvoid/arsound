@@ -300,13 +300,14 @@ final class MergePicker {
             row.view.animate().alpha(1f).setDuration(160).start();
         } else {
             queue.removeRow(row);
-            // Back among the others where the library has it.
+            // Back among the others where the library has it. Only rows that really sit in the pool count: another row
+            // unticked a moment ago may not have come back yet, so its flag says "in the pool" while its view is not.
             int index = 0;
             for (Row other : rows) {
                 if (other == row) break;
-                if (!other.ticked) index++;
+                if (other.view.getParent() == pool) index++;
             }
-            pool.addView(row.view, index, new LinearLayout.LayoutParams(
+            pool.addView(row.view, Math.min(index, pool.getChildCount()), new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
     }
