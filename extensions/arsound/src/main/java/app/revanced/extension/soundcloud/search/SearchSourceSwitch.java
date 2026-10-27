@@ -48,6 +48,7 @@ import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.local.LocalMusic;
 import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
+import app.revanced.extension.soundcloud.player.PlayerSheet;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 
 /**
@@ -75,6 +76,9 @@ public final class SearchSourceSwitch {
     private static WeakReference<View> listenedDecor = new WeakReference<>(null);
     private static boolean arsoundSelected;
     private static WeakReference<Screen> screen = new WeakReference<>(null);
+    /** The search screen that has the switch, so the usual layout pass finds that it is done without looking for it. */
+    private static WeakReference<LinearLayout> switched = new WeakReference<>(null);
+    private static int coordinatorId = -1;
 
     private static MediaPlayer player;
     private static String playingUrl;
@@ -117,7 +121,8 @@ public final class SearchSourceSwitch {
         WeakReference<View> weakDecor = new WeakReference<>(decor);
         layoutListener = () -> {
             View current = weakDecor.get();
-            if (current != null) attach(current);
+            // The slide of the player lays the screen out on every frame, and no search screen opens in the middle of it.
+            if (current != null && !PlayerSheet.isBusy()) attach(current);
         };
         listenedDecor = weakDecor;
         decor.getViewTreeObserver().addOnGlobalLayoutListener(layoutListener);
@@ -131,15 +136,24 @@ public final class SearchSourceSwitch {
     /** Adds the switch to the search screen if it is shown and has no switch yet. */
     private static void attach(View decor) {
         try {
-            View found = decor.findViewById(id("search_coordinator"));
+            // With the "Smooth player collapse" setting off, the screen is searched for every time, as before.
+            boolean remembered = PlayerSheet.isSmoothEnabled();
+            LinearLayout known = remembered ? switched.get() : null;
+            if (known != null && known.isAttachedToWindow() && known.findViewWithTag(TAG) != null) return;
+            if (!remembered || coordinatorId < 0) coordinatorId = id("search_coordinator");
+            View found = decor.findViewById(coordinatorId);
             if (!(found instanceof LinearLayout)) return;
             LinearLayout coordinator = (LinearLayout) found;
-            if (coordinator.findViewWithTag(TAG) != null) return;
+            if (coordinator.findViewWithTag(TAG) != null) {
+                switched = new WeakReference<>(coordinator);
+                return;
+            }
             View container = coordinator.findViewById(id("search_container"));
             View edit = coordinator.findViewById(id("search_edit_text"));
             if (container == null || !(edit instanceof EditText)) return;
             Screen created = new Screen(coordinator, container, (EditText) edit);
             screen = new WeakReference<>(created);
+            switched = new WeakReference<>(coordinator);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not add the search switch", ex);
         }

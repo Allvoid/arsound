@@ -27,8 +27,20 @@ public final class ThemeBackdrop {
     private static final java.util.Set<ThemeEffect> live =
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     private static boolean powerSaveWatched;
+    /** The effect over the main screen, the only one the player sheet's slide has to wait for. */
+    private static java.lang.ref.WeakReference<ThemeEffect> mainScreen = new java.lang.ref.WeakReference<>(null);
 
     private ThemeBackdrop() {
+    }
+
+    /**
+     * Called when the player sheet starts or stops moving. The effect lies over the sheet and asks for a new frame
+     * of its own after every frame, which makes the slide of the player compete with it for the same milliseconds:
+     * it stands still while the sheet moves and goes on once it has arrived.
+     */
+    public static void setSheetBusy(boolean busy) {
+        ThemeEffect effect = mainScreen.get();
+        if (effect != null) effect.setVisible(!busy, false);
     }
 
     /** Particle amount chosen in the settings, 1 as in the design. */
@@ -94,7 +106,9 @@ public final class ThemeBackdrop {
                 if (key.equals(existing.getTag(TAG.hashCode()))) {
                     // Android's animations may have been switched while another app was open.
                     if (existing.getBackground() instanceof ThemeEffect) {
-                        ((ThemeEffect) existing.getBackground()).refreshStill(activity);
+                        ThemeEffect effect = (ThemeEffect) existing.getBackground();
+                        mainScreen = new java.lang.ref.WeakReference<>(effect);
+                        effect.refreshStill(activity);
                     }
                     return;
                 }
@@ -102,6 +116,7 @@ public final class ThemeBackdrop {
             }
             ThemeEffect effect = forCurrentTheme(activity, 1f);
             if (effect == null) return;
+            mainScreen = new java.lang.ref.WeakReference<>(effect);
             View layer = new View(activity);
             layer.setTag(TAG);
             layer.setTag(TAG.hashCode(), key);
