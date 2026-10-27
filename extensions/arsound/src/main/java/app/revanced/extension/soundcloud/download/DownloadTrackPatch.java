@@ -5,7 +5,6 @@ import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Environment;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,6 +23,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,12 +45,24 @@ public final class DownloadTrackPatch {
     private static final String DELETE_ROW_TAG = "arsound_delete_row";
     private static final String PREFERENCES_NAME = "revanced_soundcloud_downloads";
     private static final String DOWNLOADED_TRACKS = "downloaded_tracks";
-    /** Maps a track id to the file name in Music/Arsound. Downloads made before this key existed have no entry. */
-    private static final String TRACK_FILE_PREFIX = "track_file_";
+    /**
+     * Maps a track id to the file name in its download location. Downloads made before this key existed have no
+     * entry. The row of the file in the media store and the location are kept next to it, see {@link DownloadIndex}.
+     */
+    static final String TRACK_FILE_PREFIX = "track_file_";
     /** The download manager job of a track whose file is not known to be complete yet. */
     private static final String TRACK_JOB_PREFIX = "track_job_";
     /** The earlier file of a track downloaded again, removed once the new file is complete. */
     private static final String TRACK_REPLACES_PREFIX = "track_replaces_";
+    /** The location and the media store row of the earlier file, kept next to its name. */
+    private static final String TRACK_REPLACES_DIR_PREFIX = "track_replaces_dir_";
+    private static final String TRACK_REPLACES_URI_PREFIX = "track_replaces_uri_";
+    private static final String TRACK_REPLACES_READ_PREFIX = "track_replaces_read_";
+    /**
+     * Tracks the user deleted, whose copies may still be among the files of the folder: a look for files the app has
+     * no record of leaves them alone, see {@link DownloadIndex#adopt}.
+     */
+    private static final String DELETED_TRACKS = "adopt_skip";
     /** The title and artist of a track whose file is still downloading, for tagging it in the media store when complete. */
     private static final String TRACK_TITLE_PREFIX = "track_title_";
     private static final String TRACK_ARTIST_PREFIX = "track_artist_";
@@ -112,12 +124,13 @@ public final class DownloadTrackPatch {
     }
 
     /**
-     * Assembles HLS tracks two at a time. The shared background pool starts a thread for every task, so a
+     * Downloads the tracks the app fetches itself two at a time: HLS tracks, which are assembled, and single files
+     * for a folder the download manager cannot write to. The shared background pool starts a thread for every task, so a
      * whole playlist assembled at once held every segment in memory and ran the app out of heap.
      */
-    private static final java.util.concurrent.ExecutorService hlsAssembly =
+    private static final java.util.concurrent.ExecutorService ownDownloads =
             java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
-                Thread thread = new Thread(r, "arsound-hls-assembly");
+                Thread thread = new Thread(r, "arsound-own-download");
                 thread.setDaemon(true);
                 return thread;
             });
@@ -234,8 +247,15 @@ public final class DownloadTrackPatch {
                     Context appContext = context.getApplicationContext();
                     Utils.runOnBackgroundThread(() -> {
                         boolean deleted = deleteDownload(appContext, trackId);
+                        // A file in a folder that is gone (a card taken out) is not "left by an earlier install".
+                        String folder = deleted ? null : DownloadIndex.unreachableFolder(appContext, trackId);
                         showToast(appContext, deleted
                                 ? text("Файл удалён", "The file is deleted")
+                                : folder != null
+                                ? text("Папка «" + folder + "» недоступна. Верните карту или забудьте такие треки в настройках, "
+                                        + "в разделе «Память».",
+                                "The folder " + folder + " is not available. Put the card back, or forget such tracks in the "
+                                        + "settings, in Storage.")
                                 : text("Не удалось удалить файл", "Could not delete the file"));
                         DownloadProgress.onDownloadsDeleted();
                     });
@@ -397,26 +417,34 @@ public final class DownloadTrackPatch {
         }
     }
 
-    /** Starts the download through the download manager, or through the HLS assembler. */
+    /**
+     * Starts the download through the download manager, or through the downloader of the app itself: the HLS assembler,
+     * and for a folder the download manager cannot write to the downloader of a single file as well.
+     */
     private static void start(Context context, String trackId, TrackSource source, boolean notify, String playlistId) {
-        String previous = fileNameOf(trackId);
-        if (source.status == TrackSource.Status.READY) {
-            enqueue(context, trackId, source, notify, playlistId, previous);
+        DownloadIndex.Ref previous = fileRefOf(trackId);
+        // Read once: a download that is running when the choice of the folder changes ends where it started.
+        DownloadLocation location = DownloadLocation.forNewDownload(context);
+        boolean singleFile = source.status == TrackSource.Status.READY;
+        if (singleFile && location.usesDownloadManager()) {
+            enqueue(context, trackId, source, notify, playlistId, previous, location);
             return;
         }
 
-        // The segments are downloaded, decrypted and packed by the app itself, which takes CPU time.
+        // The file is downloaded (HLS: decrypted and packed) by the app itself, which takes time and CPU.
         if (!DownloadProgress.tryBeginAssembly(trackId, playlistId)) {
             if (notify) showToast(context, text("Этот трек уже скачивается", "This track is already downloading"));
             return;
         }
         cancelledAssemblies.remove(trackId);
         if (notify) {
-            showToast(context, text("Собираю трек из потока, это займёт немного времени…",
+            showToast(context, singleFile
+                    ? text("Скачиваю трек в «" + location.label() + "»…", "Downloading the track to " + location.label() + "…")
+                    : text("Собираю трек из потока, это займёт немного времени…",
                     "Assembling the track from its stream, this takes a moment…"));
         }
-        hlsAssembly.execute(() -> {
-            String fileName = null;
+        ownDownloads.execute(() -> {
+            DownloadIndex.Ref saved = null;
             boolean noSpace = false;
             // Deleting the track while it is assembled stops the assembly at the next segment.
             java.util.function.BooleanSupplier cancelled = () -> cancelledAssemblies.contains(trackId);
@@ -424,35 +452,45 @@ public final class DownloadTrackPatch {
                 // Without a network every queued track would fail in turn, each after its retries.
                 // Deleted while it waited in the queue: nothing to assemble.
                 if (!awaitNetwork(context, trackId)) return;
-                TrackSource current = freshHlsSource(trackId, source);
-                fileName = HlsDownloader.download(context, trackId, current, cancelled);
-                if (fileName == null && !isOnline(context)) {
+                TrackSource current = freshSource(trackId, source);
+                saved = download(context, trackId, current, location, cancelled);
+                if (saved == null && !isOnline(context)) {
                     // The network went away during the assembly: the track waits for it and is assembled once more.
                     if (!awaitNetwork(context, trackId) || !isOnline(context)) return;
-                    current = freshHlsSource(trackId, current);
-                    fileName = HlsDownloader.download(context, trackId, current, cancelled);
+                    current = freshSource(trackId, current);
+                    saved = download(context, trackId, current, location, cancelled);
                 }
             } catch (HlsDownloader.NoSpaceException ex) {
                 noSpace = true;
-                showNoSpace(context);
+                showNoSpace(context, location);
             } catch (Throwable ex) {
                 // An error (out of memory on a weak phone) would end the whole app together with the pool thread.
                 Logger.printException(() -> "Could not assemble " + trackId, ex);
             } finally {
                 if (cancelledAssemblies.remove(trackId)) {
                     // The user deleted the track while it was queued or assembled: no file, and no "failed" either.
-                    if (fileName != null) deleteFile(context, fileName);
-                } else if (fileName != null) {
-                    rememberDownload(trackId, fileName, -1, null);
+                    if (saved != null) DownloadIndex.delete(context, saved);
+                } else if (saved != null) {
+                    rememberDownload(trackId, saved, -1, null);
                     // Downloaded again under another name: the new file is complete, so the earlier one goes.
-                    if (previous != null && !previous.equals(fileName)) deleteFile(context, previous);
-                    if (notify) showToast(context, text("Трек сохранён: Музыка/Arsound", "Saved to Music/Arsound"));
+                    if (previous != null && !previous.sameFileAs(saved)) DownloadIndex.delete(context, previous);
+                    if (notify) {
+                        showToast(context, text("Трек сохранён: ", "Saved to ") + saved.location().label());
+                    }
                 } else if (notify && !noSpace) {
                     showToast(context, text("Не удалось собрать трек", "Could not assemble the track"));
                 }
                 DownloadProgress.onAssemblyFinished(trackId);
             }
         });
+    }
+
+    /** Downloads the file of a track by the app itself, and saves it into the location. */
+    private static DownloadIndex.Ref download(Context context, String trackId, TrackSource source, DownloadLocation location,
+                                              java.util.function.BooleanSupplier cancelled) throws HlsDownloader.NoSpaceException {
+        return source.status == TrackSource.Status.READY
+                ? ProgressiveDownloader.download(context, trackId, source, location, cancelled)
+                : HlsDownloader.download(context, trackId, source, location, cancelled);
     }
 
     /** When the toast about a full storage was last shown. */
@@ -462,15 +500,19 @@ public final class DownloadTrackPatch {
      * A storage that is full fails every track of a playlist, quietly: the toast tells the user why, once a
      * minute at most so that a playlist of hundreds does not stack one for each.
      */
-    private static void showNoSpace(Context context) {
+    private static void showNoSpace(Context context, DownloadLocation location) {
         long now = android.os.SystemClock.elapsedRealtime();
         if (noSpaceToastAt != 0 && now - noSpaceToastAt < 60_000) return;
         noSpaceToastAt = now;
-        showToast(context, text("Недостаточно места на телефоне, трек не сохранён",
-                "Not enough free space on the phone, the track was not saved"));
+        // A card has its own room, apart from the phone's.
+        showToast(context, location.usesDownloadManager()
+                ? text("Недостаточно места на телефоне, трек не сохранён",
+                "Not enough free space on the phone, the track was not saved")
+                : text("Недостаточно места на телефоне или в «" + location.label() + "», трек не сохранён",
+                "Not enough free space on the phone or in " + location.label() + ", the track was not saved"));
     }
 
-    /** How long an HLS link stays good: a track that waited its turn in the assembly queue asks for a new one. */
+    /** How long a stream link stays good: a track that waited its turn in the assembly queue asks for a new one. */
     private static final long HLS_LINK_FRESH_MS = 60_000;
     /** The longest wait of a queued assembly for the network; after it the track is tried and may fail. */
     private static final long NETWORK_WAIT_MS = 10 * 60_000;
@@ -513,11 +555,12 @@ public final class DownloadTrackPatch {
         return !cancelledAssemblies.contains(trackId);
     }
 
-    private static TrackSource freshHlsSource(String trackId, TrackSource source) {
+    /** The same source with a link that is not stale; the source itself if no new link can be had. */
+    private static TrackSource freshSource(String trackId, TrackSource source) {
         if (source.isFresh(HLS_LINK_FRESH_MS)) return source;
         try {
             TrackSource renewed = resolveSource(trackId);
-            if (renewed.status == TrackSource.Status.REQUIRES_HLS_PROCESSING && renewed.isDownloadable()) return renewed;
+            if (renewed.status == source.status && renewed.isDownloadable()) return renewed;
         } catch (Exception ex) {
             Logger.printInfo(() -> "Could not renew the stream link of " + trackId + ": " + ex);
         }
@@ -787,59 +830,70 @@ public final class DownloadTrackPatch {
         return null;
     }
 
-    /**
-     * @param previous The file the track already has, kept until the new file is complete; null if none.
-     */
-    private static void enqueue(Context context, String trackId, TrackSource source, boolean notify, String playlistId,
-                                String previous) {
-        Uri uri = Uri.parse(source.url);
-        String fileName = uri.getLastPathSegment();
+    /** The name a single-file track is saved under, before it is made free of the names taken in the location. */
+    static String progressiveFileName(String trackId, TrackSource source) {
+        String fileName = Uri.parse(source.url).getLastPathSegment();
         // Author downloads can come from a link without an extension; players then do not recognise the file.
         if (fileName == null || !fileName.contains(".")) fileName = "soundcloud-" + trackId + ".mp3";
         // Named after the track, "Artist - Title", with the extension of the file on the server.
         if (source.fileBase != null) fileName = source.fileBase + extensionOf(fileName);
-        fileName = freeFileName(fileName, trackId);
+        return fileName;
+    }
+
+    /**
+     * Downloads a single-file track with Android's download manager, which goes on in the background when the app is
+     * closed. Only for a location the download manager can write to.
+     *
+     * @param previous The file the track already has, kept until the new file is complete; null if none.
+     * @param location Read once when the download started, see {@link #start}.
+     */
+    private static void enqueue(Context context, String trackId, TrackSource source, boolean notify, String playlistId,
+                                DownloadIndex.Ref previous, DownloadLocation location) {
+        Uri uri = Uri.parse(source.url);
+        String fileName = freeFileName(location, progressiveFileName(trackId, source), trackId);
 
         DownloadManager.Request request = new DownloadManager.Request(uri)
                 .setTitle(fileName)
                 // Downloads stay silent, like the rest of the app. Requires DOWNLOAD_WITHOUT_NOTIFICATION.
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, "Arsound/" + fileName);
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN);
+        location.setDestination(request, fileName);
 
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         long job = manager.enqueue(request);
 
         // Before the job is recorded: a job that is recorded is settled, and the settling looks for these.
         rememberTags(trackId, source);
-        rememberDownload(trackId, fileName, job, previous);
+        // The row of the file is not known until the download manager is done with it, see settle.
+        rememberDownload(trackId, new DownloadIndex.Ref(location.id(), fileName, null), job, previous);
         DownloadProgress.onStarted(trackId, playlistId);
 
-        if (notify) showToast(context, text("Скачивание началось: Музыка/Arsound", "Downloading to Music/Arsound"));
+        if (notify) showToast(context, text("Скачивание началось: ", "Downloading to ") + location.label());
     }
 
     /**
-     * A name no file in Music/Arsound has. The download manager renames a file whose name is taken, and the
-     * name kept for the track would then point at the other file. exists() also sees the files of an earlier
-     * install, which this one cannot read.
+     * A name no file in the download location has. The download manager renames a file whose name is taken, and the
+     * name kept for the track would then point at the other file. The path also shows the files of an earlier
+     * install, which this one cannot read, and the listing of the media store the ones it cannot see by path.
      */
-    static String freeFileName(String fileName, String trackId) {
-        java.io.File folder = musicFolder();
+    static String freeFileName(DownloadLocation location, String fileName, String trackId) {
         // Names given to other tracks count too: their files may not exist yet, and a playlist asks for many at once.
         java.util.Map<String, String> taken = trackIdsByFileName();
-        if (isFree(folder, fileName, trackId, taken)) return fileName;
+        if (isFree(location, fileName, trackId, taken)) return fileName;
         int dot = fileName.lastIndexOf('.');
         String base = dot > 0 ? fileName.substring(0, dot) : fileName;
         String extension = dot > 0 ? fileName.substring(dot) : "";
         for (int copy = 1; copy < 100; copy++) {
             String candidate = base + "-" + trackId + (copy == 1 ? "" : "-" + copy) + extension;
-            if (isFree(folder, candidate, trackId, taken)) return candidate;
+            if (isFree(location, candidate, trackId, taken)) return candidate;
         }
         return base + "-" + trackId + "-" + System.currentTimeMillis() + extension;
     }
 
-    private static boolean isFree(java.io.File folder, String fileName, String trackId, java.util.Map<String, String> taken) {
+    private static boolean isFree(DownloadLocation location, String fileName, String trackId, java.util.Map<String, String> taken) {
         String owner = taken.get(fileName);
-        return !new java.io.File(folder, fileName).exists() && (owner == null || owner.equals(trackId));
+        java.io.File file = location.file(fileName);
+        return !DownloadIndex.hasFile(new DownloadIndex.Ref(location.id(), fileName, null))
+                && (file == null || !file.exists()) && (owner == null || owner.equals(trackId));
     }
 
     /** The extension of a file name with its dot, or ".mp3" if there is none a player would know. */
@@ -867,29 +921,184 @@ public final class DownloadTrackPatch {
     }
 
     /**
-     * Marks the track as downloaded and remembers which file in Music/Arsound belongs to it.
+     * Marks the track as downloaded and remembers which file belongs to it, and where.
      *
+     * @param file     The file with its location and, when known, its media store row.
      * @param job      The download manager job writing the file, or -1 when the file is already complete.
      * @param previous The earlier file of the track, removed once the new one is complete; null if none.
      */
-    private static void rememberDownload(String trackId, String fileName, long job, String previous) {
+    private static void rememberDownload(String trackId, DownloadIndex.Ref file, long job, DownloadIndex.Ref previous) {
         SharedPreferences preferences = getPreferences();
         if (preferences == null) return;
         synchronized (DOWNLOADS_LOCK) {
             Set<String> tracks = new HashSet<>(getDownloadedTracks());
             tracks.add(trackId);
             SharedPreferences.Editor editor = preferences.edit()
-                    .putStringSet(DOWNLOADED_TRACKS, tracks)
-                    .putString(TRACK_FILE_PREFIX + trackId, fileName);
+                    .putStringSet(DOWNLOADED_TRACKS, tracks);
+            putFileRef(editor, trackId, file);
+            // Downloaded again after it was deleted: the track has a file of its own once more.
+            markDeleted(editor, trackId, false);
             if (job >= 0) editor.putLong(TRACK_JOB_PREFIX + trackId, job);
             else editor.remove(TRACK_JOB_PREFIX + trackId);
-            if (job >= 0 && previous != null && !previous.equals(fileName)) {
-                editor.putString(TRACK_REPLACES_PREFIX + trackId, previous);
+            if (job >= 0 && previous != null && !previous.sameFileAs(file)) {
+                editor.putString(TRACK_REPLACES_PREFIX + trackId, previous.name)
+                        .putString(TRACK_REPLACES_DIR_PREFIX + trackId, previous.locationId);
+                if (previous.uri != null) editor.putString(TRACK_REPLACES_URI_PREFIX + trackId, previous.uri);
+                else editor.remove(TRACK_REPLACES_URI_PREFIX + trackId);
+                if (previous.readUri != null) editor.putString(TRACK_REPLACES_READ_PREFIX + trackId, previous.readUri);
+                else editor.remove(TRACK_REPLACES_READ_PREFIX + trackId);
             } else {
-                editor.remove(TRACK_REPLACES_PREFIX + trackId);
+                removeReplaced(editor, trackId);
             }
             editor.apply();
         }
+    }
+
+    private static void putFileRef(SharedPreferences.Editor editor, String trackId, DownloadIndex.Ref file) {
+        editor.putString(TRACK_FILE_PREFIX + trackId, file.name)
+                .putString(DownloadIndex.TRACK_DIR_PREFIX + trackId, file.locationId);
+        if (file.uri != null) editor.putString(DownloadIndex.TRACK_URI_PREFIX + trackId, file.uri);
+        else editor.remove(DownloadIndex.TRACK_URI_PREFIX + trackId);
+        if (file.readUri != null) editor.putString(DownloadIndex.TRACK_READ_PREFIX + trackId, file.readUri);
+        else editor.remove(DownloadIndex.TRACK_READ_PREFIX + trackId);
+    }
+
+    private static void removeReplaced(SharedPreferences.Editor editor, String trackId) {
+        editor.remove(TRACK_REPLACES_PREFIX + trackId)
+                .remove(TRACK_REPLACES_DIR_PREFIX + trackId)
+                .remove(TRACK_REPLACES_URI_PREFIX + trackId)
+                .remove(TRACK_REPLACES_READ_PREFIX + trackId);
+    }
+
+    /** The tracks the user deleted, whose leftover copies are not to be taken over again. */
+    static Set<String> deletedTrackIds() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? new HashSet<>() : new HashSet<>(preferences.getStringSet(DELETED_TRACKS, new HashSet<>()));
+    }
+
+    /** Writes down in the editor that a track was deleted by the user, or that it has a file again. */
+    private static void markDeleted(SharedPreferences.Editor editor, String trackId, boolean deleted) {
+        Set<String> ids = deletedTrackIds();
+        if (deleted ? ids.add(trackId) : ids.remove(trackId)) editor.putStringSet(DELETED_TRACKS, ids);
+    }
+
+    /**
+     * Takes over files the app had no record of (see {@link DownloadIndex#adopt}): each track is marked downloaded
+     * and gets the file, its location and its row.
+     */
+    static void rememberAdopted(Map<String, DownloadLocation.Row> files) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+        synchronized (DOWNLOADS_LOCK) {
+            Set<String> tracks = new HashSet<>(getDownloadedTracks());
+            Set<String> deleted = deletedTrackIds();
+            SharedPreferences.Editor editor = preferences.edit();
+            for (Map.Entry<String, DownloadLocation.Row> entry : files.entrySet()) {
+                DownloadLocation.Row row = entry.getValue();
+                tracks.add(entry.getKey());
+                deleted.remove(entry.getKey());
+                putFileRef(editor, entry.getKey(), new DownloadIndex.Ref(row.locationId, row.name, row.uri.toString()));
+                editor.remove(TRACK_JOB_PREFIX + entry.getKey());
+                removeReplaced(editor, entry.getKey());
+            }
+            editor.putStringSet(DOWNLOADED_TRACKS, tracks).putStringSet(DELETED_TRACKS, deleted).apply();
+        }
+    }
+
+    /** Remembers the media store row of the file of a track, once it is known. */
+    static void recordUri(String trackId, String fileName, Uri row) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+        synchronized (DOWNLOADS_LOCK) {
+            // The track may have been downloaded again or deleted since the row was looked for.
+            if (!fileName.equals(preferences.getString(TRACK_FILE_PREFIX + trackId, null))) return;
+            preferences.edit().putString(DownloadIndex.TRACK_URI_PREFIX + trackId, row.toString()).apply();
+        }
+    }
+
+    /**
+     * Remembers the download manager's own address of a file it wrote. Since Android 10 the row the media store makes of
+     * such a file may not open for this app, while the address of the download manager always does.
+     */
+    private static void recordManagerUri(DownloadManager manager, String trackId, String fileName, long job) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+        try {
+            Uri address = manager.getUriForDownloadedFile(job);
+            if (address == null) return;
+            synchronized (DOWNLOADS_LOCK) {
+                // The track may have been downloaded again or deleted since the job ended.
+                if (!fileName.equals(preferences.getString(TRACK_FILE_PREFIX + trackId, null))) return;
+                preferences.edit().putString(DownloadIndex.TRACK_READ_PREFIX + trackId, address.toString()).apply();
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not get the address of the download of " + trackId + ": " + ex);
+        }
+    }
+
+    /** The file kept for a track, as recorded; whether it is there is {@link DownloadIndex}'s to say. Null if none. */
+    static DownloadIndex.Ref fileRefOf(String trackId) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || trackId == null) return null;
+        String name = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+        if (name == null) return null;
+        return new DownloadIndex.Ref(preferences.getString(DownloadIndex.TRACK_DIR_PREFIX + trackId, DownloadLocation.DEFAULT.id()),
+                name, preferences.getString(DownloadIndex.TRACK_URI_PREFIX + trackId, null),
+                preferences.getString(DownloadIndex.TRACK_READ_PREFIX + trackId, null));
+    }
+
+    /** The earlier file of a track downloaded again, which goes once the new file is complete; null if none. */
+    static DownloadIndex.Ref replacedRefOf(String trackId) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || trackId == null) return null;
+        String name = preferences.getString(TRACK_REPLACES_PREFIX + trackId, null);
+        if (name == null) return null;
+        return new DownloadIndex.Ref(preferences.getString(TRACK_REPLACES_DIR_PREFIX + trackId, DownloadLocation.DEFAULT.id()),
+                name, preferences.getString(TRACK_REPLACES_URI_PREFIX + trackId, null),
+                preferences.getString(TRACK_REPLACES_READ_PREFIX + trackId, null));
+    }
+
+    /** The location of every track's file that was recorded. */
+    static Set<String> recordedLocationIds() {
+        Set<String> ids = new HashSet<>();
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return ids;
+        for (java.util.Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+            if (entry.getKey().startsWith(DownloadIndex.TRACK_DIR_PREFIX) && entry.getValue() instanceof String) {
+                ids.add((String) entry.getValue());
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * The names of the files the tracks keep in a location: the file of a track and the one it will replace. Of a folder
+     * of the user only these (and the files named by id) are of interest, see {@link DownloadLocation#holdsOtherFiles}.
+     */
+    static Set<String> recordedNames(String locationId) {
+        Set<String> names = new HashSet<>();
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return names;
+        Map<String, ?> all = preferences.getAll();
+        for (Map.Entry<String, ?> entry : all.entrySet()) {
+            if (!(entry.getValue() instanceof String)) continue;
+            String key = entry.getKey();
+            String trackId;
+            String dirKey;
+            if (key.startsWith(TRACK_FILE_PREFIX)) {
+                trackId = key.substring(TRACK_FILE_PREFIX.length());
+                dirKey = DownloadIndex.TRACK_DIR_PREFIX + trackId;
+            } else if (key.startsWith(TRACK_REPLACES_PREFIX) && key.substring(TRACK_REPLACES_PREFIX.length()).matches("\\d+")) {
+                // The other keys of the earlier file ("track_replaces_dir_ID") start the same way.
+                trackId = key.substring(TRACK_REPLACES_PREFIX.length());
+                dirKey = TRACK_REPLACES_DIR_PREFIX + trackId;
+            } else {
+                continue;
+            }
+            Object dir = all.get(dirKey);
+            if (locationId.equals(dir instanceof String ? dir : DownloadLocation.DEFAULT.id())) names.add((String) entry.getValue());
+        }
+        return names;
     }
 
     /**
@@ -924,44 +1133,54 @@ public final class DownloadTrackPatch {
             return false;
         }
 
-        String replaced;
+        DownloadIndex.Ref replaced;
         boolean complete;
-        String completedName;
+        DownloadIndex.Ref completed;
         String title;
         String artist;
         synchronized (DOWNLOADS_LOCK) {
             // Deleted or downloaded again meanwhile: that newer state is the one that counts.
             if (preferences.getLong(TRACK_JOB_PREFIX + trackId, -1) != job) return true;
-            String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
-            replaced = preferences.getString(TRACK_REPLACES_PREFIX + trackId, null);
+            DownloadIndex.Ref file = fileRefOf(trackId);
+            replaced = replacedRefOf(trackId);
             title = preferences.getString(TRACK_TITLE_PREFIX + trackId, null);
             artist = preferences.getString(TRACK_ARTIST_PREFIX + trackId, null);
-            complete = status == DownloadManager.STATUS_SUCCESSFUL
-                    || (status == -1 && fileName != null && musicFile(fileName).length() > 0);
-            completedName = complete ? fileName : null;
+            complete = status == DownloadManager.STATUS_SUCCESSFUL || (status == -1 && file != null && hasContent(file));
+            completed = complete ? file : null;
             SharedPreferences.Editor editor = preferences.edit()
                     .remove(TRACK_JOB_PREFIX + trackId)
-                    .remove(TRACK_REPLACES_PREFIX + trackId)
                     .remove(TRACK_TITLE_PREFIX + trackId)
                     .remove(TRACK_ARTIST_PREFIX + trackId);
+            removeReplaced(editor, trackId);
             if (!complete) {
                 if (replaced != null) {
-                    editor.putString(TRACK_FILE_PREFIX + trackId, replaced);
+                    putFileRef(editor, trackId, replaced);
                 } else {
                     Set<String> tracks = new HashSet<>(getDownloadedTracks());
                     tracks.remove(trackId);
-                    editor.putStringSet(DOWNLOADED_TRACKS, tracks).remove(TRACK_FILE_PREFIX + trackId);
+                    editor.putStringSet(DOWNLOADED_TRACKS, tracks)
+                            .remove(TRACK_FILE_PREFIX + trackId)
+                            .remove(DownloadIndex.TRACK_DIR_PREFIX + trackId)
+                            .remove(DownloadIndex.TRACK_URI_PREFIX + trackId)
+                            .remove(DownloadIndex.TRACK_READ_PREFIX + trackId);
                 }
             }
             editor.apply();
         }
         if (complete) {
-            if (replaced != null) deleteFile(context, replaced);
-            if (completedName != null) {
-                // The media store is asked off this thread: settling also runs where lists are drawn.
-                java.io.File file = musicFile(completedName);
-                Utils.runOnBackgroundThread(() -> MediaTags.tagSavedFile(context, file, title, artist));
-            }
+            // The media store is asked off this thread: settling also runs where lists are drawn.
+            Utils.runOnBackgroundThread(() -> {
+                if (replaced != null) DownloadIndex.delete(context, replaced);
+                if (completed == null) return;
+                // The download manager's own address of the file is the one that opens for the app that asked for it.
+                recordManagerUri(manager, trackId, completed.name, job);
+                // The row of the file is made by a scan that the download manager asks for when it is done. It is
+                // the address the file is read and removed by where the path is closed to the app.
+                MediaTags.tagSavedFile(context, completed.location(), completed.name, title, artist, row -> {
+                    recordUri(trackId, completed.name, row);
+                    DownloadIndex.refreshAsync();
+                });
+            });
         } else {
             int failed = status;
             Logger.printInfo(() -> "Download of " + trackId + " failed, status " + failed);
@@ -997,19 +1216,16 @@ public final class DownloadTrackPatch {
         return null;
     }
 
-    /**
-     * @return The downloaded file of the track, or null if it was not downloaded, is still downloading
-     * or was deleted.
-     */
     public enum DownloadState {NOT_DOWNLOADED, IN_PROGRESS, DOWNLOADED}
 
     /**
      * Whether a track was already downloaded by Arsound, so it is not downloaded twice.
      * Tracks downloaded before the file name was remembered count as downloaded: their file cannot be checked.
+     * Read by the lists on the main thread for every cell, so it only looks at what the app already knows.
      */
     public static DownloadState getDownloadState(Context context, String trackId) {
         // A track downloaded again keeps its earlier file until the new one is complete: it stays downloaded.
-        if (getDownloadedFile(trackId) != null) return DownloadState.DOWNLOADED;
+        if (downloadedEntry(trackId) != null) return DownloadState.DOWNLOADED;
         // An HLS track has no file until its segments are packed.
         if (DownloadProgress.isAssembling(trackId)) return DownloadState.IN_PROGRESS;
         if (!getDownloadedTracks().contains(trackId)) return DownloadState.NOT_DOWNLOADED;
@@ -1059,84 +1275,58 @@ public final class DownloadTrackPatch {
         // An HLS track being assembled has no file yet; the assembly drops it when it ends.
         if (DownloadProgress.isAssembling(trackId)) cancelledAssemblies.add(trackId);
 
-        String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
-        String replaced = preferences.getString(TRACK_REPLACES_PREFIX + trackId, null);
-        if (replaced != null) deleteFile(context, replaced);
+        DownloadIndex.Ref file = fileRefOf(trackId);
+        DownloadIndex.Ref replaced = replacedRefOf(trackId);
+        if (replaced != null) DownloadIndex.delete(context, replaced);
         // A file that stays (made before a reinstall, so not this app's own) keeps its record: it still plays,
         // and the settings can have it removed through the system.
-        if (fileName != null && !deleteFile(context, fileName)) return false;
+        if (file != null && !DownloadIndex.delete(context, file)) return false;
+        // Downloading the same tracks again and again left copies of them; they must not become the track again.
+        DownloadIndex.deleteCopies(context, trackId);
 
-        synchronized (DOWNLOADS_LOCK) {
-            Set<String> tracks = new HashSet<>(getDownloadedTracks());
-            tracks.remove(trackId);
-            preferences.edit()
-                    .putStringSet(DOWNLOADED_TRACKS, tracks)
-                    .remove(TRACK_FILE_PREFIX + trackId)
-                    .remove(TRACK_JOB_PREFIX + trackId)
-                    .remove(TRACK_REPLACES_PREFIX + trackId)
-                    .remove(TRACK_TITLE_PREFIX + trackId)
-                    .remove(TRACK_ARTIST_PREFIX + trackId)
-                    .apply();
-        }
+        dropRecord(preferences, trackId, true);
         return true;
     }
 
     /**
-     * Since Android 10 a file in Music/Arsound can only be removed through the media store unless the
-     * app created it itself, so both ways are tried.
+     * Forgets a downloaded track without touching its files: for a track in a folder that is gone for good, where the
+     * files cannot be removed and the record would stay for ever.
+     *
+     * @return True if the record was dropped.
      */
-    private static boolean deleteFile(Context context, String storedName) {
-        java.io.File file = musicFile(storedName);
-        // Early versions saved some files without an extension; such files may have been renamed to ".mp3" since.
-        String name = storedName;
-        if (!file.exists() && !storedName.contains(".")) {
-            file = new java.io.File(file.getPath() + ".mp3");
-            name = storedName + ".mp3";
-        }
-        if (file.isFile() && file.delete()) return true;
-
-        String fileName = name;
-        try {
-            int removed = context.getContentResolver().delete(
-                    android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    android.provider.MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
-                            + android.provider.MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?",
-                    new String[]{fileName, "%Music/Arsound%"});
-            if (removed > 0) return true;
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Could not delete " + fileName + " through the media store: " + ex);
-        }
-        // Nothing to delete is the same result as a deleted file: the track is not downloaded any more.
-        return !file.exists();
-    }
-
-    private static java.io.File musicFolder() {
-        return new java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
-    }
-
-    private static java.io.File musicFile(String fileName) {
-        return new java.io.File(musicFolder(), fileName);
-    }
-
-    /** The file name kept for a track, or null if none. */
-    private static String fileNameOf(String trackId) {
+    static boolean forgetDownload(String trackId) {
         SharedPreferences preferences = getPreferences();
-        return preferences == null ? null : preferences.getString(TRACK_FILE_PREFIX + trackId, null);
+        if (preferences == null || trackId == null) return false;
+        dropRecord(preferences, trackId, false);
+        return true;
     }
 
     /**
-     * The file of a downloaded track as it stands, also one that cannot be read (made before a reinstall):
-     * for counting the space and for removing. Null if the file is not known or is gone.
+     * @param deleted True if the user deleted the track, so the copies of it that are left are not taken over again.
      */
-    public static java.io.File knownFile(String trackId) {
-        SharedPreferences preferences = getPreferences();
-        if (preferences == null || trackId == null) return null;
-        String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
-        if (fileName == null) return null;
-        java.io.File file = new java.io.File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound/" + fileName);
-        if (!file.exists() && !fileName.contains(".")) file = new java.io.File(file.getPath() + ".mp3");
-        return file.exists() ? file : null;
+    private static void dropRecord(SharedPreferences preferences, String trackId, boolean deleted) {
+        synchronized (DOWNLOADS_LOCK) {
+            Set<String> tracks = new HashSet<>(getDownloadedTracks());
+            tracks.remove(trackId);
+            SharedPreferences.Editor editor = preferences.edit()
+                    .putStringSet(DOWNLOADED_TRACKS, tracks)
+                    .remove(TRACK_FILE_PREFIX + trackId)
+                    .remove(DownloadIndex.TRACK_DIR_PREFIX + trackId)
+                    .remove(DownloadIndex.TRACK_URI_PREFIX + trackId)
+                    .remove(DownloadIndex.TRACK_READ_PREFIX + trackId)
+                    .remove(TRACK_JOB_PREFIX + trackId)
+                    .remove(TRACK_TITLE_PREFIX + trackId)
+                    .remove(TRACK_ARTIST_PREFIX + trackId);
+            removeReplaced(editor, trackId);
+            if (deleted) markDeleted(editor, trackId, true);
+            editor.apply();
+        }
+    }
+
+    /** Whether the file of a finished download has any content. */
+    private static boolean hasContent(DownloadIndex.Ref file) {
+        DownloadIndex.Entry entry = DownloadIndex.known(file);
+        return entry != null && entry.size() > 0;
     }
 
     /** Whether the track was downloaded by Arsound, so a "delete" row makes sense for it. */
@@ -1144,25 +1334,45 @@ public final class DownloadTrackPatch {
         return trackId != null && getDownloadedTracks().contains(trackId);
     }
 
-    public static java.io.File getDownloadedFile(String trackId) {
+    /**
+     * The file of a downloaded track that the app can use now, or null if the track was not downloaded, is still
+     * downloading, or its file was deleted.
+     */
+    public static DownloadIndex.Entry downloadedEntry(String trackId) {
+        return downloadedEntry(trackId, false);
+    }
+
+    private static DownloadIndex.Entry downloadedEntry(String trackId, boolean forPlayback) {
         SharedPreferences preferences = getPreferences();
         if (preferences == null || trackId == null) return null;
-        String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
-        if (fileName == null) return null;
+        DownloadIndex.Ref file = fileRefOf(trackId);
+        if (file == null) return null;
 
         // The download manager makes the file at its full size at once and fills it as it goes, so a file
         // is complete only once its job ended. Meanwhile the earlier file of a track downloaded again plays.
         long job = preferences.getLong(TRACK_JOB_PREFIX + trackId, -1);
         if (job >= 0 && isJobRunning(trackId, job)) {
-            String replaced = preferences.getString(TRACK_REPLACES_PREFIX + trackId, null);
-            return replaced == null ? null : readableFile(replaced);
+            file = replacedRefOf(trackId);
+            if (file == null) return null;
+        } else if (job >= 0) {
+            // Settled just now: a failed job may have given the track back its earlier file, or none.
+            file = fileRefOf(trackId);
+            if (file == null) return null;
         }
-        // Settled just now: a failed job may have given the track back its earlier file, or none.
-        if (job >= 0) {
-            fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
-            if (fileName == null) return null;
-        }
-        return readableFile(fileName);
+        return forPlayback ? DownloadIndex.resolveForPlayback(trackId, file) : DownloadIndex.resolve(trackId, file);
+    }
+
+    /**
+     * What the player is given to play a downloaded track: the path of its file, or the address of its row in the
+     * media store where the path is closed to the app (a file in Music since Android 10).
+     * May wait for the system, so it is for the threads of the player, not for the main thread.
+     *
+     * @return The source, or null if the track is not downloaded or the file cannot be opened: it is streamed then.
+     */
+    public static String playableSource(String trackId) {
+        DownloadIndex.Entry entry = downloadedEntry(trackId, true);
+        Context context = Utils.getContext();
+        return entry == null || context == null ? null : entry.playable(context);
     }
 
     /** When each running job was last found running, so lists that ask for many files do not ask the system each time. */
@@ -1186,21 +1396,11 @@ public final class DownloadTrackPatch {
     }
 
     /** Whether a download of the track was started and is not over yet: a second one must not start. */
-    private static boolean isDownloadPending(String trackId) {
+    static boolean isDownloadPending(String trackId) {
         if (DownloadProgress.isAssembling(trackId)) return true;
         SharedPreferences preferences = getPreferences();
         long job = preferences == null ? -1 : preferences.getLong(TRACK_JOB_PREFIX + trackId, -1);
         return job >= 0 && isJobRunning(trackId, job);
-    }
-
-    private static java.io.File readableFile(String fileName) {
-        java.io.File file = musicFile(fileName);
-        // Early versions saved some files without an extension; such files may have been renamed to ".mp3" since.
-        if (!file.isFile() && !fileName.contains(".")) {
-            java.io.File withExtension = new java.io.File(file.getPath() + ".mp3");
-            if (withExtension.isFile()) file = withExtension;
-        }
-        return file.isFile() && file.length() > 0 && file.canRead() ? file : null;
     }
 
     /**
@@ -1216,8 +1416,8 @@ public final class DownloadTrackPatch {
     public static int rememberOldFileNames() {
         SharedPreferences preferences = getPreferences();
         if (preferences == null) return 0;
-        java.io.File folder = new java.io.File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
+        // These were saved before locations existed, so they are in the default one.
+        String location = DownloadLocation.DEFAULT.id();
 
         int found = 0;
         for (String trackId : getDownloadedTracks()) {
@@ -1226,9 +1426,9 @@ public final class DownloadTrackPatch {
                 String url = resolveDownloadUrl(trackId);
                 String name = url == null ? null : Uri.parse(url).getLastPathSegment();
                 if (name == null) continue;
-                if (!new java.io.File(folder, name).isFile()) {
+                if (!DownloadIndex.hasFile(new DownloadIndex.Ref(location, name, null))) {
                     String alternative = name.replaceFirst("(\\.[^.]+)$", "-1$1");
-                    if (!new java.io.File(folder, alternative).isFile()) continue;
+                    if (!DownloadIndex.hasFile(new DownloadIndex.Ref(location, alternative, null))) continue;
                     name = alternative;
                 }
                 preferences.edit().putString(TRACK_FILE_PREFIX + trackId, name).apply();
@@ -1244,22 +1444,7 @@ public final class DownloadTrackPatch {
         return found;
     }
 
-    /** Whether a downloaded file exists but cannot be read, because it was created before a reinstall. */
-    public static boolean hasUnreadableDownloads() {
-        SharedPreferences preferences = getPreferences();
-        if (preferences == null) return false;
-        java.io.File folder = new java.io.File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
-        for (String trackId : getDownloadedTracks()) {
-            String name = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
-            if (name == null) continue;
-            java.io.File file = new java.io.File(folder, name);
-            if (file.exists() && !file.canRead()) return true;
-        }
-        return false;
-    }
-
-    /** File names in Music/Arsound mapped to their track ids. */
+    /** File names of the downloads mapped to their track ids. */
     static java.util.Map<String, String> trackIdsByFileName() {
         java.util.Map<String, String> result = new java.util.HashMap<>();
         SharedPreferences preferences = getPreferences();

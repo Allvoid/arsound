@@ -34,9 +34,11 @@ public final class MusicAccess {
     }
 
     public static String permission() {
-        return Build.VERSION.SDK_INT >= 33
-                ? "android.permission.READ_MEDIA_AUDIO"
-                : "android.permission.READ_EXTERNAL_STORAGE";
+        if (Build.VERSION.SDK_INT >= 33) return "android.permission.READ_MEDIA_AUDIO";
+        // Before Android 10 a file is written into Music by its path, which needs the permission to write; the
+        // permission to write also reads. (Only builds for old phones come to this: the app itself needs Android 12.)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return "android.permission.WRITE_EXTERNAL_STORAGE";
+        return "android.permission.READ_EXTERNAL_STORAGE";
     }
 
     public static boolean isGranted(Context context) {
@@ -59,7 +61,7 @@ public final class MusicAccess {
             checkedThisLaunch = true;
             Utils.runOnBackgroundThread(() -> {
                 try {
-                    if (!DownloadTrackPatch.hasUnreadableDownloads()) return;
+                    if (!DownloadIndex.hasUnreadableDownloads()) return;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Could not check downloaded files for access", ex);
                     return;

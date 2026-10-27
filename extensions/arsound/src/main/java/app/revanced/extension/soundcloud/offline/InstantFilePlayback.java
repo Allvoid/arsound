@@ -3,7 +3,6 @@ package app.revanced.extension.soundcloud.offline;
 import android.os.Handler;
 import android.os.Looper;
 
-import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -46,9 +45,10 @@ public final class InstantFilePlayback {
     private InstantFilePlayback() {
     }
 
-    private static File downloadedFile(Object trackUrn) {
+    /** The path of the downloaded file of the track, or the address of its media store row; null if none can be opened. */
+    private static String downloadedSource(Object trackUrn) {
         if (trackUrn == null) return null;
-        return DownloadTrackPatch.getDownloadedFile(DownloadTrackPatch.parseTrackId(trackUrn));
+        return DownloadTrackPatch.playableSource(DownloadTrackPatch.parseTrackId(trackUrn));
     }
 
     /**
@@ -61,8 +61,8 @@ public final class InstantFilePlayback {
      * @return A {@code Maybe} with a file playback item, or the original one.
      */
     public static Object playbackItem(Object maybe, Object trackSourceInfo, long position, Object trackUrn) {
-        File file = downloadedFile(trackUrn);
-        if (file == null) return maybe;
+        String source = downloadedSource(trackUrn);
+        if (source == null) return maybe;
         try {
             ClassLoader loader = maybe.getClass().getClassLoader();
             Class<?> streamClass = type(loader, "com.soundcloud.android.playback.core.stream.Stream");
@@ -73,7 +73,7 @@ public final class InstantFilePlayback {
 
             // Same arguments as SoundCloud uses for imported files: no metadata, default flags.
             Object fileStream = fileStreamClass.getConstructor(String.class, knownClass, int.class)
-                    .newInstance(file.getPath(), null, 14);
+                    .newInstance(source, null, 14);
             Object none = type(loader, "com.soundcloud.android.playback.core.stream.Stream$None")
                     .getConstructor().newInstance();
             Object streams = streamsClass.getConstructor(streamClass, streamClass).newInstance(fileStream, none);
@@ -87,7 +87,8 @@ public final class InstantFilePlayback {
             for (Method method : maybeClass.getMethods()) {
                 if (Modifier.isStatic(method.getModifiers())
                         && method.getReturnType().getSimpleName().equals("MaybeJust")) {
-                    Logger.printInfo(() -> "Playing downloaded file right away: " + trackUrn);
+                    Logger.printInfo(() -> "Playing downloaded file right away: " + trackUrn + " via "
+                            + DownloadedPlaybackPatch.route(source));
                     return method.invoke(null, item);
                 }
             }

@@ -66,6 +66,11 @@ public final class DownloadProgress {
         return trackId != null && assembling.contains(trackId);
     }
 
+    /** Whether the app is downloading or packing any track itself right now. */
+    static boolean isAnyAssembling() {
+        return !assembling.isEmpty();
+    }
+
     /**
      * Called when the app starts to download and pack an HLS track itself.
      *
@@ -126,6 +131,14 @@ public final class DownloadProgress {
 
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
     static void onDownloadsDeleted() {
+        recountAndRedraw();
+    }
+
+    /**
+     * Called when the files of the downloads changed without the app doing it: the media store was listed for the
+     * first time, or a file was removed or added by something else. The lists ask for every track again.
+     */
+    static void onFilesChanged() {
         recountAndRedraw();
     }
 

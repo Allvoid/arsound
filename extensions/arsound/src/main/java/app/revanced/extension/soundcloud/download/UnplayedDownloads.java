@@ -42,12 +42,13 @@ public final class UnplayedDownloads {
     public static final class Unplayed {
         public final String trackId;
         public final LocalMusic.Track imported;
-        public final File file;
+        /** The size of its file in bytes. */
+        public final long size;
 
-        Unplayed(String trackId, LocalMusic.Track imported, File file) {
+        Unplayed(String trackId, LocalMusic.Track imported, long size) {
             this.trackId = trackId;
             this.imported = imported;
-            this.file = file;
+            this.size = size;
         }
     }
 
@@ -91,12 +92,12 @@ public final class UnplayedDownloads {
         for (String trackId : DownloadTrackPatch.getDownloadedTrackIds()) {
             if (DownloadProgress.isAssembling(trackId)) continue;
             // Without a known file there is nothing to delete, and its age is unknown.
-            File file = DownloadTrackPatch.knownFile(trackId);
+            DownloadIndex.Entry file = DownloadIndex.known(trackId);
             if (file == null) continue;
-            long last = Math.max(file.lastModified(), preferences == null ? 0 : preferences.getLong(trackId, 0));
+            long last = Math.max(file.modifiedMs(), preferences == null ? 0 : preferences.getLong(trackId, 0));
             Long listened = listens.get("soundcloud:tracks:" + trackId);
             if (listened != null) last = Math.max(last, listened);
-            if (last < cutoff) result.add(new Unplayed(trackId, null, file));
+            if (last < cutoff) result.add(new Unplayed(trackId, null, file.size()));
         }
 
         Context context = Utils.getContext();
@@ -115,7 +116,7 @@ public final class UnplayedDownloads {
                         preferences == null ? 0 : preferences.getLong(FILE_PREFIX + path, 0));
                 Long listened = importedListens.get(path);
                 if (listened != null) last = Math.max(last, listened);
-                if (last < cutoff) result.add(new Unplayed(null, track, track.file));
+                if (last < cutoff) result.add(new Unplayed(null, track, track.file.length()));
             }
         }
         return result;

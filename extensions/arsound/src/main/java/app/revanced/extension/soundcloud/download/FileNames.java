@@ -1,6 +1,9 @@
 package app.revanced.extension.soundcloud.download;
 
+import android.webkit.MimeTypeMap;
+
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /** How the file of a downloaded track is named: "Artist - Title", cleaned for a file system. */
@@ -43,5 +46,21 @@ final class FileNames {
             cleaned = cleaned.substring(0, cleaned.offsetByCodePoints(cleaned.length(), -1));
         }
         return cleaned.trim();
+    }
+
+    /**
+     * The type of a file for the storage that keeps it. It has to match the extension, otherwise the storage appends
+     * an extension of its own ("Name.wav.mp3").
+     */
+    static String mimeTypeOf(String fileName) {
+        if (fileName.endsWith(".m4a")) return "audio/mp4";
+        if (fileName.endsWith(".aac")) return "audio/aac";
+        if (fileName.endsWith(".opus")) return "audio/ogg";
+        if (fileName.endsWith(".mp3")) return "audio/mpeg";
+        int dot = fileName.lastIndexOf('.');
+        String known = dot < 0 ? null : MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(fileName.substring(dot + 1).toLowerCase(Locale.ROOT));
+        // A kind of file the system does not know is kept under the name it has.
+        return known != null ? known : "application/octet-stream";
     }
 }

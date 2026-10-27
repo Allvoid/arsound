@@ -51,9 +51,9 @@ public final class DownloadsScreen {
                 if (DownloadTrackPatch.getDownloadState(context, id) != DownloadTrackPatch.DownloadState.DOWNLOADED) continue;
                 Object urn = forTrack.invoke(null, id);
                 if (present.contains(String.valueOf(urn))) continue;
-                java.io.File file = DownloadTrackPatch.getDownloadedFile(id);
+                DownloadIndex.Entry file = DownloadIndex.known(id);
                 // Newest downloads first, like SoundCloud sorts its own: by the time of the file.
-                items.add(constructor.newInstance(urn, new Date(file != null ? file.lastModified() : 0)));
+                items.add(constructor.newInstance(urn, new Date(file != null ? file.modifiedMs() : 0)));
                 added++;
             }
             // A playlist is a collectable just like a track: an urn and a date. The screen then loads
