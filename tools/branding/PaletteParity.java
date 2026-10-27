@@ -12,7 +12,8 @@ import java.util.Map;
  * Checks the Java palette engine (extension theme/PaletteEngine.java, which makes the themes of the user on the
  * phone) against the themes the Python script tools/branding/theme_from_design.py made: for the themes that have only
  * SoundCloud's two palettes in themes.json the engine must give exactly the same tokens, tokensLight, colors, decor
- * and decorLight. Also checks the contrast helpers on extreme colours.
+ * and decorLight. Also checks the contrast helpers on extreme colours, and that the text of both looks reads on any
+ * background the user can pick.
  * <p>
  * Run it with palette-parity.cmd next to this file. Exit code 0 means every check passed.
  */
@@ -79,10 +80,60 @@ public final class PaletteParity {
             check(PaletteEngine.contrast(light.get("primary"), light.get("surface")) >= 7.0, "light text on " + same);
             check(PaletteEngine.contrast(light.get("secondary"), light.get("surface")) >= 4.5, "light secondary on " + same);
         }
+        backgroundChecks();
         check("#FFFFFF".equals(PaletteEngine.onColor("#FF5500", "#101010")), "white glyph on SoundCloud orange");
         check("#101010".equals(PaletteEngine.onColor("#A3FF3D", "#101010")), "dark glyph on lime");
         check("#101010".equals(PaletteEngine.onColor("#FFFFFF", "#101010")), "dark glyph on white");
         check("#FFFFFF".equals(PaletteEngine.onColor("#000000", "#101010")), "white glyph on black");
+    }
+
+    /**
+     * Whatever background the user picks, the text of both looks reads on the surface and on every card. The corners
+     * of the colour square (saturated greens, yellows, cyans) are where HLS lightness alone lets a bright
+     * background through. Backgrounds the editor offers as ready colours must not be changed.
+     */
+    private static void backgroundChecks() {
+        java.util.List<String> backgrounds = new ArrayList<>();
+        for (int r = 0; r <= 255; r += 51) {
+            for (int g = 0; g <= 255; g += 51) {
+                for (int b = 0; b <= 255; b += 51) backgrounds.add(String.format("#%02X%02X%02X", r, g, b));
+            }
+        }
+        // The saturated edge of the square at several lightnesses, which a coarse grid of RGB misses.
+        for (int hue = 0; hue < 360; hue += 10) {
+            for (float brightness : new float[]{.3f, .56f, 1f}) {
+                backgrounds.add(String.format("#%06X", java.awt.Color.HSBtoRGB(hue / 360f, 1f, brightness) & 0xFFFFFF));
+            }
+        }
+        for (String background : backgrounds) {
+            Map<String, String> dark = PaletteEngine.darkFrom(background, "#FF5500", null, null);
+            for (String under : new String[]{"surface", "dialog", "highlight"}) {
+                check(PaletteEngine.contrast(dark.get("primary"), dark.get(under)) >= 7.0,
+                        "dark primary on " + under + " of " + background + ": " + PaletteEngine.contrast(dark.get("primary"), dark.get(under)));
+                check(PaletteEngine.contrast(dark.get("secondary"), dark.get(under)) >= 4.5,
+                        "dark secondary on " + under + " of " + background + ": " + PaletteEngine.contrast(dark.get("secondary"), dark.get(under)));
+            }
+            check(PaletteEngine.contrast(dark.get("special"), dark.get("dialog")) >= 3.0, "dark accent on the cards of " + background);
+            Map<String, String> light = PaletteEngine.lightFrom(background, "#FF5500", null, null);
+            for (String under : new String[]{"surface", "dialog", "highlight"}) {
+                check(PaletteEngine.contrast(light.get("primary"), light.get(under)) >= 7.0, "light primary on " + under + " of " + background);
+                check(PaletteEngine.contrast(light.get("secondary"), light.get(under)) >= 4.5, "light secondary on " + under + " of " + background);
+            }
+        }
+        // The ready backgrounds of the editor keep their colour.
+        for (String ready : new String[]{"#121212", "#000000", "#0D1117", "#0A1117", "#0E0809", "#0D110F", "#15121C", "#100C18",
+                "#14110F", "#101820"}) {
+            check(ready.equals(PaletteEngine.darkFrom(ready, "#FF5500", null, null).get("surface")), "dark background changed: " + ready);
+            check(!PaletteEngine.darkTextAdjusted(ready), "dark text moved on a ready background: " + ready);
+        }
+        for (String ready : new String[]{"#FFFFFF", "#F7F9FC", "#F5F9FB", "#F7FAF8", "#FEF8F9", "#FFF7FA", "#F9F8FC", "#FAF6EE", "#F2F2F2"}) {
+            check(ready.equals(PaletteEngine.lightFrom(ready, "#FF5500", null, null).get("surface")), "light background changed: " + ready);
+        }
+        // The worst case in the report of the review: pure yellow, green and cyan as the dark background.
+        for (String bright : new String[]{"#FFFF00", "#00FF00", "#00FFFF"}) {
+            String surface = PaletteEngine.darkFrom(bright, "#FF5500", null, null).get("surface");
+            check(!bright.equals(surface), "a bright background was kept: " + bright);
+        }
     }
 
     private static void check(boolean ok, String message) {

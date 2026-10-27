@@ -21,6 +21,7 @@ import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * The Upgrade tab. SoundCloud draws its subscription shop there, which sells only through Google Play: in the
@@ -67,7 +68,10 @@ public final class UpgradeTabPage {
         ScrollView scroll = new ScrollView(context);
         scroll.setTag(TAG);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(surface);
+        // The page is Arsound's own, so it shows the wallpaper like the settings do.
+        android.graphics.drawable.Drawable wallpaper = WallpaperStore.background(context);
+        if (wallpaper != null) scroll.setBackground(wallpaper);
+        else scroll.setBackgroundColor(surface);
 
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);

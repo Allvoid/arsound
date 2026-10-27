@@ -51,6 +51,8 @@ public final class ColorPickerView extends View {
     private float thumbScale = 1f;
     private ValueAnimator thumbAnimation;
     private int dragging = NONE;
+    /** The thumb that is grown or still shrinking back: the finger has left it by then, so {@link #dragging} cannot tell. */
+    private int scaled = NONE;
     private Listener listener;
 
     public ColorPickerView(Context context) {
@@ -131,14 +133,14 @@ public final class ColorPickerView extends View {
         fill.setShader(null);
 
         drawThumb(canvas, square.left + hsv[1] * square.width(), square.top + (1 - hsv[2]) * square.height(), getColor(),
-                dragging == SQUARE);
+                scaled == SQUARE);
         drawThumb(canvas, bar.left + hsv[0] / 360f * bar.width(), bar.centerY(),
-                Color.HSVToColor(new float[]{hsv[0], 1f, 1f}), dragging == BAR);
+                Color.HSVToColor(new float[]{hsv[0], 1f, 1f}), scaled == BAR);
     }
 
     /** A round thumb in the colour it stands for: a soft shadow below, a white ring and a faint dark edge for pale colours. */
-    private void drawThumb(Canvas canvas, float x, float y, int color, boolean pressed) {
-        float scale = pressed ? thumbScale : 1f;
+    private void drawThumb(Canvas canvas, float x, float y, int color, boolean grown) {
+        float scale = grown ? thumbScale : 1f;
         float radius = thumbRadius * scale;
         // The shadow is a radial fade, not setShadowLayer, which a hardware canvas does not draw before Android 9.
         float shadowRadius = radius + dp(5);
@@ -169,6 +171,9 @@ public final class ColorPickerView extends View {
                     return false;
                 }
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                // Another thumb than the one that was still shrinking: that one is at its size at once.
+                if (scaled != dragging) thumbScale = 1f;
+                scaled = dragging;
                 growThumb(true);
                 move(x, y);
                 return true;

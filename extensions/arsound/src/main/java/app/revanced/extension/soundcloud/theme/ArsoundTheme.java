@@ -169,6 +169,8 @@ public final class ArsoundTheme {
     /** The themes as themes.json has them: the runtime ones only as seeds. */
     private static volatile List<Theme> themes;
     private static volatile ResourcesLoader loader;
+    /** The table the loader has now, to close it when the palette changes and a new one takes its place. */
+    private static ResourcesProvider loaded;
     /** The {@link Theme#key()} the loader's table was built for. */
     private static volatile String loaderKey;
     private static Context appContext;
@@ -540,13 +542,24 @@ public final class ArsoundTheme {
             }
             failedKey = null;
             failedBuilds = 0;
+            ResourcesProvider replaced = loaded;
             if (loader == null) {
                 loader = new ResourcesLoader();
                 loader.addProvider(provider);
             } else {
                 loader.setProviders(Collections.singletonList(provider));
             }
+            loaded = provider;
             loaderKey = theme.key();
+            // The loader no longer uses the old table, but the descriptor and the mapping of it stay until the provider
+            // is closed: one would be left behind for every change of the palette.
+            if (replaced != null) {
+                try {
+                    replaced.close();
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Theme: could not close the replaced resource table", ex);
+                }
+            }
         }
         // Adding a loader that is already there changes nothing.
         resources.addLoaders(loader);

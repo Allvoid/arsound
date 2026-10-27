@@ -28,6 +28,7 @@ import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.theme.CustomTheme;
+import app.revanced.extension.soundcloud.theme.PaletteEngine;
 import app.revanced.extension.soundcloud.theme.RuntimeThemes;
 import app.revanced.extension.soundcloud.theme.ThemeEffect;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
@@ -53,6 +54,8 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final int REQUEST_DELETE_DOWNLOADS = 2;
 
     private LinearLayout localTrackList;
+    /** The Wallhaven browser while this activity shows it, so its downloads and threads end with the screen. */
+    private WallhavenScreen wallhavenScreen;
 
     /** Read each time: the app language can change while the app runs (the welcome switch). */
     private static boolean russian() {
@@ -78,7 +81,7 @@ public final class ReVancedSettingsActivity extends Activity {
             String screen = getIntent().getStringExtra(EXTRA_SCREEN);
             View content = screen == null ? createContent()
                     : SCREEN_LOCAL_MUSIC.equals(screen) ? createLocalMusicContent()
-                    : SCREEN_WALLHAVEN.equals(screen) ? new WallhavenScreen(this).create()
+                    : SCREEN_WALLHAVEN.equals(screen) ? (wallhavenScreen = new WallhavenScreen(this)).create()
                     : createSection(screen);
             addThemeEffect(content);
             setContentView(content);
@@ -1006,7 +1009,11 @@ public final class ReVancedSettingsActivity extends Activity {
         View dim = createSliderRow(text("Затемнение обоев", "Wallpaper dim"),
                 text("Сколько цвета темы лежит поверх картинки. Больше — текст читается лучше.",
                         "How much of the theme's colour lies over the picture. More makes the text easier to read."),
-                95, WallpaperStore.dim(), value -> value + " %", WallpaperStore::setDim);
+                95, WallpaperStore.dim(), value -> value + " %", value -> {
+                    WallpaperStore.setDim(value);
+                    // The pictures on this screen follow the dim live, so it must not rebuild itself for it when it is shown again.
+                    wallpaperStamp = WallpaperStore.stamp();
+                });
         dim.setVisibility(chosen ? View.VISIBLE : View.GONE);
         list.addView(dim);
         View blur = createSliderRow(text("Размытие обоев", "Wallpaper blur"),
@@ -1301,8 +1308,9 @@ public final class ReVancedSettingsActivity extends Activity {
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
         row.setContentDescription(choice.name);
 
-        // Tiles show the dark look: SoundCloud's own screens, where the animation plays, stay dark.
-        boolean night = true;
+        // Tiles show the dark look: SoundCloud's own screens, where the animation plays, stay dark. A theme that is
+        // light whatever the phone uses is shown as it is.
+        boolean night = choice.theme == null || !choice.theme.lightOnly;
         int surface = choice.theme == null ? (night ? 0xFF121212 : 0xFFFFFFFF) : choice.theme.surface(night);
         int dotColor = choice.theme == null ? 0xFFFF5500 : choice.theme.accent(night);
 
@@ -2307,6 +2315,12 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** What the wallpaper looked like when this screen was built; a screen opened before a change is built again. */
     private String wallpaperStamp = WallpaperStore.stamp();
+
+    @Override
+    protected void onDestroy() {
+        if (wallhavenScreen != null) wallhavenScreen.close();
+        super.onDestroy();
+    }
 
     @Override
     protected void onResume() {
@@ -3576,9 +3590,14 @@ public final class ReVancedSettingsActivity extends Activity {
                     return (theme.color(night, "special") & 0xFFFFFF) == wanted ? null
                             : text("Акцент подправлен, чтобы читаться на фоне.", "The accent was adjusted to read on the background.");
                 }
-                return (theme.color(night, "surface") & 0xFFFFFF) == wanted ? null
-                        : night ? text("Фон оставлен тёмным: на светлом не видны белые значки.", "The background is kept dark: white icons would vanish on a light one.")
-                        : text("Фон оставлен светлым: на тёмном не видны тёмные значки.", "The background is kept light: dark icons would vanish on a dark one.");
+                if ((theme.color(night, "surface") & 0xFFFFFF) != wanted) {
+                    return night ? text("Фон оставлен тёмным: на светлом не видны белые значки и текст.", "The background is kept dark: white icons and text would vanish on a light one.")
+                            : text("Фон оставлен светлым: на тёмном не видны тёмные значки.", "The background is kept light: dark icons would vanish on a dark one.");
+                }
+                // The background itself stayed, but the text had to move to read on the cards above it.
+                return night && PaletteEngine.darkTextAdjusted(hex)
+                        ? text("Цвет текста слегка подправлен, чтобы читаться на этом фоне.", "The text colour is slightly adjusted to read on this background.")
+                        : null;
             }
         }, color -> {
             editing = withColor(editing, role, color);
@@ -3596,7 +3615,11 @@ public final class ReVancedSettingsActivity extends Activity {
                 note.append(text("В тёмном виде акцент осветлён, чтобы читаться на фоне. ", "In the dark look the accent is lightened to read on the background. "));
             }
             if ((theme.color(true, "surface") & 0xFFFFFF) != (android.graphics.Color.parseColor(editing.darkBg) & 0xFFFFFF)) {
-                note.append(text("Тёмный фон приведён к тёмному оттенку. ", "The dark background was brought to a dark shade. "));
+                note.append(text("Тёмный фон приведён к тёмному оттенку, чтобы на нём читались белые значки и текст. ",
+                        "The dark background was brought to a dark shade so white icons and text read on it. "));
+            } else if (PaletteEngine.darkTextAdjusted(editing.darkBg)) {
+                note.append(text("В тёмном виде цвет текста слегка подправлен, чтобы читаться на карточках. ",
+                        "In the dark look the text colour is slightly adjusted to read on the cards. "));
             }
         }
         if (!CustomTheme.MODE_DARK.equals(editing.mode)) {

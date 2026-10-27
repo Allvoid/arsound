@@ -1,6 +1,7 @@
 package app.revanced.extension.soundcloud.settings;
 
 import android.app.Dialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
@@ -36,7 +37,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -45,6 +45,7 @@ import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenGrid;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperDownload;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
@@ -661,30 +662,84 @@ final class WallhavenScreen {
 
     // region Preview and download
 
-    /** A larger look at a picture with its facts, the link to its page and the button that makes it the wallpaper. */
+    /** A picture bigger than this is not downloaded by the preview on its own, only when it is chosen. */
+    private static final long PREVIEW_MAX_BYTES = 25L * 1024 * 1024;
+
+    /** The download the open preview or progress window works with, so closing the screen can give it up. */
+    private WallpaperDownload current;
+    /** The picture is being made the wallpaper: giving up the download now would take the file from under it. */
+    private boolean installing;
+
+    /** Gives up what is still downloading and stops loading thumbnails: the screen is closed. */
+    void close() {
+        cancelCountdown();
+        if (current != null && !installing) current.cancel();
+        grid.close();
+    }
+
+    /**
+     * A look at the picture the way it will lie behind the screens (a frame in the shape of this phone's screen, the
+     * picture cut to it), with its facts, the link to its page and the button that makes it the wallpaper. The
+     * thumbnail is only 300 pixels, so the full picture downloads while the preview is open; "Set as background"
+     * then takes that same file instead of downloading again.
+     */
     private void preview(Wallhaven.Item item) {
+        WallpaperDownload download = new WallpaperDownload(activity, item.fullUrl);
+        current = download;
+        boolean[] open = {true};
+        boolean[] used = {false};
+
         LinearLayout body = new LinearLayout(activity);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(24), 0, dp(24), 0);
         body.setTag(ArsoundDialog.KEEP_COLORS);
 
-        ImageView picture = new ImageView(activity);
-        picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+        int frameHeight = Math.min(dp(400), Math.round(metrics.heightPixels * .46f));
+        int frameWidth = Math.round(frameHeight * (float) Math.min(metrics.widthPixels, metrics.heightPixels)
+                / Math.max(metrics.widthPixels, metrics.heightPixels));
+        FrameLayout frame = new FrameLayout(activity);
         GradientDrawable base = new GradientDrawable();
         base.setColor(card);
-        picture.setBackground(base);
+        frame.setBackground(base);
         float radius = dp(16);
-        picture.setOutlineProvider(new ViewOutlineProvider() {
+        frame.setOutlineProvider(new ViewOutlineProvider() {
             @Override
             public void getOutline(View view, Outline outline) {
                 outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
             }
         });
-        picture.setClipToOutline(true);
+        frame.setClipToOutline(true);
+        ImageView picture = new ImageView(activity);
+        picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        frame.addView(picture, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        ProgressBar spinner = new ProgressBar(activity);
+        spinner.setIndeterminate(true);
+        spinner.setIndeterminateTintList(ColorStateList.valueOf(accent));
+        frame.addView(spinner, new FrameLayout.LayoutParams(dp(32), dp(32), Gravity.CENTER));
+        ProgressBar bar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        bar.setIndeterminate(true);
+        bar.setProgressTintList(ColorStateList.valueOf(accent));
+        bar.setIndeterminateTintList(ColorStateList.valueOf(accent));
+        frame.addView(bar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4), Gravity.BOTTOM));
+        LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(frameWidth, frameHeight);
+        frameParams.gravity = Gravity.CENTER_HORIZONTAL;
+        body.addView(frame, frameParams);
+
+        // Until the full picture is there the thumbnail stands in; without one the frame shows a spinner.
+        boolean[] hasPicture = {false};
         Bitmap thumbnail = grid.thumbnail(item);
-        if (thumbnail != null) picture.setImageBitmap(thumbnail);
-        int height = Math.min(dp(380), Math.round(activity.getResources().getDisplayMetrics().heightPixels * .36f));
-        body.addView(picture, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height));
+        if (thumbnail != null) {
+            picture.setImageBitmap(thumbnail);
+            hasPicture[0] = true;
+        }
+        boolean fetch = item.fileSize <= 0 || item.fileSize <= PREVIEW_MAX_BYTES;
+        Runnable showBusy = () -> {
+            boolean running = download.isRunning();
+            bar.setVisibility(running ? View.VISIBLE : View.GONE);
+            spinner.setVisibility(running && !hasPicture[0] ? View.VISIBLE : View.GONE);
+        };
 
         TextView facts = activity.createText("Body.Secondary", item.resolution + "  ·  "
                 + String.format(Locale.US, "%.1f", item.fileSize / 1048576f) + " MB  ·  "
@@ -707,16 +762,68 @@ final class WallhavenScreen {
         });
         body.addView(source);
 
+        download.setListener(new WallpaperDownload.Listener() {
+            @Override
+            public void onProgress(long done, long total) {
+                if (total > 0) {
+                    bar.setIndeterminate(false);
+                    bar.setProgress((int) (done * 1000 / total));
+                }
+            }
+
+            @Override
+            public void onFinished(boolean saved) {
+                showBusy.run();
+                if (!saved) return;
+                // Decoded to the size of the frame, so the picture is sharp and the memory it takes is small.
+                Utils.runOnBackgroundThread(() -> {
+                    File file = download.file();
+                    Bitmap full = null;
+                    if (file != null) {
+                        try {
+                            full = WallpaperStore.decodeCovering(file, frameWidth, frameHeight);
+                        } catch (Exception | OutOfMemoryError ex) {
+                            Logger.printInfo(() -> "Wallhaven: the preview could not be read: " + ex.getClass().getSimpleName());
+                        }
+                    }
+                    Bitmap ready = full;
+                    Utils.runOnMainThread(() -> {
+                        if (ready == null || !open[0]) return;
+                        hasPicture[0] = true;
+                        picture.setImageBitmap(ready);
+                        picture.setAlpha(0f);
+                        picture.animate().alpha(1f).setDuration(200).start();
+                    });
+                });
+            }
+        });
+
         new ArsoundDialog(activity)
                 .setView(body)
                 .setNegativeButton(text("Закрыть", "Close"), null)
-                .setPositiveButton(text("Сделать фоном", "Set as background"), (dialog, which) -> download(item))
+                .setPositiveButton(text("Сделать фоном", "Set as background"), (dialog, which) -> {
+                    used[0] = true;
+                    setAsBackground(item, download);
+                })
+                .setOnDismissListener(dialog -> {
+                    open[0] = false;
+                    // Closed without choosing the picture: the downloaded part is of no use.
+                    if (!used[0]) {
+                        download.cancel();
+                        if (current == download) current = null;
+                    }
+                })
                 .show();
+        if (fetch) download.start();
+        showBusy.run();
     }
 
-    /** Downloads the full picture with a progress bar, keeps it as the wallpaper and leaves the browser. */
-    private void download(Wallhaven.Item item) {
-        AtomicBoolean cancelled = new AtomicBoolean();
+    /**
+     * Shows how the picture downloads (it may be under way since the preview), keeps it as the wallpaper and leaves
+     * the browser.
+     */
+    private void setAsBackground(Wallhaven.Item item, WallpaperDownload download) {
+        current = download;
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(24), dp(8), dp(24), 0);
@@ -737,44 +844,51 @@ final class WallhavenScreen {
                 .setTitle(text("Скачиваю обои…", "Downloading the wallpaper…"))
                 .setView(box)
                 .setCancelable(false)
-                .setNegativeButton(android.R.string.cancel, (d, which) -> cancelled.set(true))
+                .setNegativeButton(android.R.string.cancel, (d, which) -> download.cancel())
                 .show();
 
-        File target = new File(activity.getCacheDir(), "wallpaper-download.tmp");
-        long[] lastUpdate = {0};
-        Utils.runOnBackgroundThread(() -> {
-            boolean saved = false;
-            try {
-                Wallhaven.download(item.fullUrl, target, (done, total) -> {
-                    long now = System.currentTimeMillis();
-                    if (now - lastUpdate[0] < 100) return;
-                    lastUpdate[0] = now;
-                    Utils.runOnMainThread(() -> {
-                        if (total > 0) {
-                            bar.setIndeterminate(false);
-                            bar.setProgress((int) (done * 1000 / total));
-                        }
-                    });
-                }, cancelled);
-                Utils.runOnMainThread(() -> {
-                    label.setText(text("Готовлю обои…", "Preparing the wallpaper…"));
-                    bar.setIndeterminate(true);
-                });
-                saved = WallpaperStore.install(activity.getApplicationContext(), target, item.id);
-            } catch (IOException ex) {
-                if (!cancelled.get()) Logger.printInfo(() -> "Wallhaven: the download failed: " + ex.getClass().getSimpleName());
-            } finally {
-                target.delete();
+        download.setListener(new WallpaperDownload.Listener() {
+            @Override
+            public void onProgress(long done, long total) {
+                if (total > 0) {
+                    bar.setIndeterminate(false);
+                    bar.setProgress((int) (done * 1000 / total));
+                }
             }
-            boolean ok = saved;
-            Utils.runOnMainThread(() -> {
-                if (dialog.isShowing()) dialog.dismiss();
-                if (cancelled.get() || isGone()) return;
-                Toast.makeText(activity, ok ? text("Обои установлены", "Wallpaper set")
-                        : text("Не удалось скачать обои", "Could not download the wallpaper"), Toast.LENGTH_SHORT).show();
-                if (ok) activity.finish();
-            });
+
+            @Override
+            public void onFinished(boolean saved) {
+                if (!saved) {
+                    finishDownload(dialog, false);
+                    return;
+                }
+                // From here the picture is being kept; giving up would take the file from under it.
+                installing = true;
+                label.setText(text("Готовлю обои…", "Preparing the wallpaper…"));
+                bar.setIndeterminate(true);
+                TextView cancel = ArsoundDialog.getButton(dialog, DialogInterface.BUTTON_NEGATIVE);
+                if (cancel != null) {
+                    cancel.setEnabled(false);
+                    cancel.setAlpha(.4f);
+                }
+                Utils.runOnBackgroundThread(() -> {
+                    boolean ok = download.install(activity.getApplicationContext(), item.id);
+                    Utils.runOnMainThread(() -> finishDownload(dialog, ok));
+                });
+            }
         });
+        // Starts it unless the preview did already.
+        download.start();
+    }
+
+    private void finishDownload(Dialog dialog, boolean ok) {
+        installing = false;
+        current = null;
+        if (dialog.isShowing()) dialog.dismiss();
+        if (isGone()) return;
+        Toast.makeText(activity, ok ? text("Обои установлены", "Wallpaper set")
+                : text("Не удалось скачать обои", "Could not download the wallpaper"), Toast.LENGTH_SHORT).show();
+        if (ok) activity.finish();
     }
 
     // endregion

@@ -34,6 +34,18 @@ public final class PaletteEngine {
      * white icons and dark text need the extremes. A colour beyond is brought back to the limit. */
     private static final double DARK_BG_MAX_LIGHTNESS = .28;
     private static final double LIGHT_BG_MIN_LIGHTNESS = .90;
+    /**
+     * HLS lightness says little about how bright a saturated colour is: a pure green at .28 is as bright as a mid
+     * grey. So the three steps of the dark look (the background, the cards, the highlighted cards) are also kept
+     * under a relative luminance, which is what the contrast of the text is made of. Under the highest one
+     * near-white text still has more than 7:1.
+     */
+    private static final double DARK_SURFACE_MAX_LUMINANCE = .04;
+    private static final double DARK_DIALOG_MAX_LUMINANCE = .065;
+    private static final double DARK_HIGHLIGHT_MAX_LUMINANCE = .09;
+    /** The contrast the text of the user's themes has on the brightest card: the main text, the second one. */
+    private static final double PRIMARY_CONTRAST = 7.0;
+    private static final double SECONDARY_CONTRAST = 4.5;
 
     private PaletteEngine() {
     }
@@ -295,22 +307,51 @@ public final class PaletteEngine {
 
     /**
      * The dark palette from a background and an accent; {@code card} and {@code text} are null to be derived. The
-     * background is kept dark, the steps above it (dialog, highlight) keep its hue and saturation like the shipped
-     * palettes do, the text is near-white with a touch of the background's hue, and the accent is lightened if it
-     * would not read on the cards.
+     * background is kept dark (by lightness and by luminance), the steps above it (dialog, highlight) keep its hue
+     * and saturation like the shipped palettes do, the text is near-white with a touch of the background's hue, and
+     * the accent is lightened if it would not read on the cards. The text is made to read on the brightest card, so
+     * it reads on everything below it too.
      */
     public static Map<String, String> darkFrom(String bg, String accent, String card, String text) {
+        return darkPalette(bg, accent, card, text, true);
+    }
+
+    /**
+     * True when the text of the dark look had to be moved to read on this background. The background being kept dark
+     * does not tell it, so the editor asks.
+     */
+    public static boolean darkTextAdjusted(String bg) {
+        Map<String, String> plain = darkPalette(bg, bg, null, null, false), safe = darkPalette(bg, bg, null, null, true);
+        return !plain.get("primary").equals(safe.get("primary")) || !plain.get("secondary").equals(safe.get("secondary"));
+    }
+
+    /** @param safe False leaves the text as derived, without moving it to read: for {@link #darkTextAdjusted}. */
+    private static Map<String, String> darkPalette(String bg, String accent, String card, String text, boolean safe) {
         double[] hls = hls(bg);
         double hue = hls[0], saturation = hls[2];
         double level = Math.min(hls[1], DARK_BG_MAX_LIGHTNESS);
-        String surface = fromHls(hue, level, saturation);
-        String dialog = card != null ? card : fromHls(hue, level + .048, saturation);
-        String highlight = card != null ? fromHls(hls(card)[0], hls(card)[1] + .04, hls(card)[2]) : fromHls(hue, level + .088, saturation);
+        String surface = dimmedTo(hue, level, saturation, DARK_SURFACE_MAX_LUMINANCE);
+        String dialog, highlight;
+        if (card != null) {
+            double[] cardHls = hls(card);
+            dialog = card;
+            highlight = dimmedTo(cardHls[0], cardHls[1] + .04, cardHls[2], DARK_HIGHLIGHT_MAX_LUMINANCE);
+        } else {
+            dialog = dimmedTo(hue, level + .048, saturation, DARK_DIALOG_MAX_LUMINANCE);
+            highlight = dimmedTo(hue, level + .088, saturation, DARK_HIGHLIGHT_MAX_LUMINANCE);
+        }
         // A grey background gives no cast to the text.
         String primary = text != null ? text
                 : mix("#FFFFFF", fromHls(hue, .5, 1.0), .06 * clamp(saturation / .25, 0, 1));
         String secondary = text != null ? mix(text, surface, .35)
                 : fromHls(hue, .70, clamp(saturation * .7, 0, .22));
+        if (safe) {
+            // The cards are lighter than the background, so they are where the text reads worst.
+            for (String under : new String[]{highlight, dialog, surface}) {
+                primary = ensureContrast(primary, under, PRIMARY_CONTRAST);
+                secondary = ensureContrast(secondary, under, SECONDARY_CONTRAST);
+            }
+        }
         Map<String, String> palette = new LinkedHashMap<>();
         palette.put("surface", surface);
         palette.put("primary", primary);
@@ -324,22 +365,38 @@ public final class PaletteEngine {
         return palette;
     }
 
+    /** The colour of this hue and saturation, its lightness lowered from {@code level} until it is no brighter than the limit. */
+    private static String dimmedTo(double hue, double level, double saturation, double maxLuminance) {
+        String color = fromHls(hue, level, saturation);
+        for (int step = 0; step < 200 && level > 0 && luminance(color) > maxLuminance; step++) {
+            level -= .005;
+            color = fromHls(hue, level, saturation);
+        }
+        return color;
+    }
+
     /**
      * The light palette: a light background (kept light), white cards, ink with the background's hue, and an accent
-     * darkened until it reads on the background.
+     * darkened until it reads on the background. The text is made to read on the highlighted card, the darkest one.
      */
     public static Map<String, String> lightFrom(String bg, String accent, String card, String text) {
         double[] hls = hls(bg);
         double hue = hls[0], saturation = hls[2];
         double level = Math.max(hls[1], LIGHT_BG_MIN_LIGHTNESS);
         String surface = fromHls(hue, level, saturation);
+        String highlight = fromHls(hue, level - .05, saturation);
         String ink = text != null ? text : fromHls(hue, .08, Math.min(.5, saturation));
-        String secondary = ensureContrast(mix(ink, "#FFFFFF", .4), surface, 4.5);
+        String secondary = mix(ink, "#FFFFFF", .4);
+        // A light background is always bright enough for dark ink; only the softer text needs a nudge now and then.
+        for (String under : new String[]{highlight, surface, card != null ? card : "#FFFFFF"}) {
+            ink = ensureContrast(ink, under, PRIMARY_CONTRAST);
+            secondary = ensureContrast(secondary, under, SECONDARY_CONTRAST);
+        }
         Map<String, String> palette = new LinkedHashMap<>();
         palette.put("surface", surface);
         palette.put("primary", ink);
         palette.put("secondary", secondary);
-        palette.put("highlight", fromHls(hue, level - .05, saturation));
+        palette.put("highlight", highlight);
         palette.put("special", ensureContrast(accent, surface, 4.5));
         palette.put("error", "#C62E3A");
         palette.put("overlay", ink + "66");

@@ -50,6 +50,11 @@ public final class WallpaperStore {
     private static final long RETRY_LOAD_MS = 30_000;
 
     private static final Object LOCK = new Object();
+    /**
+     * Held while the files of the wallpaper are written or removed. Every release of the blur slider bakes on a thread
+     * of its own, and two bakes (or a bake and a new picture) would otherwise write the same files at once.
+     */
+    private static final Object WRITE = new Object();
     private static SoftReference<Bitmap> shown;
     /** The file changed since the bitmap in memory was read; the old one is drawn until the new one is there. */
     private static volatile boolean stale;
@@ -243,56 +248,70 @@ public final class WallpaperStore {
      * @param id The picture's id on Wallhaven, for the link to its page.
      */
     public static boolean install(Context context, File downloaded, String id) {
-        try {
-            Bitmap bitmap = decode(downloaded, MAX_SIDE);
-            if (bitmap == null) return false;
-            File folder = folder();
-            if (folder == null) return false;
-            folder.mkdirs();
-            File temporary = new File(folder, ORIGINAL + ".tmp");
-            try (FileOutputStream output = new FileOutputStream(temporary)) {
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output);
-            } finally {
-                bitmap.recycle();
-            }
-            replace(temporary, new File(folder, ORIGINAL));
+        synchronized (WRITE) {
+            File temporary = null;
+            try {
+                Bitmap bitmap = decode(downloaded, MAX_SIDE);
+                if (bitmap == null) return false;
+                File folder = folder();
+                if (folder == null) return false;
+                folder.mkdirs();
+                temporary = File.createTempFile(ORIGINAL + ".", ".tmp", folder);
+                try (FileOutputStream output = new FileOutputStream(temporary)) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output);
+                } finally {
+                    bitmap.recycle();
+                }
+                replace(temporary, new File(folder, ORIGINAL));
 
-            JSONObject meta = new JSONObject().put("id", id == null ? "" : id).put("source", "wallhaven");
-            File metaFile = new File(folder, META);
-            try (FileOutputStream output = new FileOutputStream(metaFile)) {
-                output.write(meta.toString().getBytes("UTF-8"));
+                JSONObject meta = new JSONObject().put("id", id == null ? "" : id).put("source", "wallhaven");
+                File metaFile = new File(folder, META);
+                try (FileOutputStream output = new FileOutputStream(metaFile)) {
+                    output.write(meta.toString().getBytes("UTF-8"));
+                }
+                bake(context);
+                Settings.putBoolean(Settings.WALLPAPER_ENABLED, true);
+                refresh();
+                return true;
+            } catch (Exception | OutOfMemoryError ex) {
+                Logger.printException(() -> "Wallpaper: could not keep the picture", ex);
+                return false;
+            } finally {
+                // A rename took it away; what is still there is the rest of a failed try.
+                if (temporary != null) temporary.delete();
             }
-            bake(context);
-            Settings.putBoolean(Settings.WALLPAPER_ENABLED, true);
-            refresh();
-            return true;
-        } catch (Exception | OutOfMemoryError ex) {
-            Logger.printException(() -> "Wallpaper: could not keep the picture", ex);
-            return false;
         }
     }
 
-    /** Removes the wallpaper and switches it off. */
+    /** Removes the wallpaper and switches it off. Waits for a bake that is running, a fraction of a second. */
     public static void remove() {
-        File folder = folder();
-        File[] files = folder == null ? null : folder.listFiles();
-        if (files != null) for (File file : files) file.delete();
-        Settings.putBoolean(Settings.WALLPAPER_ENABLED, false);
+        synchronized (WRITE) {
+            File folder = folder();
+            File[] files = folder == null ? null : folder.listFiles();
+            if (files != null) for (File file : files) file.delete();
+            Settings.putBoolean(Settings.WALLPAPER_ENABLED, false);
+        }
         refresh();
     }
 
     /** Bakes the picture again after the blur changed, and draws it. Blocks: call it off the main thread. */
     public static void rebake(Context context) {
-        try {
-            if (file(ORIGINAL) == null || !file(ORIGINAL).isFile()) return;
-            bake(context);
-            refresh();
-        } catch (Exception | OutOfMemoryError ex) {
-            Logger.printException(() -> "Wallpaper: could not blur the picture", ex);
+        synchronized (WRITE) {
+            try {
+                if (file(ORIGINAL) == null || !file(ORIGINAL).isFile()) return;
+                bake(context);
+            } catch (Exception | OutOfMemoryError ex) {
+                Logger.printException(() -> "Wallpaper: could not blur the picture", ex);
+                return;
+            }
         }
+        refresh();
     }
 
+    /** Puts a finished file in place of the old one in one step, so a reader sees one or the other and never none. */
     private static void replace(File from, File to) throws IOException {
+        if (from.renameTo(to)) return;
+        // Where a rename does not replace a file, the old one is removed first.
         to.delete();
         if (!from.renameTo(to)) throw new IOException("Could not rename " + from.getName());
     }
@@ -319,18 +338,8 @@ public final class WallpaperStore {
         int outWidth = Math.max(180, Math.min(shortSide, 1080) / (blur >= 30 ? 2 : 1));
         int outHeight = Math.round(outWidth * (float) longSide / shortSide);
 
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(original.getPath(), bounds);
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("The picture cannot be read");
-        // The decoded picture only needs to cover the output once the middle is cut out of it.
-        float cover = Math.max(outWidth / (float) bounds.outWidth, outHeight / (float) bounds.outHeight);
-        int sample = 1;
-        while (cover * sample * 2 <= 1f) sample *= 2;
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = sample;
-        Bitmap source = BitmapFactory.decodeFile(original.getPath(), options);
-        if (source == null) throw new IOException("The picture cannot be decoded");
+        Bitmap source = decodeCovering(original, outWidth, outHeight);
+        if (source == null) throw new IOException("The picture cannot be read");
 
         Bitmap result = null;
         try {
@@ -354,15 +363,37 @@ public final class WallpaperStore {
                 new Canvas(result).drawBitmap(small, null, new Rect(0, 0, outWidth, outHeight), paint);
                 small.recycle();
             }
-            File temporary = new File(baked.getParentFile(), BAKED + ".tmp");
-            try (FileOutputStream output = new FileOutputStream(temporary)) {
-                result.compress(Bitmap.CompressFormat.JPEG, 90, output);
+            File temporary = File.createTempFile(BAKED + ".", ".tmp", baked.getParentFile());
+            try {
+                try (FileOutputStream output = new FileOutputStream(temporary)) {
+                    result.compress(Bitmap.CompressFormat.JPEG, 90, output);
+                }
+                replace(temporary, baked);
+            } finally {
+                temporary.delete();
             }
-            replace(temporary, baked);
         } finally {
             source.recycle();
             if (result != null) result.recycle();
         }
+    }
+
+    /**
+     * The picture as small as it can be and still cover a frame of this size once scaled to fill it (the preview and
+     * the bake both cut the middle out of it), or null when the file cannot be read. It is never decoded to more than
+     * the picture's own size, and not bigger than needed: a photo of 40 million pixels would not fit in memory.
+     */
+    public static Bitmap decodeCovering(File file, int frameWidth, int frameHeight) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getPath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+        float cover = Math.max(frameWidth / (float) bounds.outWidth, frameHeight / (float) bounds.outHeight);
+        int sample = 1;
+        while (cover * sample * 2 <= 1f) sample *= 2;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        return BitmapFactory.decodeFile(file.getPath(), options);
     }
 
     /** The part of a picture that fills a frame of the given shape when it is scaled up to cover it, centred. */

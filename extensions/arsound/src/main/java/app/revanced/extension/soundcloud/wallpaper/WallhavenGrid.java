@@ -25,9 +25,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -89,6 +91,11 @@ public final class WallhavenGrid extends BaseAdapter {
 
     public Wallhaven.Item item(int position) {
         return position >= 0 && position < items.size() ? items.get(position) : null;
+    }
+
+    /** The screen is gone: stops loading thumbnails and lets go of the threads. */
+    public void close() {
+        thumbnails.close();
     }
 
     /** The thumbnail of a picture if it is in memory, else null. */
@@ -197,10 +204,16 @@ public final class WallhavenGrid extends BaseAdapter {
         }
     }
 
-    /** Loads thumbnails on three threads and keeps the newest ones in a cache of bounded size. */
+    /**
+     * Loads thumbnails on three threads and keeps the newest ones in a cache of bounded size. The threads end after a
+     * while without work and with {@link #close}, so a closed screen leaves none of them behind.
+     */
     private static final class Thumbnails {
+        private static final long THREAD_IDLE_SECONDS = 20;
+
         private final LruCache<String, Bitmap> cache;
-        private final ExecutorService pool;
+        private final ThreadPoolExecutor pool;
+        private volatile boolean closed;
         /** Thumbnails that could not be read, so scrolling does not ask for them over and over. */
         private final Set<String> failed = Collections.synchronizedSet(new HashSet<>());
 
@@ -218,7 +231,15 @@ public final class WallhavenGrid extends BaseAdapter {
                 thread.setPriority(Thread.NORM_PRIORITY - 1);
                 return thread;
             };
-            pool = Executors.newFixedThreadPool(3, factory);
+            pool = new ThreadPoolExecutor(3, 3, THREAD_IDLE_SECONDS, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), factory);
+            pool.allowCoreThreadTimeOut(true);
+        }
+
+        /** The screen is gone: the thumbnails still waiting for their turn are dropped and the threads end. */
+        void close() {
+            closed = true;
+            pool.shutdownNow();
+            failed.clear();
         }
 
         Bitmap cached(String url) {
@@ -231,33 +252,39 @@ public final class WallhavenGrid extends BaseAdapter {
 
         /** Loads the thumbnail into the view, if the view still wants it when its turn comes and when it is there. */
         void load(String url, ImageView view) {
-            if (failed.contains(url)) return;
-            pool.execute(() -> {
-                // The cell was reused for another picture while this one waited.
-                if (!url.equals(view.getTag())) return;
-                Bitmap bitmap = cache.get(url);
-                if (bitmap == null) {
-                    try {
-                        byte[] bytes = Wallhaven.readThumbnail(url);
-                        BitmapFactory.Options options = new BitmapFactory.Options();
-                        options.inPreferredConfig = Bitmap.Config.RGB_565;
-                        bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                    } catch (Exception | OutOfMemoryError ex) {
-                        Logger.printInfo(() -> "Wallhaven: a thumbnail did not load: " + ex.getClass().getSimpleName());
-                    }
-                    if (bitmap == null) {
-                        failed.add(url);
-                        return;
-                    }
-                    cache.put(url, bitmap);
+            if (closed || failed.contains(url)) return;
+            try {
+                pool.execute(() -> loadNow(url, view));
+            } catch (RejectedExecutionException ex) {
+                // Closed between the check and here.
+            }
+        }
+
+        private void loadNow(String url, ImageView view) {
+            // The screen was closed, or the cell was reused for another picture, while this one waited.
+            if (closed || !url.equals(view.getTag())) return;
+            Bitmap bitmap = cache.get(url);
+            if (bitmap == null) {
+                try {
+                    byte[] bytes = Wallhaven.readThumbnail(url);
+                    BitmapFactory.Options options = new BitmapFactory.Options();
+                    options.inPreferredConfig = Bitmap.Config.RGB_565;
+                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+                } catch (Exception | OutOfMemoryError ex) {
+                    Logger.printInfo(() -> "Wallhaven: a thumbnail did not load: " + ex.getClass().getSimpleName());
                 }
-                Bitmap ready = bitmap;
-                Utils.runOnMainThread(() -> {
-                    if (!url.equals(view.getTag())) return;
-                    view.setImageBitmap(ready);
-                    view.setAlpha(0f);
-                    view.animate().alpha(1f).setDuration(160).start();
-                });
+                if (bitmap == null) {
+                    if (!closed) failed.add(url);
+                    return;
+                }
+                cache.put(url, bitmap);
+            }
+            Bitmap ready = bitmap;
+            Utils.runOnMainThread(() -> {
+                if (closed || !url.equals(view.getTag())) return;
+                view.setImageBitmap(ready);
+                view.setAlpha(0f);
+                view.animate().alpha(1f).setDuration(160).start();
             });
         }
     }
