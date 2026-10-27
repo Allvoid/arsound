@@ -43,6 +43,14 @@ private val downloadPermissionPatch = resourcePatch {
                     setAttribute("android:maxSdkVersion", "32")
                 },
             )
+            // Before Android 10 a file is written into Music by its path, which needs this permission. Newer
+            // systems write through the media store and ask for nothing.
+            document.getNode("manifest").appendChild(
+                document.createElement("uses-permission").apply {
+                    setAttribute("android:name", "android.permission.WRITE_EXTERNAL_STORAGE")
+                    setAttribute("android:maxSdkVersion", "28")
+                },
+            )
         }
     }
 }

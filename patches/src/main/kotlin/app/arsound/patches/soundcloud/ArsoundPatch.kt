@@ -101,8 +101,8 @@ val arsoundNoAdsGroup = arsoundGroup(
 @Suppress("unused")
 val arsoundDownloadsGroup = arsoundGroup(
     "Arsound: скачивание",
-    "Скачивание доступных треков в «Музыка/Arsound» и воспроизведение скачанного из файла. Кнопки скачивания " +
-        "SoundCloud скачивают через Arsound.",
+    "Скачивание доступных треков в «Музыка/Arsound» или в любую выбранную папку, в том числе на SD-карте, и " +
+        "воспроизведение скачанного из файла. Кнопки скачивания SoundCloud скачивают через Arsound.",
     downloadTrackPatch,
     downloadedPlaybackPatch,
     headerDownloadButtonPatch,

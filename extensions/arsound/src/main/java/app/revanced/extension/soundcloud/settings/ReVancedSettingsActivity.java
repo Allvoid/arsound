@@ -2087,6 +2087,8 @@ public final class ReVancedSettingsActivity extends Activity {
     private TextView downloadFolderDescription;
     /** The description of the row of extra copies of downloaded tracks. */
     private TextView duplicatesDescription;
+    /** The description of the row of the tracks whose folder cannot be reached. */
+    private TextView lostDescription;
 
     /** Downloaded tracks: how much space they take, and removing all of them at once. */
     private void addStorageSection(LinearLayout list) {
@@ -2116,6 +2118,15 @@ public final class ReVancedSettingsActivity extends Activity {
         duplicatesDescription = (TextView) ((ViewGroup) duplicatesRow).getChildAt(1);
         list.addView(duplicatesRow);
         countDuplicates();
+        // A card that is gone for good would keep its tracks as downloaded for ever: they can be forgotten here.
+        View lostRow = createActionRow(text("Треки в недоступной папке", "Tracks in an unavailable folder"),
+                text("Забыть скачанные треки из папки, которой больше нет: карта SD извлечена насовсем или доступ к папке потерян.",
+                        "Forget downloaded tracks of a folder that is gone: the SD card was taken out for good or the access to "
+                                + "the folder was lost."),
+                v -> confirmForgetLost());
+        lostDescription = (TextView) ((ViewGroup) lostRow).getChildAt(1);
+        list.addView(lostRow);
+        countLost();
 
         // Unplayed tracks: off by default; their files are deleted, which the texts say plainly.
         LinearLayout unplayedOptions = new LinearLayout(this);
@@ -2236,9 +2247,9 @@ public final class ReVancedSettingsActivity extends Activity {
         Utils.runOnBackgroundThread(() -> {
             DownloadFolder.reset(this);
             Utils.runOnMainThread(() -> {
-                showDownloadFolder();
                 Toast.makeText(this, text("Новые треки сохраняются в «" + DownloadIndex.label() + "»",
                         "New tracks are saved to " + DownloadIndex.label()), Toast.LENGTH_LONG).show();
+                if (downloadFolderDescription != null) showDownloadFolder();
             });
         });
     }
@@ -2252,9 +2263,10 @@ public final class ReVancedSettingsActivity extends Activity {
                     Toast.makeText(this, problem, Toast.LENGTH_LONG).show();
                     return;
                 }
-                showDownloadFolder();
+                // The screen can be a new one that does not show the folder row (turned while the picker was open).
                 Toast.makeText(this, text("Новые треки сохраняются в «" + DownloadIndex.label() + "»",
                         "New tracks are saved to " + DownloadIndex.label()), Toast.LENGTH_LONG).show();
+                if (downloadFolderDescription != null) showDownloadFolder();
             });
         });
     }
@@ -2420,8 +2432,19 @@ public final class ReVancedSettingsActivity extends Activity {
                 if (row != null && android.provider.MediaStore.AUTHORITY.equals(row.getAuthority())) uris.add(row);
             }
             int done = deleted;
+            // A file in a folder that cannot be reached is not "left by an earlier install": it is told apart.
+            DownloadIndex.Lost lost = DownloadIndex.lost(this);
+            int unreachable = lost.countIn(keptIds);
             Utils.runOnMainThread(() -> {
                 Toast.makeText(this, text("Удалено: " + tracksText(done), "Deleted: " + done), Toast.LENGTH_SHORT).show();
+                if (unreachable > 0) {
+                    Toast.makeText(this, text("Не удалось удалить треков: " + unreachable + ". Папка «" + lost.places
+                                    + "» недоступна: верните карту или забудьте эти треки в строке «Треки в недоступной "
+                                    + "папке» ниже.",
+                            "Could not delete " + unreachable + (unreachable == 1 ? " track" : " tracks") + ": the folder "
+                                    + lost.places + " is not available. Put the card back, or forget these tracks in the "
+                                    + "row \"Tracks in an unavailable folder\" below."), Toast.LENGTH_LONG).show();
+                }
                 boolean asked = false;
                 if (!uris.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
                     try {
@@ -2434,8 +2457,8 @@ public final class ReVancedSettingsActivity extends Activity {
                         Logger.printException(() -> "Could not ask to delete the old downloads", ex);
                     }
                 }
-                if (!asked && !keptIds.isEmpty()) {
-                    int remaining = keptIds.size();
+                if (!asked && keptIds.size() > unreachable) {
+                    int remaining = keptIds.size() - unreachable;
                     Toast.makeText(this, text("Не удалось удалить файлов: " + remaining
                                     + ". Разрешите доступ к музыке или удалите их в файловом менеджере.",
                             "Could not delete " + remaining + (remaining == 1 ? " file" : " files")
@@ -2444,6 +2467,7 @@ public final class ReVancedSettingsActivity extends Activity {
                 }
                 countDownloads();
                 countDuplicates();
+                countLost();
             });
         });
     }
@@ -2452,7 +2476,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private void findDownloads() {
         Toast.makeText(this, text("Ищу…", "Looking…"), Toast.LENGTH_SHORT).show();
         Utils.runOnBackgroundThread(() -> {
-            int found = DownloadIndex.adopt(this);
+            int found = DownloadIndex.adoptManually(this);
             boolean granted = app.revanced.extension.soundcloud.download.MusicAccess.isGranted(this);
             Utils.runOnMainThread(() -> {
                 if (found > 0) {
@@ -2491,6 +2515,59 @@ public final class ReVancedSettingsActivity extends Activity {
                                     + "скачивания одних и тех же треков снова и снова. Сами треки остаются.",
                             "Files: " + duplicates.files + ", " + size + ". Repeated copies of tracks that are already "
                                     + "downloaded, left by downloading the same tracks again and again. The tracks stay.")));
+        });
+    }
+
+    private void countLost() {
+        if (lostDescription == null) return;
+        lostDescription.setText(text("Считаю…", "Counting…"));
+        inBackground(() -> {
+            DownloadIndex.Lost lost = DownloadIndex.lost(this);
+            Utils.runOnMainThread(() -> lostDescription.setText(lost.tracks == 0
+                    ? text("Таких треков нет: все папки скачанных треков доступны.",
+                    "No such tracks: every folder of downloaded tracks is available.")
+                    : text("Треков: " + lost.tracks + " в «" + lost.places + "». Папка недоступна: карта извлечена, папка "
+                                    + "удалена или доступ отозван. Пока она не вернётся, эти треки без интернета не играют. "
+                                    + "Если папки больше нет, нажмите, чтобы забыть эти треки.",
+                            "Tracks: " + lost.tracks + " in " + lost.places + ". The folder is not available: the card is "
+                                    + "out, the folder is gone or its access was taken back. These tracks do not play without "
+                                    + "a connection until it is back. If the folder is gone for good, tap to forget these "
+                                    + "tracks.")));
+        });
+    }
+
+    private void confirmForgetLost() {
+        Utils.runOnBackgroundThread(() -> {
+            DownloadIndex.Lost lost = DownloadIndex.lost(this);
+            if (lost.tracks == 0) {
+                Utils.runOnMainThread(() -> Toast.makeText(this, text("Таких треков нет", "There are no such tracks"),
+                        Toast.LENGTH_SHORT).show());
+                return;
+            }
+            Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                    .setTitle(text("Забыть треки из недоступной папки?", "Forget the tracks of an unavailable folder?"))
+                    .setMessage(text("Arsound перестанет считать скачанными " + tracksText(lost.tracks) + " из «"
+                                    + lost.places + "». Файлы остаются в папке, ничего не удаляется. Если карта ещё вернётся, "
+                                    + "лучше подождать: тогда треки заиграют сами. Любой из этих треков можно скачать заново.",
+                            "Arsound stops counting " + lost.tracks + (lost.tracks == 1 ? " track" : " tracks") + " in "
+                                    + lost.places + " as downloaded. The files stay in the folder, nothing is deleted. If the "
+                                    + "card may still come back, better wait: the tracks then play again by themselves. Any "
+                                    + "of these tracks can be downloaded again."))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(text("Забыть", "Forget"), (dialog, which) -> forgetLost(lost))
+                    .show());
+        });
+    }
+
+    private void forgetLost(DownloadIndex.Lost lost) {
+        Utils.runOnBackgroundThread(() -> {
+            int forgotten = DownloadIndex.forgetLost(lost);
+            Utils.runOnMainThread(() -> {
+                Toast.makeText(this, text("Забыто треков: " + forgotten, "Tracks forgotten: " + forgotten),
+                        Toast.LENGTH_SHORT).show();
+                if (downloadsDescription != null) countDownloads();
+                countLost();
+            });
         });
     }
 

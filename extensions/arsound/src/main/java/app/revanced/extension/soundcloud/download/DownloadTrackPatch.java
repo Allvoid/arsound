@@ -57,6 +57,12 @@ public final class DownloadTrackPatch {
     /** The location and the media store row of the earlier file, kept next to its name. */
     private static final String TRACK_REPLACES_DIR_PREFIX = "track_replaces_dir_";
     private static final String TRACK_REPLACES_URI_PREFIX = "track_replaces_uri_";
+    private static final String TRACK_REPLACES_READ_PREFIX = "track_replaces_read_";
+    /**
+     * Tracks the user deleted, whose copies may still be among the files of the folder: a look for files the app has
+     * no record of leaves them alone, see {@link DownloadIndex#adopt}.
+     */
+    private static final String DELETED_TRACKS = "adopt_skip";
     /** The title and artist of a track whose file is still downloading, for tagging it in the media store when complete. */
     private static final String TRACK_TITLE_PREFIX = "track_title_";
     private static final String TRACK_ARTIST_PREFIX = "track_artist_";
@@ -241,8 +247,15 @@ public final class DownloadTrackPatch {
                     Context appContext = context.getApplicationContext();
                     Utils.runOnBackgroundThread(() -> {
                         boolean deleted = deleteDownload(appContext, trackId);
+                        // A file in a folder that is gone (a card taken out) is not "left by an earlier install".
+                        String folder = deleted ? null : DownloadIndex.unreachableFolder(appContext, trackId);
                         showToast(appContext, deleted
                                 ? text("Файл удалён", "The file is deleted")
+                                : folder != null
+                                ? text("Папка «" + folder + "» недоступна. Верните карту или забудьте такие треки в настройках, "
+                                        + "в разделе «Память».",
+                                "The folder " + folder + " is not available. Put the card back, or forget such tracks in the "
+                                        + "settings, in Storage.")
                                 : text("Не удалось удалить файл", "Could not delete the file"));
                         DownloadProgress.onDownloadsDeleted();
                     });
@@ -461,8 +474,6 @@ public final class DownloadTrackPatch {
                     rememberDownload(trackId, saved, -1, null);
                     // Downloaded again under another name: the new file is complete, so the earlier one goes.
                     if (previous != null && !previous.sameFileAs(saved)) DownloadIndex.delete(context, previous);
-                    // Listed before the lists are told, so they do not find the file missing.
-                    DownloadIndex.refreshNow();
                     if (notify) {
                         showToast(context, text("Трек сохранён: ", "Saved to ") + saved.location().label());
                     }
@@ -925,6 +936,8 @@ public final class DownloadTrackPatch {
             SharedPreferences.Editor editor = preferences.edit()
                     .putStringSet(DOWNLOADED_TRACKS, tracks);
             putFileRef(editor, trackId, file);
+            // Downloaded again after it was deleted: the track has a file of its own once more.
+            markDeleted(editor, trackId, false);
             if (job >= 0) editor.putLong(TRACK_JOB_PREFIX + trackId, job);
             else editor.remove(TRACK_JOB_PREFIX + trackId);
             if (job >= 0 && previous != null && !previous.sameFileAs(file)) {
@@ -932,6 +945,8 @@ public final class DownloadTrackPatch {
                         .putString(TRACK_REPLACES_DIR_PREFIX + trackId, previous.locationId);
                 if (previous.uri != null) editor.putString(TRACK_REPLACES_URI_PREFIX + trackId, previous.uri);
                 else editor.remove(TRACK_REPLACES_URI_PREFIX + trackId);
+                if (previous.readUri != null) editor.putString(TRACK_REPLACES_READ_PREFIX + trackId, previous.readUri);
+                else editor.remove(TRACK_REPLACES_READ_PREFIX + trackId);
             } else {
                 removeReplaced(editor, trackId);
             }
@@ -944,12 +959,27 @@ public final class DownloadTrackPatch {
                 .putString(DownloadIndex.TRACK_DIR_PREFIX + trackId, file.locationId);
         if (file.uri != null) editor.putString(DownloadIndex.TRACK_URI_PREFIX + trackId, file.uri);
         else editor.remove(DownloadIndex.TRACK_URI_PREFIX + trackId);
+        if (file.readUri != null) editor.putString(DownloadIndex.TRACK_READ_PREFIX + trackId, file.readUri);
+        else editor.remove(DownloadIndex.TRACK_READ_PREFIX + trackId);
     }
 
     private static void removeReplaced(SharedPreferences.Editor editor, String trackId) {
         editor.remove(TRACK_REPLACES_PREFIX + trackId)
                 .remove(TRACK_REPLACES_DIR_PREFIX + trackId)
-                .remove(TRACK_REPLACES_URI_PREFIX + trackId);
+                .remove(TRACK_REPLACES_URI_PREFIX + trackId)
+                .remove(TRACK_REPLACES_READ_PREFIX + trackId);
+    }
+
+    /** The tracks the user deleted, whose leftover copies are not to be taken over again. */
+    static Set<String> deletedTrackIds() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null ? new HashSet<>() : new HashSet<>(preferences.getStringSet(DELETED_TRACKS, new HashSet<>()));
+    }
+
+    /** Writes down in the editor that a track was deleted by the user, or that it has a file again. */
+    private static void markDeleted(SharedPreferences.Editor editor, String trackId, boolean deleted) {
+        Set<String> ids = deletedTrackIds();
+        if (deleted ? ids.add(trackId) : ids.remove(trackId)) editor.putStringSet(DELETED_TRACKS, ids);
     }
 
     /**
@@ -961,15 +991,17 @@ public final class DownloadTrackPatch {
         if (preferences == null) return;
         synchronized (DOWNLOADS_LOCK) {
             Set<String> tracks = new HashSet<>(getDownloadedTracks());
+            Set<String> deleted = deletedTrackIds();
             SharedPreferences.Editor editor = preferences.edit();
             for (Map.Entry<String, DownloadLocation.Row> entry : files.entrySet()) {
                 DownloadLocation.Row row = entry.getValue();
                 tracks.add(entry.getKey());
+                deleted.remove(entry.getKey());
                 putFileRef(editor, entry.getKey(), new DownloadIndex.Ref(row.locationId, row.name, row.uri.toString()));
                 editor.remove(TRACK_JOB_PREFIX + entry.getKey());
                 removeReplaced(editor, entry.getKey());
             }
-            editor.putStringSet(DOWNLOADED_TRACKS, tracks).apply();
+            editor.putStringSet(DOWNLOADED_TRACKS, tracks).putStringSet(DELETED_TRACKS, deleted).apply();
         }
     }
 
@@ -984,6 +1016,26 @@ public final class DownloadTrackPatch {
         }
     }
 
+    /**
+     * Remembers the download manager's own address of a file it wrote. Since Android 10 the row the media store makes of
+     * such a file may not open for this app, while the address of the download manager always does.
+     */
+    private static void recordManagerUri(DownloadManager manager, String trackId, String fileName, long job) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+        try {
+            Uri address = manager.getUriForDownloadedFile(job);
+            if (address == null) return;
+            synchronized (DOWNLOADS_LOCK) {
+                // The track may have been downloaded again or deleted since the job ended.
+                if (!fileName.equals(preferences.getString(TRACK_FILE_PREFIX + trackId, null))) return;
+                preferences.edit().putString(DownloadIndex.TRACK_READ_PREFIX + trackId, address.toString()).apply();
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not get the address of the download of " + trackId + ": " + ex);
+        }
+    }
+
     /** The file kept for a track, as recorded; whether it is there is {@link DownloadIndex}'s to say. Null if none. */
     static DownloadIndex.Ref fileRefOf(String trackId) {
         SharedPreferences preferences = getPreferences();
@@ -991,7 +1043,8 @@ public final class DownloadTrackPatch {
         String name = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
         if (name == null) return null;
         return new DownloadIndex.Ref(preferences.getString(DownloadIndex.TRACK_DIR_PREFIX + trackId, DownloadLocation.DEFAULT.id()),
-                name, preferences.getString(DownloadIndex.TRACK_URI_PREFIX + trackId, null));
+                name, preferences.getString(DownloadIndex.TRACK_URI_PREFIX + trackId, null),
+                preferences.getString(DownloadIndex.TRACK_READ_PREFIX + trackId, null));
     }
 
     /** The earlier file of a track downloaded again, which goes once the new file is complete; null if none. */
@@ -1001,7 +1054,8 @@ public final class DownloadTrackPatch {
         String name = preferences.getString(TRACK_REPLACES_PREFIX + trackId, null);
         if (name == null) return null;
         return new DownloadIndex.Ref(preferences.getString(TRACK_REPLACES_DIR_PREFIX + trackId, DownloadLocation.DEFAULT.id()),
-                name, preferences.getString(TRACK_REPLACES_URI_PREFIX + trackId, null));
+                name, preferences.getString(TRACK_REPLACES_URI_PREFIX + trackId, null),
+                preferences.getString(TRACK_REPLACES_READ_PREFIX + trackId, null));
     }
 
     /** The location of every track's file that was recorded. */
@@ -1015,6 +1069,36 @@ public final class DownloadTrackPatch {
             }
         }
         return ids;
+    }
+
+    /**
+     * The names of the files the tracks keep in a location: the file of a track and the one it will replace. Of a folder
+     * of the user only these (and the files named by id) are of interest, see {@link DownloadLocation#holdsOtherFiles}.
+     */
+    static Set<String> recordedNames(String locationId) {
+        Set<String> names = new HashSet<>();
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return names;
+        Map<String, ?> all = preferences.getAll();
+        for (Map.Entry<String, ?> entry : all.entrySet()) {
+            if (!(entry.getValue() instanceof String)) continue;
+            String key = entry.getKey();
+            String trackId;
+            String dirKey;
+            if (key.startsWith(TRACK_FILE_PREFIX)) {
+                trackId = key.substring(TRACK_FILE_PREFIX.length());
+                dirKey = DownloadIndex.TRACK_DIR_PREFIX + trackId;
+            } else if (key.startsWith(TRACK_REPLACES_PREFIX) && key.substring(TRACK_REPLACES_PREFIX.length()).matches("\\d+")) {
+                // The other keys of the earlier file ("track_replaces_dir_ID") start the same way.
+                trackId = key.substring(TRACK_REPLACES_PREFIX.length());
+                dirKey = TRACK_REPLACES_DIR_PREFIX + trackId;
+            } else {
+                continue;
+            }
+            Object dir = all.get(dirKey);
+            if (locationId.equals(dir instanceof String ? dir : DownloadLocation.DEFAULT.id())) names.add((String) entry.getValue());
+        }
+        return names;
     }
 
     /**
@@ -1077,7 +1161,8 @@ public final class DownloadTrackPatch {
                     editor.putStringSet(DOWNLOADED_TRACKS, tracks)
                             .remove(TRACK_FILE_PREFIX + trackId)
                             .remove(DownloadIndex.TRACK_DIR_PREFIX + trackId)
-                            .remove(DownloadIndex.TRACK_URI_PREFIX + trackId);
+                            .remove(DownloadIndex.TRACK_URI_PREFIX + trackId)
+                            .remove(DownloadIndex.TRACK_READ_PREFIX + trackId);
                 }
             }
             editor.apply();
@@ -1087,6 +1172,8 @@ public final class DownloadTrackPatch {
             Utils.runOnBackgroundThread(() -> {
                 if (replaced != null) DownloadIndex.delete(context, replaced);
                 if (completed == null) return;
+                // The download manager's own address of the file is the one that opens for the app that asked for it.
+                recordManagerUri(manager, trackId, completed.name, job);
                 // The row of the file is made by a scan that the download manager asks for when it is done. It is
                 // the address the file is read and removed by where the path is closed to the app.
                 MediaTags.tagSavedFile(context, completed.location(), completed.name, title, artist, row -> {
@@ -1194,7 +1281,30 @@ public final class DownloadTrackPatch {
         // A file that stays (made before a reinstall, so not this app's own) keeps its record: it still plays,
         // and the settings can have it removed through the system.
         if (file != null && !DownloadIndex.delete(context, file)) return false;
+        // Downloading the same tracks again and again left copies of them; they must not become the track again.
+        DownloadIndex.deleteCopies(context, trackId);
 
+        dropRecord(preferences, trackId, true);
+        return true;
+    }
+
+    /**
+     * Forgets a downloaded track without touching its files: for a track in a folder that is gone for good, where the
+     * files cannot be removed and the record would stay for ever.
+     *
+     * @return True if the record was dropped.
+     */
+    static boolean forgetDownload(String trackId) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || trackId == null) return false;
+        dropRecord(preferences, trackId, false);
+        return true;
+    }
+
+    /**
+     * @param deleted True if the user deleted the track, so the copies of it that are left are not taken over again.
+     */
+    private static void dropRecord(SharedPreferences preferences, String trackId, boolean deleted) {
         synchronized (DOWNLOADS_LOCK) {
             Set<String> tracks = new HashSet<>(getDownloadedTracks());
             tracks.remove(trackId);
@@ -1203,13 +1313,14 @@ public final class DownloadTrackPatch {
                     .remove(TRACK_FILE_PREFIX + trackId)
                     .remove(DownloadIndex.TRACK_DIR_PREFIX + trackId)
                     .remove(DownloadIndex.TRACK_URI_PREFIX + trackId)
+                    .remove(DownloadIndex.TRACK_READ_PREFIX + trackId)
                     .remove(TRACK_JOB_PREFIX + trackId)
                     .remove(TRACK_TITLE_PREFIX + trackId)
                     .remove(TRACK_ARTIST_PREFIX + trackId);
             removeReplaced(editor, trackId);
+            if (deleted) markDeleted(editor, trackId, true);
             editor.apply();
         }
-        return true;
     }
 
     /** Whether the file of a finished download has any content. */

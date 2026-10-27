@@ -629,9 +629,11 @@ public final class HlsDownloader {
      */
     static DownloadIndex.Ref publish(Context context, DownloadLocation location, File packed, String fileName,
                                      String title, String artist) throws Exception {
-        DownloadLocation.Saved saved = location.save(context, packed, fileName, FileNames.mimeTypeOf(fileName));
+        DownloadLocation.Saved saved = location.save(context, packed, fileName, FileNames.mimeTypeOf(fileName), title, artist);
         if (saved.uri != null) MediaTags.tag(context, saved.uri, title, artist);
-        return new DownloadIndex.Ref(location.id(), saved.name, saved.uri == null ? null : saved.uri.toString());
+        DownloadIndex.Ref file = new DownloadIndex.Ref(location.id(), saved.name, saved.uri == null ? null : saved.uri.toString());
+        DownloadIndex.noteSaved(context, file, packed.length());
+        return file;
     }
 
     // endregion

@@ -49,9 +49,10 @@ public final class PlaylistPreloader {
                 Thread.sleep(START_DELAY_MS);
                 app.revanced.extension.soundcloud.download.UnplayedDownloads.runAtStart();
                 // Files of downloads the app lost the record of (a reinstall, another signature): no network needed,
-                // the track id is in their names.
+                // the track id is in their names. Only while the app knows of no download: the tracks the user deleted
+                // must not come back from copies at every start.
                 try {
-                    app.revanced.extension.soundcloud.download.DownloadIndex.adopt(Utils.getContext());
+                    app.revanced.extension.soundcloud.download.DownloadIndex.adoptAtStart(Utils.getContext());
                 } catch (Exception ex) {
                     Logger.printException(() -> "Could not take over the files of earlier downloads", ex);
                 }

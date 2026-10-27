@@ -9,7 +9,8 @@ import app.revanced.extension.shared.Logger;
 
 /**
  * Gives the rows of saved files in the media store the title and artist of the track, so music players list a
- * track by them instead of by the file name. The files themselves carry no tags.
+ * track by them instead of by the file name. The files themselves carry no tags. A file in a folder the user picked has
+ * no such row, and gets its tags written into the file by {@link FileTags}.
  * <p>
  * Everything here is best effort: a failure is logged, and the file stays saved and playable.
  */
@@ -24,7 +25,7 @@ final class MediaTags {
      * @return True if a row was updated.
      */
     static boolean tag(Context context, Uri row, String title, String artist) {
-        // A file in another kind of location (a document of a folder picked by the user) has no tags to set.
+        // A file in another kind of location (a document of a folder picked by the user) has no row to tag.
         if (!MediaStore.AUTHORITY.equals(row.getAuthority())) return false;
         ContentValues values = new ContentValues();
         if (title != null && !title.isEmpty()) values.put(MediaStore.Audio.Media.TITLE, title);

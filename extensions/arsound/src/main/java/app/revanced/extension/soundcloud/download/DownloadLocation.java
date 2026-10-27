@@ -86,6 +86,27 @@ abstract class DownloadLocation {
         void onRow(Uri row);
     }
 
+    /**
+     * A new file that is written as its bytes arrive, so a big track is not staged in the cache of the phone first:
+     * the room of the phone is often the very reason a folder on a card is picked.
+     */
+    interface Writing {
+        /** Where the bytes go. */
+        OutputStream stream();
+
+        /** Starts the file over, for a server that sent the whole file again instead of the rest; returns the new stream. */
+        OutputStream restart() throws IOException;
+
+        /** How many bytes the storage under the file has free, or -1 if it cannot be told. */
+        long freeBytes();
+
+        /** Closes the file and lists it. */
+        Saved finish() throws IOException;
+
+        /** Gives the file up: the download was cancelled or failed, and a half written file must not stay. */
+        void abort();
+    }
+
     /** Where new downloads go as the user set it, whether or not it can be used right now. */
     static DownloadLocation current() {
         String chosen = Settings.getString(SETTING, null);
@@ -159,8 +180,37 @@ abstract class DownloadLocation {
      * Copies a finished file into the location.
      *
      * @param mimeType The type has to match the extension, otherwise the media store appends an extension of its own.
+     * @param title    The title and artist of the track. A location whose files have no row to tag writes them into the
+     *                 file itself, see {@link FileTags}; the others ignore them, the row is tagged by {@link MediaTags}.
      */
-    abstract Saved save(Context context, File source, String fileName, String mimeType) throws IOException;
+    abstract Saved save(Context context, File source, String fileName, String mimeType, String title, String artist)
+            throws IOException;
+
+    /**
+     * Opens a new file to write into while it downloads. Every location the download manager cannot write must offer
+     * this, as the app then fetches the file itself.
+     */
+    Writing startFile(Context context, String fileName, String mimeType) throws IOException {
+        throw new UnsupportedOperationException(id() + " is written by the download manager");
+    }
+
+    /**
+     * Whether the location is a folder of the user, with files of their own among those of the app. Of what it lists,
+     * only the files the app knows by name are kept: the rest has nothing to do with downloads, and a folder of thousands
+     * of files would otherwise fill the listing of the app.
+     */
+    boolean holdsOtherFiles() {
+        return false;
+    }
+
+    /** Whether an error is the storage running out of room; the message differs between systems. */
+    static boolean isFull(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            String message = String.valueOf(cause.getMessage());
+            if (message.contains("ENOSPC") || message.contains("No space left")) return true;
+        }
+        return false;
+    }
 
     /**
      * The files in the location that the app can see. Reads the media store: call off the main thread.
@@ -171,6 +221,15 @@ abstract class DownloadLocation {
 
     /** The row of the file with this name, asked of the system now, or null if it lists none to this app. */
     abstract Uri findRow(Context context, String fileName);
+
+    /**
+     * The finished file with this name as the system lists it now, found with one cheap question, or null if it lists
+     * none to this app or the location cannot be asked for a single name (a picked folder is listed as a whole).
+     * Call off the main thread.
+     */
+    Row lookUp(Context context, String fileName) {
+        return null;
+    }
 
     /** Makes the system list a file that was written outside of it (by the download manager), and reports its row. */
     abstract void scan(Context context, String fileName, RowListener listener);
@@ -277,8 +336,14 @@ abstract class DownloadLocation {
         }
 
         @Override
-        Saved save(Context context, File source, String fileName, String mimeType) throws IOException {
+        Saved save(Context context, File source, String fileName, String mimeType, String title, String artist)
+                throws IOException {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                // Before Android 10 a file is written by path, which needs the permission to write to the storage.
+                if (context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    throw new IOException("No permission to write to " + label());
+                }
                 File target = file(fileName);
                 File folder = target.getParentFile();
                 if (target.exists() && !target.delete()) Logger.printInfo(() -> "Could not replace " + target);
@@ -329,48 +394,74 @@ abstract class DownloadLocation {
             }
         }
 
+        /** What a row is asked for: its address, name, size, time and, since Android 10, the app that made it. */
+        private static String[] columns() {
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    ? new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
+                    MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED,
+                    MediaStore.MediaColumns.OWNER_PACKAGE_NAME}
+                    : new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
+                    MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED};
+        }
+
+        private Row rowOf(Cursor cursor, String name) {
+            // The modification time is in seconds.
+            return new Row(id(), name, ContentUris.withAppendedId(collection(), cursor.getLong(0)), cursor.getLong(2),
+                    cursor.getLong(3) * 1000L, cursor.getColumnCount() > 4 ? cursor.getString(4) : null);
+        }
+
         @Override
         List<Row> list(Context context) {
             List<Row> rows = new ArrayList<>();
             // Before Android 10 there is no folder column, and the files are found by their path instead.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return rows;
-            Uri collection = collection();
             // The media store keeps the folder with a trailing slash; both forms are asked to be safe.
             String selection = "(" + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR "
                     + MediaStore.MediaColumns.RELATIVE_PATH + " = ?) AND " + MediaStore.MediaColumns.IS_PENDING + " = 0";
             String[] arguments = {id(), directory + "/" + subFolder};
-            try (Cursor cursor = context.getContentResolver().query(collection, new String[]{
-                    MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE,
-                    MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.OWNER_PACKAGE_NAME
-            }, selection, arguments, null)) {
-                while (cursor != null && cursor.moveToNext()) {
+            try (Cursor cursor = context.getContentResolver().query(collection(), columns(), selection, arguments, null)) {
+                // No cursor: the media store could not be asked.
+                if (cursor == null) return null;
+                while (cursor.moveToNext()) {
                     String name = cursor.getString(1);
-                    if (name == null) continue;
-                    // The modification time is in seconds.
-                    rows.add(new Row(id(), name, ContentUris.withAppendedId(collection, cursor.getLong(0)),
-                            cursor.getLong(2), cursor.getLong(3) * 1000L, cursor.getString(4)));
+                    if (name != null) rows.add(rowOf(cursor, name));
                 }
+            } catch (Exception ex) {
+                // One failed listing must not leave the app without any: the other locations are still listed.
+                Logger.printInfo(() -> "Could not list " + id() + " in the media store: " + ex);
+                return null;
             }
             return rows;
         }
 
         @Override
         Uri findRow(Context context, String fileName) {
-            Uri collection = collection();
+            Row row = query(context, fileName, false);
+            return row == null ? null : row.uri;
+        }
+
+        @Override
+        Row lookUp(Context context, String fileName) {
+            return query(context, fileName, true);
+        }
+
+        /** @param finished True to leave out a file that is still being written. */
+        private Row query(Context context, String fileName, boolean finished) {
             String selection;
             String[] arguments;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND ("
-                        + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR " + MediaStore.MediaColumns.RELATIVE_PATH + " = ?)";
+                        + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR " + MediaStore.MediaColumns.RELATIVE_PATH + " = ?)"
+                        + (finished ? " AND " + MediaStore.MediaColumns.IS_PENDING + " = 0" : "");
                 arguments = new String[]{fileName, id(), directory + "/" + subFolder};
             } else {
                 selection = MediaStore.MediaColumns.DATA + " = ?";
                 arguments = new String[]{file(fileName).getPath()};
             }
-            try (Cursor cursor = context.getContentResolver().query(collection,
-                    new String[]{MediaStore.MediaColumns._ID}, selection, arguments, null)) {
+            try (Cursor cursor = context.getContentResolver().query(collection(), columns(), selection, arguments, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
-                    return ContentUris.withAppendedId(collection, cursor.getLong(0));
+                    String name = cursor.getString(1);
+                    return rowOf(cursor, name == null ? fileName : name);
                 }
             } catch (Exception ex) {
                 Logger.printInfo(() -> "Could not look up " + fileName + " in the media store: " + ex);

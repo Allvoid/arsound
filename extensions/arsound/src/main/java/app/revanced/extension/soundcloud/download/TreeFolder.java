@@ -12,8 +12,11 @@ import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
+import android.system.Os;
+import android.system.StructStatVfs;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -32,6 +35,9 @@ import app.revanced.extension.shared.Utils;
  * (see {@link ProgressiveDownloader} and {@link HlsDownloader}) and then copied in. A file has no path the app may
  * use: it is read, listed and removed by the address of its document, and the player is given that address.
  * <p>
+ * A file in a picked folder has no row in the media store that the app may tag, so the title and artist of a track are
+ * written into the file itself while it is copied in ({@link FileTags}).
+ * <p>
  * The access is kept by the system until the app lets it go ({@link DownloadFolder}), and it is lost when the folder
  * is removed, the card is taken out or the user revokes it. The location then stays known, so its tracks are not
  * forgotten, but {@link #isAvailable} says no and new downloads go to the default folder.
@@ -48,9 +54,21 @@ final class TreeFolder extends DownloadLocation {
     /** How long the answer of {@link #isAvailable} stays good: a playlist asks for every track it starts. */
     private static final long AVAILABLE_CHECK_MS = 5_000;
     private static final Map<String, String> LABELS = new ConcurrentHashMap<>();
-    private static volatile String checkedId;
-    private static volatile long checkedAt;
-    private static volatile boolean checkedAvailable;
+
+    /** The last answer of {@link #isAvailable}, kept as one value so that a reader never sees half of a newer one. */
+    private static final class Checked {
+        final String id;
+        final long at;
+        final boolean available;
+
+        Checked(String id, long at, boolean available) {
+            this.id = id;
+            this.at = at;
+            this.available = available;
+        }
+    }
+
+    private static volatile Checked checked;
 
     private final Uri tree;
     private final String rootDocumentId;
@@ -95,14 +113,8 @@ final class TreeFolder extends DownloadLocation {
     String label() {
         String key = tree.toString();
         String label = LABELS.get(key);
-        if (label == null) {
-            label = describe();
-            LABELS.put(key, label);
-        }
-        return label;
-    }
+        if (label != null) return label;
 
-    private String describe() {
         // The document id of the folder is "volume:path": "primary:Music/Foo", "1A2B-3C4D:Podcasts".
         int colon = rootDocumentId.indexOf(':');
         String volume = colon > 0 ? rootDocumentId.substring(0, colon) : rootDocumentId;
@@ -113,13 +125,19 @@ final class TreeFolder extends DownloadLocation {
             path = DownloadTrackPatch.text("Музыка", "Music") + path.substring(music.length());
         }
         if ("primary".equals(volume)) {
-            return path.isEmpty() ? DownloadTrackPatch.text("Память телефона", "Phone storage") : path;
+            label = path.isEmpty() ? DownloadTrackPatch.text("Память телефона", "Phone storage") : path;
+            LABELS.put(key, label);
+            return label;
         }
         String storage = storageName(volume);
-        return path.isEmpty() ? storage : storage + "/" + path;
+        label = (storage != null ? storage : DownloadTrackPatch.text("SD-карта", "SD card") + " " + volume)
+                + (path.isEmpty() ? "" : "/" + path);
+        // A card the system does not name now (it is out) is named by its id; the real name is looked for again later.
+        if (storage != null) LABELS.put(key, label);
+        return label;
     }
 
-    /** The name the system gives to the storage with this id ("SD card"), or the id if it does not say. */
+    /** The name the system gives to the storage with this id ("SD card"), or null if it does not say. */
     private static String storageName(String volumeId) {
         try {
             Context context = Utils.getContext();
@@ -134,7 +152,7 @@ final class TreeFolder extends DownloadLocation {
         } catch (Exception ex) {
             Logger.printInfo(() -> "Could not name the storage " + volumeId + ": " + ex);
         }
-        return DownloadTrackPatch.text("SD-карта", "SD card") + " " + volumeId;
+        return null;
     }
 
     /** The address of the folder itself as a document. */
@@ -156,12 +174,16 @@ final class TreeFolder extends DownloadLocation {
     boolean isAvailable(Context context) {
         String id = id();
         long now = SystemClock.elapsedRealtime();
-        if (id.equals(checkedId) && now - checkedAt < AVAILABLE_CHECK_MS) return checkedAvailable;
+        Checked last = checked;
+        if (last != null && last.id.equals(id) && now - last.at < AVAILABLE_CHECK_MS) return last.available;
         boolean available = canWrite(context);
-        checkedAvailable = available;
-        checkedAt = now;
-        checkedId = id;
+        checked = new Checked(id, now, available);
         return available;
+    }
+
+    /** Forgets the last answer of {@link #isAvailable}: the access to a folder was just given or taken back. */
+    static void forgetChecks() {
+        checked = null;
     }
 
     /**
@@ -193,7 +215,41 @@ final class TreeFolder extends DownloadLocation {
     }
 
     @Override
-    Saved save(Context context, File source, String fileName, String mimeType) throws IOException {
+    boolean holdsOtherFiles() {
+        return true;
+    }
+
+    @Override
+    Saved save(Context context, File source, String fileName, String mimeType, String title, String artist)
+            throws IOException {
+        // The tags go into the bytes that are copied: the file has no row to tag. A file whose layout is not
+        // understood, or that cannot be read for planning, is copied as it is.
+        FileTags.Tagged tagged = null;
+        try {
+            tagged = FileTags.plan(source, fileName, title, artist);
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not plan the tags of " + fileName + ": " + ex);
+        }
+        Writing writing = startFile(context, fileName, mimeType);
+        try {
+            if (tagged != null) {
+                try (OutputStream output = writing.stream()) {
+                    tagged.writeTo(output);
+                }
+            } else {
+                copy(source, writing.stream());
+            }
+            return writing.finish();
+        } catch (Exception ex) {
+            writing.abort();
+            if (isFull(ex)) throw new HlsDownloader.NoSpaceException("No room left in " + label());
+            if (ex instanceof IOException) throw (IOException) ex;
+            throw new IOException(ex);
+        }
+    }
+
+    @Override
+    Writing startFile(Context context, String fileName, String mimeType) throws IOException {
         ContentResolver resolver = context.getContentResolver();
         Uri created;
         try {
@@ -203,26 +259,88 @@ final class TreeFolder extends DownloadLocation {
             throw new IOException("The file could not be created in " + label() + ": " + ex, ex);
         }
         if (created == null) throw new IOException("The file could not be created in " + label());
-        try {
-            OutputStream output = resolver.openOutputStream(created, "w");
-            if (output == null) throw new IOException("The file could not be opened");
-            copy(source, output);
-        } catch (Exception ex) {
-            // Unlike the media store, a folder lists a file that is half written: it must not stay.
-            DocumentsContract.deleteDocument(resolver, created);
-            // A full card says only "ENOSPC" in a message that differs between systems.
-            if (String.valueOf(ex.getMessage()).contains("ENOSPC")) {
-                throw new HlsDownloader.NoSpaceException("No room left in " + label());
+        return new TreeFile(resolver, created, fileName);
+    }
+
+    /** A file of the folder that is being written. */
+    private final class TreeFile implements Writing {
+        private final ContentResolver resolver;
+        private final Uri document;
+        private final String requestedName;
+        private OutputStream output;
+
+        TreeFile(ContentResolver resolver, Uri document, String requestedName) throws IOException {
+            this.resolver = resolver;
+            this.document = document;
+            this.requestedName = requestedName;
+            try {
+                output = open("w");
+            } catch (IOException | RuntimeException ex) {
+                // Unlike the media store, a folder lists a file that is half written: it must not stay.
+                abort();
+                throw ex;
             }
-            if (ex instanceof IOException) throw (IOException) ex;
-            throw new IOException(ex);
         }
-        String saved = displayName(resolver, created);
-        if (saved != null && !saved.equals(fileName)) {
-            Logger.printInfo(() -> "Saved as " + saved + ": " + fileName + " was taken in " + label());
-            return new Saved(saved, created);
+
+        private OutputStream open(String mode) throws IOException {
+            OutputStream stream = resolver.openOutputStream(document, mode);
+            if (stream == null) throw new IOException("The file could not be opened");
+            return stream;
         }
-        return new Saved(fileName, created);
+
+        @Override
+        public OutputStream stream() {
+            return output;
+        }
+
+        @Override
+        public OutputStream restart() throws IOException {
+            closeQuietly();
+            output = open("wt");
+            return output;
+        }
+
+        @Override
+        public long freeBytes() {
+            try {
+                if (output instanceof FileOutputStream) {
+                    StructStatVfs stat = Os.fstatvfs(((FileOutputStream) output).getFD());
+                    return stat.f_bavail * stat.f_frsize;
+                }
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Could not ask for the free room in " + label() + ": " + ex);
+            }
+            return -1;
+        }
+
+        @Override
+        public Saved finish() throws IOException {
+            output.close();
+            String saved = displayName(resolver, document);
+            if (saved != null && !saved.equals(requestedName)) {
+                Logger.printInfo(() -> "Saved as " + saved + ": " + requestedName + " was taken in " + label());
+                return new Saved(saved, document);
+            }
+            return new Saved(requestedName, document);
+        }
+
+        @Override
+        public void abort() {
+            closeQuietly();
+            try {
+                DocumentsContract.deleteDocument(resolver, document);
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Could not remove the unfinished " + document + ": " + ex);
+            }
+        }
+
+        private void closeQuietly() {
+            try {
+                if (output != null) output.close();
+            } catch (IOException ignored) {
+                // Closing a stream that already failed says nothing new.
+            }
+        }
     }
 
     /** The name the provider gave the file, or null if it cannot be asked. */

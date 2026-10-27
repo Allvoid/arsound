@@ -361,6 +361,9 @@ public final class DownloadPlaylistPatch {
                 List<TrackInfo> downloadable = new ArrayList<>();
                 List<String> unavailableTitles = new ArrayList<>();
                 int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
+                // Without the listing of the files every track would count as not downloaded, as the paths of the
+                // files are closed to the app since Android 10.
+                DownloadIndex.awaitListing();
                 ProgressPill.onCheckStarted(ids.size());
 
                 // Tracks on the phone are counted at once; the rest wait for their file links below.
@@ -490,7 +493,8 @@ public final class DownloadPlaylistPatch {
                 : text("Треков в плейлисте: ", "Tracks in the playlist: ")).append(total + imported).append('\n');
         if (imported > 0) summary.append(text("Импортированы с телефона: ", "Imported from the phone: ")).append(imported).append('\n');
         // Worded so that "can be downloaded" is not read as "was downloaded": these numbers are counted before anything starts.
-        summary.append(text("Уже скачаны (лежат на телефоне): ", "Already downloaded (on the phone): ")).append(downloaded).append('\n');
+        summary.append(text("Уже скачаны (лежат на телефоне или на карте): ", "Already downloaded (on the phone or a card): "))
+                .append(downloaded).append('\n');
         if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
         summary.append(text("Ещё не скачаны, но доступны для скачивания: ", "Not downloaded yet, but available to download: "))
                 .append(downloadable.size()).append('\n');

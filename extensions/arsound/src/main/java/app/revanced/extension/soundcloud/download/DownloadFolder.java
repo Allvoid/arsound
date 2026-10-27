@@ -87,6 +87,8 @@ public final class DownloadFolder {
                     "The access to the folder could not be kept. Pick it again.");
         }
         TreeFolder folder = new TreeFolder(tree);
+        // The answer about a folder asked a moment ago may be the one from before the access was given.
+        TreeFolder.forgetChecks();
         // The default folder picked by hand is the default folder: it keeps the download manager and the tags.
         if (folder.isSameFolderAs(DownloadLocation.DEFAULT)) {
             reset(context);
@@ -106,6 +108,7 @@ public final class DownloadFolder {
 
     /** New tracks go to the default folder again. */
     public static void reset(Context context) {
+        TreeFolder.forgetChecks();
         Settings.putString(DownloadLocation.SETTING, null);
         Logger.printInfo(() -> "New downloads go to " + DownloadLocation.DEFAULT.id());
         changed(context);
