@@ -31,7 +31,11 @@ shift
 goto arguments
 :arguments_done
 
-if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot"
+rem Signing works only under this JDK: under others (Oracle 21.0.5, 18) revanced-cli fails with "Invalid password for keystore
+rem entry Arsound" although the password is right. So it is used even when JAVA_HOME already points somewhere else.
+set "SIGN_JDK=C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot"
+if exist "%SIGN_JDK%\bin\java.exe" set "JAVA_HOME=%SIGN_JDK%"
+if not defined JAVA_HOME set "JAVA_HOME=%SIGN_JDK%"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
 set "APK_IN=local\apk\soundcloud-2026.10.14-merged.apk"
 set "APK_OUT=local\out\arsound-2026.10.14"
@@ -47,19 +51,14 @@ if "%VARIANT%"=="china" (
   set "PACKAGE_ARGS=-e "Change package name" -O "Package name=com.kugou.viper""
 )
 set "APK_OUT=%APK_OUT%.apk"
-set "KEYSTORE=local\sc-revanced.keystore"
-set "KEYSTORE_ARGS="
-rem A keystore exported from ReVanced Manager lets the build update an app installed by Manager, keeping its data.
-if exist "local\manager.keystore" (
-  set "KEYSTORE=local\manager.keystore"
-  rem Its alias and key password, as shown in Manager under Import and export, are kept in local files next to it.
-  rem The keystore itself has no password.
-  set /p KEYSTORE_ALIAS=<"local\manager.keystore.alias"
-  set /p KEYSTORE_PASSWORD=<"local\manager.keystore.password"
+rem The Arsound signing key: a BKS keystore with the entry "Arsound" (certificate CN=Arsound). The keystore and the
+rem entry share one password, kept in a local file next to it. See BUILDING.md for how to create them.
+set "KEYSTORE=local\arsound.keystore"
+if not exist "%KEYSTORE%" (
+  echo Missing %KEYSTORE%. See BUILDING.md: the signing key.
+  exit /b 1
 )
-if exist "local\manager.keystore" (
-  set "KEYSTORE_ARGS=--keystore-entry-alias=%KEYSTORE_ALIAS% --keystore-entry-password=%KEYSTORE_PASSWORD%"
-)
+set /p KEYSTORE_PASSWORD=<"local\arsound.keystore.password"
 
 if not exist "%APK_IN%" (
   echo Missing %APK_IN%. See README: "Getting the SoundCloud APK".
@@ -87,7 +86,8 @@ rem The "Arsound: ..." groups include every patch of this project, with the opti
   -e "Arsound: без дубликатов" ^
   -e "Arsound: плеер" ^
   %PACKAGE_ARGS% ^
-  --keystore "%KEYSTORE%" %KEYSTORE_ARGS% -t local\out\tmp ^
+  --keystore "%KEYSTORE%" --keystore-password=%KEYSTORE_PASSWORD% ^
+  --keystore-entry-alias=Arsound --keystore-entry-password=%KEYSTORE_PASSWORD% --signer Arsound -t local\out\tmp ^
   -o "%APK_OUT%" "%APK_IN%" > local\out\patch.log 2>&1
 set "PATCH_EXIT=%errorlevel%"
 type local\out\patch.log

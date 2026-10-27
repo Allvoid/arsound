@@ -37,7 +37,7 @@ local/                            Локальные файлы, в Git не п�
 |---|---|
 | **Settings** | Пункт «Arsound» в настройках SoundCloud (Compose-строка `ActionListItemKt.a`), экран Arsound на обычных View с ресурсами SoundCloud, проверка обновлений через GitHub Releases. |
 | **Disable telemetry** | Отключение аналитики SoundCloud. |
-| **Download tracks** | Сначала авторский download (`/tracks/{id}/download`), затем поток `progressive` из `media.transcodings` через DownloadManager. HLS не сохраняется, Go/Go+ и preview отсекаются до запроса ссылки. Уже скачанные и скачивающиеся треки повторно не ставятся в очередь. |
+| **Download tracks** | Сначала авторский download (`/tracks/{id}/download`), затем `progressive` через DownloadManager или AES-HLS через внутреннюю сборку сегментов; при отсутствии подходящего потока выполняется поиск профиля веб-плеера. Go/Go+ и preview отсекаются до загрузки, потоки FairPlay/Widevine не экспортируются. Уже скачанные и скачивающиеся треки повторно не ставятся в очередь. |
 | **Offline first playlists** | Сохранённая копия плейлиста отдаётся сразу, синхронизация уходит в фон; фоновое сохранение метаданных всех плейлистов библиотеки (`SyncInitiator`) и копий их обложек файлами (`LocalCovers`, отдаются вместо ссылки в `Playlist.getArtworkImageUrl`). |
 | **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`): элемент воспроизведения собирается сразу в `PlaybackMediaProvider.j`, без ожидания `TrackRepository` (`SYNC_MISSING`), метаданные уведомления ждут не больше 2 с. Таймаут обложки уведомления, повтор при сбое потока. Разрешение `READ_MEDIA_AUDIO` для файлов, скачанных до переустановки. |
 | **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, значок статуса сети над плеером. |
@@ -47,13 +47,14 @@ local/                            Локальные файлы, в Git не п�
 | **Hide subscription offers** | Экран покупки Go/Go+, окна MoEngage, вкладка Upgrade, серверные блоки главной `UpsellPlaceholder` и `BannerAdPlaceholder`, кнопка «Get Pro» в шапке. |
 | **Change account type** | Свой тип аккаунта Android, чтобы мод работал рядом с оригиналом. |
 | **Custom app name**, **Arsound branding** | Название, иконки (и 93 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
-| **Change package name** | Патч ReVanced: пакет `com.soundcloud.android.revanced`. |
+| **Change package name** | Патч ReVanced: пакет `com.arsound.app` (до 0.9.3 включительно был `com.soundcloud.android.revanced`). |
 
 ## Что нужно для сборки
 
 - **Windows** (скрипт сборки — `.cmd`; на других системах команды те же, см. внутри скрипта).
-- **JDK 21**. Скрипт по умолчанию ищет Eclipse Temurin в `C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot`,
-  другой путь задаётся переменной `JAVA_HOME`.
+- **JDK 21**. Скрипт всегда берёт Eclipse Temurin из `C:\Program Files\Eclipse Adoptium\jdk-21.0.6.7-hotspot`, если он
+  установлен, даже когда `JAVA_HOME` указывает на другой JDK: под Oracle JDK (21.0.5, 18) подпись падает с
+  `Invalid password for keystore entry Arsound`, хотя пароль верный. Без Temurin берётся `JAVA_HOME`.
 - **Android SDK** (достаточно `platforms;android-34` и build-tools), путь в `ANDROID_HOME`.
 - **adb** и телефон с включённой отладкой по USB или эмулятор (см. «Эмулятор» ниже).
 - **GitHub CLI** (`gh`), авторизованный с правом `read:packages`. Gradle-плагин ReVanced лежит в GitHub Packages,
@@ -73,10 +74,8 @@ local/
   tools/revanced-cli-6.0.0-all.jar       ReVanced CLI
   tools/APKEditor-*.jar                  склейка split APK
   tools/apktool_*.jar, tools/jadx/       разбор APK
-  sc-revanced.keystore                   ключ подписи мода
-  manager.keystore                       (необязательно) ключ, экспортированный из ReVanced Manager;
-  manager.keystore.alias, .password      его псевдоним и пароль из Manager → Настройки → Импорт и экспорт.
-                                         Если он есть, сборка ставится поверх версии из Manager без потери данных
+  arsound.keystore                       ключ подписи мода: BKS, запись «Arsound», сертификат CN=Arsound
+  arsound.keystore.password              пароль ключа (один для хранилища и записи)
   lastfm.properties                      (необязательно) api_key=... — ключ Last.fm для плейлиста «Для вас»
                                          (last.fm/api/account/create). Без него плейлист не собирается.
                                          Вместо файла можно задать переменную ARSOUND_LASTFM_API_KEY
@@ -85,6 +84,18 @@ local/
 
 **Ключ подписи нельзя терять и нельзя публиковать.** Android ставит обновление только поверх приложения
 с той же подписью. Без ключа новую сборку не поставить поверх установленной — придётся удалять мод вместе с данными.
+
+Новый ключ создаётся один раз (keytool из JDK, BouncyCastle берётся из revanced-cli):
+
+```bash
+keytool -genkeypair -keystore local/arsound.keystore -storetype BKS \
+  -providerclass org.bouncycastle.jce.provider.BouncyCastleProvider \
+  -providerpath local/tools/revanced-cli-6.0.0-all.jar \
+  -alias Arsound -keyalg RSA -keysize 4096 -validity 36500 -dname "CN=Arsound" \
+  -storepass <пароль> -keypass <пароль>
+```
+
+Пароль запишите в `local/arsound.keystore.password` без перевода строки.
 
 Инструменты:
 [ReVanced CLI](https://github.com/ReVanced/revanced-cli/releases),

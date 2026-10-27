@@ -245,10 +245,7 @@ public final class DownloadPlaylistPatch {
         return downloaded;
     }
 
-    /** Liked tracks asked from the server at most: a bigger list is checked in its newest part. */
-    private static final int MAX_LIKES = 5000;
-
-    /** The ids of the liked tracks, newest first, from the server; null if it did not answer. */
+    /** The ids of all liked tracks, newest first, from the server; null if it did not answer. */
     private static List<String> likedTrackIds() throws Exception {
         String[] me = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
         if (me[1] == null) {
@@ -258,7 +255,7 @@ public final class DownloadPlaylistPatch {
         long userId = new JSONObject(me[1]).getLong("id");
         List<String> ids = new ArrayList<>();
         String url = "https://api-v2.soundcloud.com/users/" + userId + "/track_likes?limit=200&linked_partitioning=1";
-        while (url != null && ids.size() < MAX_LIKES) {
+        while (url != null) {
             String[] page = DownloadTrackPatch.apiGet(url);
             if (page[1] == null) {
                 if (!ids.isEmpty()) break;
@@ -390,7 +387,9 @@ public final class DownloadPlaylistPatch {
                         answered = array.length();
                         for (int i = 0; i < array.length(); i++) {
                             JSONObject track = array.getJSONObject(i);
-                            if (!track.optBoolean("streamable", true) || !isNotRestricted(track)) {
+                            // Metadata flags can be stale or overly broad. Resolve the actual stream for
+                            // every track and let the authorized stream endpoint decide availability.
+                            if (!track.optBoolean("streamable", true)) {
                                 checked[0]++;
                                 continue;
                             }
@@ -575,10 +574,4 @@ public final class DownloadPlaylistPatch {
         });
     }
 
-    private static boolean isNotRestricted(JSONObject track) {
-        String policy = track.optString("policy").toUpperCase(java.util.Locale.US);
-        String monetization = track.optString("monetization_model").toUpperCase(java.util.Locale.US);
-        return !policy.contains("SNIP") && !policy.contains("BLOCK") && !policy.contains("SUB")
-                && !monetization.contains("SUB") && !monetization.contains("GO_PLUS");
-    }
 }

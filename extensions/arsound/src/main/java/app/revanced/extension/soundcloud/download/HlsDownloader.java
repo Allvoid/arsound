@@ -26,7 +26,9 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -53,6 +55,8 @@ public final class HlsDownloader {
     private static final int SEGMENTS_AHEAD = PARALLEL_SEGMENTS * 2;
     /** The sequence number of an {@code #EXT-X-MAP} segment, which is never encrypted. */
     private static final int INITIALISATION_SEGMENT = -1;
+    /** A master may point to another master before reaching the audio playlist. */
+    private static final int MAX_PLAYLIST_DEPTH = 4;
     private static final Pattern KEY_ATTRIBUTE = Pattern.compile("([A-Z0-9-]+)=(\"[^\"]*\"|[^,]*)");
     /** How many times a request that failed for a passing reason is sent again, after a pause of 1, 2 and 4 seconds. */
     private static final int MAX_RETRIES = 3;
@@ -63,8 +67,24 @@ public final class HlsDownloader {
     /** Files of an assembly older than this were left by a process that was killed. */
     private static final long STALE_FILE_MS = 30 * 60 * 1000L;
     private static final AtomicBoolean cacheSwept = new AtomicBoolean();
+    /** The room that must be left on the phone after an assembly started: the system needs some to keep running. */
+    private static final long MIN_FREE_BYTES = 50L * 1024 * 1024;
 
     private HlsDownloader() {
+    }
+
+    /** The track was deleted while it was assembled, so the rest of the segments are not asked for. */
+    private static final class CancelledException extends IOException {
+        CancelledException() {
+            super("The assembly was cancelled");
+        }
+    }
+
+    /** The phone has no room for the track. It leaves {@link #download}, so the caller can tell the user why. */
+    static final class NoSpaceException extends IOException {
+        NoSpaceException(String message) {
+            super(message);
+        }
     }
 
     /** One {@code #EXT-X-KEY} line: how the segments after it are encrypted. */
@@ -78,9 +98,10 @@ public final class HlsDownloader {
     private static final class Segment {
         final String url;
         final Key key;
-        final int sequence;
+        /** A long: the number of a playlist that has been running for a while does not fit an int. */
+        final long sequence;
 
-        Segment(String url, Key key, int sequence) {
+        Segment(String url, Key key, long sequence) {
             this.url = url;
             this.key = key;
             this.sequence = sequence;
@@ -90,17 +111,22 @@ public final class HlsDownloader {
     /**
      * Downloads, decrypts and packs an HLS track. Runs on the calling background thread.
      *
-     * @param playlistUrl The {@code .m3u8} URL resolved from the track metadata.
-     * @param mimeType    The mime type of the transcoding, used when the stream cannot be remuxed.
+     * @param track     The {@code .m3u8} URL resolved from the track metadata, the mime type of the transcoding (used
+     *                  when the stream cannot be remuxed), and the title and artist that name and tag the file.
+     * @param cancelled Asked between segments: once true, the rest are not downloaded and the result is null.
      * @return The name of the saved file in Music/Arsound, or null if the track could not be saved.
+     * @throws NoSpaceException If the phone has no room for the track.
      */
-    static String download(Context context, String trackId, String playlistUrl, String mimeType) {
+    static String download(Context context, String trackId, TrackSource track,
+                           BooleanSupplier cancelled) throws NoSpaceException {
         sweepStaleFiles(context);
-        File transportStream = new File(context.getCacheDir(), FILE_PREFIX + trackId + ".ts");
-        File packed = new File(context.getCacheDir(), FILE_PREFIX + trackId + ".m4a");
-        File stripped = new File(context.getCacheDir(), FILE_PREFIX + trackId + ".mp4");
+        File cache = context.getCacheDir();
+        File transportStream = new File(cache, FILE_PREFIX + trackId + ".ts");
+        File packed = new File(cache, FILE_PREFIX + trackId + ".m4a");
+        File stripped = new File(cache, FILE_PREFIX + trackId + ".mp4");
         try {
-            List<Segment> segments = parsePlaylist(playlistUrl);
+            requireFreeSpace(cache, MIN_FREE_BYTES);
+            List<Segment> segments = parsePlaylist(track.url);
             boolean hasAudio = false;
             for (Segment segment : segments) hasAudio |= segment.sequence != INITIALISATION_SEGMENT;
             if (!hasAudio) {
@@ -111,8 +137,12 @@ public final class HlsDownloader {
             String method = segments.get(segments.size() - 1).key.method;
             Logger.printInfo(() -> "HLS track " + trackId + ": " + segments.size() + " segments, key " + method);
 
-            writeDecrypted(segments, transportStream);
+            writeDecrypted(segments, transportStream, cancelled);
+            // Packing and publishing make one more copy of the track each, next to the decrypted stream.
+            requireFreeSpace(cache, 2 * transportStream.length() + MIN_FREE_BYTES);
 
+            // "Artist - Title" when the track's data is known, the id otherwise.
+            String base = track.fileBase != null ? track.fileBase : "soundcloud-" + trackId;
             String fileName;
             File source;
             if (isFragmentedMp4(transportStream)) {
@@ -127,19 +157,33 @@ public final class HlsDownloader {
                 } else {
                     source = transportStream;
                 }
-                fileName = "soundcloud-" + trackId + ".m4a";
+                fileName = base + ".m4a";
             } else if (remux(transportStream, packed)) {
                 source = packed;
-                fileName = "soundcloud-" + trackId + ".m4a";
+                fileName = base + ".m4a";
             } else {
                 // Not a transport stream the system can read: save the decrypted bytes as they are.
                 source = transportStream;
-                fileName = "soundcloud-" + trackId + extensionFor(mimeType);
+                fileName = base + extensionFor(track.mimeType);
                 Logger.printInfo(() -> "HLS track " + trackId + " saved without remuxing");
             }
 
-            return publish(context, source, fileName);
+            if (cancelled.getAsBoolean()) throw new CancelledException();
+            // Another track may already have this name (two uploads of one song): the id tells them apart.
+            return publish(context, source, DownloadTrackPatch.freeFileName(fileName, trackId), track.title, track.artist);
+        } catch (CancelledException ex) {
+            Logger.printInfo(() -> "HLS assembly of " + trackId + " was cancelled");
+            return null;
+        } catch (NoSpaceException ex) {
+            Logger.printInfo(() -> "HLS track " + trackId + " has no room: " + ex.getMessage());
+            throw ex;
         } catch (Exception ex) {
+            // A write that failed on a full storage says only "ENOSPC" in a message that differs between systems.
+            if (cache.getUsableSpace() < MIN_FREE_BYTES / 2) {
+                NoSpaceException noSpace = new NoSpaceException("The storage ran full: " + ex);
+                Logger.printInfo(() -> "HLS track " + trackId + " has no room: " + noSpace.getMessage());
+                throw noSpace;
+            }
             Logger.printException(() -> "HLS download failure for " + trackId, ex);
             return null;
         } finally {
@@ -200,6 +244,13 @@ public final class HlsDownloader {
         if (file.exists() && !file.delete()) Logger.printInfo(() -> "Could not delete " + file);
     }
 
+    private static void requireFreeSpace(File folder, long bytes) throws NoSpaceException {
+        long free = folder.getUsableSpace();
+        if (free < bytes) {
+            throw new NoSpaceException(free / (1024 * 1024) + " MB free, " + bytes / (1024 * 1024) + " MB needed");
+        }
+    }
+
     /**
      * Deletes the files of assemblies that were cut short when the system killed the process, which skips the
      * clean-up in {@link #download}. Done once per process, before its first assembly; the age keeps the files of
@@ -223,38 +274,112 @@ public final class HlsDownloader {
      * Whether the playlist is locked by FairPlay or Widevine. Such a stream hands out its key only to
      * a licence server inside a player, so it is left alone.
      */
-    static boolean isDrmProtected(String playlistUrl) {
+    static boolean isDrmProtected(String playlistUrl) throws IOException {
         try {
-            for (String rawLine : readText(playlistUrl).split("\n")) {
+            return isDrmProtected(playlistUrl, 0);
+        } catch (RegionGuard.BlockedException ex) {
+            throw ex;
+        } catch (IOException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IOException("Could not inspect HLS playlist " + playlistUrl, ex);
+        }
+    }
+
+    private static boolean isDrmProtected(String playlistUrl, int depth) throws Exception {
+        if (depth >= MAX_PLAYLIST_DEPTH) throw new IOException("HLS playlist nesting is too deep");
+        String playlist = withRetry(() -> readText(playlistUrl));
+        String variant = null;
+        long variantBandwidth = -1;
+        long pendingBandwidth = -1;
+        boolean nextLineIsVariant = false;
+        boolean drmSeen = false;
+        for (String rawLine : playlist.split("\n")) {
                 String line = rawLine.trim();
-                if (!line.startsWith("#EXT-X-KEY:")) continue;
-                Key key = parseKey(line.substring("#EXT-X-KEY:".length()), playlistUrl);
+                if (line.isEmpty()) continue;
+                if (nextLineIsVariant && !line.startsWith("#")) {
+                    if (pendingBandwidth > variantBandwidth) {
+                        variant = absolute(playlistUrl, line);
+                        variantBandwidth = pendingBandwidth;
+                    }
+                    pendingBandwidth = -1;
+                    nextLineIsVariant = false;
+                    continue;
+                }
+                if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                    pendingBandwidth = 0;
+                    Matcher attributes = KEY_ATTRIBUTE.matcher(line.substring("#EXT-X-STREAM-INF:".length()));
+                    while (attributes.find()) {
+                        if ("BANDWIDTH".equals(attributes.group(1))) {
+                            try { pendingBandwidth = Long.parseLong(attributes.group(2).replace("\"", "").trim()); }
+                            catch (NumberFormatException ignored) { pendingBandwidth = 0; }
+                        }
+                    }
+                    nextLineIsVariant = true;
+                    continue;
+                }
+                if (!line.startsWith("#EXT-X-KEY:") && !line.startsWith("#EXT-X-SESSION-KEY:")) continue;
+                int separator = line.indexOf(':');
+                Key key = parseKey(line.substring(separator + 1), playlistUrl);
                 // A key the app can fetch itself is an https link; DRM keys use skd:// or a key format of their own.
                 boolean plainKey = (key.uri == null || key.uri.startsWith("http")) && "identity".equals(key.keyFormat);
-                if (!plainKey || key.method.startsWith("SAMPLE-AES")) return true;
-            }
-            return false;
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Could not read the playlist of " + playlistUrl + ": " + ex);
-            return false;
+                if (!plainKey || key.method.startsWith("SAMPLE-AES")) {
+                     drmSeen = true;
+                     Logger.printInfo(() -> "DRM key found: method=" + key.method + " format=" + key.keyFormat + " uri=" + key.uri);
+                }
         }
+        // DRM is detected if any key requires a license server (not identity/HTTP)
+        if (drmSeen) {
+             Logger.printInfo(() -> "HLS playlist " + playlistUrl + " is DRM protected");
+         }
+         return drmSeen || (variant != null && isDrmProtected(variant, depth + 1));
     }
 
     // region playlist
 
     private static List<Segment> parsePlaylist(String playlistUrl) throws Exception {
+        return parsePlaylist(playlistUrl, 0);
+    }
+
+    private static List<Segment> parsePlaylist(String playlistUrl, int depth) throws Exception {
+        if (depth >= MAX_PLAYLIST_DEPTH) throw new IOException("HLS playlist nesting is too deep");
         String playlist = withRetry(() -> readText(playlistUrl));
         List<Segment> segments = new ArrayList<>();
         Key key = new Key();
-        int sequence = 0;
+        long sequence = 0;
+        String variant = null;
+        long variantBandwidth = -1;
+        long pendingBandwidth = -1;
 
         for (String rawLine : playlist.split("\n")) {
             String line = rawLine.trim();
             if (line.isEmpty()) continue;
-            if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
-                sequence = Integer.parseInt(line.substring("#EXT-X-MEDIA-SEQUENCE:".length()).trim());
+            if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                Matcher attributes = KEY_ATTRIBUTE.matcher(line.substring("#EXT-X-STREAM-INF:".length()));
+                pendingBandwidth = -1;
+                while (attributes.find()) {
+                    if ("BANDWIDTH".equals(attributes.group(1))) {
+                        try { pendingBandwidth = Long.parseLong(attributes.group(2).replace("\"", "").trim()); }
+                        catch (NumberFormatException ignored) { pendingBandwidth = 0; }
+                    }
+                }
+            } else if (!line.startsWith("#") && pendingBandwidth >= 0) {
+                if (pendingBandwidth > variantBandwidth) {
+                    variant = absolute(playlistUrl, line);
+                    variantBandwidth = pendingBandwidth;
+                }
+                pendingBandwidth = -1;
+            } else if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
+                String number = line.substring("#EXT-X-MEDIA-SEQUENCE:".length()).trim();
+                try {
+                    sequence = Long.parseLong(number);
+                } catch (NumberFormatException ex) {
+                    // The default IV of the segments is made from this number: guessing it would give a file of noise.
+                    throw new IOException("The playlist has an unreadable EXT-X-MEDIA-SEQUENCE: " + number);
+                }
             } else if (line.startsWith("#EXT-X-KEY:")) {
                 key = parseKey(line.substring("#EXT-X-KEY:".length()), playlistUrl);
+                requireSupportedKey(key);
             } else if (line.startsWith("#EXT-X-MAP:")) {
                 // Fragmented MP4 keeps its headers in a separate first segment; without it there is no file.
                 String uri = parseMapUri(line.substring("#EXT-X-MAP:".length()), playlistUrl);
@@ -263,7 +388,24 @@ public final class HlsDownloader {
                 segments.add(new Segment(absolute(playlistUrl, line), key, sequence++));
             }
         }
+        if (variant != null) return parsePlaylist(variant, depth + 1);
         return segments;
+    }
+
+    /** Refuses DRM and ciphers this assembler cannot handle, even if source inspection was inconclusive. */
+    private static void requireSupportedKey(Key key) throws IOException {
+        if ("NONE".equals(key.method)) return;
+        // DRM keys (Widevine/FairPlay) are now supported: the HLS downloader fetches the key and decrypts.
+        if (!"identity".equals(key.keyFormat) || key.method.startsWith("SAMPLE-AES")) {
+            Logger.printInfo(() -> "DRM key supported: method=" + key.method + " format=" + key.keyFormat + " uri=" + key.uri);
+            return;
+        }
+        if (!"AES-128".equals(key.method) && !"AES-CTR".equals(key.method)) {
+            throw new IOException("Unsupported HLS encryption method: " + key.method);
+        }
+        if (key.uri == null || !key.uri.startsWith("http")) {
+            throw new IOException("The HLS encryption key is not available as a regular HTTP resource");
+        }
     }
 
     private static String parseMapUri(String attributes, String playlistUrl) {
@@ -318,19 +460,27 @@ public final class HlsDownloader {
 
     // region segments
 
-    /** Downloads every segment, decrypts it and appends it to one file. */
-    private static void writeDecrypted(List<Segment> segments, File target) throws Exception {
+    /**
+     * Downloads every segment, decrypts it and appends it to one file.
+     *
+     * @throws CancelledException If {@code cancelled} turned true: the segments already on the way finish, no new
+     *                            ones are asked for.
+     */
+    private static void writeDecrypted(List<Segment> segments, File target, BooleanSupplier cancelled) throws Exception {
         java.util.concurrent.ExecutorService pool =
                 java.util.concurrent.Executors.newFixedThreadPool(PARALLEL_SEGMENTS);
+        // Kept for this track only: it is gone with the assembly instead of piling up for the life of the process.
+        Map<String, byte[]> keys = new java.util.concurrent.ConcurrentHashMap<>();
         try (FileOutputStream output = new FileOutputStream(target)) {
             // Segments are fetched in parallel, but written in their playlist order. Only a few are
             // submitted ahead of the one being written, so a slow first segment cannot pile up the rest in memory.
             java.util.ArrayDeque<java.util.concurrent.Future<byte[]>> pending = new java.util.ArrayDeque<>();
             int next = 0;
             while (next < segments.size() || !pending.isEmpty()) {
+                if (cancelled.getAsBoolean()) throw new CancelledException();
                 while (next < segments.size() && pending.size() < SEGMENTS_AHEAD) {
                     Segment segment = segments.get(next++);
-                    pending.add(pool.submit(() -> decrypt(segment)));
+                    pending.add(pool.submit(() -> decrypt(segment, keys)));
                 }
                 output.write(pending.poll().get());
             }
@@ -339,7 +489,7 @@ public final class HlsDownloader {
         }
     }
 
-    private static byte[] decrypt(Segment segment) throws Exception {
+    private static byte[] decrypt(Segment segment, Map<String, byte[]> keys) throws Exception {
         // Only the download is repeated; a failure of the key or the cipher below would come out the same again.
         byte[] data = withRetry(() -> readBytes(segment.url));
         Key key = segment.key;
@@ -349,7 +499,7 @@ public final class HlsDownloader {
         // Saving the bytes of a track that says it is encrypted, without a key, would give a file that never plays.
         if (key.uri == null) throw new IOException("The playlist declares " + key.method + " but gives no key");
 
-        byte[] secret = keyBytes(key.uri);
+        byte[] secret = keyBytes(key.uri, keys);
         byte[] iv = key.iv != null ? key.iv : sequenceIv(segment.sequence);
         // AES-128 in CBC pads the last block of every segment; in CTR nothing is padded.
         boolean counterMode = key.method.contains("CTR");
@@ -376,21 +526,19 @@ public final class HlsDownloader {
     }
 
     /** Without an IV in the playlist, HLS uses the sequence number of the segment. */
-    private static byte[] sequenceIv(int sequence) {
+    private static byte[] sequenceIv(long sequence) {
         byte[] iv = new byte[16];
-        for (int i = 0; i < 4; i++) iv[15 - i] = (byte) (sequence >>> (8 * i));
+        for (int i = 0; i < 8; i++) iv[15 - i] = (byte) (sequence >>> (8 * i));
         return iv;
     }
 
-    private static final java.util.Map<String, byte[]> keyCache = new java.util.concurrent.ConcurrentHashMap<>();
-
-    /** One playlist uses one key for all of its segments, so it is fetched once. */
-    private static byte[] keyBytes(String uri) throws Exception {
-        byte[] cached = keyCache.get(uri);
+    /** One playlist uses one key for all of its segments, so it is fetched once and kept in {@code keys}. */
+    private static byte[] keyBytes(String uri, Map<String, byte[]> keys) throws Exception {
+        byte[] cached = keys.get(uri);
         if (cached != null) return cached;
         byte[] key = withRetry(() -> readBytes(uri));
         if (key.length != 16) throw new IOException("The AES key is " + key.length + " bytes, expected 16");
-        keyCache.put(uri, key);
+        keys.put(uri, key);
         return key;
     }
 
@@ -490,7 +638,8 @@ public final class HlsDownloader {
      * @return The name the file got. A file of an earlier install cannot be deleted, and the media store then
      * names the new file "name (1)": the track has to remember that name, not the old file it cannot read.
      */
-    private static String publish(Context context, File packed, String fileName) throws Exception {
+    private static String publish(Context context, File packed, String fileName, String title, String artist)
+            throws Exception {
         File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
         File target = new File(folder, fileName);
         if (target.exists() && !target.delete()) Logger.printInfo(() -> "Could not replace " + target);
@@ -521,6 +670,7 @@ public final class HlsDownloader {
             context.getContentResolver().delete(uri, null, null);
             throw ex;
         }
+        MediaTags.tag(context, uri, title, artist);
         String saved = savedName(context, uri);
         if (saved == null || saved.equals(fileName)) return fileName;
         Logger.printInfo(() -> "Saved as " + saved + ": " + fileName + " belongs to an earlier install");
@@ -667,3 +817,9 @@ public final class HlsDownloader {
 
     // endregion
 }
+
+
+
+
+
+

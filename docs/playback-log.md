@@ -5,7 +5,7 @@ On by default (Settings → Arsound → Developer → Playback log, a change app
 - SoundCloud logs every playback step through Timber. The release app plants no tree, so the lines are lost.
   `PlaybackTimeline` plants one at app start and writes playback lines, all warnings and errors,
   and Arsound's own log lines to a file.
-- One file per day: `Android/data/com.soundcloud.android.revanced/files/playback-log/playback-YYYY-MM-DD.txt`.
+- One file per day: `Android/data/com.arsound.app/files/playback-log/playback-YYYY-MM-DD.txt`.
   Files older than two days are deleted. A day is capped at 20 MB.
 - For every start the log has a summary line: `== START` or `== SLOW START` (1 second or more),
   time from the action (next, previous, a tapped track, auto next) to sound, split into
@@ -20,5 +20,5 @@ with the Arsound, SoundCloud and Android versions on top. The app shows the path
 Pull the logs with adb:
 
 ```
-adb pull /sdcard/Android/data/com.soundcloud.android.revanced/files/playback-log
+adb pull /sdcard/Android/data/com.arsound.app/files/playback-log
 ```

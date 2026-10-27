@@ -84,7 +84,7 @@ public final class ClientProfiles {
                         endpoint -> resolveStream(endpoint, clientId, authorization, userAgent));
                 if (source.isDownloadable()) {
                     Logger.printInfo(() -> "Profile search found a stream for " + trackId);
-                    return source;
+                    return source.withTrack(track);
                 }
                 found = source;
             } catch (Exception ex) {

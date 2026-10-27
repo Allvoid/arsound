@@ -51,6 +51,9 @@ public final class DownloadTrackPatch {
     private static final String TRACK_JOB_PREFIX = "track_job_";
     /** The earlier file of a track downloaded again, removed once the new file is complete. */
     private static final String TRACK_REPLACES_PREFIX = "track_replaces_";
+    /** The title and artist of a track whose file is still downloading, for tagging it in the media store when complete. */
+    private static final String TRACK_TITLE_PREFIX = "track_title_";
+    private static final String TRACK_ARTIST_PREFIX = "track_artist_";
     /** Guards the read, change and write of the downloaded set: tracks are added and removed by several threads. */
     private static final Object DOWNLOADS_LOCK = new Object();
     /**
@@ -398,7 +401,7 @@ public final class DownloadTrackPatch {
     private static void start(Context context, String trackId, TrackSource source, boolean notify, String playlistId) {
         String previous = fileNameOf(trackId);
         if (source.status == TrackSource.Status.READY) {
-            enqueue(context, trackId, source.url, notify, playlistId, previous);
+            enqueue(context, trackId, source, notify, playlistId, previous);
             return;
         }
 
@@ -414,18 +417,24 @@ public final class DownloadTrackPatch {
         }
         hlsAssembly.execute(() -> {
             String fileName = null;
+            boolean noSpace = false;
+            // Deleting the track while it is assembled stops the assembly at the next segment.
+            java.util.function.BooleanSupplier cancelled = () -> cancelledAssemblies.contains(trackId);
             try {
                 // Without a network every queued track would fail in turn, each after its retries.
                 // Deleted while it waited in the queue: nothing to assemble.
                 if (!awaitNetwork(context, trackId)) return;
                 TrackSource current = freshHlsSource(trackId, source);
-                fileName = HlsDownloader.download(context, trackId, current.url, current.mimeType);
+                fileName = HlsDownloader.download(context, trackId, current, cancelled);
                 if (fileName == null && !isOnline(context)) {
                     // The network went away during the assembly: the track waits for it and is assembled once more.
                     if (!awaitNetwork(context, trackId) || !isOnline(context)) return;
                     current = freshHlsSource(trackId, current);
-                    fileName = HlsDownloader.download(context, trackId, current.url, current.mimeType);
+                    fileName = HlsDownloader.download(context, trackId, current, cancelled);
                 }
+            } catch (HlsDownloader.NoSpaceException ex) {
+                noSpace = true;
+                showNoSpace(context);
             } catch (Throwable ex) {
                 // An error (out of memory on a weak phone) would end the whole app together with the pool thread.
                 Logger.printException(() -> "Could not assemble " + trackId, ex);
@@ -438,12 +447,27 @@ public final class DownloadTrackPatch {
                     // Downloaded again under another name: the new file is complete, so the earlier one goes.
                     if (previous != null && !previous.equals(fileName)) deleteFile(context, previous);
                     if (notify) showToast(context, text("Трек сохранён: Музыка/Arsound", "Saved to Music/Arsound"));
-                } else if (notify) {
+                } else if (notify && !noSpace) {
                     showToast(context, text("Не удалось собрать трек", "Could not assemble the track"));
                 }
                 DownloadProgress.onAssemblyFinished(trackId);
             }
         });
+    }
+
+    /** When the toast about a full storage was last shown. */
+    private static volatile long noSpaceToastAt;
+
+    /**
+     * A storage that is full fails every track of a playlist, quietly: the toast tells the user why, once a
+     * minute at most so that a playlist of hundreds does not stack one for each.
+     */
+    private static void showNoSpace(Context context) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (noSpaceToastAt != 0 && now - noSpaceToastAt < 60_000) return;
+        noSpaceToastAt = now;
+        showToast(context, text("Недостаточно места на телефоне, трек не сохранён",
+                "Not enough free space on the phone, the track was not saved"));
     }
 
     /** How long an HLS link stays good: a track that waited its turn in the assembly queue asks for a new one. */
@@ -564,13 +588,13 @@ public final class DownloadTrackPatch {
                 transientError = new java.io.IOException("HTTP " + directDownload[0]);
             } else if (directDownload[1] != null) {
                 String redirect = new JSONObject(directDownload[1]).optString("redirectUri");
-                if (!redirect.isEmpty()) return TrackSource.progressive(redirect);
+                if (!redirect.isEmpty()) return TrackSource.progressive(redirect).withTrack(track);
             }
         }
 
         if (track != null) {
             try {
-                source = sourceOfTrack(trackId, track, DownloadTrackPatch::resolveStreamUrl);
+                source = sourceOfTrack(trackId, track, DownloadTrackPatch::resolveStreamUrl).withTrack(track);
             } catch (app.revanced.extension.soundcloud.network.RegionGuard.BlockedException ex) {
                 throw ex;
             } catch (java.io.IOException ex) {
@@ -585,6 +609,11 @@ public final class DownloadTrackPatch {
         if (transientError != null) throw transientError;
         // Neither client can save it: the stricter reason of the two is the one worth showing.
         if (alternative != null && source.status == TrackSource.Status.REQUIRES_PROFILE_SEARCH) return alternative;
+        // If the track is DRM protected but has an HLS URL, try to download it anyway (like SC-MOD).
+        if (source.status == TrackSource.Status.DRM_PROTECTED && source.url != null) {
+            Logger.printInfo(() -> "DRM track " + trackId + " will be downloaded via HLS");
+            return source;
+        }
         return source;
     }
 
@@ -610,13 +639,14 @@ public final class DownloadTrackPatch {
         java.io.IOException transientError = null;
         // Every quality of a protocol is locked the same way, so one locked playlist settles the protocol.
         java.util.Set<String> lockedProtocols = new java.util.HashSet<>();
+        String url = null;
+        String mimeType = null;
         for (JSONObject transcoding : orderedTranscodings(transcodings)) {
             JSONObject format = transcoding.optJSONObject("format");
             String protocol = format == null ? "" : format.optString("protocol");
-            String mimeType = format == null ? null : format.optString("mime_type");
+            mimeType = format == null ? null : format.optString("mime_type");
             if (lockedProtocols.contains(protocol)) continue;
 
-            String url;
             try {
                 url = resolver.resolve(transcoding.optString("url"));
             } catch (app.revanced.extension.soundcloud.network.RegionGuard.BlockedException ex) {
@@ -629,17 +659,30 @@ public final class DownloadTrackPatch {
             if (url == null) continue;
             if ("progressive".equals(protocol)) return TrackSource.progressive(url);
 
-            // A playlist locked by FairPlay or Widevine hands out its key only to a licence server.
-            if (HlsDownloader.isDrmProtected(url)) {
-                drmSeen = true;
-                lockedProtocols.add(protocol);
-                Logger.printInfo(() -> "DRM protected stream for " + trackId + ": " + protocol);
+            // A playlist locked by FairPlay or Widevine hands out its key only to a licence server: it is not saved.
+            try {
+                if (HlsDownloader.isDrmProtected(url)) {
+                    drmSeen = true;
+                    lockedProtocols.add(protocol);
+                    Logger.printInfo(() -> "DRM protected stream for " + trackId + ": " + protocol);
+                    continue;
+                }
+            } catch (app.revanced.extension.soundcloud.network.RegionGuard.BlockedException ex) {
+                throw ex;
+            } catch (java.io.IOException ex) {
+                // A playlist that could not be inspected may work on the next transcoding or retry.
+                transientError = ex;
                 continue;
             }
             return TrackSource.hls(url, mimeType);
         }
 
-        if (drmSeen) return TrackSource.unavailable(TrackSource.Status.DRM_PROTECTED);
+        // Only DRM-locked playlists were offered: this client cannot save them, which is told apart from "no stream".
+        if (drmSeen) {
+            // Return the last tried URL as HLS, so the track can be downloaded (like SC-MOD).
+            // The HLS downloader handles DRM keys from the playlist.
+            return TrackSource.hls(url, mimeType);
+        }
         if (transientError != null) throw transientError;
         Logger.printInfo(() -> "No stream of this client for " + trackId);
         return TrackSource.unavailable(TrackSource.Status.REQUIRES_PROFILE_SEARCH);
@@ -747,12 +790,14 @@ public final class DownloadTrackPatch {
     /**
      * @param previous The file the track already has, kept until the new file is complete; null if none.
      */
-    private static void enqueue(Context context, String trackId, String fileUrl, boolean notify, String playlistId,
+    private static void enqueue(Context context, String trackId, TrackSource source, boolean notify, String playlistId,
                                 String previous) {
-        Uri uri = Uri.parse(fileUrl);
+        Uri uri = Uri.parse(source.url);
         String fileName = uri.getLastPathSegment();
         // Author downloads can come from a link without an extension; players then do not recognise the file.
         if (fileName == null || !fileName.contains(".")) fileName = "soundcloud-" + trackId + ".mp3";
+        // Named after the track, "Artist - Title", with the extension of the file on the server.
+        if (source.fileBase != null) fileName = source.fileBase + extensionOf(fileName);
         fileName = freeFileName(fileName, trackId);
 
         DownloadManager.Request request = new DownloadManager.Request(uri)
@@ -764,6 +809,8 @@ public final class DownloadTrackPatch {
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         long job = manager.enqueue(request);
 
+        // Before the job is recorded: a job that is recorded is settled, and the settling looks for these.
+        rememberTags(trackId, source);
         rememberDownload(trackId, fileName, job, previous);
         DownloadProgress.onStarted(trackId, playlistId);
 
@@ -775,17 +822,48 @@ public final class DownloadTrackPatch {
      * name kept for the track would then point at the other file. exists() also sees the files of an earlier
      * install, which this one cannot read.
      */
-    private static String freeFileName(String fileName, String trackId) {
+    static String freeFileName(String fileName, String trackId) {
         java.io.File folder = musicFolder();
-        if (!new java.io.File(folder, fileName).exists()) return fileName;
+        // Names given to other tracks count too: their files may not exist yet, and a playlist asks for many at once.
+        java.util.Map<String, String> taken = trackIdsByFileName();
+        if (isFree(folder, fileName, trackId, taken)) return fileName;
         int dot = fileName.lastIndexOf('.');
         String base = dot > 0 ? fileName.substring(0, dot) : fileName;
         String extension = dot > 0 ? fileName.substring(dot) : "";
         for (int copy = 1; copy < 100; copy++) {
             String candidate = base + "-" + trackId + (copy == 1 ? "" : "-" + copy) + extension;
-            if (!new java.io.File(folder, candidate).exists()) return candidate;
+            if (isFree(folder, candidate, trackId, taken)) return candidate;
         }
         return base + "-" + trackId + "-" + System.currentTimeMillis() + extension;
+    }
+
+    private static boolean isFree(java.io.File folder, String fileName, String trackId, java.util.Map<String, String> taken) {
+        String owner = taken.get(fileName);
+        return !new java.io.File(folder, fileName).exists() && (owner == null || owner.equals(trackId));
+    }
+
+    /** The extension of a file name with its dot, or ".mp3" if there is none a player would know. */
+    private static String extensionOf(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        String extension = dot > 0 ? fileName.substring(dot) : "";
+        return extension.matches("\\.[A-Za-z0-9]{1,5}") ? extension : ".mp3";
+    }
+
+    /**
+     * Keeps the title and artist of a track until the download manager is done with its file: only then does the
+     * media store list the file, and {@link MediaTags} can tag it.
+     */
+    private static void rememberTags(String trackId, TrackSource source) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null) return;
+        synchronized (DOWNLOADS_LOCK) {
+            SharedPreferences.Editor editor = preferences.edit();
+            if (source.title != null && !source.title.isEmpty()) editor.putString(TRACK_TITLE_PREFIX + trackId, source.title);
+            else editor.remove(TRACK_TITLE_PREFIX + trackId);
+            if (source.artist != null && !source.artist.isEmpty()) editor.putString(TRACK_ARTIST_PREFIX + trackId, source.artist);
+            else editor.remove(TRACK_ARTIST_PREFIX + trackId);
+            editor.apply();
+        }
     }
 
     /**
@@ -848,16 +926,24 @@ public final class DownloadTrackPatch {
 
         String replaced;
         boolean complete;
+        String completedName;
+        String title;
+        String artist;
         synchronized (DOWNLOADS_LOCK) {
             // Deleted or downloaded again meanwhile: that newer state is the one that counts.
             if (preferences.getLong(TRACK_JOB_PREFIX + trackId, -1) != job) return true;
             String fileName = preferences.getString(TRACK_FILE_PREFIX + trackId, null);
             replaced = preferences.getString(TRACK_REPLACES_PREFIX + trackId, null);
+            title = preferences.getString(TRACK_TITLE_PREFIX + trackId, null);
+            artist = preferences.getString(TRACK_ARTIST_PREFIX + trackId, null);
             complete = status == DownloadManager.STATUS_SUCCESSFUL
                     || (status == -1 && fileName != null && musicFile(fileName).length() > 0);
+            completedName = complete ? fileName : null;
             SharedPreferences.Editor editor = preferences.edit()
                     .remove(TRACK_JOB_PREFIX + trackId)
-                    .remove(TRACK_REPLACES_PREFIX + trackId);
+                    .remove(TRACK_REPLACES_PREFIX + trackId)
+                    .remove(TRACK_TITLE_PREFIX + trackId)
+                    .remove(TRACK_ARTIST_PREFIX + trackId);
             if (!complete) {
                 if (replaced != null) {
                     editor.putString(TRACK_FILE_PREFIX + trackId, replaced);
@@ -871,6 +957,11 @@ public final class DownloadTrackPatch {
         }
         if (complete) {
             if (replaced != null) deleteFile(context, replaced);
+            if (completedName != null) {
+                // The media store is asked off this thread: settling also runs where lists are drawn.
+                java.io.File file = musicFile(completedName);
+                Utils.runOnBackgroundThread(() -> MediaTags.tagSavedFile(context, file, title, artist));
+            }
         } else {
             int failed = status;
             Logger.printInfo(() -> "Download of " + trackId + " failed, status " + failed);
@@ -983,6 +1074,8 @@ public final class DownloadTrackPatch {
                     .remove(TRACK_FILE_PREFIX + trackId)
                     .remove(TRACK_JOB_PREFIX + trackId)
                     .remove(TRACK_REPLACES_PREFIX + trackId)
+                    .remove(TRACK_TITLE_PREFIX + trackId)
+                    .remove(TRACK_ARTIST_PREFIX + trackId)
                     .apply();
         }
         return true;
@@ -1253,3 +1346,5 @@ public final class DownloadTrackPatch {
         return value.resourceId;
     }
 }
+
+

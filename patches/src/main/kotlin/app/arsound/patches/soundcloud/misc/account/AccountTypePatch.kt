@@ -13,9 +13,9 @@ val accountTypePatch = resourcePatch {
     compatibleWith("com.soundcloud.android")
 
     apply {
-        // Named after the final package: "com.soundcloud.android.revanced.account" for the usual build, another one
+        // Named after the final package: "com.arsound.app.account" for the usual build, another one
         // for the build under a Chinese player's package, so both builds can be installed at once.
-        val packageName = setOrGetFallbackPackageName("com.soundcloud.android.revanced")
+        val packageName = setOrGetFallbackPackageName("com.arsound.app")
         val accountType = "$packageName.account"
         val authority = "$packageName.provider.ScContentProvider"
 
