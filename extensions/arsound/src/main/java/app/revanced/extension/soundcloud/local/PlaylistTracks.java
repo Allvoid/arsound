@@ -6,11 +6,14 @@ import android.content.SharedPreferences;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
@@ -22,24 +25,46 @@ import app.revanced.extension.soundcloud.shared.Rx;
  * The tracks each playlist shows, local additions included, remembered on this device.
  * <p>
  * SoundCloud counts only the tracks on its server, so a playlist filled on this phone says "0 Tracks"
- * in the library. The list of each playlist screen is kept here: the library cells show its size and,
- * after the download icon, how many of the tracks play from a file (downloaded by Arsound or imported).
- * The lists of all library playlists are read in the background after start, so the numbers are there
- * before a playlist is opened.
+ * in the library. The list of each playlist screen is kept here: the library cells show SoundCloud's
+ * number plus the tracks that exist only on this phone and, after the download icon, how many of the
+ * tracks play from a file (downloaded by Arsound or imported). The lists of all library playlists are
+ * read in the background after start, so the numbers are there before a playlist is opened.
+ * <p>
+ * The list is never shown instead of SoundCloud's number: it is old as soon as a track is added in
+ * SoundCloud's own sheet or on another device. Only the difference to the server's part of it is kept
+ * on top of the number SoundCloud gives now.
  */
 public final class PlaylistTracks {
     private static final String PREFERENCES_NAME = "arsound_playlist_tracks";
     private static final String DOWNLOADED_PREFIX = "downloaded:";
+    private static final String SERVER_PREFIX = "server:";
     /** An imported file in a stored list: only its kind matters for the numbers. */
     static final String IMPORTED = "imported";
     private static final String TRACK_PREFIX = "soundcloud:tracks:";
     /** Cells whose meta line is being built wait for this many tagged states at most. */
     private static final int TAG_LIMIT = 400;
+    /** A burst of changes (an import of many files, a batch) is read once. */
+    private static final long REFRESH_DELAY_MS = 300;
+    /** A playlist whose number keeps moving is not read again more often than this. */
+    private static final long COUNT_REFRESH_PAUSE_MS = 2_000;
 
     /** Playlist urn to its tracks: SoundCloud urns and {@link #IMPORTED} for files. */
     private static final Map<String, List<String>> lists = new ConcurrentHashMap<>();
     /** Playlist urn to the number of its tracks that play from a file. */
     private static final Map<String, Integer> downloaded = new ConcurrentHashMap<>();
+    /**
+     * Playlist urn to the number of tracks its list has on top of what SoundCloud lists itself: local
+     * additions and kept deleted tracks, minus filtered ones. The part of the list that is not
+     * SoundCloud's own, to be added to the number SoundCloud gives now. Absent for a list remembered by an
+     * older version, which did not keep the server part.
+     */
+    private static final Map<String, Integer> extras = new ConcurrentHashMap<>();
+    /** Playlist urn to the number SoundCloud gave its library cell last: another one means the playlist changed. */
+    private static final Map<String, Integer> seenCounts = new ConcurrentHashMap<>();
+    /** Playlist urn to the time its list was last read because SoundCloud's number moved. */
+    private static final Map<String, Long> countRefreshes = new ConcurrentHashMap<>();
+    private static final Set<String> pendingRefresh = ConcurrentHashMap.newKeySet();
+    private static final AtomicBoolean refreshScheduled = new AtomicBoolean();
     private static volatile boolean loaded;
 
     private PlaylistTracks() {
@@ -54,14 +79,21 @@ public final class PlaylistTracks {
         if (loaded) return;
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
+        Map<String, Integer> serverSizes = new HashMap<>();
         for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
             String key = entry.getKey();
             if (key.startsWith(DOWNLOADED_PREFIX)) {
                 if (entry.getValue() instanceof Integer) downloaded.put(key.substring(DOWNLOADED_PREFIX.length()), (Integer) entry.getValue());
+            } else if (key.startsWith(SERVER_PREFIX)) {
+                if (entry.getValue() instanceof Integer) serverSizes.put(key.substring(SERVER_PREFIX.length()), (Integer) entry.getValue());
             } else if (entry.getValue() instanceof String) {
                 String value = (String) entry.getValue();
                 lists.put(key, value.isEmpty() ? new ArrayList<>() : new ArrayList<>(Arrays.asList(value.split("\n"))));
             }
+        }
+        for (Map.Entry<String, Integer> server : serverSizes.entrySet()) {
+            List<String> tracks = lists.get(server.getKey());
+            if (tracks != null) extras.put(server.getKey(), tracks.size() - server.getValue());
         }
         loaded = true;
     }
@@ -73,9 +105,10 @@ public final class PlaylistTracks {
     /**
      * Remembers the list a playlist screen shows. Called off the main thread.
      *
-     * @return True if the list or the number of tracks playing from a file changed.
+     * @param serverSize The number of tracks SoundCloud's own list had, before local additions and deleted tracks were put in.
+     * @return True if the list, its server part or the number of tracks playing from a file changed.
      */
-    static boolean record(String playlistUrn, List<?> urns) {
+    static boolean record(String playlistUrn, List<?> urns, int serverSize) {
         load();
         List<String> tracks = new ArrayList<>();
         for (Object urn : urns) tracks.add(isImported(urn) ? IMPORTED : String.valueOf(urn));
@@ -83,16 +116,22 @@ public final class PlaylistTracks {
         boolean changed = !tracks.equals(lists.get(playlistUrn));
         Integer previous = downloaded.get(playlistUrn);
         changed |= previous == null || previous != count;
+        int extra = tracks.size() - serverSize;
+        Integer previousExtra = extras.get(playlistUrn);
+        changed |= previousExtra == null || previousExtra != extra;
         lists.put(playlistUrn, tracks);
         downloaded.put(playlistUrn, count);
+        extras.put(playlistUrn, extra);
         SharedPreferences preferences = preferences();
         if (changed && preferences != null) {
             preferences.edit()
                     .putString(playlistUrn, String.join("\n", tracks))
                     .putInt(DOWNLOADED_PREFIX + playlistUrn, count)
+                    .putInt(SERVER_PREFIX + playlistUrn, serverSize)
                     .apply();
         }
-        Logger.printInfo(() -> "Playlist " + playlistUrn + ": " + tracks.size() + " tracks, " + count + " play from a file");
+        Logger.printInfo(() -> "Playlist " + playlistUrn + ": " + tracks.size() + " tracks, " + count
+                + " play from a file, " + serverSize + " from SoundCloud");
         return changed;
     }
 
@@ -174,11 +213,79 @@ public final class PlaylistTracks {
         Logger.printInfo(() -> "Track lists read for " + count + " of " + playlistUrns.size() + " library playlists");
     }
 
+    // region Refresh
+
+    /**
+     * Reads the list of a playlist again soon and draws the library cells anew if their numbers changed.
+     * Safe to call from any thread, as often as needed: changes of a moment are read together, one
+     * playlist at a time.
+     * <p>
+     * Call it after the tracks of a playlist were changed on this phone. SoundCloud's library list does
+     * not draw its cells again when only the local additions changed: its data is the same as before.
+     * {@link LocalAdditions#notifyPlaylistChanged} calls it, so everything that tells the open
+     * playlists about a change refreshes the numbers too.
+     *
+     * @param playlistUrn Urn string of a playlist, {@code soundcloud:playlists:...}.
+     */
+    public static void refreshLater(String playlistUrn) {
+        if (playlistUrn == null || !playlistUrn.startsWith("soundcloud:playlists:")) return;
+        pendingRefresh.add(playlistUrn);
+        if (refreshScheduled.compareAndSet(false, true)) {
+            Utils.runOnMainThreadDelayed(() -> Utils.runOnBackgroundThread(PlaylistTracks::refreshPending), REFRESH_DELAY_MS);
+        }
+    }
+
+    private static void refreshPending() {
+        try {
+            while (!pendingRefresh.isEmpty()) {
+                List<String> urns = new ArrayList<>(pendingRefresh);
+                pendingRefresh.removeAll(urns);
+                refresh(urns);
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not refresh the track numbers", ex);
+        } finally {
+            refreshScheduled.set(false);
+        }
+        // Asked for while the last check ran.
+        if (!pendingRefresh.isEmpty() && refreshScheduled.compareAndSet(false, true)) {
+            Utils.runOnBackgroundThread(PlaylistTracks::refreshPending);
+        }
+    }
+
+    private static void refresh(List<String> urns) {
+        load();
+        Map<String, String> before = new HashMap<>();
+        for (String urn : urns) before.put(urn, shownNumbers(urn));
+        recordAll(urns);
+        for (String urn : urns) {
+            if (shownNumbers(urn).equals(before.get(urn))) continue;
+            // The library list has the same data as before, so its cells are bound again by hand.
+            app.revanced.extension.soundcloud.download.DownloadProgress.redrawNow();
+            return;
+        }
+    }
+
+    /** What the cells of a playlist show besides SoundCloud's own number, to see if they have to be drawn again. */
+    private static String shownNumbers(String playlistUrn) {
+        List<String> tracks = lists.get(playlistUrn);
+        Integer extra = extras.get(playlistUrn);
+        String shown = tracks == null ? "-" : extra == null ? "all" + tracks.size() : String.valueOf(extra);
+        return shown + ":" + downloaded.get(playlistUrn);
+    }
+
+    // endregion
+
     // region Library cells
 
     /**
      * Injection point: the number of tracks in a playlist cell.
+     * <p>
+     * SoundCloud's number plus the tracks that exist only on this phone, so an add made in SoundCloud
+     * (its "Add to playlist" sheet, "Add music", another device) shows at once. The remembered list is
+     * only used for the difference, never instead of the number.
      *
+     * @param count The number of tracks SoundCloud gives.
      * @return The number of tracks the playlist shows, local additions included.
      */
     public static int cellTracksCount(Object playlist, int count) {
@@ -186,12 +293,32 @@ public final class PlaylistTracks {
             load();
             String urn = urnOf(playlist);
             cellPlaylist.set(urn);
-            List<String> tracks = lists.get(urn);
-            return tracks != null ? tracks.size() : count;
+            Integer seen = seenCounts.put(urn, count);
+            if (seen != null && seen != count && lists.containsKey(urn)) refreshAfterCountChange(urn);
+            Integer extra = extras.get(urn);
+            if (extra == null) {
+                // A list remembered by an older version has no server part until the lists are read after start.
+                List<String> tracks = lists.get(urn);
+                return tracks != null ? tracks.size() : count;
+            }
+            // The extra can be negative: tracks filtered out of a list, or SoundCloud counting ones it does not list.
+            return Math.max(0, count + extra);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not count the playlist tracks", ex);
             return count;
         }
+    }
+
+    /**
+     * SoundCloud's number moved: a track was added or removed in SoundCloud, on another device or by a sync.
+     * The remembered list is read again, because a track added there may have been a local addition so far.
+     */
+    private static void refreshAfterCountChange(String urn) {
+        long now = System.currentTimeMillis();
+        Long last = countRefreshes.get(urn);
+        if (last != null && now - last < COUNT_REFRESH_PAUSE_MS) return;
+        countRefreshes.put(urn, now);
+        refreshLater(urn);
     }
 
     /** Meta line states of playlist cells and the playlist urn of each, compared by identity. */

@@ -153,12 +153,17 @@ public final class LocalAdditions {
     /**
      * Removes an entry from every playlist, once its file is deleted: the next file with the same name gets
      * the same path and must not turn up in playlists it was never added to. One write for all playlists.
+     *
+     * @return The playlists that held the entry.
      */
-    public static synchronized void forgetEntry(String entry) {
+    public static synchronized List<String> forgetEntry(String entry) {
         Map<String, List<String>> additions = readAdditions();
-        boolean changed = false;
-        for (List<String> entries : additions.values()) changed |= entries.removeIf(entry::equals);
-        if (changed) writeAdditions(additions);
+        List<String> playlists = new ArrayList<>();
+        for (Map.Entry<String, List<String>> playlist : additions.entrySet()) {
+            if (playlist.getValue().removeIf(entry::equals)) playlists.add(playlist.getKey());
+        }
+        if (!playlists.isEmpty()) writeAdditions(additions);
+        return playlists;
     }
 
     public static String fileEntry(File file) {
@@ -237,6 +242,8 @@ public final class LocalAdditions {
             // Always mapped: the list is also watched for tracks that SoundCloud deleted.
             return Rx.mapSingle(single, value -> {
                 List<Object> urns = new ArrayList<>((List<?>) value);
+                // What SoundCloud lists itself: the library cell adds only the difference to its own number.
+                int serverSize = urns.size();
                 ClassLoader loader = single.getClass().getClassLoader();
                 RemovedTracks.onTrackList(key, urns);
                 app.revanced.extension.soundcloud.recommendations.DuplicateFilter.filterSystemPlaylist(key, urns);
@@ -252,7 +259,7 @@ public final class LocalAdditions {
                 if (!skipped.isEmpty()) Logger.printInfo(() -> "Local additions of " + key + " not shown: " + skipped);
                 RemovedTracks.placeKept(key, urns, loader, !playback);
                 Object ordered = TrackOrder.apply(key, urns);
-                if (!playback) PlaylistHeader.onScreenTracks(key, (List<?>) ordered);
+                if (!playback) PlaylistHeader.onScreenTracks(key, (List<?>) ordered, serverSize);
                 return ordered;
             });
         } catch (Exception ex) {
@@ -813,8 +820,13 @@ public final class LocalAdditions {
 
     // region Native playlist actions
 
-    /** Tells open playlist screens to reload their track list. */
+    /**
+     * Tells open playlist screens to reload their track list, and the library to show the new number
+     * of tracks. SoundCloud's library list does not draw its cells again for a change that only the
+     * local additions know about, so the numbers are read and drawn here.
+     */
     public static void notifyPlaylistChanged(String playlistUrn) {
+        PlaylistTracks.refreshLater(playlistUrn);
         LocalCovers.onPlaylistChanged(playlistUrn);
         Object operations = SavedPlaylist.playlistOperations();
         if (operations == null) return;
