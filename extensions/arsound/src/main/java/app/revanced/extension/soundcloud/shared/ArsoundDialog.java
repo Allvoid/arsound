@@ -43,6 +43,8 @@ public final class ArsoundDialog {
     private CharSequence positive, negative, neutral;
     private DialogInterface.OnClickListener onPositive, onNegative, onNeutral;
     private boolean cancelable = true;
+    /** The negative button leaves the dialog open: the listener closes it when it is time. */
+    private boolean negativeKeepsOpen;
     private View buttonsStart;
     private DialogInterface.OnDismissListener onDismiss;
 
@@ -100,6 +102,17 @@ public final class ArsoundDialog {
     public ArsoundDialog setNegativeButton(CharSequence text, DialogInterface.OnClickListener listener) {
         negative = text;
         onNegative = listener;
+        negativeKeepsOpen = false;
+        return this;
+    }
+
+    /**
+     * A negative button that does not close the dialog, for a dialog that shows a task under way: "Cancel" asks the
+     * task to stop, and the owner of the dialog closes it once the task has.
+     */
+    public ArsoundDialog setNegativeButtonKeepingOpen(CharSequence text, DialogInterface.OnClickListener listener) {
+        setNegativeButton(text, listener);
+        negativeKeepsOpen = true;
         return this;
     }
 
@@ -135,6 +148,11 @@ public final class ArsoundDialog {
         neutral = text;
         onNeutral = listener;
         return this;
+    }
+
+    /** The height in pixels above which the body of a dialog scrolls, so a view of its own can fit itself to it. */
+    public static int bodyMaxHeight(Context context) {
+        return Math.round(context.getResources().getDisplayMetrics().heightPixels * .62f);
     }
 
     /** True while an Arsound dialog is on screen, so a prompt that can wait does not cover it. Main thread only. */
@@ -179,7 +197,7 @@ public final class ArsoundDialog {
             for (int i = 0; i < items.length; i++) body.addView(item(dialog, i));
         }
         // A long text scrolls, so the buttons always stay on screen.
-        int maxHeight = Math.round(context.getResources().getDisplayMetrics().heightPixels * .62f);
+        int maxHeight = bodyMaxHeight(context);
         ScrollView scroll = new ScrollView(context) {
             @Override
             protected void onMeasure(int widthSpec, int heightSpec) {
@@ -290,9 +308,10 @@ public final class ArsoundDialog {
         shape.setColor(main ? accent : Color.TRANSPARENT);
         button.setBackground(new RippleDrawable(ColorStateList.valueOf(main ? 0x33FFFFFF : (accent & 0x00FFFFFF) | 0x33000000),
                 shape, null));
+        boolean keepsOpen = which == DialogInterface.BUTTON_NEGATIVE && negativeKeepsOpen;
         button.setOnClickListener(v -> {
             if (listener != null) listener.onClick(dialog, which);
-            dialog.dismiss();
+            if (!keepsOpen) dialog.dismiss();
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -331,7 +350,8 @@ public final class ArsoundDialog {
         return view;
     }
 
-    private static int contrast(int color) {
+    /** Black or white, whichever reads on the given colour. */
+    public static int contrast(int color) {
         double luminance = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) / 255;
         return luminance > 0.6 ? 0xFF111111 : 0xFFFFFFFF;
     }

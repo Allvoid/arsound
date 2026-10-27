@@ -209,6 +209,8 @@ public final class LocalMusic {
     /** Makes a file written into the import directory show up in the imported playlist. */
     public static void onFileAdded() {
         LocalAdditions.clearLocalTrackCache();
+        // The library card of the imported playlist counts the new file.
+        PlaylistTracks.refreshLater(SavedPlaylist.getUrn());
     }
 
     public static boolean delete(Track track) {
@@ -219,8 +221,10 @@ public final class LocalMusic {
             // The next file with this name gets the same path: it must not inherit the playlists it was
             // added to, or the removal from the Imported playlist.
             String entry = LocalAdditions.fileEntry(track.file);
-            LocalAdditions.forgetEntry(entry);
+            for (String playlist : LocalAdditions.forgetEntry(entry)) PlaylistTracks.refreshLater(playlist);
             SavedPlaylist.unexclude(entry);
+            // The imported playlist lists every imported file without an entry of its own.
+            PlaylistTracks.refreshLater(SavedPlaylist.getUrn());
         }
         return deleted;
     }

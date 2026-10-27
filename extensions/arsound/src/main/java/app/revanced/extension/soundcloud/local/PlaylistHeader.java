@@ -33,10 +33,11 @@ public final class PlaylistHeader {
      * Called with the track list of a playlist screen, off the main thread. The header, drawn before
      * the tracks arrived, is drawn again with the new count.
      *
-     * @param urns The {@code Urn}s the screen shows.
+     * @param urns       The {@code Urn}s the screen shows.
+     * @param serverSize How many of them SoundCloud itself lists, before local additions and kept deleted tracks.
      */
-    static void onScreenTracks(String playlistUrn, List<?> urns) {
-        if (PlaylistTracks.record(playlistUrn, urns)) Utils.runOnMainThread(() -> redraw(playlistUrn));
+    static void onScreenTracks(String playlistUrn, List<?> urns, int serverSize) {
+        if (PlaylistTracks.record(playlistUrn, urns, serverSize)) Utils.runOnMainThread(() -> redraw(playlistUrn));
     }
 
     /**
