@@ -34,6 +34,7 @@ import app.arsound.patches.soundcloud.player.vivoMusicCardPatch
 import app.arsound.patches.soundcloud.recommendations.duplicateFilterPatch
 import app.arsound.patches.soundcloud.upsell.hideSubscriptionOffersPatch
 import app.arsound.patches.soundcloud.widget.likesWidgetPatch
+import app.arsound.patches.soundcloud.widget.playerWidgetHeartPatch
 import app.revanced.patcher.patch.Patch
 import app.revanced.patcher.patch.bytecodePatch
 
@@ -85,6 +86,7 @@ val arsoundBaseGroup = arsoundGroup(
     playModePatch,
     vivoMusicCardPatch,
     likesWidgetPatch,
+    playerWidgetHeartPatch,
 )
 
 @Suppress("unused")
