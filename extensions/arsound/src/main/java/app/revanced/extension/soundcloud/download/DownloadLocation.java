@@ -9,6 +9,8 @@ import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 
 import java.io.File;
@@ -21,21 +23,26 @@ import java.util.ArrayList;
 import java.util.List;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
  * A place where downloaded files are kept. Every track remembers the location its file was saved to
  * ({@link #id()}), so a later change of where new downloads go never loses the tracks saved before it.
  * <p>
  * Everything that writes, finds, lists or removes a downloaded file asks the location, never builds a path
- * itself. Today there is one kind, {@link PublicFolder}: a folder of the phone's shared storage that the media
- * store lists (Music/Arsound). Another kind, for example a folder on an SD card picked with the system's folder
- * picker, is one more subclass, added in {@link #of(String)} and chosen in {@link #current()}; the rest of the
- * download code does not change. Such a location returns {@code null} from {@link #file(String)} when it has no
- * path, and lists its files through {@link #list(Context)} like the media store does.
+ * itself. There are two kinds. {@link PublicFolder} is a folder of the phone's shared storage that the media store
+ * lists (Music/Arsound); the download manager can write there. {@link TreeFolder} is any folder the user picked with
+ * the system's folder picker, also one on an SD card; it is reached only through the storage access framework, so
+ * the app downloads into it by itself. A kind is recognised in {@link #of(String)} and chosen in {@link #current()};
+ * the rest of the download code does not change. A location without paths returns {@code null} from
+ * {@link #file(String)}, and lists its files through {@link #list(Context)} like the media store does.
  */
 abstract class DownloadLocation {
     /** The location of every track saved before locations were recorded. */
     static final PublicFolder DEFAULT = new PublicFolder(Environment.DIRECTORY_MUSIC, "Arsound");
+
+    /** The setting that holds the {@link #id()} of the location new downloads go to. Missing: the default one. */
+    static final String SETTING = "download_folder";
 
     /** One file of a location, as the location lists it. */
     static final class Row {
@@ -79,8 +86,37 @@ abstract class DownloadLocation {
         void onRow(Uri row);
     }
 
-    /** Where new downloads go. */
+    /** Where new downloads go as the user set it, whether or not it can be used right now. */
     static DownloadLocation current() {
+        String chosen = Settings.getString(SETTING, null);
+        return chosen == null || chosen.isEmpty() ? DEFAULT : of(chosen);
+    }
+
+    /** When the user was last told that the chosen folder cannot be used. */
+    private static volatile long lostToldAt;
+
+    /**
+     * Where a download that starts now goes: the chosen location, or the default one when the chosen cannot be
+     * written to (the card is out, the folder is gone, the access was taken back). The choice itself is kept, so the
+     * folder is used again as soon as it is back. The user is told, once a minute at most: a playlist asks for
+     * the location of every track.
+     * <p>
+     * May ask the system: call off the main thread.
+     */
+    static DownloadLocation forNewDownload(Context context) {
+        DownloadLocation chosen = current();
+        if (chosen.isAvailable(context)) return chosen;
+        Logger.printInfo(() -> "The download folder " + chosen.id() + " cannot be used, saving to " + DEFAULT.id());
+        long now = SystemClock.elapsedRealtime();
+        if (lostToldAt == 0 || now - lostToldAt >= 60_000) {
+            lostToldAt = now;
+            DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
+                    "Папка «" + chosen.label() + "» недоступна: карта извлечена, папка удалена или доступ отозван. "
+                            + "Треки сохраняются в «" + DEFAULT.label() + "». Выберите папку заново в настройках, в разделе «Память».",
+                    "The folder " + chosen.label() + " is not available: the card is out, the folder is gone or its access "
+                            + "was taken back. Tracks are saved to " + DEFAULT.label() + ". Pick the folder again in the "
+                            + "settings, in Storage."));
+        }
         return DEFAULT;
     }
 
@@ -89,7 +125,12 @@ abstract class DownloadLocation {
      * not known. A new kind of location is recognised here.
      */
     static DownloadLocation of(String id) {
-        PublicFolder folder = id == null ? null : PublicFolder.parse(id);
+        if (id == null) return DEFAULT;
+        if (id.startsWith(TreeFolder.PREFIX)) {
+            TreeFolder tree = TreeFolder.parse(id);
+            return tree != null ? tree : DEFAULT;
+        }
+        PublicFolder folder = PublicFolder.parse(id);
         return folder != null ? folder : DEFAULT;
     }
 
@@ -100,10 +141,19 @@ abstract class DownloadLocation {
     abstract String label();
 
     /**
-     * Sets where Android's download manager writes the file. A location the download manager cannot write to has
-     * to download the file itself and call {@link #save}.
+     * Whether Android's download manager can write the files of this location. If not, the app downloads the file
+     * itself and calls {@link #save}.
      */
+    abstract boolean usesDownloadManager();
+
+    /** Sets where Android's download manager writes the file; only for a location that {@link #usesDownloadManager}. */
     abstract void setDestination(DownloadManager.Request request, String fileName);
+
+    /**
+     * Whether a file can be written to the location now. A folder of the shared storage always can; a folder the user
+     * picked cannot once its card is out or its access was taken back. May ask the system: call off the main thread.
+     */
+    abstract boolean isAvailable(Context context);
 
     /**
      * Copies a finished file into the location.
@@ -112,7 +162,11 @@ abstract class DownloadLocation {
      */
     abstract Saved save(Context context, File source, String fileName, String mimeType) throws IOException;
 
-    /** The files in the location that the app can see. Reads the media store: call off the main thread. */
+    /**
+     * The files in the location that the app can see. Reads the media store: call off the main thread.
+     *
+     * @return The files, or null if the location cannot be listed now (a card that is out): what was known of it stays.
+     */
     abstract List<Row> list(Context context);
 
     /** The row of the file with this name, asked of the system now, or null if it lists none to this app. */
@@ -132,6 +186,31 @@ abstract class DownloadLocation {
     @Override
     public int hashCode() {
         return id().hashCode();
+    }
+
+    /**
+     * Removes the file of a row, whichever kind of location it is in: a media store row is deleted through the media
+     * store, a document of a picked folder through its document provider.
+     *
+     * @return True if the file was removed. False if the system refused, or the file was not there.
+     */
+    static boolean deleteRow(Context context, Uri row) {
+        try {
+            if (MediaStore.AUTHORITY.equals(row.getAuthority())) return context.getContentResolver().delete(row, null, null) > 0;
+            return DocumentsContract.deleteDocument(context.getContentResolver(), row);
+        } catch (Exception ex) {
+            // For instance a SecurityException for a row that belongs to another install.
+            Logger.printInfo(() -> "Could not delete " + row + ": " + ex);
+            return false;
+        }
+    }
+
+    static void copy(File source, OutputStream output) throws IOException {
+        try (InputStream input = new FileInputStream(source); OutputStream target = output) {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) > 0) target.write(buffer, 0, read);
+        }
     }
 
     /**
@@ -156,6 +235,11 @@ abstract class DownloadLocation {
             return sub.isEmpty() ? null : new PublicFolder(id.substring(0, slash), sub);
         }
 
+        /** The path inside the storage, without a slash at the end: "Music/Arsound". */
+        String path() {
+            return directory + "/" + subFolder;
+        }
+
         /** The path inside the storage, with the slash the media store keeps: "Music/Arsound/". */
         @Override
         String id() {
@@ -173,8 +257,18 @@ abstract class DownloadLocation {
         }
 
         @Override
+        boolean usesDownloadManager() {
+            return true;
+        }
+
+        @Override
         void setDestination(DownloadManager.Request request, String fileName) {
             request.setDestinationInExternalPublicDir(directory, subFolder + "/" + fileName);
+        }
+
+        @Override
+        boolean isAvailable(Context context) {
+            return true;
         }
 
         @Override
@@ -232,14 +326,6 @@ abstract class DownloadLocation {
             } catch (Exception ex) {
                 Logger.printInfo(() -> "Could not read the name of " + uri + ": " + ex);
                 return null;
-            }
-        }
-
-        private static void copy(File source, OutputStream output) throws IOException {
-            try (InputStream input = new FileInputStream(source); OutputStream target = output) {
-                byte[] buffer = new byte[64 * 1024];
-                int read;
-                while ((read = input.read(buffer)) > 0) target.write(buffer, 0, read);
             }
         }
 

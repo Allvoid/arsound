@@ -23,6 +23,7 @@ import java.util.Locale;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.download.DownloadFolder;
 import app.revanced.extension.soundcloud.download.DownloadIndex;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
@@ -45,6 +46,8 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final int REQUEST_IMPORT = 1;
     /** Android's confirmation for removing downloaded files the app cannot remove by itself. */
     private static final int REQUEST_DELETE_DOWNLOADS = 2;
+    /** The system's folder picker, opened for the folder new downloads are saved to. */
+    private static final int REQUEST_DOWNLOAD_FOLDER = 3;
 
     private LinearLayout localTrackList;
 
@@ -2080,12 +2083,20 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** The description of the "delete all downloads" row: shows the space once it is counted. */
     private TextView downloadsDescription;
+    /** The description of the row of the download folder: the folder, and a warning when it cannot be used. */
+    private TextView downloadFolderDescription;
     /** The description of the row of extra copies of downloaded tracks. */
     private TextView duplicatesDescription;
 
     /** Downloaded tracks: how much space they take, and removing all of them at once. */
     private void addStorageSection(LinearLayout list) {
         list.addView(createSubHeading(text("Скачанные треки", "Downloaded tracks")));
+        // Where new tracks are saved; tracks already downloaded stay where they are.
+        View folderRow = createActionRow(text("Папка для скачанных треков", "Download folder"), downloadFolderExplanation(),
+                v -> chooseDownloadFolder());
+        downloadFolderDescription = (TextView) ((ViewGroup) folderRow).getChildAt(1);
+        list.addView(folderRow);
+        showDownloadFolder();
         View deleteRow = createActionRow(text("Удалить все скачанные треки", "Delete all downloaded tracks"), "",
                 v -> confirmDeleteDownloads());
         downloadsDescription = (TextView) ((ViewGroup) deleteRow).getChildAt(1);
@@ -2095,10 +2106,10 @@ public final class ReVancedSettingsActivity extends Activity {
         // Files the app lost the record of (a reinstall, an update signed with another key) and the copies that
         // downloading the same tracks again and again left behind.
         list.addView(createActionRow(text("Найти скачанные треки", "Find downloaded tracks"),
-                text("Ищет в папке «" + DownloadIndex.label() + "» файлы треков, скачанных раньше, о которых приложение "
-                                + "не помнит: после переустановки или обновления с другой подписью. Нужен доступ к музыке.",
-                        "Looks in " + DownloadIndex.label() + " for files of tracks downloaded earlier that the app has "
-                                + "no record of: after a reinstall or an update signed with another key. Needs access to music."),
+                text("Ищет в папках скачивания файлы треков, скачанных раньше, о которых приложение не помнит: "
+                                + "после переустановки или обновления с другой подписью. Нужен доступ к музыке.",
+                        "Looks in the download folders for files of tracks downloaded earlier that the app has no "
+                                + "record of: after a reinstall or an update signed with another key. Needs access to music."),
                 v -> findDownloads()));
         View duplicatesRow = createActionRow(text("Лишние копии скачанных треков", "Extra copies of downloaded tracks"), "",
                 v -> confirmRemoveDuplicates());
@@ -2164,6 +2175,87 @@ public final class ReVancedSettingsActivity extends Activity {
                             + "в «Офлайн и воспроизведение».",
                     "Used: " + size + ". Parts of tracks streamed from the network. Size, lifetime and clearing are "
                             + "in Offline and playback.")));
+        });
+    }
+
+    private static String downloadFolderExplanation() {
+        return text("Новые треки сохраняются сюда: в любую папку на телефоне или на SD-карте. Уже скачанные остаются на "
+                        + "месте и играют как раньше.",
+                "New tracks are saved here: to any folder on the phone or on an SD card. Tracks already downloaded stay "
+                        + "where they are and keep playing.");
+    }
+
+    /** The folder new tracks go to, and a warning under it when that folder cannot be used right now. */
+    private void showDownloadFolder() {
+        String folder = DownloadIndex.label();
+        downloadFolderDescription.setText(folder + "\n" + downloadFolderExplanation());
+        inBackground(() -> {
+            if (DownloadFolder.isAvailable(this)) return;
+            Utils.runOnMainThread(() -> downloadFolderDescription.setText(folder + "\n" + text(
+                    "Сейчас эта папка недоступна: карта извлечена, папка удалена или доступ отозван. Новые треки "
+                            + "сохраняются в «" + DownloadFolder.defaultLabel() + "», пока вы не выберете папку заново.",
+                    "This folder is not available now: the card is out, the folder is gone or its access was taken back. "
+                            + "New tracks are saved to " + DownloadFolder.defaultLabel() + " until you pick the folder again.")));
+        });
+    }
+
+    private void chooseDownloadFolder() {
+        boolean custom = !DownloadFolder.isDefault();
+        String[] choices = custom
+                ? new String[]{text("Выбрать другую папку…", "Pick another folder…"),
+                text("Вернуть «" + DownloadFolder.defaultLabel() + "»", "Back to " + DownloadFolder.defaultLabel())}
+                : new String[]{text("Выбрать папку…", "Pick a folder…")};
+        new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                .setTitle(text("Папка для скачанных треков", "Download folder"))
+                .setMessage(text("Сейчас: «" + DownloadIndex.label() + "». Можно выбрать любую папку, в том числе на "
+                                + "SD-карте. Скачанные раньше треки остаются на месте и играют как раньше; в новую папку "
+                                + "попадут только следующие.",
+                        "Now: " + DownloadIndex.label() + ". Any folder can be picked, also one on an SD card. Tracks "
+                                + "downloaded earlier stay where they are and keep playing; only the next ones go to the "
+                                + "new folder."))
+                .setItems(choices, (dialog, which) -> {
+                    if (which == 0) pickDownloadFolder();
+                    else resetDownloadFolder();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void pickDownloadFolder() {
+        try {
+            startActivityForResult(DownloadFolder.pickerIntent(), REQUEST_DOWNLOAD_FOLDER);
+        } catch (android.content.ActivityNotFoundException | SecurityException ex) {
+            // Some firmware has no system document picker.
+            Logger.printException(() -> "Could not open the folder picker", ex);
+            Toast.makeText(this, text("Не найдено приложение для выбора папки", "No app to pick a folder was found"),
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void resetDownloadFolder() {
+        Utils.runOnBackgroundThread(() -> {
+            DownloadFolder.reset(this);
+            Utils.runOnMainThread(() -> {
+                showDownloadFolder();
+                Toast.makeText(this, text("Новые треки сохраняются в «" + DownloadIndex.label() + "»",
+                        "New tracks are saved to " + DownloadIndex.label()), Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+
+    /** After the system's folder picker: the chosen folder becomes the one new tracks go to. */
+    private void downloadFolderPicked(android.net.Uri tree) {
+        Utils.runOnBackgroundThread(() -> {
+            String problem = DownloadFolder.choose(this, tree);
+            Utils.runOnMainThread(() -> {
+                if (problem != null) {
+                    Toast.makeText(this, problem, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                showDownloadFolder();
+                Toast.makeText(this, text("Новые треки сохраняются в «" + DownloadIndex.label() + "»",
+                        "New tracks are saved to " + DownloadIndex.label()), Toast.LENGTH_LONG).show();
+            });
         });
     }
 
@@ -2260,12 +2352,13 @@ public final class ReVancedSettingsActivity extends Activity {
         inBackground(() -> {
             long[] usage = downloadsUsage();
             String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
+            String place = DownloadIndex.downloadsPlace();
             Utils.runOnMainThread(() -> downloadsDescription.setText(usage[0] == 0
                     ? text("Скачанных треков нет.", "No downloaded tracks.")
-                    : text("Сейчас: " + tracksText(usage[0]) + ", " + size + " в «" + DownloadIndex.label() + "». Треки останутся в "
+                    : text("Сейчас: " + tracksText(usage[0]) + ", " + size + " в «" + place + "». Треки останутся в "
                                     + "SoundCloud: их можно слушать из сети и скачать снова.",
                             "Now: " + usage[0] + (usage[0] == 1 ? " track, " : " tracks, ") + size
-                                    + " in " + DownloadIndex.label() + ". The tracks stay in SoundCloud: they can be streamed and "
+                                    + " in " + place + ". The tracks stay in SoundCloud: they can be streamed and "
                                     + "downloaded again.")));
         });
     }
@@ -2282,12 +2375,13 @@ public final class ReVancedSettingsActivity extends Activity {
             long[] usage = downloadsUsage();
             if (usage[0] == 0) return;
             String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
+            String place = DownloadIndex.downloadsPlace();
             Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
                     .setTitle(text("Удалить все скачанные треки?", "Delete all downloaded tracks?"))
-                    .setMessage(text("Удалятся файлы: " + tracksText(usage[0]) + ", " + size + " из «" + DownloadIndex.label() + "». "
+                    .setMessage(text("Удалятся файлы: " + tracksText(usage[0]) + ", " + size + " из «" + place + "». "
                                     + "Без интернета эти треки играть не будут. Импортированные с телефона не затрагиваются.",
                             "The files of " + usage[0] + (usage[0] == 1 ? " track" : " tracks") + " (" + size
-                                    + ") are deleted from " + DownloadIndex.label() + ". These tracks will not play without a connection. "
+                                    + ") are deleted from " + place + ". These tracks will not play without a connection. "
                                     + "Tracks imported from the phone are not touched."))
                     .setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(text("Удалить", "Delete"), (dialog, which) -> deleteAllDownloads())
@@ -2322,7 +2416,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 // The file stays: it belongs to an earlier install, so only Android's own confirmation removes it.
                 keptIds.add(id);
                 android.net.Uri row = file == null ? null : file.rowUri(this);
-                if (row != null) uris.add(row);
+                // Only the media store can ask the user about a file; a file of a picked folder is not removed that way.
+                if (row != null && android.provider.MediaStore.AUTHORITY.equals(row.getAuthority())) uris.add(row);
             }
             int done = deleted;
             Utils.runOnMainThread(() -> {
@@ -3364,6 +3459,10 @@ public final class ReVancedSettingsActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_DELETE_DOWNLOADS) {
             forgetRemovedDownloads();
+            return;
+        }
+        if (requestCode == REQUEST_DOWNLOAD_FOLDER) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) downloadFolderPicked(data.getData());
             return;
         }
         if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null) return;

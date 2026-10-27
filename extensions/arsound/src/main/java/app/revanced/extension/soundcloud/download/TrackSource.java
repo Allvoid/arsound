@@ -6,14 +6,14 @@ import org.json.JSONObject;
  * Where the audio of a track comes from, and why it cannot be downloaded when it cannot.
  * <p>
  * SoundCloud offers a track either as one progressive file or as an HLS playlist of encrypted
- * segments. The progressive file is downloaded by Android's download manager; HLS is assembled by
- * {@link HlsDownloader}.
+ * segments. The progressive file is downloaded by Android's download manager, or by {@link ProgressiveDownloader}
+ * into a folder the download manager cannot write to; HLS is assembled by {@link HlsDownloader}.
  * <p>
  * DRM-protected tracks (FairPlay/Widevine) are not saved; they get the status {@link Status#DRM_PROTECTED}.
  */
 public final class TrackSource {
     public enum Status {
-        /** A progressive stream is available: the download manager saves it. */
+        /** A progressive stream is available: one file, saved by the download manager or by the app itself. */
         READY,
         /** Only an HLS playlist is available: the segments are downloaded and packed into one file. */
         REQUIRES_HLS_PROCESSING,

@@ -1,13 +1,13 @@
 package app.revanced.extension.soundcloud.download;
 
 import android.app.Activity;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.provider.MediaStore;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,7 +40,9 @@ import app.revanced.extension.shared.Utils;
  * path works) but is not allowed to read or remove them by path, only through the media store. The check then said
  * "no file", the track was streamed instead of played from its file, and the same tracks were downloaded again on
  * every run of a playlist. Now each track remembers the media store row of its file ({@code track_uri_}) and the
- * location it was saved to ({@code track_dir_}), and the file is read and removed through that row.
+ * location it was saved to ({@code track_dir_}), and the file is read and removed through that row. The row is a
+ * media store row, or the document of a file in a folder the user picked (see {@link TreeFolder}): the rest of the app
+ * does not tell them apart.
  * <p>
  * The media store is listed in the background into a snapshot, which the lists of the app read without waiting:
  * they ask for the state of a track on every cell they draw, on the main thread.
@@ -105,6 +108,28 @@ public final class DownloadIndex {
         return DownloadLocation.current().label();
     }
 
+    /**
+     * The folders the files of these tracks are in, for the user: one name, or several separated by commas when the
+     * choice of the folder was changed after some of them were downloaded. The folder new downloads go to when none
+     * of the tracks has a file.
+     */
+    public static String placeOf(Iterable<String> trackIds) {
+        Set<String> labels = new LinkedHashSet<>();
+        for (String trackId : trackIds) {
+            Ref ref = DownloadTrackPatch.fileRefOf(trackId);
+            if (ref != null) labels.add(ref.location().label());
+        }
+        if (labels.isEmpty()) return label();
+        StringBuilder place = new StringBuilder();
+        for (String label : labels) place.append(place.length() == 0 ? "" : ", ").append(label);
+        return place.toString();
+    }
+
+    /** The folders of all downloaded tracks, see {@link #placeOf}. */
+    public static String downloadsPlace() {
+        return placeOf(DownloadTrackPatch.getDownloadedTrackIds());
+    }
+
     private static String key(String locationId, String name) {
         return locationId + '\u0000' + name;
     }
@@ -116,7 +141,7 @@ public final class DownloadIndex {
     static final class Ref {
         final String locationId;
         final String name;
-        /** The media store row, or null if it was never recorded. */
+        /** The media store row or the document of a picked folder, or null if it was never recorded. */
         final String uri;
 
         Ref(String locationId, String name, String uri) {
@@ -139,7 +164,7 @@ public final class DownloadIndex {
     public static final class Entry {
         final Ref ref;
         final String name;
-        /** The media store row, or null if the file is only known by its path. */
+        /** The media store row or the document of a picked folder, or null if the file is only known by its path. */
         final Uri uri;
         /** The path, or null if the location has none. */
         final File file;
@@ -168,7 +193,8 @@ public final class DownloadIndex {
         }
 
         /**
-         * What to hand to the player: a path, or the address of the media store row where the path cannot be read.
+         * What to hand to the player: a path, or the address of the row where the path cannot be read (always so in a
+         * picked folder, which has no path).
          * Null if the player could not open the file either, so the caller streams the track instead of playing a
          * file that is not there. May wait for the system: call off the main thread.
          */
@@ -357,11 +383,22 @@ public final class DownloadIndex {
         if (context == null) return;
         synchronized (REFRESH_LOCK) {
             try {
+                Snapshot before = snapshot;
                 Snapshot fresh = new Snapshot();
                 for (DownloadLocation location : knownLocations()) {
-                    for (DownloadLocation.Row row : location.list(context)) fresh.add(row);
+                    List<DownloadLocation.Row> rows = location.list(context);
+                    if (rows == null) {
+                        // A card that is out, or a folder whose access was taken back: its tracks are still downloaded,
+                        // they only cannot be opened for now. What was known of them stays until it can be listed again.
+                        if (before != null) {
+                            for (DownloadLocation.Row row : before.byUri.values()) {
+                                if (row.locationId.equals(location.id())) fresh.add(row);
+                            }
+                        }
+                        continue;
+                    }
+                    for (DownloadLocation.Row row : rows) fresh.add(row);
                 }
-                Snapshot before = snapshot;
                 snapshot = fresh;
                 lastRefreshAt = SystemClock.elapsedRealtime();
                 lastFailureAt = 0;
@@ -414,12 +451,13 @@ public final class DownloadIndex {
      * Music, and then only one it made itself.
      *
      * @return True if the file is no longer there. False if it stays (a file made before a reinstall belongs to the old
-     * install for Android), then the record of the track is kept so the settings can have it removed through the system.
+     * install for Android, a file on a card that is out cannot be reached), then the record of the track is kept so the
+     * settings can have it removed through the system, or it can be removed once the card is back.
      */
     static boolean delete(Context context, Ref ref) {
         DownloadLocation location = ref.location();
         String[] names = namesOf(ref);
-        Set<Uri> rows = new java.util.LinkedHashSet<>();
+        Set<Uri> rows = new LinkedHashSet<>();
         if (ref.uri != null) rows.add(Uri.parse(ref.uri));
         Snapshot listed = snapshot;
         for (String name : names) {
@@ -430,14 +468,9 @@ public final class DownloadIndex {
         boolean removed = false;
         Uri removedRow = null;
         for (Uri row : rows) {
-            try {
-                if (context.getContentResolver().delete(row, null, null) > 0) {
-                    removed = true;
-                    removedRow = row;
-                }
-            } catch (Exception ex) {
-                // For instance a SecurityException for a row that belongs to another install.
-                Logger.printInfo(() -> "Could not delete " + row + " through the media store: " + ex);
+            if (DownloadLocation.deleteRow(context, row)) {
+                removed = true;
+                removedRow = row;
             }
         }
         if (!removed) {
@@ -445,13 +478,9 @@ public final class DownloadIndex {
             for (String name : names) {
                 Uri row = location.findRow(context, name);
                 if (row == null || rows.contains(row)) continue;
-                try {
-                    if (context.getContentResolver().delete(row, null, null) > 0) {
-                        removed = true;
-                        removedRow = row;
-                    }
-                } catch (Exception ex) {
-                    Logger.printInfo(() -> "Could not delete " + row + " through the media store: " + ex);
+                if (DownloadLocation.deleteRow(context, row)) {
+                    removed = true;
+                    removedRow = row;
                 }
             }
         }
@@ -459,7 +488,13 @@ public final class DownloadIndex {
         boolean gone = true;
         for (String name : names) {
             File file = location.file(name);
-            if (file == null || !file.exists()) continue;
+            if (file == null) {
+                // A location without paths: the file is gone when the system no longer lists it. A card that is out
+                // cannot be asked, so its files stay, with their record, until the card or its access is back.
+                if (!removed && (!location.isAvailable(context) || location.findRow(context, name) != null)) gone = false;
+                continue;
+            }
+            if (!file.exists()) continue;
             if (file.isFile() && file.delete()) removed = true;
             else gone = false;
         }
@@ -567,6 +602,9 @@ public final class DownloadIndex {
         // The files a track keeps (and the one a download again will replace), the tracks that keep one, and the
         // tracks whose files are changing. A track that keeps none has its copies taken over by adopt, not removed.
         Set<String> kept = new HashSet<>();
+        // The names alone as well: the same folder reached two ways (the media store and a picked folder) lists one
+        // file twice, and that is not a copy to remove.
+        Set<String> keptNames = new HashSet<>();
         Set<String> keeping = new HashSet<>();
         Set<String> busy = new HashSet<>();
         for (String trackId : downloaded) {
@@ -578,13 +616,14 @@ public final class DownloadIndex {
                 Entry entry = ref == null ? null : find(ref, false);
                 if (entry == null) continue;
                 kept.add(key(ref.locationId, entry.name));
+                keptNames.add(entry.name);
                 keeping.add(trackId);
             }
         }
         for (DownloadLocation.Row row : listed.byName.values()) {
             Matcher matcher = ID_NAME.matcher(row.name);
             if (!matcher.matches() || !keeping.contains(matcher.group(1)) || busy.contains(matcher.group(1))) continue;
-            if (!kept.contains(key(row.locationId, row.name))) extra.add(row);
+            if (!kept.contains(key(row.locationId, row.name)) && !keptNames.contains(row.name)) extra.add(row);
         }
         return new Duplicates(extra);
     }
@@ -596,18 +635,14 @@ public final class DownloadIndex {
      * @return How many files were removed.
      */
     public static int removeDuplicates(Context context, Duplicates duplicates, List<Uri> needsConsent) {
-        ContentResolver resolver = context.getContentResolver();
         int removed = 0;
         for (DownloadLocation.Row row : duplicates.rows) {
-            try {
-                if (resolver.delete(row.uri, null, null) > 0) {
-                    removed++;
-                    continue;
-                }
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Could not delete the copy " + row.name + ": " + ex);
+            if (DownloadLocation.deleteRow(context, row.uri)) {
+                removed++;
+            } else if (MediaStore.AUTHORITY.equals(row.uri.getAuthority())) {
+                // Only the media store can ask the user about a file of another install; a picked folder cannot.
+                needsConsent.add(row.uri);
             }
-            needsConsent.add(row.uri);
         }
         refreshAsync();
         return removed;

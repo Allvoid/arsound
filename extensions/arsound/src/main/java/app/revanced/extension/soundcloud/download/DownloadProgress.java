@@ -66,6 +66,11 @@ public final class DownloadProgress {
         return trackId != null && assembling.contains(trackId);
     }
 
+    /** Whether the app is downloading or packing any track itself right now. */
+    static boolean isAnyAssembling() {
+        return !assembling.isEmpty();
+    }
+
     /**
      * Called when the app starts to download and pack an HLS track itself.
      *

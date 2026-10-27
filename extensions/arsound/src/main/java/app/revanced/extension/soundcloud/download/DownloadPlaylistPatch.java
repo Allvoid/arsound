@@ -217,9 +217,9 @@ public final class DownloadPlaylistPatch {
 
                 Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(context)
                         .setTitle(text("Удалить скачанные треки?", "Delete downloaded tracks?"))
-                        .setMessage(text("Будут удалены файлы " + downloaded.size() + " треков из папки " + DownloadIndex.label() + ". "
+                        .setMessage(text("Будут удалены файлы " + downloaded.size() + " треков из папки " + DownloadIndex.placeOf(downloaded) + ". "
                                         + "Импортированные с телефона треки останутся.",
-                                "The files of " + downloaded.size() + " tracks will be removed from " + DownloadIndex.label() + ". "
+                                "The files of " + downloaded.size() + " tracks will be removed from " + DownloadIndex.placeOf(downloaded) + ". "
                                         + "Music imported from the phone stays."))
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(text("Удалить " + downloaded.size(), "Delete " + downloaded.size()),

@@ -118,12 +118,13 @@ public final class DownloadTrackPatch {
     }
 
     /**
-     * Assembles HLS tracks two at a time. The shared background pool starts a thread for every task, so a
+     * Downloads the tracks the app fetches itself two at a time: HLS tracks, which are assembled, and single files
+     * for a folder the download manager cannot write to. The shared background pool starts a thread for every task, so a
      * whole playlist assembled at once held every segment in memory and ran the app out of heap.
      */
-    private static final java.util.concurrent.ExecutorService hlsAssembly =
+    private static final java.util.concurrent.ExecutorService ownDownloads =
             java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
-                Thread thread = new Thread(r, "arsound-hls-assembly");
+                Thread thread = new Thread(r, "arsound-own-download");
                 thread.setDaemon(true);
                 return thread;
             });
@@ -403,25 +404,33 @@ public final class DownloadTrackPatch {
         }
     }
 
-    /** Starts the download through the download manager, or through the HLS assembler. */
+    /**
+     * Starts the download through the download manager, or through the downloader of the app itself: the HLS assembler,
+     * and for a folder the download manager cannot write to the downloader of a single file as well.
+     */
     private static void start(Context context, String trackId, TrackSource source, boolean notify, String playlistId) {
         DownloadIndex.Ref previous = fileRefOf(trackId);
-        if (source.status == TrackSource.Status.READY) {
-            enqueue(context, trackId, source, notify, playlistId, previous);
+        // Read once: a download that is running when the choice of the folder changes ends where it started.
+        DownloadLocation location = DownloadLocation.forNewDownload(context);
+        boolean singleFile = source.status == TrackSource.Status.READY;
+        if (singleFile && location.usesDownloadManager()) {
+            enqueue(context, trackId, source, notify, playlistId, previous, location);
             return;
         }
 
-        // The segments are downloaded, decrypted and packed by the app itself, which takes CPU time.
+        // The file is downloaded (HLS: decrypted and packed) by the app itself, which takes time and CPU.
         if (!DownloadProgress.tryBeginAssembly(trackId, playlistId)) {
             if (notify) showToast(context, text("Этот трек уже скачивается", "This track is already downloading"));
             return;
         }
         cancelledAssemblies.remove(trackId);
         if (notify) {
-            showToast(context, text("Собираю трек из потока, это займёт немного времени…",
+            showToast(context, singleFile
+                    ? text("Скачиваю трек в «" + location.label() + "»…", "Downloading the track to " + location.label() + "…")
+                    : text("Собираю трек из потока, это займёт немного времени…",
                     "Assembling the track from its stream, this takes a moment…"));
         }
-        hlsAssembly.execute(() -> {
+        ownDownloads.execute(() -> {
             DownloadIndex.Ref saved = null;
             boolean noSpace = false;
             // Deleting the track while it is assembled stops the assembly at the next segment.
@@ -430,17 +439,17 @@ public final class DownloadTrackPatch {
                 // Without a network every queued track would fail in turn, each after its retries.
                 // Deleted while it waited in the queue: nothing to assemble.
                 if (!awaitNetwork(context, trackId)) return;
-                TrackSource current = freshHlsSource(trackId, source);
-                saved = HlsDownloader.download(context, trackId, current, cancelled);
+                TrackSource current = freshSource(trackId, source);
+                saved = download(context, trackId, current, location, cancelled);
                 if (saved == null && !isOnline(context)) {
                     // The network went away during the assembly: the track waits for it and is assembled once more.
                     if (!awaitNetwork(context, trackId) || !isOnline(context)) return;
-                    current = freshHlsSource(trackId, current);
-                    saved = HlsDownloader.download(context, trackId, current, cancelled);
+                    current = freshSource(trackId, current);
+                    saved = download(context, trackId, current, location, cancelled);
                 }
             } catch (HlsDownloader.NoSpaceException ex) {
                 noSpace = true;
-                showNoSpace(context);
+                showNoSpace(context, location);
             } catch (Throwable ex) {
                 // An error (out of memory on a weak phone) would end the whole app together with the pool thread.
                 Logger.printException(() -> "Could not assemble " + trackId, ex);
@@ -465,6 +474,14 @@ public final class DownloadTrackPatch {
         });
     }
 
+    /** Downloads the file of a track by the app itself, and saves it into the location. */
+    private static DownloadIndex.Ref download(Context context, String trackId, TrackSource source, DownloadLocation location,
+                                              java.util.function.BooleanSupplier cancelled) throws HlsDownloader.NoSpaceException {
+        return source.status == TrackSource.Status.READY
+                ? ProgressiveDownloader.download(context, trackId, source, location, cancelled)
+                : HlsDownloader.download(context, trackId, source, location, cancelled);
+    }
+
     /** When the toast about a full storage was last shown. */
     private static volatile long noSpaceToastAt;
 
@@ -472,15 +489,19 @@ public final class DownloadTrackPatch {
      * A storage that is full fails every track of a playlist, quietly: the toast tells the user why, once a
      * minute at most so that a playlist of hundreds does not stack one for each.
      */
-    private static void showNoSpace(Context context) {
+    private static void showNoSpace(Context context, DownloadLocation location) {
         long now = android.os.SystemClock.elapsedRealtime();
         if (noSpaceToastAt != 0 && now - noSpaceToastAt < 60_000) return;
         noSpaceToastAt = now;
-        showToast(context, text("Недостаточно места на телефоне, трек не сохранён",
-                "Not enough free space on the phone, the track was not saved"));
+        // A card has its own room, apart from the phone's.
+        showToast(context, location.usesDownloadManager()
+                ? text("Недостаточно места на телефоне, трек не сохранён",
+                "Not enough free space on the phone, the track was not saved")
+                : text("Недостаточно места на телефоне или в «" + location.label() + "», трек не сохранён",
+                "Not enough free space on the phone or in " + location.label() + ", the track was not saved"));
     }
 
-    /** How long an HLS link stays good: a track that waited its turn in the assembly queue asks for a new one. */
+    /** How long a stream link stays good: a track that waited its turn in the assembly queue asks for a new one. */
     private static final long HLS_LINK_FRESH_MS = 60_000;
     /** The longest wait of a queued assembly for the network; after it the track is tried and may fail. */
     private static final long NETWORK_WAIT_MS = 10 * 60_000;
@@ -523,11 +544,12 @@ public final class DownloadTrackPatch {
         return !cancelledAssemblies.contains(trackId);
     }
 
-    private static TrackSource freshHlsSource(String trackId, TrackSource source) {
+    /** The same source with a link that is not stale; the source itself if no new link can be had. */
+    private static TrackSource freshSource(String trackId, TrackSource source) {
         if (source.isFresh(HLS_LINK_FRESH_MS)) return source;
         try {
             TrackSource renewed = resolveSource(trackId);
-            if (renewed.status == TrackSource.Status.REQUIRES_HLS_PROCESSING && renewed.isDownloadable()) return renewed;
+            if (renewed.status == source.status && renewed.isDownloadable()) return renewed;
         } catch (Exception ex) {
             Logger.printInfo(() -> "Could not renew the stream link of " + trackId + ": " + ex);
         }
@@ -797,20 +819,27 @@ public final class DownloadTrackPatch {
         return null;
     }
 
-    /**
-     * @param previous The file the track already has, kept until the new file is complete; null if none.
-     */
-    private static void enqueue(Context context, String trackId, TrackSource source, boolean notify, String playlistId,
-                                DownloadIndex.Ref previous) {
-        Uri uri = Uri.parse(source.url);
-        String fileName = uri.getLastPathSegment();
+    /** The name a single-file track is saved under, before it is made free of the names taken in the location. */
+    static String progressiveFileName(String trackId, TrackSource source) {
+        String fileName = Uri.parse(source.url).getLastPathSegment();
         // Author downloads can come from a link without an extension; players then do not recognise the file.
         if (fileName == null || !fileName.contains(".")) fileName = "soundcloud-" + trackId + ".mp3";
         // Named after the track, "Artist - Title", with the extension of the file on the server.
         if (source.fileBase != null) fileName = source.fileBase + extensionOf(fileName);
-        // The location is read once: a download that is running when the choice changes ends where it started.
-        DownloadLocation location = DownloadLocation.current();
-        fileName = freeFileName(location, fileName, trackId);
+        return fileName;
+    }
+
+    /**
+     * Downloads a single-file track with Android's download manager, which goes on in the background when the app is
+     * closed. Only for a location the download manager can write to.
+     *
+     * @param previous The file the track already has, kept until the new file is complete; null if none.
+     * @param location Read once when the download started, see {@link #start}.
+     */
+    private static void enqueue(Context context, String trackId, TrackSource source, boolean notify, String playlistId,
+                                DownloadIndex.Ref previous, DownloadLocation location) {
+        Uri uri = Uri.parse(source.url);
+        String fileName = freeFileName(location, progressiveFileName(trackId, source), trackId);
 
         DownloadManager.Request request = new DownloadManager.Request(uri)
                 .setTitle(fileName)
