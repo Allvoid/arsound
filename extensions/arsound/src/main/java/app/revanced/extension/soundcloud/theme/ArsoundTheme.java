@@ -426,6 +426,9 @@ public final class ArsoundTheme {
      * and Compose themes are created, so already open screens would keep a mix of the old and new colours.
      */
     public static void restartApp(Activity activity) {
+        // The widget's heart may take the theme's accent, and the widget is not built again by the restart: until the
+        // next track it would keep the old theme's colour. The app is still alive here, with the new theme chosen.
+        app.revanced.extension.soundcloud.widget.WidgetHeart.refresh(activity);
         android.content.Intent launch = activity.getPackageManager().getLaunchIntentForPackage(activity.getPackageName());
         if (launch == null) return;
         launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -451,6 +454,8 @@ public final class ArsoundTheme {
         } catch (Throwable ex) {
             Logger.printException(() -> "Theme: could not apply on start", ex);
         }
+        // The widget's heart is fitted to the card of the phone's day or night look; follow the look flipping.
+        app.revanced.extension.soundcloud.widget.WidgetHeart.watchLook(application);
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityPreCreated(Activity activity, Bundle savedInstanceState) {
