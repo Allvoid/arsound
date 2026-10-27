@@ -1,6 +1,8 @@
 package app.revanced.extension.soundcloud.widget;
 
+import android.app.Application;
 import android.appwidget.AppWidgetManager;
+import android.content.ComponentCallbacks;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -61,8 +63,9 @@ public final class WidgetHeart {
      * or more keeps the contrast at 3 or better on the dark card, 0.25 or less on the light one. The day band is that,
      * so it stands out from either card: the launcher can change the look without asking for a new update, and the
      * colour of the day look still reads on the dark card. The night band lets a bright cover stay bright, as the dark
-     * card has the contrast to spare; if the phone goes back to its day look before the next update, the heart is a
-     * light colour on a light card until then.
+     * card has the contrast to spare. When the phone flips between its looks the launcher redraws the card by itself
+     * but keeps the heart it was given, so {@link #watchLook} has the widget built again at once; only if the app is
+     * not running at that moment is the heart a light colour on a light card until the next update.
      */
     private static final double MIN_LUMINANCE = 0.14;
     private static final double MAX_LUMINANCE_DAY = 0.25;
@@ -92,6 +95,40 @@ public final class WidgetHeart {
                     .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids));
         } catch (Throwable ex) {
             Logger.printException(() -> "Widget heart: could not ask for a new widget", ex);
+        }
+    }
+
+    /** The look of the phone (night or not) as it was last seen, to tell a flip from another change of configuration. */
+    private static volatile boolean lastNight;
+
+    /**
+     * Has the widget built again when the phone flips between its day and night look. The launcher draws the card in
+     * the new look by itself, but keeps the colour filter on the heart, which was fitted to the old card until the
+     * next track, like or pause. Called once, when the app starts.
+     */
+    public static void watchLook(Application application) {
+        try {
+            lastNight = isNight();
+            application.registerComponentCallbacks(new ComponentCallbacks() {
+                @Override
+                public void onConfigurationChanged(Configuration newConfig) {
+                    try {
+                        // The system's configuration is already the new one when this runs.
+                        boolean night = isNight();
+                        if (night == lastNight) return;
+                        lastNight = night;
+                        if (isEnabled()) refresh(application);
+                    } catch (Throwable ex) {
+                        Logger.printException(() -> "Widget heart: could not follow the phone's look", ex);
+                    }
+                }
+
+                @Override
+                public void onLowMemory() {
+                }
+            });
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Widget heart: could not watch the phone's look", ex);
         }
     }
 
