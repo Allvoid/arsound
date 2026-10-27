@@ -115,6 +115,8 @@ public final class DownloadFolder {
     }
 
     private static void changed(Context context) {
+        // Before the access to the old folder is given back: it is needed to remove what a cut off download left there.
+        TreeFolder.sweepUnfinished(context);
         releaseUnused(context);
         // The files of the new folder are listed, so the lists know the tracks that are already in it.
         DownloadIndex.refreshAsync();

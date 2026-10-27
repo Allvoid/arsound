@@ -29,6 +29,8 @@ final class ProgressiveDownloader {
     private static final String USER_AGENT = "Arsound";
     /** Room that is left on a card when a file fits, so the card is not filled to the last byte. */
     private static final long CARD_RESERVE_BYTES = 8L * 1024 * 1024;
+    /** How many times a file may break in all, however much arrived in between, before the download gives up. */
+    private static final int MAX_BREAKS = 20;
 
     private ProgressiveDownloader() {
     }
@@ -92,9 +94,13 @@ final class ProgressiveDownloader {
         long have = 0;
         long tagBytes = 0;
         long total = -1;
+        // Breaks in a row, with no byte arriving in between; and breaks in all.
         int failures = 0;
+        int breaks = 0;
         while (true) {
             HttpURLConnection connection = null;
+            // Whether this try got any of the file: a long file over a poor link breaks more than three times.
+            boolean progressed = false;
             try {
                 connection = DownloadHttp.open(url, have, USER_AGENT);
                 // 206 is the rest of the file; 200 is all of it again, from the start.
@@ -119,13 +125,19 @@ final class ProgressiveDownloader {
                         if (cancelled.getAsBoolean()) return -1;
                         output.write(buffer, 0, read);
                         have += read;
+                        progressed = true;
                     }
                 }
                 if (total >= 0 && have < total) throw new IOException("The file ended at " + have + " of " + total + " bytes");
                 return tagBytes + have;
             } catch (IOException ex) {
+                // A file is picked up where it stopped, so a break after some progress costs nothing: the count of tries
+                // starts again. Without it the fourth drop anywhere in a big file threw all that was written away. The
+                // total still ends a link that never holds.
+                if (progressed) failures = 0;
+                breaks++;
                 if (ex instanceof HlsDownloader.NoSpaceException || DownloadLocation.isFull(ex)
-                        || failures >= DownloadHttp.MAX_RETRIES || !DownloadHttp.isTransient(ex)
+                        || failures >= DownloadHttp.MAX_RETRIES || breaks >= MAX_BREAKS || !DownloadHttp.isTransient(ex)
                         || Thread.currentThread().isInterrupted()) {
                     throw ex;
                 }

@@ -56,6 +56,13 @@ public final class PlaylistPreloader {
                 } catch (Exception ex) {
                     Logger.printException(() -> "Could not take over the files of earlier downloads", ex);
                 }
+                // Half written files that a killed process left in a folder of the user, and files that could not be
+                // removed while their card was out.
+                try {
+                    app.revanced.extension.soundcloud.download.DownloadIndex.sweepAtStart(Utils.getContext());
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not clean up after cut off downloads", ex);
+                }
                 if (!RegionGuard.blocksLastCountry()) {
                     app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
                 }
