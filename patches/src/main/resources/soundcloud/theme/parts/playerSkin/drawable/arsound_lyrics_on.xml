@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lyrics button, on: the same bubble filled, the three lines cut out of it. The outline is as large as the stroke of
+     the off icon, so the button does not change size when it is switched. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M8,3H16C19.3137,3 22,5.6863 22,9V15C22,18.3137 19.3137,21 16,21H2V9C2,5.6863 4.6863,3 8,3Z M7.5,7.75H16.5V9.25H7.5Z M7.5,11.25H16.5V12.75H7.5Z M7.5,14.75H12.5V16.25H7.5Z" />
+</vector>
