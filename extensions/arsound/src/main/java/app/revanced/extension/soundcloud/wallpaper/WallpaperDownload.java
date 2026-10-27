@@ -93,6 +93,11 @@ public final class WallpaperDownload {
         return started && !finished;
     }
 
+    /** True when the download ended without the picture and was not given up: it will not run again, a new one is needed. */
+    public boolean isFailed() {
+        return finished && !saved && !cancelled.get();
+    }
+
     /** True when the whole picture is in the file. */
     public boolean isSaved() {
         return finished && saved;

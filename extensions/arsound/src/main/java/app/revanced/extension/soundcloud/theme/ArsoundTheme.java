@@ -559,10 +559,44 @@ public final class ArsoundTheme {
                 } catch (Exception ex) {
                     Logger.printException(() -> "Theme: could not close the replaced resource table", ex);
                 }
+                // The table was swapped in a running process: the spinner may have been read already.
+                forgetLottieAnimations();
             }
         }
         // Adding a loader that is already there changes nothing.
         resources.addLoaders(loader);
+    }
+
+    /**
+     * Lottie keeps the animations it has read (the loading spinner among them) in a cache of its own, by resource id,
+     * so after the palette changed in a running process the spinner would keep the old accent until the process ends.
+     * The cache is emptied; the next spinner is read again from the new table. The fields of the cache have one-letter
+     * names in SoundCloud's build, so they are found by their type, not by name.
+     */
+    private static void forgetLottieAnimations() {
+        try {
+            Class<?> cacheClass = Class.forName("com.airbnb.lottie.model.LottieCompositionCache");
+            Class<?> lruClass = Class.forName("androidx.collection.LruCache");
+            Object cache = null;
+            for (java.lang.reflect.Field field : cacheClass.getDeclaredFields()) {
+                if (field.getType() != cacheClass || !java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                field.setAccessible(true);
+                cache = field.get(null);
+                break;
+            }
+            if (cache == null) {
+                Logger.printInfo(() -> "Theme: Lottie's cache was not found, the spinner keeps its colour until a restart");
+                return;
+            }
+            for (java.lang.reflect.Field field : cacheClass.getDeclaredFields()) {
+                if (field.getType() != lruClass || java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                field.setAccessible(true);
+                Object animations = field.get(cache);
+                if (animations != null) lruClass.getMethod("evictAll").invoke(animations);
+            }
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not empty Lottie's cache", ex);
+        }
     }
 
     /**
@@ -856,7 +890,8 @@ public final class ArsoundTheme {
 
         byte[] loadingAnimation(Resources resources, int animation) throws Exception {
             File file = new File(dir, "loading_animation.json");
-            if (file.isFile()) return readAll(new FileInputStream(file));
+            byte[] kept = kept(file, true);
+            if (kept != null) return kept;
             byte[] bytes = readAll(resources.openRawResource(animation));
             keep(file, bytes);
             return bytes;
@@ -865,10 +900,41 @@ public final class ArsoundTheme {
         /** The picture as PNG bytes, for a narrow or a wide screen; null if it could not be read. */
         byte[] picture(Resources source, int picture, String name, boolean wide) throws Exception {
             File file = new File(dir, name + (wide ? "-wide" : "") + ".png");
-            if (file.isFile()) return readAll(new FileInputStream(file));
+            byte[] kept = kept(file, false);
+            if (kept != null) return kept;
             byte[] bytes = HeaderArtwork.original(source, picture);
             if (bytes != null) keep(file, bytes);
             return bytes;
+        }
+
+        /**
+         * The kept copy, or null when there is none or it is damaged (a write that stopped half way): a damaged copy
+         * is removed, so that it is not trusted at every build until the app is updated, and the original is read
+         * again from the app.
+         */
+        private byte[] kept(File file, boolean animation) {
+            if (!file.isFile()) return null;
+            try {
+                byte[] bytes = readAll(new FileInputStream(file));
+                if (animation ? isLottie(bytes) : isPng(bytes)) return bytes;
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Theme: the kept original " + file.getName() + " could not be read");
+            }
+            Logger.printInfo(() -> "Theme: the kept original " + file.getName() + " is damaged, reading it again");
+            file.delete();
+            return null;
+        }
+
+        /** True if this is a whole Lottie file: a cut-off one does not parse (it throws). */
+        private static boolean isLottie(byte[] bytes) throws Exception {
+            new JSONObject(new String(bytes, "UTF-8"));
+            return true;
+        }
+
+        /** True if the PNG ends with its closing chunk, which the encoder writes last (4 bytes of length, "IEND", 4 of checksum). */
+        private static boolean isPng(byte[] bytes) {
+            int end = bytes.length - 8;
+            return end >= 8 && bytes[end] == 'I' && bytes[end + 1] == 'E' && bytes[end + 2] == 'N' && bytes[end + 3] == 'D';
         }
 
         private void keep(File file, byte[] bytes) {
@@ -876,9 +942,14 @@ public final class ArsoundTheme {
                 Logger.printInfo(() -> "Theme: no kept original of " + file.getName() + ", reading it from the themed app");
                 return;
             }
+            // Written aside and renamed, so a stop half way (no space left, the process killed) never leaves a cut-off
+            // copy that the next builds would take for the original.
+            File aside = new File(dir, file.getName() + ".tmp");
             try {
-                write(file, bytes);
+                write(aside, bytes);
+                if (!aside.renameTo(file)) throw new java.io.IOException("Could not rename " + aside.getName());
             } catch (Exception ex) {
+                aside.delete();
                 Logger.printException(() -> "Theme: could not keep the original " + file.getName(), ex);
             }
         }

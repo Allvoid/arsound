@@ -822,7 +822,10 @@ final class WallhavenScreen {
      * Shows how the picture downloads (it may be under way since the preview), keeps it as the wallpaper and leaves
      * the browser.
      */
-    private void setAsBackground(Wallhaven.Item item, WallpaperDownload download) {
+    private void setAsBackground(Wallhaven.Item item, WallpaperDownload preview) {
+        // A download that failed stays failed (it does not start again), so when the preview's own one did, this tap
+        // makes a new one instead of reporting the old failure at once.
+        WallpaperDownload download = preview.isFailed() ? new WallpaperDownload(activity, item.fullUrl) : preview;
         current = download;
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);

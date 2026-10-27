@@ -249,7 +249,7 @@ public final class WallpaperStore {
      */
     public static boolean install(Context context, File downloaded, String id) {
         synchronized (WRITE) {
-            File temporary = null;
+            File temporary = null, metaTemporary = null, bakedTemporary = null;
             try {
                 Bitmap bitmap = decode(downloaded, MAX_SIDE);
                 if (bitmap == null) return false;
@@ -262,14 +262,18 @@ public final class WallpaperStore {
                 } finally {
                     bitmap.recycle();
                 }
-                replace(temporary, new File(folder, ORIGINAL));
 
                 JSONObject meta = new JSONObject().put("id", id == null ? "" : id).put("source", "wallhaven");
-                File metaFile = new File(folder, META);
-                try (FileOutputStream output = new FileOutputStream(metaFile)) {
+                metaTemporary = File.createTempFile(META + ".", ".tmp", folder);
+                try (FileOutputStream output = new FileOutputStream(metaTemporary)) {
                     output.write(meta.toString().getBytes("UTF-8"));
                 }
-                bake(context);
+                // The slow step that can fail (a full disk, too little memory) runs before anything of the old
+                // wallpaper is replaced: a failure leaves the old picture, its link and its blurred copy as they were.
+                bakedTemporary = bake(context, temporary, folder);
+                replace(temporary, new File(folder, ORIGINAL));
+                replace(metaTemporary, new File(folder, META));
+                replace(bakedTemporary, new File(folder, BAKED));
                 Settings.putBoolean(Settings.WALLPAPER_ENABLED, true);
                 refresh();
                 return true;
@@ -277,8 +281,10 @@ public final class WallpaperStore {
                 Logger.printException(() -> "Wallpaper: could not keep the picture", ex);
                 return false;
             } finally {
-                // A rename took it away; what is still there is the rest of a failed try.
+                // A rename took each away; what is still there is the rest of a failed try.
                 if (temporary != null) temporary.delete();
+                if (metaTemporary != null) metaTemporary.delete();
+                if (bakedTemporary != null) bakedTemporary.delete();
             }
         }
     }
@@ -320,16 +326,28 @@ public final class WallpaperStore {
 
     // region Baking
 
-    /**
-     * Cuts the kept picture to the shape of this phone's screen, blurs it by the setting and writes {@code view.jpg}.
-     * The blur works on a shrunken copy (a box blur, three times, which is close to a Gaussian one) and the result is
-     * stretched back: the picture is soft anyway, and a few hundred thousand pixels are blurred in a moment.
-     */
+    /** Bakes the kept picture again into {@code view.jpg}. */
     private static void bake(Context context) throws IOException {
         File original = file(ORIGINAL);
         File baked = file(BAKED);
         if (original == null || baked == null) throw new IOException("No folder");
+        File prepared = bake(context, original, baked.getParentFile());
+        try {
+            replace(prepared, baked);
+        } finally {
+            prepared.delete();
+        }
+    }
 
+    /**
+     * Cuts a picture to the shape of this phone's screen, blurs it by the setting and writes it to a temporary file in
+     * {@code folder}, which is returned. {@code view.jpg} is not touched: the caller puts the file in place when
+     * everything else it needs is ready.
+     * <p>
+     * The blur works on a shrunken copy (a box blur, three times, which is close to a Gaussian one) and the result is
+     * stretched back: the picture is soft anyway, and a few hundred thousand pixels are blurred in a moment.
+     */
+    private static File bake(Context context, File original, File folder) throws IOException {
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         int shortSide = Math.min(metrics.widthPixels, metrics.heightPixels);
         int longSide = Math.max(metrics.widthPixels, metrics.heightPixels);
@@ -363,14 +381,13 @@ public final class WallpaperStore {
                 new Canvas(result).drawBitmap(small, null, new Rect(0, 0, outWidth, outHeight), paint);
                 small.recycle();
             }
-            File temporary = File.createTempFile(BAKED + ".", ".tmp", baked.getParentFile());
-            try {
-                try (FileOutputStream output = new FileOutputStream(temporary)) {
-                    result.compress(Bitmap.CompressFormat.JPEG, 90, output);
-                }
-                replace(temporary, baked);
-            } finally {
+            File temporary = File.createTempFile(BAKED + ".", ".tmp", folder);
+            try (FileOutputStream output = new FileOutputStream(temporary)) {
+                result.compress(Bitmap.CompressFormat.JPEG, 90, output);
+                return temporary;
+            } catch (IOException | RuntimeException | Error ex) {
                 temporary.delete();
+                throw ex;
             }
         } finally {
             source.recycle();
