@@ -46,7 +46,7 @@ public final class PlaylistTracks {
     private static final int TAG_LIMIT = 400;
     /** A burst of changes (an import of many files, a batch) is read once. */
     private static final long REFRESH_DELAY_MS = 300;
-    /** A playlist whose number keeps moving is not read again more often than this. */
+    /** A playlist whose number keeps moving is not read again more often than this; the last change is read after the pause. */
     private static final long COUNT_REFRESH_PAUSE_MS = 2_000;
 
     /** Playlist urn to its tracks: SoundCloud urns and {@link #IMPORTED} for files. */
@@ -68,6 +68,8 @@ public final class PlaylistTracks {
     private static final Map<String, Integer> drawnCounts = new ConcurrentHashMap<>();
     /** Playlist urn to the time its list was last read because SoundCloud's number moved. */
     private static final Map<String, Long> countRefreshes = new ConcurrentHashMap<>();
+    /** Playlists whose read after a number change waits for the end of the pause. */
+    private static final Set<String> laterRefresh = ConcurrentHashMap.newKeySet();
     private static final Set<String> pendingRefresh = ConcurrentHashMap.newKeySet();
     private static final AtomicBoolean refreshScheduled = new AtomicBoolean();
     private static volatile boolean loaded;
@@ -360,11 +362,25 @@ public final class PlaylistTracks {
     /**
      * SoundCloud's number moved: a track was added or removed in SoundCloud, on another device or by a sync.
      * The remembered list is read again, because a track added there may have been a local addition so far.
+     * <p>
+     * A change inside the pause is not dropped but read when the pause ends: the size of the list read last is
+     * the floor of the number, so a number that went back down (a track added and taken out again) would
+     * stay lifted by it until the list is read.
      */
     private static void refreshAfterCountChange(String urn) {
         long now = System.currentTimeMillis();
         Long last = countRefreshes.get(urn);
-        if (last != null && now - last < COUNT_REFRESH_PAUSE_MS) return;
+        if (last != null && now - last < COUNT_REFRESH_PAUSE_MS) {
+            // One wait per playlist: the read at its end sees the number of that moment, whatever came in between.
+            if (laterRefresh.add(urn)) {
+                Utils.runOnMainThreadDelayed(() -> {
+                    laterRefresh.remove(urn);
+                    countRefreshes.put(urn, System.currentTimeMillis());
+                    refreshLater(urn);
+                }, last + COUNT_REFRESH_PAUSE_MS - now);
+            }
+            return;
+        }
         countRefreshes.put(urn, now);
         refreshLater(urn);
     }

@@ -465,6 +465,8 @@ public final class PlaylistMerge {
             result.touched = true;
             try {
                 int saved = LocalAdditions.addAll(target.urn, onPhone);
+                // The list of local tracks names them by their titles: loaded one after another from now on, not when it is opened.
+                LocalAdditions.rememberTitles(onPhone);
                 result.added += saved;
                 if (target.editable) result.filesOnPhone = saved;
                 result.onPhoneOnly = !target.editable;

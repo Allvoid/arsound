@@ -17,7 +17,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -36,6 +38,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
+import app.revanced.extension.soundcloud.network.RegionGuard;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
@@ -742,40 +745,91 @@ public final class LocalAdditions {
     private static final String TITLES = "titles";
 
     /** A readable name for an entry: the cached SoundCloud title. */
-    public static synchronized String getTitle(String entry) {
-        if (entry.startsWith(FILE_PREFIX)) return null;
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return null;
-        try {
-            return new JSONObject(preferences.getString(TITLES, "{}")).optString(entry, null);
-        } catch (Exception ex) {
-            return null;
-        }
+    public static String getTitle(String entry) {
+        return entry.startsWith(FILE_PREFIX) ? null : readTitles().optString(entry, null);
     }
+
+    /** Entries whose titles wait to be loaded, in the order they came. */
+    private static final Set<String> pendingTitles = new LinkedHashSet<>();
+    private static boolean titleWorkerRunning;
 
     /** Loads and caches the title of a SoundCloud track entry, so local lists can show it offline. */
     public static void rememberTitle(String entry) {
-        if (entry.startsWith(FILE_PREFIX) || getTitle(entry) != null) return;
-        String id = DownloadTrackPatch.parseTrackId(entry);
-        if (id == null) return;
-        Utils.runOnBackgroundThread(() -> {
+        rememberTitles(Collections.singletonList(entry));
+    }
+
+    /**
+     * Loads and caches the titles of SoundCloud track entries that have none yet. One worker reads them one
+     * after another, so a merge of hundreds of tracks is not hundreds of threads and requests at once.
+     * Entries that already wait for their turn are not queued again.
+     */
+    public static void rememberTitles(Collection<String> entries) {
+        List<String> uncached = new ArrayList<>();
+        JSONObject titles = readTitles();
+        for (String entry : entries) {
+            if (entry.startsWith(FILE_PREFIX) || titles.has(entry) || DownloadTrackPatch.parseTrackId(entry) == null) continue;
+            uncached.add(entry);
+        }
+        if (uncached.isEmpty()) return;
+        boolean start;
+        synchronized (pendingTitles) {
+            pendingTitles.addAll(uncached);
+            start = !titleWorkerRunning;
+            titleWorkerRunning = true;
+        }
+        if (start) Utils.runOnBackgroundThread(LocalAdditions::loadPendingTitles);
+    }
+
+    private static void loadPendingTitles() {
+        while (true) {
+            String entry;
+            synchronized (pendingTitles) {
+                Iterator<String> next = pendingTitles.iterator();
+                if (!next.hasNext()) {
+                    titleWorkerRunning = false;
+                    return;
+                }
+                entry = next.next();
+                next.remove();
+            }
             try {
-                String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id);
-                if (response[1] == null) return;
-                JSONObject track = new JSONObject(response[1]);
-                JSONObject user = track.optJSONObject("user");
-                String title = track.optString("title") + (user == null ? "" : " — " + user.optString("username"));
-                synchronized (LocalAdditions.class) {
-                    SharedPreferences preferences = preferences();
-                    if (preferences == null) return;
-                    JSONObject titles = new JSONObject(preferences.getString(TITLES, "{}"));
-                    titles.put(entry, title);
-                    preferences.edit().putString(TITLES, titles.toString()).apply();
+                loadTitle(entry);
+            } catch (RegionGuard.BlockedException ex) {
+                // No request leaves the phone from this IP: the rest waits for the next time the list is opened.
+                synchronized (pendingTitles) {
+                    pendingTitles.clear();
                 }
             } catch (Exception ex) {
                 Logger.printInfo(() -> "Could not load track title for " + entry + ": " + ex);
             }
-        });
+        }
+    }
+
+    private static void loadTitle(String entry) throws Exception {
+        String id = DownloadTrackPatch.parseTrackId(entry);
+        if (id == null) return;
+        String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id);
+        if (response[1] == null) return;
+        JSONObject track = new JSONObject(response[1]);
+        JSONObject user = track.optJSONObject("user");
+        String title = track.optString("title") + (user == null ? "" : " — " + user.optString("username"));
+        synchronized (LocalAdditions.class) {
+            SharedPreferences preferences = preferences();
+            if (preferences == null) return;
+            JSONObject titles = new JSONObject(preferences.getString(TITLES, "{}"));
+            titles.put(entry, title);
+            preferences.edit().putString(TITLES, titles.toString()).apply();
+        }
+    }
+
+    private static synchronized JSONObject readTitles() {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return new JSONObject();
+        try {
+            return new JSONObject(preferences.getString(TITLES, "{}"));
+        } catch (Exception ex) {
+            return new JSONObject();
+        }
     }
 
     /** Converts entries to urns for playback. Missing files are skipped. */
@@ -795,7 +849,7 @@ public final class LocalAdditions {
         Utils.runOnBackgroundThread(() -> {
             List<String> entries = getEntries(playlistUrn);
             List<LocalMusic.Track> imported = LocalMusic.getTracks(context);
-            for (String entry : entries) rememberTitle(entry);
+            rememberTitles(entries);
             Utils.runOnMainThread(() -> {
                 List<LocalSheet.Item> items = LocalSheet.items();
                 items.add(new LocalSheet.Item(text("Добавить свой файл", "Add my file"), "ic_actions_playlist_add_to_playlist",
