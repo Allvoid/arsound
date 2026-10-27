@@ -59,7 +59,7 @@ public final class MusicAccess {
             checkedThisLaunch = true;
             Utils.runOnBackgroundThread(() -> {
                 try {
-                    if (!DownloadTrackPatch.hasUnreadableDownloads()) return;
+                    if (!DownloadIndex.hasUnreadableDownloads()) return;
                 } catch (Exception ex) {
                     Logger.printException(() -> "Could not check downloaded files for access", ex);
                     return;

@@ -129,6 +129,14 @@ public final class DownloadProgress {
         recountAndRedraw();
     }
 
+    /**
+     * Called when the files of the downloads changed without the app doing it: the media store was listed for the
+     * first time, or a file was removed or added by something else. The lists ask for every track again.
+     */
+    static void onFilesChanged() {
+        recountAndRedraw();
+    }
+
     /** Draws the lists on screen again, for example after new numbers were counted. */
     public static void redrawNow() {
         Utils.runOnMainThread(() -> redrawLists(resumed.get()));

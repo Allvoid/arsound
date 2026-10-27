@@ -48,6 +48,13 @@ public final class PlaylistPreloader {
             try {
                 Thread.sleep(START_DELAY_MS);
                 app.revanced.extension.soundcloud.download.UnplayedDownloads.runAtStart();
+                // Files of downloads the app lost the record of (a reinstall, another signature): no network needed,
+                // the track id is in their names.
+                try {
+                    app.revanced.extension.soundcloud.download.DownloadIndex.adopt(Utils.getContext());
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not take over the files of earlier downloads", ex);
+                }
                 if (!RegionGuard.blocksLastCountry()) {
                     app.revanced.extension.soundcloud.download.DownloadTrackPatch.rememberOldFileNames();
                 }

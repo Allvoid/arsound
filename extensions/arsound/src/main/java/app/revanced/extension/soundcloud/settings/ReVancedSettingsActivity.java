@@ -23,6 +23,7 @@ import java.util.Locale;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.download.DownloadIndex;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
@@ -2079,6 +2080,8 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** The description of the "delete all downloads" row: shows the space once it is counted. */
     private TextView downloadsDescription;
+    /** The description of the row of extra copies of downloaded tracks. */
+    private TextView duplicatesDescription;
 
     /** Downloaded tracks: how much space they take, and removing all of them at once. */
     private void addStorageSection(LinearLayout list) {
@@ -2088,6 +2091,20 @@ public final class ReVancedSettingsActivity extends Activity {
         downloadsDescription = (TextView) ((ViewGroup) deleteRow).getChildAt(1);
         list.addView(deleteRow);
         countDownloads();
+
+        // Files the app lost the record of (a reinstall, an update signed with another key) and the copies that
+        // downloading the same tracks again and again left behind.
+        list.addView(createActionRow(text("Найти скачанные треки", "Find downloaded tracks"),
+                text("Ищет в папке «" + DownloadIndex.label() + "» файлы треков, скачанных раньше, о которых приложение "
+                                + "не помнит: после переустановки или обновления с другой подписью. Нужен доступ к музыке.",
+                        "Looks in " + DownloadIndex.label() + " for files of tracks downloaded earlier that the app has "
+                                + "no record of: after a reinstall or an update signed with another key. Needs access to music."),
+                v -> findDownloads()));
+        View duplicatesRow = createActionRow(text("Лишние копии скачанных треков", "Extra copies of downloaded tracks"), "",
+                v -> confirmRemoveDuplicates());
+        duplicatesDescription = (TextView) ((ViewGroup) duplicatesRow).getChildAt(1);
+        list.addView(duplicatesRow);
+        countDuplicates();
 
         // Unplayed tracks: off by default; their files are deleted, which the texts say plainly.
         LinearLayout unplayedOptions = new LinearLayout(this);
@@ -2159,7 +2176,7 @@ public final class ReVancedSettingsActivity extends Activity {
                     app.revanced.extension.soundcloud.download.UnplayedDownloads.unplayed();
             long bytes = 0;
             for (app.revanced.extension.soundcloud.download.UnplayedDownloads.Unplayed track : tracks) {
-                bytes += track.file.length();
+                bytes += track.size;
             }
             String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
             Utils.runOnMainThread(() -> description.setText(period + "\n" + (tracks.isEmpty()
@@ -2232,8 +2249,8 @@ public final class ReVancedSettingsActivity extends Activity {
         java.util.Set<String> ids = app.revanced.extension.soundcloud.download.DownloadTrackPatch.getDownloadedTrackIds();
         long bytes = 0;
         for (String id : ids) {
-            java.io.File file = app.revanced.extension.soundcloud.download.DownloadTrackPatch.knownFile(id);
-            if (file != null) bytes += file.length();
+            DownloadIndex.Entry file = DownloadIndex.known(id);
+            if (file != null) bytes += file.size();
         }
         return new long[]{ids.size(), bytes};
     }
@@ -2245,10 +2262,10 @@ public final class ReVancedSettingsActivity extends Activity {
             String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
             Utils.runOnMainThread(() -> downloadsDescription.setText(usage[0] == 0
                     ? text("Скачанных треков нет.", "No downloaded tracks.")
-                    : text("Сейчас: " + tracksText(usage[0]) + ", " + size + " в «Музыка/Arsound». Треки останутся в "
+                    : text("Сейчас: " + tracksText(usage[0]) + ", " + size + " в «" + DownloadIndex.label() + "». Треки останутся в "
                                     + "SoundCloud: их можно слушать из сети и скачать снова.",
                             "Now: " + usage[0] + (usage[0] == 1 ? " track, " : " tracks, ") + size
-                                    + " in Music/Arsound. The tracks stay in SoundCloud: they can be streamed and "
+                                    + " in " + DownloadIndex.label() + ". The tracks stay in SoundCloud: they can be streamed and "
                                     + "downloaded again.")));
         });
     }
@@ -2267,10 +2284,10 @@ public final class ReVancedSettingsActivity extends Activity {
             String size = android.text.format.Formatter.formatShortFileSize(this, usage[1]);
             Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
                     .setTitle(text("Удалить все скачанные треки?", "Delete all downloaded tracks?"))
-                    .setMessage(text("Удалятся файлы: " + tracksText(usage[0]) + ", " + size + " из «Музыка/Arsound». "
+                    .setMessage(text("Удалятся файлы: " + tracksText(usage[0]) + ", " + size + " из «" + DownloadIndex.label() + "». "
                                     + "Без интернета эти треки играть не будут. Импортированные с телефона не затрагиваются.",
                             "The files of " + usage[0] + (usage[0] == 1 ? " track" : " tracks") + " (" + size
-                                    + ") are deleted from Music/Arsound. These tracks will not play without a connection. "
+                                    + ") are deleted from " + DownloadIndex.label() + ". These tracks will not play without a connection. "
                                     + "Tracks imported from the phone are not touched."))
                     .setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(text("Удалить", "Delete"), (dialog, which) -> deleteAllDownloads())
@@ -2292,18 +2309,22 @@ public final class ReVancedSettingsActivity extends Activity {
     private void deleteAllDownloads() {
         downloadsDescription.setText(text("Удаляю…", "Deleting…"));
         Utils.runOnBackgroundThread(() -> {
-            java.util.List<String> left = new java.util.ArrayList<>();
+            java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
             java.util.List<String> keptIds = new java.util.ArrayList<>();
             int deleted = 0;
             for (String id : app.revanced.extension.soundcloud.download.DownloadTrackPatch.getDownloadedTrackIds()) {
-                java.io.File file = app.revanced.extension.soundcloud.download.DownloadTrackPatch.knownFile(id);
+                DownloadIndex.Entry file = DownloadIndex.known(id);
                 boolean removed = app.revanced.extension.soundcloud.download.DownloadTrackPatch.deleteDownload(this, id);
-                if (!removed) keptIds.add(id);
-                if (file != null && file.exists()) left.add(file.getName());
-                else if (removed) deleted++;
+                if (removed) {
+                    deleted++;
+                    continue;
+                }
+                // The file stays: it belongs to an earlier install, so only Android's own confirmation removes it.
+                keptIds.add(id);
+                android.net.Uri row = file == null ? null : file.rowUri(this);
+                if (row != null) uris.add(row);
             }
             int done = deleted;
-            java.util.List<android.net.Uri> uris = mediaStoreUris(left);
             Utils.runOnMainThread(() -> {
                 Toast.makeText(this, text("Удалено: " + tracksText(done), "Deleted: " + done), Toast.LENGTH_SHORT).show();
                 boolean asked = false;
@@ -2318,8 +2339,8 @@ public final class ReVancedSettingsActivity extends Activity {
                         Logger.printException(() -> "Could not ask to delete the old downloads", ex);
                     }
                 }
-                if (!asked && !left.isEmpty()) {
-                    int remaining = left.size();
+                if (!asked && !keptIds.isEmpty()) {
+                    int remaining = keptIds.size();
                     Toast.makeText(this, text("Не удалось удалить файлов: " + remaining
                                     + ". Разрешите доступ к музыке или удалите их в файловом менеджере.",
                             "Could not delete " + remaining + (remaining == 1 ? " file" : " files")
@@ -2327,6 +2348,106 @@ public final class ReVancedSettingsActivity extends Activity {
                             Toast.LENGTH_LONG).show();
                 }
                 countDownloads();
+                countDuplicates();
+            });
+        });
+    }
+
+    /** Looks for the files of downloads the app has no record of; asks for access to music if that is what is missing. */
+    private void findDownloads() {
+        Toast.makeText(this, text("Ищу…", "Looking…"), Toast.LENGTH_SHORT).show();
+        Utils.runOnBackgroundThread(() -> {
+            int found = DownloadIndex.adopt(this);
+            boolean granted = app.revanced.extension.soundcloud.download.MusicAccess.isGranted(this);
+            Utils.runOnMainThread(() -> {
+                if (found > 0) {
+                    Toast.makeText(this, text("Найдено треков: " + found, "Tracks found: " + found), Toast.LENGTH_LONG).show();
+                    countDownloads();
+                    countDuplicates();
+                } else if (granted) {
+                    Toast.makeText(this, text("Новых скачанных треков не найдено", "No new downloaded tracks found"),
+                            Toast.LENGTH_LONG).show();
+                } else {
+                    // The files of an earlier install are listed by Android only to an app that may read music.
+                    new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                            .setTitle(text("Новых треков не найдено", "No new tracks found"))
+                            .setMessage(text("Без доступа к музыке видны только файлы этой установки Arsound. Разрешите "
+                                            + "доступ, чтобы найти и файлы, скачанные до переустановки.",
+                                    "Without access to music only the files of this install of Arsound are visible. "
+                                            + "Allow access to find the files downloaded before a reinstall too."))
+                            .setNegativeButton(text("Не сейчас", "Not now"), null)
+                            .setPositiveButton(text("Разрешить", "Allow"), (dialog, which) -> requestPermissions(
+                                    new String[]{app.revanced.extension.soundcloud.download.MusicAccess.permission()}, 0x4152))
+                            .show();
+                }
+            });
+        });
+    }
+
+    private void countDuplicates() {
+        if (duplicatesDescription == null) return;
+        duplicatesDescription.setText(text("Считаю…", "Counting…"));
+        inBackground(() -> {
+            DownloadIndex.Duplicates duplicates = DownloadIndex.duplicates();
+            String size = android.text.format.Formatter.formatShortFileSize(this, duplicates.bytes);
+            Utils.runOnMainThread(() -> duplicatesDescription.setText(duplicates.files == 0
+                    ? text("Лишних копий нет.", "No extra copies.")
+                    : text("Файлов: " + duplicates.files + ", " + size + ". Повторные копии уже скачанных треков: остались от "
+                                    + "скачивания одних и тех же треков снова и снова. Сами треки остаются.",
+                            "Files: " + duplicates.files + ", " + size + ". Repeated copies of tracks that are already "
+                                    + "downloaded, left by downloading the same tracks again and again. The tracks stay.")));
+        });
+    }
+
+    private void confirmRemoveDuplicates() {
+        Utils.runOnBackgroundThread(() -> {
+            DownloadIndex.Duplicates duplicates = DownloadIndex.duplicates();
+            if (duplicates.files == 0) {
+                Utils.runOnMainThread(() -> Toast.makeText(this, text("Лишних копий нет", "There are no extra copies"),
+                        Toast.LENGTH_SHORT).show());
+                return;
+            }
+            String size = android.text.format.Formatter.formatShortFileSize(this, duplicates.bytes);
+            Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(this)
+                    .setTitle(text("Удалить лишние копии?", "Delete the extra copies?"))
+                    .setMessage(text("Удалятся файлов: " + duplicates.files + " (" + size + "). Это повторные копии треков, "
+                                    + "которые уже скачаны, сами треки останутся и будут играть из своих файлов.",
+                            "Files to delete: " + duplicates.files + " (" + size + "). They are repeated copies of "
+                                    + "tracks that are already downloaded; the tracks stay and play from their own files."))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(text("Удалить", "Delete"), (dialog, which) -> removeDuplicates(duplicates))
+                    .show());
+        });
+    }
+
+    private void removeDuplicates(DownloadIndex.Duplicates duplicates) {
+        Utils.runOnBackgroundThread(() -> {
+            java.util.List<android.net.Uri> needsConsent = new java.util.ArrayList<>();
+            int removed = DownloadIndex.removeDuplicates(this, duplicates, needsConsent);
+            Utils.runOnMainThread(() -> {
+                Toast.makeText(this, text("Удалено файлов: " + removed, "Files deleted: " + removed), Toast.LENGTH_SHORT).show();
+                boolean asked = false;
+                if (!needsConsent.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
+                    try {
+                        // No track is waiting for the answer: the copies are not what the tracks play from.
+                        undeletedDownloadIds = new java.util.ArrayList<>();
+                        startIntentSenderForResult(android.provider.MediaStore.createDeleteRequest(getContentResolver(), needsConsent)
+                                .getIntentSender(), REQUEST_DELETE_DOWNLOADS, null, 0, 0, 0);
+                        asked = true;
+                    } catch (Exception ex) {
+                        Logger.printException(() -> "Could not ask to delete the extra copies", ex);
+                    }
+                }
+                if (!asked && !needsConsent.isEmpty()) {
+                    int remaining = needsConsent.size();
+                    Toast.makeText(this, text("Не удалось удалить файлов: " + remaining
+                                    + ". Они остались от прежней установки: удалите их в файловом менеджере.",
+                            "Could not delete " + remaining + (remaining == 1 ? " file" : " files")
+                                    + ": they are left by an earlier install, remove them in a file manager."),
+                            Toast.LENGTH_LONG).show();
+                }
+                countDownloads();
+                countDuplicates();
             });
         });
     }
@@ -2335,8 +2456,10 @@ public final class ReVancedSettingsActivity extends Activity {
     private void forgetRemovedDownloads() {
         java.util.List<String> ids = undeletedDownloadIds;
         undeletedDownloadIds = new java.util.ArrayList<>();
+        DownloadIndex.refreshAsync();
         if (ids.isEmpty()) {
             if (downloadsDescription != null) countDownloads();
+            countDuplicates();
             return;
         }
         Utils.runOnBackgroundThread(() -> {
@@ -2349,31 +2472,10 @@ public final class ReVancedSettingsActivity extends Activity {
             }
             Utils.runOnMainThread(() -> {
                 if (downloadsDescription != null) countDownloads();
+                countDuplicates();
             });
         });
     }
-
-    /** The media store entries of the files in Music/Arsound with these names. */
-    private java.util.List<android.net.Uri> mediaStoreUris(java.util.List<String> names) {
-        java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
-        if (names.isEmpty() || android.os.Build.VERSION.SDK_INT < 29) return uris;
-        android.net.Uri collection = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-        for (String name : names) {
-            try (android.database.Cursor cursor = getContentResolver().query(collection,
-                    new String[]{android.provider.MediaStore.MediaColumns._ID},
-                    android.provider.MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
-                            + android.provider.MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?",
-                    new String[]{name, "%Music/Arsound%"}, null)) {
-                while (cursor != null && cursor.moveToNext()) {
-                    uris.add(android.content.ContentUris.withAppendedId(collection, cursor.getLong(0)));
-                }
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Could not find " + name + " in the media store: " + ex);
-            }
-        }
-        return uris;
-    }
-
 
     private void addAdsSection(LinearLayout list) {
         list.addView(createToggleRow(

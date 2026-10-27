@@ -6,7 +6,6 @@ import android.content.SharedPreferences;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.download.DownloadIndex;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 
 /**
@@ -257,10 +257,10 @@ public final class RemovedTracks {
             String existing = converted.optString(id, null);
             if (existing != null && new File(existing).isFile()) return new File(existing);
 
-            File download = DownloadTrackPatch.getDownloadedFile(id);
+            DownloadIndex.Entry download = DownloadTrackPatch.downloadedEntry(id);
             if (download == null) return null;
 
-            String name = download.getName();
+            String name = download.name();
             int dot = name.lastIndexOf('.');
             String extension = dot > 0 ? name.substring(dot) : ".mp3";
             String title = getTitle(id);
@@ -269,7 +269,8 @@ public final class RemovedTracks {
             File target;
             boolean moved = false;
             try {
-                try (InputStream input = new FileInputStream(download); OutputStream output = new FileOutputStream(part)) {
+                // Through the media store where the path is closed to the app (Android 10).
+                try (InputStream input = download.open(context); OutputStream output = new FileOutputStream(part)) {
                     byte[] buffer = new byte[64 * 1024];
                     int read;
                     while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
@@ -309,7 +310,7 @@ public final class RemovedTracks {
         int failures = 0;
         boolean complete = true;
         for (String id : DownloadTrackPatch.getDownloadedTrackIds()) {
-            if (checked.contains(id) || isConverted(id) || DownloadTrackPatch.getDownloadedFile(id) == null) continue;
+            if (checked.contains(id) || isConverted(id) || DownloadTrackPatch.downloadedEntry(id) == null) continue;
             String code = null;
             try {
                 code = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id)[0];

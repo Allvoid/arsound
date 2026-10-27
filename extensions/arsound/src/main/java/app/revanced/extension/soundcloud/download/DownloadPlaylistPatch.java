@@ -217,9 +217,9 @@ public final class DownloadPlaylistPatch {
 
                 Utils.runOnMainThread(() -> new app.revanced.extension.soundcloud.shared.ArsoundDialog(context)
                         .setTitle(text("Удалить скачанные треки?", "Delete downloaded tracks?"))
-                        .setMessage(text("Будут удалены файлы " + downloaded.size() + " треков из папки Музыка/Arsound. "
+                        .setMessage(text("Будут удалены файлы " + downloaded.size() + " треков из папки " + DownloadIndex.label() + ". "
                                         + "Импортированные с телефона треки останутся.",
-                                "The files of " + downloaded.size() + " tracks will be removed from Music/Arsound. "
+                                "The files of " + downloaded.size() + " tracks will be removed from " + DownloadIndex.label() + ". "
                                         + "Music imported from the phone stays."))
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(text("Удалить " + downloaded.size(), "Delete " + downloaded.size()),
@@ -489,9 +489,11 @@ public final class DownloadPlaylistPatch {
                 ? text("Лайкнутых треков: ", "Liked tracks: ")
                 : text("Треков в плейлисте: ", "Tracks in the playlist: ")).append(total + imported).append('\n');
         if (imported > 0) summary.append(text("Импортированы с телефона: ", "Imported from the phone: ")).append(imported).append('\n');
-        summary.append(text("Уже скачано: ", "Already downloaded: ")).append(downloaded).append('\n');
+        // Worded so that "can be downloaded" is not read as "was downloaded": these numbers are counted before anything starts.
+        summary.append(text("Уже скачаны (лежат на телефоне): ", "Already downloaded (on the phone): ")).append(downloaded).append('\n');
         if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
-        summary.append(text("Можно скачать: ", "Can be downloaded: ")).append(downloadable.size()).append('\n');
+        summary.append(text("Ещё не скачаны, но доступны для скачивания: ", "Not downloaded yet, but available to download: "))
+                .append(downloadable.size()).append('\n');
         if (notChecked > 0) {
             summary.append(text("Не удалось проверить (нет ответа сервера, попробуйте позже): ",
                     "Could not be checked (no answer from the server, try again later): ")).append(notChecked).append('\n');
@@ -527,7 +529,10 @@ public final class DownloadPlaylistPatch {
             summary.append('\n');
         }
 
-        builder.setTitle(text("Можно скачать ещё " + downloadable.size(), downloadable.size() + " more can be downloaded"))
+        // A question, so it is plain that nothing has been downloaded yet.
+        builder.setTitle(downloaded > 0
+                        ? text("Скачать ещё " + downloadable.size() + "?", "Download " + downloadable.size() + " more?")
+                        : text("Скачать " + downloadable.size() + "?", "Download " + downloadable.size() + "?"))
                 .setMessage(summary.toString().trim())
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Скачать " + downloadable.size(), "Download " + downloadable.size()),

@@ -1,15 +1,10 @@
 package app.revanced.extension.soundcloud.download;
 
-import android.content.ContentValues;
 import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Environment;
-import android.provider.MediaStore;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -18,7 +13,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -114,12 +108,14 @@ public final class HlsDownloader {
      * @param track     The {@code .m3u8} URL resolved from the track metadata, the mime type of the transcoding (used
      *                  when the stream cannot be remuxed), and the title and artist that name and tag the file.
      * @param cancelled Asked between segments: once true, the rest are not downloaded and the result is null.
-     * @return The name of the saved file in Music/Arsound, or null if the track could not be saved.
+     * @return The saved file with its location and media store row, or null if the track could not be saved.
      * @throws NoSpaceException If the phone has no room for the track.
      */
-    static String download(Context context, String trackId, TrackSource track,
-                           BooleanSupplier cancelled) throws NoSpaceException {
+    static DownloadIndex.Ref download(Context context, String trackId, TrackSource track,
+                                      BooleanSupplier cancelled) throws NoSpaceException {
         sweepStaleFiles(context);
+        // Read once: the file is named and saved for the same location.
+        DownloadLocation location = DownloadLocation.current();
         File cache = context.getCacheDir();
         File transportStream = new File(cache, FILE_PREFIX + trackId + ".ts");
         File packed = new File(cache, FILE_PREFIX + trackId + ".m4a");
@@ -170,7 +166,8 @@ public final class HlsDownloader {
 
             if (cancelled.getAsBoolean()) throw new CancelledException();
             // Another track may already have this name (two uploads of one song): the id tells them apart.
-            return publish(context, source, DownloadTrackPatch.freeFileName(fileName, trackId), track.title, track.artist);
+            return publish(context, location, source, DownloadTrackPatch.freeFileName(location, fileName, trackId),
+                    track.title, track.artist);
         } catch (CancelledException ex) {
             Logger.printInfo(() -> "HLS assembly of " + trackId + " was cancelled");
             return null;
@@ -632,60 +629,18 @@ public final class HlsDownloader {
     }
 
     /**
-     * Moves the packed file into Music/Arsound, next to the files of the download manager.
-     * Since Android 10 an app cannot write there directly, so the media store creates the file.
+     * Moves the packed file into the download location, next to the files of the download manager.
+     * Since Android 10 an app cannot write into Music directly, so the media store creates the file.
      *
-     * @return The name the file got. A file of an earlier install cannot be deleted, and the media store then
-     * names the new file "name (1)": the track has to remember that name, not the old file it cannot read.
+     * @return The saved file. The name differs from the one asked for when that was taken, for instance by a file of
+     * an earlier install that this one cannot see or remove: the media store then names the new file "name (1)", and
+     * the track has to remember that name.
      */
-    private static String publish(Context context, File packed, String fileName, String title, String artist)
-            throws Exception {
-        File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Arsound");
-        File target = new File(folder, fileName);
-        if (target.exists() && !target.delete()) Logger.printInfo(() -> "Could not replace " + target);
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Music/Arsound could not be created");
-            copy(packed, new FileOutputStream(target));
-            return fileName;
-        }
-
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-        values.put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeOf(fileName));
-        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/Arsound");
-        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
-
-        Uri uri = context.getContentResolver().insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
-        if (uri == null) throw new IOException("The file could not be created in Music/Arsound");
-        try {
-            OutputStream output = context.getContentResolver().openOutputStream(uri);
-            if (output == null) throw new IOException("The file could not be opened");
-            copy(packed, output);
-
-            ContentValues done = new ContentValues();
-            done.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            context.getContentResolver().update(uri, done, null, null);
-        } catch (Exception ex) {
-            context.getContentResolver().delete(uri, null, null);
-            throw ex;
-        }
-        MediaTags.tag(context, uri, title, artist);
-        String saved = savedName(context, uri);
-        if (saved == null || saved.equals(fileName)) return fileName;
-        Logger.printInfo(() -> "Saved as " + saved + ": " + fileName + " belongs to an earlier install");
-        return saved;
-    }
-
-    /** The name the media store gave the file, or null if it cannot be asked. */
-    private static String savedName(Context context, Uri uri) {
-        try (android.database.Cursor cursor = context.getContentResolver()
-                .query(uri, new String[]{MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
-            return cursor != null && cursor.moveToFirst() ? cursor.getString(0) : null;
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Could not read the name of " + uri + ": " + ex);
-            return null;
-        }
+    private static DownloadIndex.Ref publish(Context context, DownloadLocation location, File packed, String fileName,
+                                             String title, String artist) throws Exception {
+        DownloadLocation.Saved saved = location.save(context, packed, fileName, mimeTypeOf(fileName));
+        if (saved.uri != null) MediaTags.tag(context, saved.uri, title, artist);
+        return new DownloadIndex.Ref(location.id(), saved.name, saved.uri == null ? null : saved.uri.toString());
     }
 
     /** The type has to match the extension, otherwise the media store appends one of its own. */
@@ -694,14 +649,6 @@ public final class HlsDownloader {
         if (fileName.endsWith(".aac")) return "audio/aac";
         if (fileName.endsWith(".opus")) return "audio/ogg";
         return "audio/mpeg";
-    }
-
-    private static void copy(File source, OutputStream output) throws IOException {
-        try (InputStream input = new java.io.FileInputStream(source); OutputStream target = output) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) > 0) target.write(buffer, 0, read);
-        }
     }
 
     // endregion

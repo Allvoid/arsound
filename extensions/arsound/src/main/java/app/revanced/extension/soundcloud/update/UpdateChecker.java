@@ -86,6 +86,7 @@ public final class UpdateChecker {
                 guarded("network banner", () -> app.revanced.extension.soundcloud.network.NetworkBanner.onActivityResumed(activity));
                 guarded("permissions", () -> app.revanced.extension.soundcloud.permissions.WelcomePermissions.onActivityResumed(activity));
                 guarded("music access", () -> app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity));
+                guarded("download index", () -> app.revanced.extension.soundcloud.download.DownloadIndex.onActivityResumed(activity));
                 guarded("vivo card", () -> app.revanced.extension.soundcloud.player.VivoMusicCard.onActivityResumed(activity));
                 guarded("download progress", () -> app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity));
                 guarded("progress pill", () -> app.revanced.extension.soundcloud.download.ProgressPill.onActivityResumed(activity));
