@@ -44,6 +44,8 @@ private val reflectedMethods = listOf(
     Triple("Lcom/soundcloud/android/foundation/playqueue/PlayQueue\$Shuffled;", "getOriginalQueue", emptyList()),
     Triple(PLAYBACK_STATE, "getCustomActions", emptyList()),
     Triple(PLAYBACK_STATE, "getState", emptyList()),
+    // The id of a custom action: the button and repeated actions are told apart by it.
+    Triple("Landroid/support/v4/media/session/PlaybackStateCompat\$CustomAction;", "getAction", emptyList()),
     Triple("Landroid/support/v4/media/session/PlaybackStateCompat\$Builder;", "<init>", listOf(PLAYBACK_STATE)),
     Triple(
         "Landroid/support/v4/media/session/PlaybackStateCompat\$Builder;",
