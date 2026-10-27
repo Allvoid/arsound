@@ -66,7 +66,8 @@ public final class LyricsHooks {
         try {
             View page = LyricsLayer.pageOf(view);
             if (page == null) return;
-            LyricsLayer layer = LyricsLayer.of(page);
+            // Switched off: no page gets a layer from a slide either, but one that has it keeps being told.
+            LyricsLayer layer = LyricsManager.isEnabled() ? LyricsLayer.of(page) : LyricsLayer.existing(page);
             if (layer != null) layer.onSlide(fraction);
         } catch (Throwable ex) {
             Logger.printException(() -> "Lyrics: could not follow the player sliding", ex);

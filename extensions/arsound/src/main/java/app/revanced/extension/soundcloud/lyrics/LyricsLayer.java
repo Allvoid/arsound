@@ -65,6 +65,11 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     private static final float BLUR_DP = 22f;
     /** The words need room: a page whose free middle is shorter than this has no lyrics (a phone on its side). */
     private static final int MIN_HEIGHT_DP = 160;
+    /**
+     * A page that has lost its lyrics for lack of room needs this much more to get them back. The button itself makes
+     * the title block taller, so without the margin a page right at the limit would flip between the two on every layout.
+     */
+    private static final int ROOM_MARGIN_DP = 60;
 
     private static final PathInterpolator EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
 
@@ -347,18 +352,34 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         this.flagCurrent = flagCurrent;
         boolean wasCurrent = current;
         current = isCurrentTrack();
-        if (!LyricsManager.isExpandKnown()) expand = guessExpand();
+        boolean drifted = resync();
         if (trackChanged) {
             forgetWords();
             refresh();
         } else if (wasCurrent != current) {
-            if (!current) forgetWords();
+            if (!current) leaveCurrent();
             refresh();
-        } else if (LyricsManager.isEnabled() != lastEnabled) {
+        } else if (drifted || LyricsManager.isEnabled() != lastEnabled) {
             refresh();
         } else {
             updateToggleButton();
         }
+    }
+
+    /**
+     * Takes the state the page may have missed. The player keeps pages aside for later tracks, and they are told
+     * neither when the player slides nor when the button is tapped; a page that comes back would otherwise act on how
+     * things stood when it left.
+     *
+     * @return Whether the page is now open or shut, shown or hidden, differently from before.
+     */
+    private boolean resync() {
+        boolean wasOpen = expand > 0.5f;
+        float wasShown = shown;
+        expand = LyricsManager.isExpandKnown() ? LyricsManager.expand() : guessExpand();
+        // The fade of the button sets `shown` itself while it runs.
+        if (showAnimator == null || !showAnimator.isRunning()) shown = LyricsManager.isVisible() ? 1f : 0f;
+        return (expand > 0.5f) != wasOpen || shown != wasShown;
     }
 
     /** The player says which page plays; the media session says it too, and is right when they differ for a moment. */
@@ -404,7 +425,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         boolean wasCurrent = current;
         current = isCurrentTrack();
         if (wasCurrent != current) {
-            if (!current) forgetWords();
+            if (!current) leaveCurrent();
             refresh();
             return;
         }
@@ -440,8 +461,14 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         updateToggleButton();
         applyVisuals();
         active = wanted();
-        if (active && current && info != null) {
-            ensureLoaded();
+        if (active && info != null) {
+            if (current) {
+                ensureLoaded();
+                // A page that waited for its turn with the words already on it goes to the line that sings now.
+                if (phase == Phase.LIST) tick(false);
+            } else {
+                showStored();
+            }
         } else if (phase == Phase.LOADING) {
             // Closed or switched off in the middle of a lookup: the answer is kept, the page starts over when wanted.
             forgetWords();
@@ -458,6 +485,19 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         LyricsManager.load(info);
     }
 
+    /**
+     * The page of the track before or after the playing one shows the words if they are at hand in memory, so a swipe
+     * to it already has them. It never asks for them: only the playing track is looked up.
+     */
+    private void showStored() {
+        String signature = info.query().signature;
+        if (signature.equals(loadedSignature)) return;
+        LyricsResult known = LyricsRepository.peek(info);
+        if (known == null || known.status != LyricsResult.Status.FOUND) return;
+        loadedSignature = signature;
+        applyWords(known.lyrics);
+    }
+
     /** Drops the words of the track this page had, so the next track starts clean. */
     private void forgetWords() {
         loadedSignature = null;
@@ -465,6 +505,11 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         removeCallbacks(showShimmer);
         phase = Phase.IDLE;
         show(null);
+    }
+
+    /** The page is not the playing one any more: its words stay for a swipe back, a lookup or a message does not. */
+    private void leaveCurrent() {
+        if (phase != Phase.LIST) forgetWords();
     }
 
     // endregion
@@ -539,11 +584,14 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     }
 
     private void updatePredraw(boolean visible) {
-        if (visible == predrawing || overlay == null) return;
-        predrawing = visible;
+        // Only on a window: a listener put on a view that is not on one moves to the window's observer when it gets
+        // there, and the one added again on arrival would be counted twice.
+        boolean wanted = visible && overlay != null && isAttachedToWindow();
+        if (wanted == predrawing) return;
         ViewTreeObserver observer = getViewTreeObserver();
         if (!observer.isAlive()) return;
-        if (visible) observer.addOnPreDrawListener(predraw);
+        predrawing = wanted;
+        if (wanted) observer.addOnPreDrawListener(predraw);
         else observer.removeOnPreDrawListener(predraw);
     }
 
@@ -567,7 +615,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
             }
         }
         int bottom = artwork.getBottom() - holderTop + Math.round(dp(8));
-        boolean room = artwork.getHeight() - top - bottom >= dp(MIN_HEIGHT_DP);
+        boolean room = artwork.getHeight() - top - bottom >= dp(MIN_HEIGHT_DP + (fits ? 0 : ROOM_MARGIN_DP));
 
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) content.getLayoutParams();
         if (params.topMargin != top || params.bottomMargin != bottom) {
@@ -641,7 +689,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
                 showMessage(text("Текст не найден", "No lyrics found"), false);
                 break;
             case OFFLINE:
-                showMessage(text("Нет подключения", "No connection"), false);
+                showMessage(text("Нет подключения.\nНажмите, чтобы повторить", "No connection.\nTap to try again"), true);
                 break;
             default:
                 showMessage(text("Не удалось загрузить текст.\nНажмите, чтобы повторить",
@@ -728,7 +776,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         LyricsManager.register(this);
-        predrawing = false;
+        resync();
         refresh();
     }
 
@@ -738,6 +786,9 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         LyricsManager.unregister(this);
         active = false;
         if (showAnimator != null) showAnimator.cancel();
+        showAnimator = null;
+        // Back to what the button says, not left in the middle of a fade by the animator that was just stopped.
+        shown = LyricsManager.isVisible() ? 1f : 0f;
         removeCallbacks(showShimmer);
         updateLoop();
         if (predrawing) {

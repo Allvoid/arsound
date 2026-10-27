@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
@@ -24,7 +25,8 @@ import android.widget.TextView;
  * With timings the line that sings now is bright and a little larger, the ones around it dimmer, the rest faint, and
  * the column keeps that line near the upper middle of the view with a smooth scroll. Touching the column hands the
  * scrolling to the finger; a few seconds after the last touch it glides back. A tap on a line asks the host to jump
- * there; a tap anywhere else is the host's to pass on.
+ * there; a tap anywhere else is the host's to pass on. Words without timings are only text to read: the column stays
+ * where the reader leaves it.
  * <p>
  * It is a plain ScrollView on purpose: the extension has no RecyclerView, and a song has some sixty lines.
  */
@@ -37,7 +39,7 @@ final class LyricsListView extends ScrollView {
         /** A tap that is on no line, or on a line of plain text. */
         void onBlankTap();
 
-        /** Two taps on the same line. */
+        /** Two quick taps on lines, on the same one or on two. */
         void onDoubleTap();
     }
 
@@ -45,8 +47,11 @@ final class LyricsListView extends ScrollView {
     private static final float FOCUS = 0.40f;
     /** How long the column stays where the user left it. */
     private static final long HOLD_MS = 3_000;
+    /** Two taps on lines this close are one double tap: the second pauses or plays instead of jumping again. */
     private static final long DOUBLE_TAP_MS = 280;
     private static final float TEXT_SP = 22f;
+    /** The empty space between two verses of plain text. */
+    private static final float VERSE_GAP_DP = 18f;
     private static final long STYLE_MS = 260;
     private static final Interpolator GLIDE = new PathInterpolator(0.2f, 0f, 0f, 1f);
 
@@ -72,15 +77,18 @@ final class LyricsListView extends ScrollView {
     private float downY;
     private long downTime;
     private boolean tapCandidate;
-    private boolean releasedToPager;
-    private int lastTapLine = -1;
+    /** The finger went sideways or down from the top: the gesture is the parent's now. */
+    private boolean released;
+    private boolean startedAtTop;
+    /** When the last tap on a line was; 0 once it has been used up by a double tap or a tap elsewhere. */
     private long lastTapTime;
 
     private final Runnable resume = new Runnable() {
         @Override
         public void run() {
             long left = lastUserAt + HOLD_MS - SystemClock.uptimeMillis();
-            if (touching) return;
+            // Plain words stay where the reader left them: there is no singing line to go back to.
+            if (touching || !isTimed()) return;
             if (left > 0) postDelayed(this, left + 30);
             else glideToActive(true);
         }
@@ -151,10 +159,12 @@ final class LyricsListView extends ScrollView {
         BidiFormatter bidi = BidiFormatter.getInstance();
         for (int i = 0; i < lines.length; i++) {
             LineView view = new LineView(getContext());
-            boolean pause = next.lines[i].isEmpty();
-            // A pause (an instrumental part, a gap between verses) is three dots, smaller than the words.
+            boolean empty = next.lines[i].isEmpty();
+            // With timings an empty line is a pause in the music: three dots, smaller than the words. Without timings
+            // it is only the gap between two verses, and dots there would mark a pause that is not in the song.
+            boolean pause = empty && next.isTimed();
             String text = pause ? "• • •" : next.lines[i];
-            view.rtl = !pause && bidi.isRtl(text);
+            view.rtl = !empty && bidi.isRtl(text);
             view.setText(text);
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, pause ? TEXT_SP * 0.6f : TEXT_SP);
             view.setTextColor(0xFFFFFFFF);
@@ -166,6 +176,10 @@ final class LyricsListView extends ScrollView {
             view.setTextAlignment(View.TEXT_ALIGNMENT_TEXT_START);
             view.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
             view.setGravity(Gravity.START);
+            if (empty && !pause) {
+                view.setPadding(0, 0, 0, 0);
+                view.setHeight(dp(VERSE_GAP_DP));
+            }
             lines[i] = view;
             column.addView(view, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -185,14 +199,32 @@ final class LyricsListView extends ScrollView {
     }
 
     @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        // The spacers are set to the height this pass gives the list before the column is measured, so the first layout
+        // already has the room above and below that lets the singing line stand in its place.
+        if (lines.length > 0 && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            sizeSpacers(MeasureSpec.getSize(heightMeasureSpec));
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    private void sizeSpacers(int height) {
+        int top = Math.round(height * FOCUS);
+        int bottom = Math.round(height * (1 - FOCUS));
+        ViewGroup.LayoutParams topParams = topSpacer.getLayoutParams();
+        ViewGroup.LayoutParams bottomParams = bottomSpacer.getLayoutParams();
+        if (topParams.height == top && bottomParams.height == bottom) return;
+        topParams.height = top;
+        bottomParams.height = bottom;
+        // Not requestLayout(): this runs inside a measure pass that goes on to measure the column; it only has to know.
+        column.forceLayout();
+    }
+
+    @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        if (lines.length == 0) return;
-        topSpacer.getLayoutParams().height = Math.round(h * FOCUS);
-        bottomSpacer.getLayoutParams().height = Math.round(h * (1 - FOCUS));
-        topSpacer.requestLayout();
-        bottomSpacer.requestLayout();
-        pendingScroll = true;
+        // The singing line is put in place again once the new size has been laid out.
+        if (lines.length > 0) pendingScroll = true;
     }
 
     @Override
@@ -315,6 +347,8 @@ final class LyricsListView extends ScrollView {
     }
 
     private void jumpToActive() {
+        // Plain words have no line to follow; the reader's place is not touched.
+        if (!isTimed()) return;
         stopGlide();
         programmatic = true;
         scrollTo(0, targetFor(active));
@@ -322,6 +356,7 @@ final class LyricsListView extends ScrollView {
     }
 
     private void glideToActive(boolean smooth) {
+        if (!isTimed()) return;
         if (lines.length == 0 || getHeight() == 0) {
             pendingScroll = true;
             return;
@@ -370,10 +405,11 @@ final class LyricsListView extends ScrollView {
                 downTime = event.getEventTime();
                 // A touch that stops a fling is the stop, not a tap.
                 tapCandidate = SystemClock.uptimeMillis() - lastScrollAt > 120;
-                releasedToPager = false;
+                released = false;
                 touching = true;
                 stopGlide();
                 removeCallbacks(resume);
+                startedAtTop = getScrollY() == 0;
                 // The column scrolls by itself: nothing above it may take the drag (the player sheet, the pager).
                 if (column.getHeight() > getHeight()) {
                     ViewParent parent = getParent();
@@ -384,14 +420,17 @@ final class LyricsListView extends ScrollView {
                 float dx = event.getX() - downX;
                 float dy = event.getY() - downY;
                 if (Math.abs(dx) > slop || Math.abs(dy) > slop) tapCandidate = false;
-                // A sideways swipe is for the pager: it changes the track.
-                if (!releasedToPager && Math.abs(dx) > slop && Math.abs(dx) > 2 * Math.abs(dy)) {
-                    releasedToPager = true;
-                    ViewParent parent = getParent();
-                    if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
+                if (!released) {
+                    if (Math.abs(dx) > slop && Math.abs(dx) > 2 * Math.abs(dy)) {
+                        // A sideways swipe is for the pager: it changes the track.
+                        release();
+                    } else if (startedAtTop && dy > slop && dy > 2 * Math.abs(dx)) {
+                        // A pull down that began at the top of the words is for the player sheet: it closes the player.
+                        release();
+                    }
                 }
                 // The column would take the gesture back the moment the finger drifts up or down a little.
-                if (releasedToPager) return true;
+                if (released) return true;
                 break;
             case MotionEvent.ACTION_UP:
                 touching = false;
@@ -413,6 +452,13 @@ final class LyricsListView extends ScrollView {
         return super.dispatchTouchEvent(event);
     }
 
+    /** Gives the gesture back to the parents that were kept from it. */
+    private void release() {
+        released = true;
+        ViewParent parent = getParent();
+        if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
+    }
+
     private void postResume() {
         removeCallbacks(resume);
         postDelayed(resume, HOLD_MS + 30);
@@ -422,16 +468,16 @@ final class LyricsListView extends ScrollView {
         int line = lineAt(Math.round(y) + getScrollY());
         boolean seekable = line >= 0 && isTimed() && !lyrics.lines[line].isEmpty();
         if (!seekable) {
-            lastTapLine = -1;
+            lastTapTime = 0;
             host.onBlankTap();
             return;
         }
-        if (line == lastTapLine && time - lastTapTime <= DOUBLE_TAP_MS) {
-            lastTapLine = -1;
+        // The first tap of a double tap has jumped already; the second only pauses or plays, whichever line it is on.
+        if (lastTapTime > 0 && time - lastTapTime <= DOUBLE_TAP_MS) {
+            lastTapTime = 0;
             host.onDoubleTap();
             return;
         }
-        lastTapLine = line;
         lastTapTime = time;
         host.onLineTapped(line);
     }

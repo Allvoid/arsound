@@ -49,6 +49,30 @@ final class TextMatch {
         return Math.max(shared, contained);
     }
 
+    /**
+     * Whether one text is written in Cyrillic and the other is not. Then the way one is spelled says nothing about the
+     * other: the same artist is "Кино" in one place and "Kino" in the next.
+     */
+    static boolean differentAlphabets(String first, String second) {
+        int a = alphabet(first);
+        int b = alphabet(second);
+        return a != 0 && b != 0 && a != b;
+    }
+
+    /** 1 for a text with Cyrillic letters, 2 for other letters only, 0 for no letters at all. */
+    private static int alphabet(String text) {
+        if (text == null) return 0;
+        boolean letters = false;
+        for (int i = 0; i < text.length(); ) {
+            int code = text.codePointAt(i);
+            i += Character.charCount(code);
+            if (!Character.isLetter(code)) continue;
+            if (Character.UnicodeScript.of(code) == Character.UnicodeScript.CYRILLIC) return 1;
+            letters = true;
+        }
+        return letters ? 2 : 0;
+    }
+
     private static Set<String> words(String normalized) {
         Set<String> result = new HashSet<>();
         for (String word : normalized.split(" ")) if (!word.isEmpty()) result.add(word);

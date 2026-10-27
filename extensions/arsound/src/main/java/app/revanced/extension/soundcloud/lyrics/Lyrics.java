@@ -42,6 +42,11 @@ final class Lyrics {
         return found;
     }
 
+    /** Where the last line starts, in milliseconds; 0 for text without timings. */
+    long lastTime() {
+        return times == null || times.length == 0 ? 0 : times[times.length - 1];
+    }
+
     /** The same words as plain text: for a record whose timings do not fit the track that plays. */
     Lyrics withoutTimes() {
         return times == null ? this : new Lyrics(lines, null);

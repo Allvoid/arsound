@@ -14,7 +14,9 @@ import java.util.Set;
  * Several records of the same song exist (other cuts, other lengths, a deluxe version glued together, plain copies of
  * synced ones, junk), and SoundCloud names are loose, so the first hit is not taken: every record is scored by how
  * well the title, the artist and the length fit, and the best one over the bar wins. A synced record is preferred.
- * At most {@value #MAX_CALLS} requests per track.
+ * A record by another artist is never taken for the track: words of another song are worse than none.
+ * At most {@value #MAX_CALLS} requests per track (a request tried again after a failure counts once; a lookup that
+ * fails is over anyway).
  */
 final class LyricsFinder {
     /** Stops a lookup between requests, for a track that is not the one wanted any more. */
@@ -28,28 +30,40 @@ final class LyricsFinder {
     static final long TIMINGS_FIT_MS = 6_000;
     /** The same for a track whose title names another version (slowed, live): its own timings drift sooner. */
     static final long TIMINGS_FIT_VERSION_MS = 3_000;
+    /** Synced text that goes on longer than the track by more than this has stamps for another song or another cut. */
+    private static final long LAST_STAMP_SLACK_MS = 5_000;
 
-    private static final int MAX_CALLS = 5;
+    private static final int MAX_CALLS = 4;
     /** A record this good, found by an exact request or a search, ends the lookup. */
     private static final double ACCEPT = 0.8;
     private static final double MIN_SCORE = 0.62;
     private static final double MIN_TITLE = 0.6;
+    /** Below this the record's artist is not the one named, whatever the title says. */
+    private static final double MIN_ARTIST = 0.3;
+    /** An artist that only partly matches (or is spelled in another alphabet) is taken if the length is this close. */
+    private static final double UNCONFIRMED_LENGTH_S = 2;
+    /** ... and the title is this good a match. */
+    private static final double UNCONFIRMED_TITLE = 0.9;
 
     private static final class Scored {
         final LrclibClient.Record record;
         final double total;
         final double title;
         final double lengthDifferenceSeconds;
+        /** Whether the record's artist is, or can be taken for, the track's. */
+        final boolean artistFits;
 
-        Scored(LrclibClient.Record record, double total, double title, double lengthDifferenceSeconds) {
+        Scored(LrclibClient.Record record, double total, double title, double lengthDifferenceSeconds,
+               boolean artistFits) {
             this.record = record;
             this.total = total;
             this.title = title;
             this.lengthDifferenceSeconds = lengthDifferenceSeconds;
+            this.artistFits = artistFits;
         }
 
         boolean passes() {
-            return title >= MIN_TITLE && total >= MIN_SCORE;
+            return artistFits && title >= MIN_TITLE && total >= MIN_SCORE;
         }
 
         boolean isSynced() {
@@ -72,7 +86,9 @@ final class LyricsFinder {
         List<Scored> pool = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
         int calls = 0;
-        for (int i = 0; i < query.variants.size() && calls < MAX_CALLS; i++) {
+        // The last request is kept for a free query. Before it: an exact request and a search for the likeliest guess,
+        // and one exact request for each guess after that.
+        for (int i = 0; i < query.variants.size() && calls < MAX_CALLS - 1; i++) {
             TrackQuery.Variant variant = query.variants.get(i);
             if (!variant.artist.isEmpty()) {
                 stopIfCancelled();
@@ -88,7 +104,7 @@ final class LyricsFinder {
                     }
                 }
             }
-            if (calls >= MAX_CALLS) break;
+            if (i > 0 || calls >= MAX_CALLS - 1) continue;
             stopIfCancelled();
             collect(client.search(variant.track, variant.artist, null), pool, seen, query);
             calls++;
@@ -156,7 +172,7 @@ final class LyricsFinder {
         Lyrics synced = LrcParser.parseSynced(record.synced);
         Lyrics plain = LrcParser.parsePlain(record.plain);
         Lyrics lyrics = null;
-        if (synced != null && timingsFit(record, query)) lyrics = synced;
+        if (synced != null && timingsFit(record, query) && endsInTime(synced, query)) lyrics = synced;
         else if (plain != null) lyrics = plain;
         // Timings that do not fit the track would highlight the wrong line: the words alone are better.
         else if (synced != null) lyrics = synced.withoutTimes();
@@ -171,6 +187,11 @@ final class LyricsFinder {
         return difference <= (query.versionTagged ? TIMINGS_FIT_VERSION_MS : TIMINGS_FIT_MS);
     }
 
+    /** Whether the stamps stop about when the track does: a text that goes on much longer is not for this track. */
+    private static boolean endsInTime(Lyrics synced, TrackQuery query) {
+        return synced.lastTime() <= query.durationMs + LAST_STAMP_SLACK_MS;
+    }
+
     /** How well the record is the track: 0.4 title, 0.25 artist, 0.25 length, 0.1 synced; nothing if it has no text. */
     private static Scored score(LrclibClient.Record record, TrackQuery query) {
         boolean content = record.hasText() || record.instrumental;
@@ -179,22 +200,34 @@ final class LyricsFinder {
                 ? Double.MAX_VALUE : Math.abs(record.durationSeconds - query.durationMs / 1000.0);
         double bestTotal = -1;
         double bestTitle = 0;
+        boolean bestFits = false;
         // Judged under every guess: the one that is right makes the record fit.
         for (TrackQuery.Variant variant : query.variants) {
             double title = Math.max(TextMatch.similarity(variant.track, record.trackName),
                     TextMatch.similarity(variant.track, TrackQuery.withoutTags(record.trackName)));
             double artist = 0;
+            boolean foreign = true;
             for (String name : query.artistNames(variant)) {
                 artist = Math.max(artist, TextMatch.similarity(name, record.artistName));
+                if (!TextMatch.differentAlphabets(name, record.artistName)) foreign = false;
             }
             double synced = record.synced.trim().isEmpty() ? 0 : 1;
             double total = content ? 0.40 * title + 0.25 * artist + 0.25 * length + 0.10 * synced : 0;
-            if (total > bestTotal) {
+            // Two songs of one name are told apart by the artist. Where the names do not settle it (they share a word,
+            // or are spelled in different alphabets) only a record of the same length under an almost identical title
+            // is taken; names with nothing in common mean another artist's song.
+            boolean fits = artist >= MIN_ARTIST;
+            if (!fits && !query.versionTagged && difference <= UNCONFIRMED_LENGTH_S && title >= UNCONFIRMED_TITLE) {
+                fits = artist > 0 || foreign;
+            }
+            // A guess the artist agrees with outranks any other; among equals, the better score.
+            if ((fits && !bestFits) || (fits == bestFits && total > bestTotal)) {
                 bestTotal = total;
                 bestTitle = title;
+                bestFits = fits;
             }
         }
-        return new Scored(record, Math.max(0, bestTotal), bestTitle, difference);
+        return new Scored(record, Math.max(0, bestTotal), bestTitle, difference, bestFits);
     }
 
     private static double lengthScore(double recordSeconds, long trackMs) {
