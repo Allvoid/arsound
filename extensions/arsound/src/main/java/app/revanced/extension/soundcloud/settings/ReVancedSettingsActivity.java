@@ -31,6 +31,8 @@ import app.revanced.extension.soundcloud.theme.CustomTheme;
 import app.revanced.extension.soundcloud.theme.RuntimeThemes;
 import app.revanced.extension.soundcloud.theme.ThemeEffect;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
+import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * Settings screen of the ReVanced SoundCloud patches.
@@ -45,6 +47,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private static final String EXTRA_SCREEN = "arsound_screen";
     private static final String SCREEN_LOCAL_MUSIC = "local_music";
+    private static final String SCREEN_WALLHAVEN = "wallhaven";
     private static final int REQUEST_IMPORT = 1;
     /** Android's confirmation for removing downloaded files the app cannot remove by itself. */
     private static final int REQUEST_DELETE_DOWNLOADS = 2;
@@ -56,7 +59,7 @@ public final class ReVancedSettingsActivity extends Activity {
         return "ru".equals(Locale.getDefault().getLanguage());
     }
 
-    private static String text(String russian, String english) {
+    static String text(String russian, String english) {
         return russian() ? russian : english;
     }
 
@@ -75,6 +78,7 @@ public final class ReVancedSettingsActivity extends Activity {
             String screen = getIntent().getStringExtra(EXTRA_SCREEN);
             View content = screen == null ? createContent()
                     : SCREEN_LOCAL_MUSIC.equals(screen) ? createLocalMusicContent()
+                    : SCREEN_WALLHAVEN.equals(screen) ? new WallhavenScreen(this).create()
                     : createSection(screen);
             addThemeEffect(content);
             setContentView(content);
@@ -112,11 +116,17 @@ public final class ReVancedSettingsActivity extends Activity {
                 new android.graphics.drawable.Drawable[]{background, effect}));
     }
 
-    /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
-    private LinearLayout createScreen(LinearLayout[] listOut) {
+    /** The wallpaper if one is shown, else the theme's surface colour. */
+    private android.graphics.drawable.Drawable screenBackground() {
+        android.graphics.drawable.Drawable wallpaper = WallpaperStore.background(this);
+        return wallpaper != null ? wallpaper : new android.graphics.drawable.ColorDrawable(themeColor("themeColorSurface"));
+    }
+
+    /** The root of a screen: the background and room for the system bars. */
+    LinearLayout createRoot() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(themeColor("themeColorSurface"));
+        root.setBackground(screenBackground());
 
         // targetSdk 35+ draws activities edge to edge, so keep the content out of the system bars.
         root.setOnApplyWindowInsetsListener((view, insets) -> {
@@ -128,7 +138,12 @@ public final class ReVancedSettingsActivity extends Activity {
             );
             return insets.consumeSystemWindowInsets();
         });
+        return root;
+    }
 
+    /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
+    private LinearLayout createScreen(LinearLayout[] listOut) {
+        LinearLayout root = createRoot();
         root.addView(createToolbar());
 
         ScrollView scrollView = new ScrollView(this);
@@ -224,10 +239,10 @@ public final class ReVancedSettingsActivity extends Activity {
         if (glow != 0) {
             android.graphics.drawable.GradientDrawable fade = new android.graphics.drawable.GradientDrawable(
                     android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{glow, themeColor("themeColorSurface")});
+                    // Over a wallpaper the glow fades into the picture, not into a slab of the surface colour.
+                    new int[]{glow, WallpaperStore.isActive() ? themeColor("themeColorSurface") & 0x00FFFFFF : themeColor("themeColorSurface")});
             android.graphics.drawable.LayerDrawable background = new android.graphics.drawable.LayerDrawable(
-                    new android.graphics.drawable.Drawable[]{
-                            new android.graphics.drawable.ColorDrawable(themeColor("themeColorSurface")), fade});
+                    new android.graphics.drawable.Drawable[]{screenBackground(), fade});
             background.setLayerHeight(1, dp(280));
             background.setLayerGravity(1, Gravity.TOP);
             root.setBackground(background);
@@ -892,11 +907,248 @@ public final class ReVancedSettingsActivity extends Activity {
                 (button, checked) -> Settings.putBoolean(Settings.HIDE_HEADER_ARTWORK, checked)
         ));
 
+        addWallpaperRows(list);
+
         list.addView(createSubHeading(text("Ещё", "More")));
         list.addView(openScreenRow(text("Иконка приложения", "App icon"),
                 text("Цвет и градиент значка на рабочем столе", "Colour and gradient of the home screen icon"),
                 SCREEN_APP_ICON));
         addLanguageRow(list);
+    }
+
+    /**
+     * The wallpaper: the switch, a small preview, the Wallhaven catalogue, the API key and the 18+ switch, the dim and
+     * the blur. The rows of a picture that is not chosen yet are built too (and hidden), so the settings search knows
+     * them; the screen is built again once a picture is chosen.
+     */
+    private void addWallpaperRows(LinearLayout list) {
+        // The search finds the whole group by these words, which the rows do not all say.
+        recordForSearch(text("Обои", "Wallpaper"), text("Фон приложения: картинка, Wallhaven, затемнение, размытие, ключ API, 18+",
+                "App background picture: Wallhaven, dim, blur, API key, 18+"));
+        list.addView(createSubHeading(text("Обои", "Wallpaper")));
+        boolean chosen = WallpaperStore.has();
+
+        list.addView(createToggleRow(
+                text("Показывать обои", "Show the wallpaper"),
+                text("Картинка за экранами Arsound и вверху главной. Остальные экраны SoundCloud закрашены своим фоном, "
+                                + "за ними обоев нет. С видом «SoundCloud» главная остаётся как есть.",
+                        "The picture behind Arsound's screens and the top of the home screen. SoundCloud's other screens paint "
+                                + "their own background, so the wallpaper is not behind them. With the \"SoundCloud\" look the home "
+                                + "screen stays as it is."),
+                WallpaperStore.isActive(),
+                (button, checked) -> {
+                    if (checked && !WallpaperStore.has()) {
+                        // Nothing to show yet.
+                        button.setChecked(false);
+                        Toast.makeText(this, text("Сначала выберите обои ниже", "Choose a wallpaper below first"),
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (Settings.getBoolean(Settings.WALLPAPER_ENABLED, false) == checked) return;
+                    Settings.putBoolean(Settings.WALLPAPER_ENABLED, checked);
+                    WallpaperStore.refresh();
+                    recreate();
+                }
+        ));
+
+        View preview = createWallpaperPreview();
+        preview.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(preview);
+
+        list.addView(createActionRow(
+                text("Обои Wallhaven", "Wallhaven wallpapers"),
+                text("Каталог wallhaven.cc: поиск, популярное, случайные. Нужен интернет.",
+                        "The wallhaven.cc catalogue: search, popular, random. Needs the internet."),
+                v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
+                        .putExtra(EXTRA_SCREEN, SCREEN_WALLHAVEN))
+        ));
+
+        View adultRow = createToggleRow(
+                text("Показывать 18+", "Show 18+"),
+                text("Картинки Sketchy и NSFW в каталоге Wallhaven. Только с ключом и только для совершеннолетних.",
+                        "Sketchy and NSFW pictures in the Wallhaven catalogue. Only with a key, and only for adults."),
+                Settings.getBoolean(Settings.WALLHAVEN_ADULT, false),
+                (button, checked) -> {
+                    if (checked == Settings.getBoolean(Settings.WALLHAVEN_ADULT, false)) return;
+                    if (!checked) {
+                        Settings.putBoolean(Settings.WALLHAVEN_ADULT, false);
+                        return;
+                    }
+                    new ArsoundDialog(this)
+                            .setTitle(text("Вам есть 18 лет?", "Are you 18 or older?"))
+                            .setMessage(text("В каталоге появятся картинки Sketchy и NSFW. Они только для совершеннолетних.",
+                                    "Sketchy and NSFW pictures will appear in the catalogue. They are for adults only."))
+                            .setCancelable(false)
+                            .setNegativeButton(text("Мне нет 18", "I am under 18"), (dialog, which) -> button.setChecked(false))
+                            .setPositiveButton(text("Мне есть 18", "I am 18 or older"),
+                                    (dialog, which) -> Settings.putBoolean(Settings.WALLHAVEN_ADULT, true))
+                            .show();
+                });
+        TextView[] keyDescription = new TextView[1];
+        View keyRow = createActionRow(
+                text("API-ключ Wallhaven", "Wallhaven API key"),
+                wallhavenKeySummary(),
+                HelpBadge.create(this, createText("H4.Primary", "").getCurrentTextColor(),
+                        text("Зачем ключ Wallhaven", "What the Wallhaven key is for"),
+                        text("Ключ не обязателен: безопасные обои ищутся без него.",
+                                "The key is optional: safe wallpapers are found without it."),
+                        text("Он нужен только для картинок 18+. Ключ берётся на wallhaven.cc в настройках аккаунта.",
+                                "It is only needed for 18+ pictures. The key comes from your account settings on wallhaven.cc."),
+                        text("Ключ хранится только на этом телефоне и уходит только на wallhaven.cc в заголовке запроса. "
+                                        + "В журнал он не пишется.",
+                                "The key stays on this phone and goes only to wallhaven.cc in a request header. It is never logged.")),
+                v -> editWallhavenKey(keyDescription[0], adultRow));
+        keyDescription[0] = (TextView) ((ViewGroup) keyRow).getChildAt(1);
+        list.addView(keyRow);
+        adultRow.setVisibility(Wallhaven.key().isEmpty() ? View.GONE : View.VISIBLE);
+        list.addView(adultRow);
+
+        View dim = createSliderRow(text("Затемнение обоев", "Wallpaper dim"),
+                text("Сколько цвета темы лежит поверх картинки. Больше — текст читается лучше.",
+                        "How much of the theme's colour lies over the picture. More makes the text easier to read."),
+                95, WallpaperStore.dim(), value -> value + " %", WallpaperStore::setDim);
+        dim.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(dim);
+        View blur = createSliderRow(text("Размытие обоев", "Wallpaper blur"),
+                text("Мягче картинка — спокойнее фон. Применяется, когда отпустите ползунок.",
+                        "A softer picture makes a calmer background. Applies when you let go of the slider."),
+                100, WallpaperStore.blur(), value -> value + " %", value -> {
+                }, value -> {
+                    Settings.putLong(Settings.WALLPAPER_BLUR, value);
+                    Utils.runOnBackgroundThread(() -> {
+                        WallpaperStore.rebake(getApplicationContext());
+                        // This screen shows the new picture at once, so it must not rebuild itself for it.
+                        Utils.runOnMainThread(() -> wallpaperStamp = WallpaperStore.stamp());
+                    });
+                });
+        blur.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(blur);
+        View remove = createActionRow(text("Убрать обои", "Remove the wallpaper"),
+                text("Картинка удаляется с телефона, фон снова как у темы.",
+                        "The picture is deleted from the phone and the background is the theme's again."),
+                v -> new ArsoundDialog(this)
+                        .setTitle(text("Убрать обои?", "Remove the wallpaper?"))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
+                            WallpaperStore.remove();
+                            recreate();
+                        })
+                        .show());
+        remove.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(remove);
+    }
+
+    /** A strip with the wallpaper as it is drawn behind the screens, with a line of text on it to judge the dim by. */
+    private View createWallpaperPreview() {
+        FrameLayout strip = new FrameLayout(this);
+        android.graphics.drawable.Drawable picture = WallpaperStore.background(this);
+        strip.setBackground(picture != null ? picture
+                : new android.graphics.drawable.ColorDrawable(ArsoundTheme.palette(this, "highlight")));
+        float radius = dp(18);
+        strip.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+            }
+        });
+        strip.setClipToOutline(true);
+        TextView sample = createText("H4.Primary", text("Так выглядит текст на обоях", "This is how text looks on the wallpaper"));
+        sample.setGravity(Gravity.CENTER);
+        strip.addView(sample, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150));
+        params.leftMargin = params.rightMargin = dimen("spacing_m");
+        params.topMargin = dimen("spacing_s");
+        params.bottomMargin = dimen("spacing_s");
+        strip.setLayoutParams(params);
+        return strip;
+    }
+
+    private static String wallhavenKeySummary() {
+        return Wallhaven.key().isEmpty()
+                ? text("Не задан. Без ключа доступны только безопасные картинки.",
+                "Not set. Without a key only safe pictures are offered.")
+                : text("Задан. Хранится только на этом телефоне.", "Set. It stays on this phone only.");
+    }
+
+    /** The key field with a check button; the check asks the service and tells whether it knows the key. */
+    private void editWallhavenKey(TextView description, View adultRow) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setHint(text("Ключ из настроек аккаунта wallhaven.cc", "Key from your wallhaven.cc account settings"));
+        field.setText(Wallhaven.key());
+        // The keyboard must not learn or suggest the key.
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        form.addView(field);
+
+        TextView result = createText("Body.Secondary", "");
+        result.setTag(ArsoundDialog.KEEP_COLORS);
+        result.setTextColor(ArsoundTheme.palette(this, "secondary"));
+        result.setPadding(0, dp(10), 0, 0);
+        View check = createPillButton(text("Проверить ключ", "Check the key"), false, v -> {
+            String key = Wallhaven.clean(field.getText().toString());
+            result.setTextColor(ArsoundTheme.palette(this, "secondary"));
+            if (key.isEmpty()) {
+                result.setText(text("Сначала вставьте ключ.", "Paste the key first."));
+                return;
+            }
+            result.setText(text("Проверяю…", "Checking…"));
+            Utils.runOnBackgroundThread(() -> {
+                Wallhaven.KeyState state = Wallhaven.checkKey(key);
+                Utils.runOnMainThread(() -> {
+                    boolean valid = state == Wallhaven.KeyState.VALID;
+                    result.setTextColor(ArsoundTheme.palette(this, valid ? "special" : "error"));
+                    result.setText(valid ? text("Ключ принят.", "The key is accepted.")
+                            : state == Wallhaven.KeyState.INVALID
+                            ? text("Wallhaven не знает этот ключ (ошибка 401).", "Wallhaven does not know this key (error 401).")
+                            : text("Не удалось проверить: нет связи с Wallhaven.", "Could not check: no connection to Wallhaven."));
+                });
+            });
+        });
+        check.setTag(ArsoundDialog.KEEP_COLORS);
+        LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        checkParams.topMargin = dp(10);
+        checkParams.leftMargin = -dp(8);
+        form.addView(check, checkParams);
+        form.addView(result);
+
+        ArsoundDialog dialog = new ArsoundDialog(this)
+                .setTitle(text("API-ключ Wallhaven", "Wallhaven API key"))
+                .setView(form)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(text("Сохранить", "Save"), (d, which) -> {
+                    String typed = field.getText().toString().trim();
+                    String key = Wallhaven.clean(typed);
+                    if (!typed.isEmpty() && key.isEmpty()) {
+                        Toast.makeText(this, text("Это не похоже на ключ: только буквы и цифры",
+                                "That does not look like a key: letters and digits only"), Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    saveWallhavenKey(key, description, adultRow);
+                });
+        if (!Wallhaven.key().isEmpty()) {
+            dialog.setNeutralButton(text("Удалить ключ", "Remove the key"), (d, which) -> saveWallhavenKey("", description, adultRow));
+        }
+        android.app.Dialog shown = dialog.show();
+        if (shown.getWindow() != null) {
+            shown.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+    }
+
+    /** Keeps the key (an empty one removes it). Without a key there is no 18+ mode. */
+    private void saveWallhavenKey(String key, TextView description, View adultRow) {
+        Settings.putString(Settings.WALLHAVEN_KEY, key);
+        description.setText(wallhavenKeySummary());
+        adultRow.setVisibility(key.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!key.isEmpty()) return;
+        Settings.putBoolean(Settings.WALLHAVEN_ADULT, false);
+        // The switch shows what is kept.
+        CompoundButton toggle = adultRow.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "action_list_switch_button"));
+        if (toggle != null) toggle.setChecked(false);
     }
 
     /** One entry of the theme list: the original look has no theme object. */
@@ -1094,7 +1346,7 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /** A small line icon (an arrow, a tick) from points in a unit square. */
-    private android.graphics.drawable.Drawable lineIcon(float[] points, int color) {
+    android.graphics.drawable.Drawable lineIcon(float[] points, int color) {
         android.graphics.Path path = new android.graphics.Path();
         path.moveTo(points[0], points[1]);
         for (int i = 2; i < points.length; i += 2) path.lineTo(points[i], points[i + 1]);
@@ -1410,7 +1662,7 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /** A compact row with a tick on the right, for picking several items of a list. */
-    private View createCheckRow(String title, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
+    View createCheckRow(String title, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
         recordForSearch(title, "");
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -2053,10 +2305,15 @@ public final class ReVancedSettingsActivity extends Activity {
         }
     }
 
+    /** What the wallpaper looked like when this screen was built; a screen opened before a change is built again. */
+    private String wallpaperStamp = WallpaperStore.stamp();
+
     @Override
     protected void onResume() {
         super.onResume();
         updateFolderNames();
+        // The wallpaper was chosen, switched off or changed on a screen opened later.
+        if (!wallpaperStamp.equals(WallpaperStore.stamp())) recreate();
     }
 
     private void addStreamCacheOptions(LinearLayout list) {
@@ -3429,6 +3686,13 @@ public final class ReVancedSettingsActivity extends Activity {
      */
     private View createSliderRow(String title, String description, int max, int progress,
                                  java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange) {
+        return createSliderRow(title, description, max, progress, label, onChange, null);
+    }
+
+    /** @param onRelease Told the value when the finger leaves the slider, or null. */
+    private View createSliderRow(String title, String description, int max, int progress,
+                                 java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange,
+                                 java.util.function.IntConsumer onRelease) {
         recordForSearch(title, description);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
@@ -3465,6 +3729,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
             @Override
             public void onStopTrackingTouch(android.widget.SeekBar bar) {
+                if (onRelease != null) onRelease.accept(bar.getProgress());
             }
         });
         LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(
@@ -3479,7 +3744,7 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /** A button in the look of the dialogs' buttons: the main one filled with the accent. */
-    private View createPillButton(String label, boolean main, View.OnClickListener listener) {
+    View createPillButton(String label, boolean main, View.OnClickListener listener) {
         int accent = ArsoundTheme.palette(this, "special");
         TextView button = createText("H4.Primary", label);
         button.setTextColor(main ? ArsoundDialog.contrast(accent) : accent);
@@ -3502,18 +3767,7 @@ public final class ReVancedSettingsActivity extends Activity {
     // endregion
 
     private View createLocalMusicContent() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(themeColor("themeColorSurface"));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(
-                    insets.getSystemWindowInsetLeft(),
-                    insets.getSystemWindowInsetTop(),
-                    insets.getSystemWindowInsetRight(),
-                    insets.getSystemWindowInsetBottom()
-            );
-            return insets.consumeSystemWindowInsets();
-        });
+        LinearLayout root = createRoot();
         root.addView(createToolbar());
 
         ScrollView scrollView = new ScrollView(this);
@@ -3778,7 +4032,7 @@ public final class ReVancedSettingsActivity extends Activity {
         });
     }
 
-    private View createToolbar() {
+    View createToolbar() {
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setOrientation(LinearLayout.HORIZONTAL);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -3849,7 +4103,7 @@ public final class ReVancedSettingsActivity extends Activity {
         }
     }
 
-    private TextView createText(String styleName, String value) {
+    TextView createText(String styleName, String value) {
         TextView view = new TextView(this);
         int style = Utils.getResourceIdentifier(ResourceType.STYLE, styleName);
         if (style != 0) {
@@ -3871,18 +4125,18 @@ public final class ReVancedSettingsActivity extends Activity {
         }
     }
 
-    private int themeAttribute(int attribute) {
+    int themeAttribute(int attribute) {
         TypedValue value = new TypedValue();
         getTheme().resolveAttribute(attribute, value, true);
         return value.resourceId;
     }
 
-    private int dimen(String name) {
+    int dimen(String name) {
         int id = Utils.getResourceIdentifier(ResourceType.DIMEN, name);
         return id == 0 ? dp(16) : getResources().getDimensionPixelSize(id);
     }
 
-    private int dp(int value) {
+    int dp(int value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
     }
 }
