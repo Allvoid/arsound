@@ -1,7 +1,11 @@
 package app.revanced.extension.soundcloud.lyrics;
 
 import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -15,6 +19,15 @@ final class TextMatch {
     private static final Pattern APOSTROPHES = Pattern.compile("[’'`´]");
     private static final Pattern NOT_WORD = Pattern.compile("[^\\p{L}\\p{N}\\s]+");
     private static final Pattern SPACES = Pattern.compile("\\s+");
+
+    /** Words a record's title may add to the song's name without being another song: the cut, the format. */
+    private static final Set<String> TAG_WORDS = new HashSet<>(Arrays.asList(
+            "radio", "edit", "remaster", "remastered", "remastering", "mono", "stereo", "version", "single", "album",
+            "deluxe", "bonus", "original", "extended", "explicit", "clean", "official", "audio", "video", "lyrics",
+            "lyric", "hd", "hq", "live", "acoustic", "demo", "mix", "remix",
+            "версия", "ремастер", "ремастеринг", "радио", "оригинал", "текст"));
+    /** After one of these the record names guests, whoever they are. */
+    private static final Set<String> GUEST_WORDS = new HashSet<>(Arrays.asList("feat", "ft", "featuring"));
 
     private TextMatch() {
     }
@@ -38,15 +51,62 @@ final class TextMatch {
         String b = normalize(second);
         if (a.isEmpty() || b.isEmpty()) return 0;
         if (a.equals(b)) return 1;
+        double contained = (a.contains(b) || b.contains(a)) && Math.min(a.length(), b.length()) >= 4 ? 0.9 : 0;
+        return Math.max(sharedWords(a, b), contained);
+    }
+
+    /** The share of the words two normalized texts have in common. */
+    private static double sharedWords(String a, String b) {
         Set<String> wordsA = words(a);
         Set<String> wordsB = words(b);
         Set<String> common = new HashSet<>(wordsA);
         common.retainAll(wordsB);
         Set<String> all = new HashSet<>(wordsA);
         all.addAll(wordsB);
-        double shared = all.isEmpty() ? 0 : (double) common.size() / all.size();
-        double contained = (a.contains(b) || b.contains(a)) && Math.min(a.length(), b.length()) >= 4 ? 0.9 : 0;
-        return Math.max(shared, contained);
+        return all.isEmpty() ? 0 : (double) common.size() / all.size();
+    }
+
+    /**
+     * How alike the title wanted and the title of a record are, 0 to 1. Like {@link #similarity}, but a title that
+     * contains the other counts as the same song (0.9) only when all it adds is the artist's name, a guest, a tag of
+     * the cut ("Radio Edit", "Remastered 2011") or a number. "Karma" is not "Karma Police" and "Stay" is not "Stay With
+     * Me": words of another song are worse than none.
+     *
+     * @param artists Names the extra words may be (the artist as the track, the uploader and the record name him).
+     */
+    static double titleSimilarity(String wanted, String record, Collection<String> artists) {
+        String a = normalize(wanted);
+        String b = normalize(record);
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        if (a.equals(b)) return 1;
+        String shorter = a.length() <= b.length() ? a : b;
+        String longer = shorter == a ? b : a;
+        boolean same = shorter.length() >= 4 && addsOnlyTags(shorter, longer, artists);
+        return Math.max(sharedWords(a, b), same ? 0.9 : 0);
+    }
+
+    /** Whether the longer text is the shorter one, word for word, with only an artist, tags or a guest around it. */
+    private static boolean addsOnlyTags(String shorter, String longer, Collection<String> artists) {
+        List<String> inner = Arrays.asList(shorter.split(" "));
+        List<String> outer = Arrays.asList(longer.split(" "));
+        int at = Collections.indexOfSubList(outer, inner);
+        if (at < 0) return false;
+        Set<String> names = new HashSet<>();
+        for (String artist : artists) names.addAll(words(normalize(artist)));
+        int end = at + inner.size();
+        for (int i = 0; i < outer.size(); i++) {
+            if (i >= at && i < end) continue;
+            String word = outer.get(i);
+            if (i >= end && GUEST_WORDS.contains(word)) return true;
+            if (names.contains(word) || TAG_WORDS.contains(word) || isNumber(word)) continue;
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean isNumber(String word) {
+        for (int i = 0; i < word.length(); i++) if (!Character.isDigit(word.charAt(i))) return false;
+        return true;
     }
 
     /**

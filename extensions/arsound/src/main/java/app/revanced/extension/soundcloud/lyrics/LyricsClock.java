@@ -29,6 +29,8 @@ public final class LyricsClock {
     private static final long MAX_EXTRAPOLATION_MS = 5_000;
     /** After a seek the new position is used until the player's own state arrives. */
     private static final long OVERRIDE_MS = 1_500;
+    /** The state the session already holds is looked for no more often than this, while none has come through. */
+    private static final long ADOPT_RETRY_MS = 1_000;
 
     private static final class Snapshot {
         final String urn;
@@ -59,7 +61,8 @@ public final class LyricsClock {
 
     private static Method getState, getPosition, getUpdateTime, getSpeed, getExtras;
     private static Field sessionField;
-    private static Method sessionController, controllerTransport, transportSeek;
+    private static Method sessionController, controllerTransport, transportSeek, controllerState;
+    private static long lastAdopt;
 
     private LyricsClock() {
     }
@@ -90,6 +93,22 @@ public final class LyricsClock {
         }
     }
 
+    /**
+     * Injection point. The start of the media service's method that puts new metadata on the session. Right after the
+     * service starts, the queue the app closed with is restored through it, and the state of that queue goes straight
+     * to the session without passing {@link #onState}: so the service is noted here, and the state it holds is taken
+     * from the session when it is first needed.
+     *
+     * @param mediaService SoundCloud's media service.
+     */
+    public static void onService(Object mediaService) {
+        try {
+            if (mediaService != null && service.get() != mediaService) service = new WeakReference<>(mediaService);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Lyrics: could not note the media service", ex);
+        }
+    }
+
     private static Snapshot read(Object state, Snapshot previous) throws Exception {
         if (getState == null) {
             Class<?> type = Class.forName(STATE);
@@ -115,15 +134,67 @@ public final class LyricsClock {
         return a == null ? b == null : a.equals(b);
     }
 
+    /**
+     * The last state, or, when none has come through the hook yet, the one the session was restored with at the start
+     * (a paused track from last time): without it nothing would be lit and a tap on a line would do nothing until the
+     * first press of play.
+     */
+    private static Snapshot currentSnapshot() {
+        Snapshot current = snapshot;
+        if (current == null) {
+            adoptSessionState();
+            current = snapshot;
+        }
+        return current;
+    }
+
+    private static void adoptSessionState() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastAdopt < ADOPT_RETRY_MS) return;
+        lastAdopt = now;
+        try {
+            Object mediaService = service.get();
+            Object session = mediaService == null ? null : sessionOf(mediaService);
+            if (session == null) return;
+            Object state = controllerState.invoke(sessionController.invoke(session));
+            if (state != null) onState(mediaService, state);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Lyrics: could not read the state the session holds", ex);
+        }
+    }
+
+    /** The media session the service keeps; null if it has none yet or cannot be reached. */
+    private static Object sessionOf(Object mediaService) throws Exception {
+        if (sessionField == null) {
+            Class<?> sessionType = Class.forName(SESSION);
+            Field found = null;
+            for (Field field : mediaService.getClass().getDeclaredFields()) {
+                if (field.getType() == sessionType) {
+                    field.setAccessible(true);
+                    found = field;
+                    break;
+                }
+            }
+            if (found == null) return null;
+            sessionController = sessionType.getMethod("getController");
+            Class<?> controllerType = Class.forName(CONTROLLER);
+            controllerTransport = controllerType.getMethod("getTransportControls");
+            controllerState = controllerType.getMethod("getPlaybackState");
+            transportSeek = Class.forName(TRANSPORT).getMethod("seekTo", long.class);
+            sessionField = found;
+        }
+        return sessionField.get(mediaService);
+    }
+
     /** The URN of the track the player has, or null if it has none or has not told yet. */
     static String urn() {
-        Snapshot current = snapshot;
+        Snapshot current = currentSnapshot();
         return current == null ? null : current.urn;
     }
 
     /** Whether the track is playing now (a buffering one is about to). */
     static boolean isPlaying() {
-        Snapshot current = snapshot;
+        Snapshot current = currentSnapshot();
         return current != null && (current.state == PLAYING || current.state == BUFFERING);
     }
 
@@ -135,7 +206,7 @@ public final class LyricsClock {
         if (current != null && SystemClock.elapsedRealtime() - current.updatedAt < OVERRIDE_MS && urn.equals(current.urn)) {
             return current.positionNow();
         }
-        current = snapshot;
+        current = currentSnapshot();
         if (current == null || !urn.equals(current.urn)) return -1;
         return current.positionNow();
     }
@@ -149,25 +220,13 @@ public final class LyricsClock {
         try {
             Object mediaService = service.get();
             if (mediaService == null) return false;
-            if (sessionField == null) {
-                Class<?> sessionType = Class.forName(SESSION);
-                for (Field field : mediaService.getClass().getDeclaredFields()) {
-                    if (field.getType() == sessionType) {
-                        field.setAccessible(true);
-                        sessionField = field;
-                        break;
-                    }
-                }
-                if (sessionField == null) return false;
-                sessionController = sessionType.getMethod("getController");
-                controllerTransport = Class.forName(CONTROLLER).getMethod("getTransportControls");
-                transportSeek = Class.forName(TRANSPORT).getMethod("seekTo", long.class);
-            }
-            Object session = sessionField.get(mediaService);
+            Snapshot current = currentSnapshot();
+            // The player is on another track: a jump to a line of this one would move the wrong song.
+            if (current != null && current.urn != null && !current.urn.equals(urn)) return false;
+            Object session = sessionOf(mediaService);
             if (session == null) return false;
             Object transport = controllerTransport.invoke(sessionController.invoke(session));
             transportSeek.invoke(transport, positionMs);
-            Snapshot current = snapshot;
             boolean playing = current != null && current.state == PLAYING;
             jump = new Snapshot(urn, playing ? PLAYING : 2, positionMs, SystemClock.elapsedRealtime(),
                     current == null ? 1f : current.speed);
