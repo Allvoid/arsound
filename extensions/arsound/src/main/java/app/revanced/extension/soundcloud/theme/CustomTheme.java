@@ -58,6 +58,12 @@ public final class CustomTheme {
     public static CustomTheme load() {
         String text = Settings.getString(Settings.CUSTOM_THEME, "");
         if (text.isEmpty()) return DEFAULTS;
+        CustomTheme saved = fromJson(text);
+        return saved == null ? DEFAULTS : saved;
+    }
+
+    /** The colours {@link #toJson} wrote, or null when the text is damaged. */
+    public static CustomTheme fromJson(String text) {
         try {
             JSONObject json = new JSONObject(text);
             return new CustomTheme(
@@ -68,8 +74,8 @@ public final class CustomTheme {
                     Math.max(0, Math.min(MAX_RADIUS, json.optInt("radius", DEFAULTS.radius))),
                     json.optString("effect", NO_EFFECT));
         } catch (Exception ex) {
-            Logger.printException(() -> "Custom theme: the saved colours are damaged, using the defaults", ex);
-            return DEFAULTS;
+            Logger.printException(() -> "Custom theme: the colours are damaged, using the defaults", ex);
+            return null;
         }
     }
 

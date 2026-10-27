@@ -80,6 +80,7 @@ public final class ReVancedSettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        restoredState = savedInstanceState;
 
         try {
             String screen = getIntent().getStringExtra(EXTRA_SCREEN);
@@ -1158,7 +1159,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 .setTitle(text("API-ключ Wallhaven", "Wallhaven API key"))
                 .setView(form)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(text("Сохранить", "Save"), (d, which) -> {
+                // Stays open when the key is refused, so what was typed is not lost; closed here once it is kept.
+                .setPositiveButtonKeepingOpen(text("Сохранить", "Save"), (d, which) -> {
                     String typed = field.getText().toString().trim();
                     String key = Wallhaven.clean(typed);
                     if (!typed.isEmpty() && key.isEmpty()) {
@@ -1167,6 +1169,7 @@ public final class ReVancedSettingsActivity extends Activity {
                         return;
                     }
                     saveWallhavenKey(key, description, adultRow);
+                    d.dismiss();
                 });
         if (!Wallhaven.key().isEmpty()) {
             dialog.setNeutralButton(text("Удалить ключ", "Remove the key"), (d, which) -> saveWallhavenKey("", description, adultRow));
@@ -3763,6 +3766,9 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String[] LIGHT_BG_PRESETS = {
             "#FFFFFF", "#F7F9FC", "#F5F9FB", "#F7FAF8", "#FEF8F9", "#FFF7FA", "#F9F8FC", "#FAF6EE", "#F2F2F2"};
 
+    private static final String STATE_DRAFT = "arsound_custom_theme_draft";
+    private static final String STATE_PREVIEW_NIGHT = "arsound_custom_theme_night";
+
     /** The colours being edited; they are kept only when the user applies them. */
     private CustomTheme editing;
     private ThemePreviewView editorPreview;
@@ -3770,10 +3776,28 @@ public final class ReVancedSettingsActivity extends Activity {
     private boolean previewNight = true;
     /** Redraw the parts of the editor that depend on {@link #editing}. */
     private final java.util.List<Runnable> editorViews = new java.util.ArrayList<>();
+    /** What the system kept of this screen when it made it again (a fold, a split screen, a killed process), or null. */
+    private Bundle restoredState;
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        // Colours that were not applied yet would be gone when the system makes the screen again.
+        if (editing != null) {
+            outState.putString(STATE_DRAFT, editing.toJson());
+            outState.putBoolean(STATE_PREVIEW_NIGHT, previewNight);
+        }
+    }
 
     /** The editor of the custom theme: a live drawing of the app, the mode, the colours, the corners, the animation. */
     private void addCustomThemeSection(LinearLayout list) {
-        editing = CustomTheme.load();
+        CustomTheme draft = null;
+        if (restoredState != null) {
+            previewNight = restoredState.getBoolean(STATE_PREVIEW_NIGHT, true);
+            String text = restoredState.getString(STATE_DRAFT);
+            if (text != null) draft = CustomTheme.fromJson(text);
+        }
+        editing = draft != null ? draft : CustomTheme.load();
         editorViews.clear();
 
         editorPreview = new ThemePreviewView(this);
@@ -3798,11 +3822,14 @@ public final class ReVancedSettingsActivity extends Activity {
         LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         modeParams.leftMargin = modeParams.rightMargin = dimen("spacing_m");
+        // Told the mode from outside too: "Reset" changes it without a tap on the selector.
+        java.util.function.IntConsumer[] selectMode = new java.util.function.IntConsumer[1];
         list.addView(createSegmented(new String[]{text("Тёмная", "Dark"), text("Светлая", "Light"), text("Как на телефоне", "Like the phone")},
                 java.util.Arrays.asList(modes).indexOf(editing.mode), index -> {
                     editing = editing.withMode(modes[index]);
                     refreshEditor();
-                }), modeParams);
+                }, selectMode), modeParams);
+        editorViews.add(() -> selectMode[0].accept(java.util.Arrays.asList(modes).indexOf(editing.mode)));
         TextView modeNote = createText("Body.Secondary", "");
         modeNote.setPadding(dimen("spacing_m"), dp(8), dimen("spacing_m"), dimen("spacing_s"));
         list.addView(modeNote);
@@ -3828,12 +3855,14 @@ public final class ReVancedSettingsActivity extends Activity {
         });
 
         list.addView(createSubHeading(text("Форма и анимация", "Shape and animation")));
+        java.util.function.IntConsumer[] setRadius = new java.util.function.IntConsumer[1];
         list.addView(createSliderRow(text("Скругление углов", "Corner roundness"),
                 text("Обложки, карточки и мини-плеер.", "Covers, cards and the mini player."),
                 CustomTheme.MAX_RADIUS, editing.radius, value -> value + " dp", value -> {
                     editing = editing.withRadius(value);
                     refreshEditor();
-                }));
+                }, null, setRadius));
+        editorViews.add(() -> setRadius[0].accept(editing.radius));
         TextView[] effectDescription = new TextView[1];
         View effectRow = createActionRow(text("Анимация фона", "Background animation"), "", v -> chooseCustomEffect());
         effectDescription[0] = (TextView) ((ViewGroup) effectRow).getChildAt(1);
@@ -3998,6 +4027,12 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** A pill-shaped choice of a few labels; the chosen one is filled with the accent. */
     private View createSegmented(String[] labels, int selected, java.util.function.IntConsumer onSelect) {
+        return createSegmented(labels, selected, onSelect, null);
+    }
+
+    /** @param select Gets (as its first item) a function that picks a label from outside, without telling {@code onSelect}; or null. */
+    private View createSegmented(String[] labels, int selected, java.util.function.IntConsumer onSelect,
+                                 java.util.function.IntConsumer[] select) {
         int accent = ArsoundTheme.palette(this, "special");
         LinearLayout track = new LinearLayout(this);
         track.setOrientation(LinearLayout.HORIZONTAL);
@@ -4035,6 +4070,12 @@ public final class ReVancedSettingsActivity extends Activity {
             track.addView(item, new LinearLayout.LayoutParams(0, dp(38), 1f));
         }
         draw[0].run();
+        if (select != null) {
+            select[0] = index -> {
+                chosen[0] = index;
+                draw[0].run();
+            };
+        }
         return track;
     }
 
@@ -4046,13 +4087,24 @@ public final class ReVancedSettingsActivity extends Activity {
      */
     private View createSliderRow(String title, String description, int max, int progress,
                                  java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange) {
-        return createSliderRow(title, description, max, progress, label, onChange, null);
+        return createSliderRow(title, description, max, progress, label, onChange, null, null);
     }
 
     /** @param onRelease Told the value when the finger leaves the slider, or null. */
     private View createSliderRow(String title, String description, int max, int progress,
                                  java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange,
                                  java.util.function.IntConsumer onRelease) {
+        return createSliderRow(title, description, max, progress, label, onChange, onRelease, null);
+    }
+
+    /**
+     * @param onRelease Told the value when the finger leaves the slider, or null.
+     * @param set Gets (as its first item) a function that moves the slider and its value from outside, without telling
+     *            {@code onChange}; or null.
+     */
+    private View createSliderRow(String title, String description, int max, int progress,
+                                 java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange,
+                                 java.util.function.IntConsumer onRelease, java.util.function.IntConsumer[] set) {
         recordForSearch(title, description);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
@@ -4096,6 +4148,12 @@ public final class ReVancedSettingsActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sliderParams.topMargin = dp(4);
         row.addView(slider, sliderParams);
+        if (set != null) {
+            set[0] = newValue -> {
+                slider.setProgress(newValue);
+                value.setText(label.apply(newValue));
+            };
+        }
 
         TextView details = createText("Body.Secondary", description);
         details.setPadding(dimen("spacing_m"), dp(4), dp(72), 0);

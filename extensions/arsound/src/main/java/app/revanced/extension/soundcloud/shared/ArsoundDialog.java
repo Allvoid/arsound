@@ -45,6 +45,8 @@ public final class ArsoundDialog {
     private boolean cancelable = true;
     /** The negative button leaves the dialog open: the listener closes it when it is time. */
     private boolean negativeKeepsOpen;
+    /** The positive button leaves the dialog open: the listener closes it when what was entered is accepted. */
+    private boolean positiveKeepsOpen;
     private View buttonsStart;
     private DialogInterface.OnDismissListener onDismiss;
 
@@ -92,6 +94,17 @@ public final class ArsoundDialog {
     public ArsoundDialog setPositiveButton(CharSequence text, DialogInterface.OnClickListener listener) {
         positive = text;
         onPositive = listener;
+        positiveKeepsOpen = false;
+        return this;
+    }
+
+    /**
+     * A positive button that does not close the dialog, for a dialog with a field to fill in: when what was typed is
+     * refused, the dialog stays with the text in it, and the listener closes it once the text is accepted.
+     */
+    public ArsoundDialog setPositiveButtonKeepingOpen(CharSequence text, DialogInterface.OnClickListener listener) {
+        setPositiveButton(text, listener);
+        positiveKeepsOpen = true;
         return this;
     }
 
@@ -308,7 +321,8 @@ public final class ArsoundDialog {
         shape.setColor(main ? accent : Color.TRANSPARENT);
         button.setBackground(new RippleDrawable(ColorStateList.valueOf(main ? 0x33FFFFFF : (accent & 0x00FFFFFF) | 0x33000000),
                 shape, null));
-        boolean keepsOpen = which == DialogInterface.BUTTON_NEGATIVE && negativeKeepsOpen;
+        boolean keepsOpen = which == DialogInterface.BUTTON_NEGATIVE ? negativeKeepsOpen
+                : which == DialogInterface.BUTTON_POSITIVE && positiveKeepsOpen;
         button.setOnClickListener(v -> {
             if (listener != null) listener.onClick(dialog, which);
             if (!keepsOpen) dialog.dismiss();
