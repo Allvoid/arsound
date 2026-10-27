@@ -33,6 +33,7 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.network.RegionGuard;
 import app.revanced.extension.soundcloud.offline.PlaylistPreloader;
+import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.Rx;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
@@ -267,16 +268,24 @@ public final class PlaylistMerge {
         Progress progress = new Progress(activity);
         Utils.runOnBackgroundThread(() -> {
             Result result = new Result();
+            progress.attach(Thread.currentThread());
             try {
                 merge(target, sources, progress, result);
             } catch (Throwable ex) {
-                Logger.printException(() -> "Could not merge the playlists", ex);
-                // The tracks may have been saved before the error: it is not said that nothing changed then.
-                result.error = result.touched
-                        ? text("Что-то пошло не так, результат может быть неполным. Откройте плейлист и проверьте.",
-                        "Something went wrong, the result may be partial. Open the playlist to check.")
-                        : text("Что-то пошло не так. Плейлист не изменён.", "Something went wrong. The playlist was not changed.");
+                if (progress.cancelled()) {
+                    // Cancel woke a read that was waiting for SoundCloud. Cancel and the start of the save exclude each
+                    // other, so nothing was saved.
+                    result.cancelled = true;
+                } else {
+                    Logger.printException(() -> "Could not merge the playlists", ex);
+                    // The tracks may have been saved before the error: it is not said that nothing changed then.
+                    result.error = result.touched
+                            ? text("Что-то пошло не так, результат может быть неполным. Откройте плейлист и проверьте.",
+                            "Something went wrong, the result may be partial. Open the playlist to check.")
+                            : text("Что-то пошло не так. Плейлист не изменён.", "Something went wrong. The playlist was not changed.");
+                }
             } finally {
+                progress.detach();
                 RUNNING.set(false);
             }
             Utils.runOnMainThread(() -> {
@@ -425,9 +434,11 @@ public final class PlaylistMerge {
         for (Incoming item : incoming) if (item.server && !item.skipped) sent++;
 
         // The screen lists the tracks on SoundCloud first and the ones added on this phone after them. If the order
-        // chosen is another one, the playlist gets it as its own order.
+        // chosen is another one, the playlist gets it as its own order. With the setting off nobody shows or uses that
+        // order, and saving it would replace an arrangement the user may want back when the setting is turned on.
         List<String> wanted = null;
-        if (target.editable && sent > 0 && (!earlier.isEmpty() || filesBeforeTracks(incoming))) {
+        if (target.editable && sent > 0 && Settings.isPlaylistOrderEnabled()
+                && (!earlier.isEmpty() || filesBeforeTracks(incoming))) {
             wanted = chosenOrder(operations, urnClass, targetUrn, incoming);
         }
 
@@ -449,7 +460,8 @@ public final class PlaylistMerge {
                 return;
             }
             result.added += sent;
-            result.offline = !isOnline();
+            // SoundCloud is out of reach also when the region guard blocks its requests, though the phone has a network.
+            result.offline = !isOnline() || RegionGuard.blocksLastCountry();
             try {
                 // Sends the change to SoundCloud, as its own "Add to playlist" sheet does.
                 type.getMethod("syncPlaylist", urnClass).invoke(operations, targetUrn);
@@ -545,6 +557,10 @@ public final class PlaylistMerge {
             if (!(list instanceof List)) return null;
             // A playlist that has tracks but gives none was not loaded.
             return ((List<?>) list).isEmpty() && source.count > 0 ? null : (List<?>) list;
+        } catch (InterruptedException ex) {
+            // Cancel was pressed while waiting for SoundCloud: the merge sees it and stops. Not an error to log.
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not read the tracks of " + source.urn, ex);
             return null;
@@ -615,8 +631,8 @@ public final class PlaylistMerge {
                         "The files from this phone (" + result.filesOnPhone + ") stay on this phone and do not go to SoundCloud."));
             }
             if (result.offline) {
-                notes.add(text("Нет сети: изменения уйдут в SoundCloud, когда она появится.",
-                        "No network: the changes go to SoundCloud when it is back."));
+                notes.add(text("Нет связи с SoundCloud (нет сети или включена защита по региону): изменения уйдут, когда она появится.",
+                        "No connection to SoundCloud (no network, or the region guard is on): the changes go out when it is back."));
             }
             if (!notes.isEmpty()) message.append("\n\n").append(TextUtils.join("\n", notes));
         }
@@ -640,7 +656,8 @@ public final class PlaylistMerge {
 
     /**
      * A dialog with a spinner while the tracks are read and saved. It opens only if that takes a moment. Its Cancel
-     * button asks the merge to stop before the tracks are saved; the dialog stays until the merge has stopped.
+     * button asks the merge to stop before the tracks are saved, and wakes it from a read that waits for SoundCloud;
+     * the dialog stays until the merge has stopped.
      */
     private static final class Progress {
         private static final long SHOW_AFTER_MS = 400;
@@ -653,6 +670,8 @@ public final class PlaylistMerge {
         private final View content;
         private volatile Dialog dialog;
         private volatile boolean finished;
+        /** The thread that runs the merge, while it does. Guarded by this. */
+        private Thread worker;
 
         Progress(Context context) {
             this.context = context;
@@ -685,10 +704,30 @@ public final class PlaylistMerge {
                     .setView(content).setCancelable(false)
                     .setNegativeButtonKeepingOpen(context.getString(android.R.string.cancel), (d, which) -> {
                         if (!state.compareAndSet(RUNNING_STATE, CANCELLED_STATE)) return;
-                        label.setText(text("Отменяю, когда дочитаю этот плейлист…", "Cancelling once this playlist is read…"));
+                        label.setText(text("Отменяю…", "Cancelling…"));
                         showCancelState();
+                        wake();
                     }).show();
             showCancelState();
+        }
+
+        /** The merge runs on this thread from now on. */
+        synchronized void attach(Thread thread) {
+            worker = thread;
+        }
+
+        /**
+         * The merge is over. Cancel can no longer interrupt the thread, which goes back to the pool, and an interrupt
+         * that came too late is cleared so it does not reach the next task.
+         */
+        synchronized void detach() {
+            worker = null;
+            Thread.interrupted();
+        }
+
+        /** Cancel has won: a read that waits for SoundCloud (up to a minute) is stopped instead of waited for. */
+        private synchronized void wake() {
+            if (worker != null) worker.interrupt();
         }
 
         /** The button works while the merge can still be stopped. */

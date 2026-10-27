@@ -850,12 +850,18 @@ public final class LocalAdditions {
             List<String> entries = getEntries(playlistUrn);
             List<LocalMusic.Track> imported = LocalMusic.getTracks(context);
             rememberTitles(entries);
+            // The names are read from the cached titles once for the whole list: reading them again for every entry
+            // would parse the whole map each time, which freezes the screen when a merge brought hundreds of tracks.
+            JSONObject titles = readTitles();
+            List<String> labels = new ArrayList<>(entries.size());
+            for (String entry : entries) labels.add(describe(entry, imported, titles));
             Utils.runOnMainThread(() -> {
                 List<LocalSheet.Item> items = LocalSheet.items();
                 items.add(new LocalSheet.Item(text("Добавить свой файл", "Add my file"), "ic_actions_playlist_add_to_playlist",
                         () -> pickImportedFile(context, playlistUrn, imported)));
-                for (String entry : entries) {
-                    String label = describe(entry, imported);
+                for (int i = 0; i < entries.size(); i++) {
+                    String entry = entries.get(i);
+                    String label = labels.get(i);
                     items.add(new LocalSheet.Item(label, "ic_actions_playlist_remove_from_playlist", () -> {
                         remove(playlistUrn, entry);
                         notifyPlaylistChanged(playlistUrn);
@@ -891,12 +897,17 @@ public final class LocalAdditions {
     }
 
     public static String describe(String entry, List<LocalMusic.Track> imported) {
+        return describe(entry, imported, null);
+    }
+
+    /** @param titles The cached titles, read once for a whole list; null reads them for this entry alone. */
+    private static String describe(String entry, List<LocalMusic.Track> imported, JSONObject titles) {
         if (entry.startsWith(FILE_PREFIX)) {
             String path = entry.substring(FILE_PREFIX.length());
             for (LocalMusic.Track track : imported) if (track.file.getPath().equals(path)) return track.title;
             return new File(path).getName();
         }
-        String title = getTitle(entry);
+        String title = titles != null ? titles.optString(entry, null) : getTitle(entry);
         return title != null ? title : text("Трек SoundCloud ", "SoundCloud track ") + DownloadTrackPatch.parseTrackId(entry);
     }
 
