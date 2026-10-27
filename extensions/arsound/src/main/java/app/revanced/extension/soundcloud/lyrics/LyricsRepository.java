@@ -4,6 +4,7 @@ import android.content.Context;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -23,16 +24,41 @@ import app.revanced.extension.soundcloud.network.RegionGuard;
  */
 public final class LyricsRepository {
     /** A lookup in progress; cancelled when another track is wanted. */
-    static final class Request implements LyricsFinder.Cancel {
+    static final class Request implements LrclibClient.Watch {
         private volatile boolean cancelled;
+        /** The connection of the request on the network now, if any. */
+        private volatile HttpURLConnection connection;
 
         void cancel() {
             cancelled = true;
+            final HttpURLConnection busy = connection;
+            if (busy == null) return;
+            // Cuts a wait on the network, so the worker is free for the next track at once. Off the main thread:
+            // closing a connection there may be refused.
+            Thread cut = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        busy.disconnect();
+                    } catch (Throwable ignored) {
+                        // Already finished or closed; nothing is left to stop.
+                    }
+                }
+            }, "Arsound lyrics cancel");
+            cut.setDaemon(true);
+            cut.start();
         }
 
         @Override
         public boolean isCancelled() {
             return cancelled;
+        }
+
+        @Override
+        public void connecting(HttpURLConnection next) {
+            // Set before the flag is read by the caller, and cancel() sets the flag before it reads this: one of the
+            // two always sees the other.
+            connection = next;
         }
     }
 
@@ -146,7 +172,7 @@ public final class LyricsRepository {
             public void check() throws IOException {
                 RegionGuard.throwIfBlockedAnyHost();
             }
-        }), request);
+        }, request), request);
         Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
         LyricsResult result = finder.find(query);
         Logger.printInfo(() -> "Lyrics: " + info.urn + " -> " + result.status

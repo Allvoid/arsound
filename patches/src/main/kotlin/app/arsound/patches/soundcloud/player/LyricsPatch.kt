@@ -43,6 +43,18 @@ private val BytecodePatchContext.mediaServicePlaybackStateMethod by gettingFirst
 }
 
 /**
+ * Puts new metadata on the media session. The queue the app closed with is restored through it right after the service
+ * starts, and its state goes to the session without passing the method above: this is where the clock learns of the
+ * service in time.
+ */
+private val BytecodePatchContext.mediaServiceMetadataMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/playback/players/MediaService;")
+    name("o")
+    returnType("V")
+    parameterTypes("Landroid/support/v4/media/MediaMetadataCompat;")
+}
+
+/**
  * The lyrics button and its two icons. The button goes last in the column of round buttons at the top right of the
  * full-screen player (chevron, follow, QR code, cast), so it is right under the follow button when the other two
  * are not there, and under the cast button when that one is. It is hidden until the lyrics code shows it; the
@@ -104,6 +116,13 @@ val lyricsPatch = bytecodePatch {
             0,
             """
                 invoke-static/range { p0 .. p1 }, $CLOCK_DESCRIPTOR->onState(Ljava/lang/Object;Ljava/lang/Object;)V
+            """,
+        )
+        // The service itself, for a state that was restored at the start and never passed the hook above.
+        mediaServiceMetadataMethod.addInstructions(
+            0,
+            """
+                invoke-static/range { p0 .. p0 }, $CLOCK_DESCRIPTOR->onService(Ljava/lang/Object;)V
             """,
         )
     }

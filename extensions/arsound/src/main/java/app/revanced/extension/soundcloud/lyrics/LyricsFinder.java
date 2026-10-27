@@ -203,14 +203,18 @@ final class LyricsFinder {
         boolean bestFits = false;
         // Judged under every guess: the one that is right makes the record fit.
         for (TrackQuery.Variant variant : query.variants) {
-            double title = Math.max(TextMatch.similarity(variant.track, record.trackName),
-                    TextMatch.similarity(variant.track, TrackQuery.withoutTags(record.trackName)));
             double artist = 0;
             boolean foreign = true;
-            for (String name : query.artistNames(variant)) {
+            List<String> names = query.artistNames(variant);
+            for (String name : names) {
                 artist = Math.max(artist, TextMatch.similarity(name, record.artistName));
                 if (!TextMatch.differentAlphabets(name, record.artistName)) foreign = false;
             }
+            // A title that only contains the other counts as it when the rest is an artist or a tag, not more words.
+            List<String> artistWords = new ArrayList<>(names);
+            artistWords.add(record.artistName);
+            double title = Math.max(TextMatch.titleSimilarity(variant.track, record.trackName, artistWords),
+                    TextMatch.titleSimilarity(variant.track, TrackQuery.withoutTags(record.trackName), artistWords));
             double synced = record.synced.trim().isEmpty() ? 0 : 1;
             double total = content ? 0.40 * title + 0.25 * artist + 0.25 * length + 0.10 * synced : 0;
             // Two songs of one name are told apart by the artist. Where the names do not settle it (they share a word,

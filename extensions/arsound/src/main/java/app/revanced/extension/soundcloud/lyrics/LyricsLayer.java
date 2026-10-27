@@ -732,7 +732,8 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         phase = Phase.STATUS;
         removeCallbacks(showShimmer);
         status.setText(message);
-        status.setClickable(retry);
+        // The listener first and the flag last: setOnClickListener() makes a view clickable even when given null, and a
+        // clickable message that covers the page would swallow the taps meant for the cover (play and pause).
         status.setOnClickListener(retry ? new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -740,6 +741,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
                 refresh();
             }
         } : null);
+        status.setClickable(retry);
         show(status);
         updateLoop();
     }
@@ -749,8 +751,11 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     // region Following the music
 
     private boolean shouldLoop() {
-        return active && isAttachedToWindow() && phase == Phase.LIST && lyrics != null && lyrics.isTimed() && current
-                && info != null && getVisibility() == VISIBLE && LyricsClock.isPlaying();
+        // The window must be on screen: with the app in the background the views stay attached and the music plays on,
+        // and a frame callback at the display's rate would run for nobody.
+        return active && isAttachedToWindow() && getWindowVisibility() == VISIBLE && phase == Phase.LIST
+                && lyrics != null && lyrics.isTimed() && current && info != null && getVisibility() == VISIBLE
+                && LyricsClock.isPlaying();
     }
 
     private void updateLoop() {
@@ -778,6 +783,24 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         LyricsManager.register(this);
         resync();
         refresh();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        try {
+            if (visibility == VISIBLE) {
+                // Back from the background: the settings or the button may have changed meanwhile, and the player kept
+                // playing, so the words are put at the line that sings now before they are seen.
+                resync();
+                refresh();
+                tick(false);
+            } else {
+                updateLoop();
+            }
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Lyrics: could not follow the window showing or hiding", ex);
+        }
     }
 
     @Override
@@ -810,6 +833,12 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     @Override
     public void onLineTapped(int index) {
         if (lyrics == null || info == null || index < 0 || index >= lyrics.lines.length) return;
+        // The words of the page before or after the playing one stay for a swipe: a tap on them is the cover's, it must
+        // not move the track that really plays.
+        if (!current) {
+            onBlankTap();
+            return;
+        }
         if (!LyricsClock.seekTo(info.urn, lyrics.times[index])) return;
         boolean changed = list.activeLine() != index;
         list.clearHold();
