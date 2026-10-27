@@ -295,18 +295,32 @@ public final class PlaylistTracks {
             cellPlaylist.set(urn);
             Integer seen = seenCounts.put(urn, count);
             if (seen != null && seen != count && lists.containsKey(urn)) refreshAfterCountChange(urn);
-            Integer extra = extras.get(urn);
-            if (extra == null) {
-                // A list remembered by an older version has no server part until the lists are read after start.
-                List<String> tracks = lists.get(urn);
-                return tracks != null ? tracks.size() : count;
-            }
-            // The extra can be negative: tracks filtered out of a list, or SoundCloud counting ones it does not list.
-            return Math.max(0, count + extra);
+            return withLocalTracks(urn, count);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not count the playlist tracks", ex);
             return count;
         }
+    }
+
+    /**
+     * The number of tracks a playlist shows, for lists that Arsound draws itself: the same number as its library cell.
+     *
+     * @param count The number of tracks SoundCloud gives.
+     */
+    static int shownCount(String playlistUrn, int count) {
+        load();
+        return withLocalTracks(playlistUrn, count);
+    }
+
+    private static int withLocalTracks(String urn, int count) {
+        Integer extra = extras.get(urn);
+        if (extra == null) {
+            // A list remembered by an older version has no server part until the lists are read after start.
+            List<String> tracks = lists.get(urn);
+            return tracks != null ? tracks.size() : count;
+        }
+        // The extra can be negative: tracks filtered out of a list, or SoundCloud counting ones it does not list.
+        return Math.max(0, count + extra);
     }
 
     /**

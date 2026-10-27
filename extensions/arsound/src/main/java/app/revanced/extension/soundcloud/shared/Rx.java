@@ -187,6 +187,43 @@ public final class Rx {
         return result.get();
     }
 
+    /**
+     * Waits for a Completable to finish. Not {@link #blockingFirst}: a Completable has no item, and its
+     * {@code subscribe} takes an action instead of a consumer for the end.
+     *
+     * @return Null when it completed; the error when it failed or the time ran out.
+     */
+    public static Throwable awaitCompletable(Object completable, long timeout, java.util.concurrent.TimeUnit unit) throws Exception {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
+
+        ClassLoader loader = completable.getClass().getClassLoader();
+        Class<?> consumer = type(loader, FUNCTIONS + "Consumer");
+        Class<?> action = type(loader, FUNCTIONS + "Action");
+        Object onComplete = function(loader, "Action", args -> {
+            latch.countDown();
+            return null;
+        });
+        Object onError = function(loader, "Consumer", args -> {
+            Throwable error = args != null && args.length == 1 && args[0] instanceof Throwable
+                    ? (Throwable) args[0] : new IllegalStateException("Completable failed");
+            failure.compareAndSet(null, error);
+            latch.countDown();
+            return null;
+        });
+
+        for (Method method : completable.getClass().getMethods()) {
+            Class<?>[] parameters = method.getParameterTypes();
+            if (method.getName().equals("subscribe") && parameters.length == 2
+                    && parameters[0] == action && parameters[1] == consumer) {
+                method.invoke(completable, onComplete, onError);
+                // Not disposed when the time runs out: a write that is under way should finish, not stop half way.
+                return latch.await(timeout, unit) ? failure.get() : new java.util.concurrent.TimeoutException("Completable timed out");
+            }
+        }
+        throw new IllegalStateException("subscribe(onComplete, onError) not found on " + completable.getClass());
+    }
+
     /** Subscribes to a Completable, Single or Observable and ignores its result and errors. */
     public static void subscribeIgnoringErrors(Object reactive, Consumer<Throwable> onError) {
         try {

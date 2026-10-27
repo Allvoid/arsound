@@ -152,6 +152,41 @@ public final class LocalCovers {
         }
     }
 
+    /** The size SoundCloud's artwork links are asked for in small lists: 100 by 100 pixels. */
+    private static final String THUMBNAIL_SIZE = "large";
+
+    /**
+     * A small picture of a playlist cover, for lists that Arsound draws itself. Blocks: call it off the main thread.
+     *
+     * @param address What {@link #playlistArtwork} gave: the address of a file on the phone, or SoundCloud's link
+     *                with the size left open.
+     * @param side    About how many pixels wide the picture is shown.
+     * @return The picture, or null if there is none or it cannot be loaded (for example without a network).
+     */
+    static android.graphics.Bitmap thumbnail(String address, int side) {
+        if (address == null || address.isEmpty()) return null;
+        try {
+            byte[] bytes = address.startsWith("file:")
+                    ? Files.readAllBytes(new File(android.net.Uri.parse(address).getPath()).toPath())
+                    : download(address.replace("{size}", THUMBNAIL_SIZE));
+            android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            int sample = 1;
+            while (Math.min(bounds.outWidth, bounds.outHeight) / (sample * 2) >= side) sample *= 2;
+            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+            options.inSampleSize = sample;
+            return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        } catch (java.io.IOException ex) {
+            // No network or SoundCloud is switched off: the list keeps its placeholder.
+            Logger.printInfo(() -> "No thumbnail for " + address + ": " + ex);
+            return null;
+        } catch (Exception | OutOfMemoryError ex) {
+            Logger.printException(() -> "Could not load the thumbnail of " + address, ex);
+            return null;
+        }
+    }
+
     /** Downloads a cover for an imported file. Blocks: call it off the main thread. */
     public static void save(File audio, String imageUrl) {
         if (audio == null || imageUrl == null || imageUrl.isEmpty()) return;

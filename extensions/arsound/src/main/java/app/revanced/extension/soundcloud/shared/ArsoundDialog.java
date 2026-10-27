@@ -137,6 +137,11 @@ public final class ArsoundDialog {
         return this;
     }
 
+    /** The height in pixels above which the body of a dialog scrolls, so a view of its own can fit itself to it. */
+    public static int bodyMaxHeight(Context context) {
+        return Math.round(context.getResources().getDisplayMetrics().heightPixels * .62f);
+    }
+
     /** True while an Arsound dialog is on screen, so a prompt that can wait does not cover it. Main thread only. */
     public static boolean isAnyShown() {
         for (Dialog dialog : SHOWN) if (dialog.isShowing()) return true;
@@ -179,7 +184,7 @@ public final class ArsoundDialog {
             for (int i = 0; i < items.length; i++) body.addView(item(dialog, i));
         }
         // A long text scrolls, so the buttons always stay on screen.
-        int maxHeight = Math.round(context.getResources().getDisplayMetrics().heightPixels * .62f);
+        int maxHeight = bodyMaxHeight(context);
         ScrollView scroll = new ScrollView(context) {
             @Override
             protected void onMeasure(int widthSpec, int heightSpec) {
@@ -331,7 +336,8 @@ public final class ArsoundDialog {
         return view;
     }
 
-    private static int contrast(int color) {
+    /** Black or white, whichever reads on the given colour. */
+    public static int contrast(int color) {
         double luminance = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) / 255;
         return luminance > 0.6 ? 0xFF111111 : 0xFFFFFFFF;
     }

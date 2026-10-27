@@ -14,7 +14,9 @@ import org.json.JSONObject;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -135,6 +137,26 @@ public final class LocalAdditions {
         entries.add(entry);
         writeAdditions(additions);
         return true;
+    }
+
+    /**
+     * Adds many entries with one read and one write, in the given order.
+     *
+     * @return How many were new: the entries already in the playlist, and repeats, are left out.
+     */
+    public static synchronized int addAll(String playlistUrn, Collection<String> newEntries) {
+        Map<String, List<String>> additions = readAdditions();
+        List<String> entries = additions.get(playlistUrn);
+        if (entries == null) additions.put(playlistUrn, entries = new ArrayList<>());
+        Set<String> known = new HashSet<>(entries);
+        int added = 0;
+        for (String entry : newEntries) {
+            if (!known.add(entry)) continue;
+            entries.add(entry);
+            added++;
+        }
+        if (added > 0) writeAdditions(additions);
+        return added;
     }
 
     /** Replaces the added entries of a playlist, keeping the given order. */
@@ -644,6 +666,11 @@ public final class LocalAdditions {
     }
 
     public static void addPlaylistMenuRow(Dialog dialog, String playlistUrn) {
+        addPlaylistMenuRow(dialog, playlistUrn, null);
+    }
+
+    /** @param menuData The data SoundCloud built the menu from, to see whether the playlist can be edited. */
+    public static void addPlaylistMenuRow(Dialog dialog, String playlistUrn, Object menuData) {
         try {
             LinearLayout menuItems = dialog.findViewById(
                     Utils.getResourceIdentifier(ResourceType.ID, "playlistBottomSheetMenuItems"));
@@ -671,6 +698,9 @@ public final class LocalAdditions {
                     });
             menuItems.addView(importRow, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            // The "Imported" playlist lists the files by itself: nothing is merged into it.
+            if (!SavedPlaylist.isSavedPlaylist(playlistUrn)) PlaylistMerge.addMenuRow(dialog, menuItems, playlistUrn, menuData);
 
             addPlaylistCoverRows(dialog, menuItems, playlistUrn);
         } catch (Exception ex) {
@@ -847,7 +877,8 @@ public final class LocalAdditions {
         for (String playlist : PlaylistTracks.playlistsWithImportedTracks()) notifyPlaylistChanged(playlist);
     }
 
-    private static String entryOf(Object trackUrn) {
+    /** The entry of a track urn: the file entry of an imported file, the urn text of a SoundCloud track. */
+    static String entryOf(Object trackUrn) {
         if (trackUrn.getClass().getName().endsWith(".LocalTrackUrn")) {
             try {
                 return fileEntry((File) trackUrn.getClass().getMethod("getFile").invoke(trackUrn));
