@@ -162,6 +162,14 @@ abstract class DownloadLocation {
     abstract String label();
 
     /**
+     * The id the folder has as a document of the phone's storage provider ("primary:Music/Arsound"), which is the same
+     * whichever way the folder is reached. Null if the folder is not there.
+     */
+    String documentId() {
+        return null;
+    }
+
+    /**
      * Whether Android's download manager can write the files of this location. If not, the app downloads the file
      * itself and calls {@link #save}.
      */
@@ -309,6 +317,11 @@ abstract class DownloadLocation {
         String label() {
             String name = Environment.DIRECTORY_MUSIC.equals(directory) ? DownloadTrackPatch.text("Музыка", "Music") : directory;
             return name + "/" + subFolder;
+        }
+
+        @Override
+        String documentId() {
+            return "primary:" + path();
         }
 
         private Uri collection() {

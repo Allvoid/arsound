@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.download.DownloadIndex;
 
 /**
  * A folder on the phone chosen by the user: audio files that appear in it are imported by
@@ -117,7 +118,12 @@ public final class WatchFolder {
                 // Files imported by hand earlier have the same name and size: they are not copied twice.
                 Set<String> imported = new HashSet<>();
                 for (File file : LocalMusic.getFiles(context)) imported.add(file.getName() + '/' + file.length());
-                collect(context.getContentResolver(), folder, DocumentsContract.getTreeDocumentId(folder), seen, imported, found, foundIds, 0);
+                // The tracks the app downloaded, and the folders it downloads to, when they lie in the watched folder:
+                // they are tracks already, and would be copied a second time as new files.
+                Set<String> downloads = new HashSet<>(DownloadIndex.downloadedDocumentIds());
+                downloads.addAll(DownloadIndex.downloadFolderDocumentIds());
+                collect(context.getContentResolver(), folder, DocumentsContract.getTreeDocumentId(folder), seen, imported,
+                        downloads, found, foundIds, 0);
 
                 // One by one, to know which file failed: only that one is tried again.
                 List<File> files = new ArrayList<>();
@@ -156,7 +162,8 @@ public final class WatchFolder {
     }
 
     private static void collect(ContentResolver resolver, Uri tree, String parentId, Set<String> seen,
-                                Set<String> imported, List<Uri> found, List<String> foundIds, int depth) {
+                                Set<String> imported, Set<String> downloads, List<Uri> found, List<String> foundIds,
+                                int depth) {
         if (depth > 4) return;
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         try (Cursor cursor = resolver.query(children, new String[]{
@@ -171,8 +178,8 @@ public final class WatchFolder {
                 String name = cursor.getString(1);
                 String mime = cursor.getString(2);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
-                    collect(resolver, tree, id, seen, imported, found, foundIds, depth + 1);
-                } else if (!seen.contains(id) && isAudio(name, mime)) {
+                    if (!downloads.contains(id)) collect(resolver, tree, id, seen, imported, downloads, found, foundIds, depth + 1);
+                } else if (!seen.contains(id) && !downloads.contains(id) && isAudio(name, mime)) {
                     long modified = cursor.isNull(4) ? 0 : cursor.getLong(4);
                     long size = cursor.isNull(3) ? -1 : cursor.getLong(3);
                     if (modified > 0) {

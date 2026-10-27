@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 
 import java.io.File;
@@ -66,7 +67,11 @@ public final class DownloadIndex {
     private static final long REFRESH_INTERVAL_MS = 30_000;
     /** How long the answer of opening a file stays good: playback asks again and again while a queue loads. */
     private static final long OPEN_CHECK_MS = 10_000;
+    /** The longest a track that is about to play waits for the first listing of the files, see {@link #resolveForPlayback}. */
+    private static final long PLAYBACK_LISTING_WAIT_MS = 1_500;
     private static final Object REFRESH_LOCK = new Object();
+    /** Woken when a listing is made, for those who wait for the first one. */
+    private static final Object LISTED = new Object();
     private static final Object ADOPT_LOCK = new Object();
     private static final AtomicBoolean loggedMainThread = new AtomicBoolean();
     private static final AtomicBoolean loggedBackgroundThread = new AtomicBoolean();
@@ -81,6 +86,10 @@ public final class DownloadIndex {
     /** Tracks whose missing file was already written down, so a list that asks every second does not fill the log. */
     private static final Set<String> diagnosed = ConcurrentHashMap.newKeySet();
     private static final Map<String, long[]> openChecks = new ConcurrentHashMap<>();
+    /** The rows that are being opened in the background right now, so a list that asks again does not queue the same check. */
+    private static final Set<String> openChecking = ConcurrentHashMap.newKeySet();
+    /** The rows of a location the listing could not reach, noted as unopenable until the location lists again. */
+    private static final Set<String> unreachableRows = ConcurrentHashMap.newKeySet();
     /** When a file was last asked of the system by name and not found, so a recount of many tracks asks once per name. */
     private static final Map<String, Long> missingLookups = new ConcurrentHashMap<>();
 
@@ -284,11 +293,12 @@ public final class DownloadIndex {
     }
 
     /**
-     * Whether a track in the playback queue can play from a file. Waits for the first listing of the media store when
-     * it is not done, which the main thread never does: it gets the answer the path alone gives.
+     * Whether a track in the playback queue can play from a file. Waits a moment for the first listing of the media
+     * store when it is not done, which the main thread never does: it gets the answer the path alone gives. A listing of
+     * a big folder or a slow card is not waited for to the end: the first track would be late for the whole listing.
      */
     static Entry resolveForPlayback(String trackId, Ref ref) {
-        awaitListing();
+        awaitListing(PLAYBACK_LISTING_WAIT_MS);
         Entry entry = resolve(trackId, ref);
         if (entry == null && snapshot == null && ref.uri != null) {
             // No listing (asked on the main thread, or it failed): the recorded row is tried, and opening it settles it.
@@ -394,8 +404,10 @@ public final class DownloadIndex {
 
     /**
      * Whether the player can open the row: a row of a file that is gone, or of an app that did not share it, cannot.
-     * The main thread is never made to wait for the system: a row is taken for good there, and opened in the background
-     * to find out. A bad one is then found at the next try, and the lists and the player go on streaming the track.
+     * The main thread is never made to wait for the system: a row not asked about before is taken for good there, and
+     * opened in the background to find out. A bad one is then found at the next try, and the lists and the player go on
+     * streaming the track. Once the answer is there it holds on the main thread also when it is old, until the
+     * background has a newer one: a file found missing does not become "yes" again only because time has passed.
      */
     private static boolean canOpen(Context context, Uri uri) {
         if (context == null) return false;
@@ -404,9 +416,18 @@ public final class DownloadIndex {
         long[] known = openChecks.get(key);
         if (known != null && now - known[0] < OPEN_CHECK_MS) return known[1] == 1;
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            openChecks.put(key, new long[]{now, 1});
-            Utils.runOnBackgroundThread(() -> opens(context, uri));
-            return true;
+            // Before the check starts: the check must not be overwritten by the guess when it is quick.
+            if (known == null) openChecks.put(key, new long[]{now, 1});
+            if (openChecking.add(key)) {
+                Utils.runOnBackgroundThread(() -> {
+                    try {
+                        opens(context, uri);
+                    } finally {
+                        openChecking.remove(key);
+                    }
+                });
+            }
+            return known == null || known[1] == 1;
         }
         return opens(context, uri);
     }
@@ -464,6 +485,29 @@ public final class DownloadIndex {
         if (snapshot == null && Looper.myLooper() != Looper.getMainLooper()) refreshNow();
     }
 
+    /**
+     * Waits for the first listing at most this long, which the main thread never does. The listing runs on a thread of its
+     * own and goes on after the wait; whoever waited then goes by the address recorded for the track.
+     */
+    private static void awaitListing(long maxMs) {
+        if (snapshot != null || Looper.myLooper() == Looper.getMainLooper()) return;
+        long started = SystemClock.elapsedRealtime();
+        refreshAsync();
+        synchronized (LISTED) {
+            while (snapshot == null) {
+                long left = started + maxMs - SystemClock.elapsedRealtime();
+                // A listing that failed is not waited for either.
+                if (left <= 0 || lastFailureAt > started) break;
+                try {
+                    LISTED.wait(left);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+    }
+
     /** Lists the media store again in the background. Requests made while one is waiting to start share it. */
     public static void refreshAsync() {
         if (!refreshQueued.compareAndSet(false, true)) return;
@@ -489,6 +533,7 @@ public final class DownloadIndex {
     static void refreshNow() {
         Context context = Utils.getContext();
         if (context == null) return;
+        boolean listedAll = false;
         synchronized (REFRESH_LOCK) {
             try {
                 Snapshot before = snapshot;
@@ -500,23 +545,45 @@ public final class DownloadIndex {
                         // A card that is out, or a folder whose access was taken back: its tracks are still downloaded,
                         // they only cannot be opened for now. What was known of them stays until it can be listed again.
                         complete = false;
+                        List<DownloadLocation.Row> unreachable = new ArrayList<>();
                         if (before != null) {
                             for (DownloadLocation.Row row : before.byUri.values()) {
-                                if (row.locationId.equals(location.id())) fresh.add(row);
+                                if (row.locationId.equals(location.id())) unreachable.add(row);
                             }
+                        }
+                        // The app started with the card out, or the folder was not listed before: the recorded files
+                        // stand in for what the listing would say, so that these tracks are downloaded here as well.
+                        Set<String> keptNames = new HashSet<>();
+                        for (DownloadLocation.Row kept : unreachable) keptNames.add(kept.name);
+                        for (DownloadLocation.Row row : DownloadTrackPatch.recordedRows(location.id())) {
+                            if (keptNames.add(row.name)) unreachable.add(row);
+                        }
+                        long now = SystemClock.elapsedRealtime();
+                        for (DownloadLocation.Row row : unreachable) {
+                            fresh.add(row);
+                            // The files cannot be reached: the first tap on one of them already streams the track.
+                            unreachableRows.add(row.uri.toString());
+                            openChecks.put(row.uri.toString(), new long[]{now, 0});
                         }
                         continue;
                     }
                     // A folder of the user has files of all kinds: only those of downloads are kept.
                     Set<String> names = location.holdsOtherFiles() ? DownloadTrackPatch.recordedNames(location.id()) : null;
                     for (DownloadLocation.Row row : rows) {
-                        if (names == null || names.contains(row.name) || ID_NAME.matcher(row.name).matches()) fresh.add(row);
+                        if (names == null || names.contains(row.name) || ID_NAME.matcher(row.name).matches()) {
+                            fresh.add(row);
+                            // The location is back: a file that was taken for unreachable is asked about again.
+                            if (!unreachableRows.isEmpty() && unreachableRows.remove(row.uri.toString())) {
+                                openChecks.remove(row.uri.toString());
+                            }
+                        }
                     }
                 }
                 snapshot = fresh;
                 // A listing that missed a location is made again at the next chance.
                 if (complete) lastRefreshAt = SystemClock.elapsedRealtime();
                 lastFailureAt = complete ? 0 : SystemClock.elapsedRealtime();
+                listedAll = complete;
                 if (before == null || !before.sameAs(fresh)) {
                     Logger.printInfo(() -> "Download index: " + fresh.byUri.size() + " files listed");
                     DownloadProgress.onFilesChanged();
@@ -526,6 +593,12 @@ public final class DownloadIndex {
                 Logger.printInfo(() -> "Download index: could not list the media store: " + ex);
             }
         }
+        // Those who wait for the first listing go on, with the listing or without it.
+        synchronized (LISTED) {
+            LISTED.notifyAll();
+        }
+        // Every folder answers: the ones that were out of reach are back, and the files that waited for them can go.
+        if (listedAll) DownloadTrackPatch.retryPendingDeletes(context);
     }
 
     /**
@@ -598,10 +671,14 @@ public final class DownloadIndex {
                 removedRow = row;
             }
         }
+        // What the system answered for each name below. A folder of the user is listed as a whole to answer, which for a
+        // file that is gone (moved by the user) would be done twice: here, and again to tell if it is really gone.
+        Map<String, Uri> asked = new HashMap<>();
         if (!removed) {
             // Not in the snapshot, for instance a file just saved by the download manager: asked of the system.
             for (String name : names) {
                 Uri row = location.findRow(context, name);
+                asked.put(name, row);
                 if (row == null || rows.contains(row)) continue;
                 if (DownloadLocation.deleteRow(context, row)) {
                     removed = true;
@@ -616,7 +693,10 @@ public final class DownloadIndex {
             if (file == null) {
                 // A location without paths: the file is gone when the system no longer lists it. A card that is out
                 // cannot be asked, so its files stay, with their record, until the card or its access is back.
-                if (!removed && (!location.isAvailable(context) || location.findRow(context, name) != null)) gone = false;
+                if (!removed && (!location.isAvailable(context)
+                        || (asked.containsKey(name) ? asked.get(name) : location.findRow(context, name)) != null)) {
+                    gone = false;
+                }
                 continue;
             }
             if (!file.exists()) continue;
@@ -826,6 +906,59 @@ public final class DownloadIndex {
         }
         refreshAsync();
         return removed;
+    }
+
+    // endregion
+
+    // region what a cut off download leaves
+
+    /**
+     * At the start of the app: removes the half written files a killed process left in a folder of the user, and the
+     * earlier files of tracks that could not be removed while their card was out. Call off the main thread.
+     */
+    public static void sweepAtStart(Context context) {
+        if (context == null) return;
+        TreeFolder.sweepUnfinished(context);
+        DownloadTrackPatch.retryPendingDeletes(context);
+    }
+
+    // endregion
+
+    // region the places of downloads, for features that read the same folders
+
+    /**
+     * The ids, as documents of the phone's storage provider, of the files that tracks keep. The same file has the same id
+     * whichever folder it is reached through, so a feature that walks a folder of its own can tell which files are
+     * downloads of the app and leave them alone.
+     */
+    public static Set<String> downloadedDocumentIds() {
+        Set<String> ids = new HashSet<>();
+        for (String trackId : DownloadTrackPatch.getDownloadedTracks()) {
+            Ref ref = DownloadTrackPatch.fileRefOf(trackId);
+            String id = ref == null ? null : documentIdOf(ref.uri);
+            if (id != null) ids.add(id);
+        }
+        return ids;
+    }
+
+    /** The ids, as documents of the phone's storage provider, of the folders downloads are kept in. */
+    public static Set<String> downloadFolderDocumentIds() {
+        Set<String> ids = new HashSet<>();
+        for (DownloadLocation location : knownLocations()) {
+            String id = location.documentId();
+            if (id != null) ids.add(id);
+        }
+        return ids;
+    }
+
+    private static String documentIdOf(String uri) {
+        if (uri == null) return null;
+        try {
+            return DocumentsContract.getDocumentId(Uri.parse(uri));
+        } catch (RuntimeException ex) {
+            // A row of the media store is not a document.
+            return null;
+        }
     }
 
     // endregion

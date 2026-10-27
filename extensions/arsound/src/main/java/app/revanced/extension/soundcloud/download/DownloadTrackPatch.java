@@ -446,6 +446,8 @@ public final class DownloadTrackPatch {
         ownDownloads.execute(() -> {
             DownloadIndex.Ref saved = null;
             boolean noSpace = false;
+            // The folder this download goes to, looked at again when its turn comes.
+            DownloadLocation target = location;
             // Deleting the track while it is assembled stops the assembly at the next segment.
             java.util.function.BooleanSupplier cancelled = () -> cancelledAssemblies.contains(trackId);
             try {
@@ -453,16 +455,20 @@ public final class DownloadTrackPatch {
                 // Deleted while it waited in the queue: nothing to assemble.
                 if (!awaitNetwork(context, trackId)) return;
                 TrackSource current = freshSource(trackId, source);
-                saved = download(context, trackId, current, location, cancelled);
+                // A track of a playlist can wait in the queue for minutes: the card may be out by now, and without this
+                // every track still queued would fail on the folder that was read when the playlist was queued.
+                target = stillUsable(context, location);
+                saved = download(context, trackId, current, target, cancelled);
                 if (saved == null && !isOnline(context)) {
                     // The network went away during the assembly: the track waits for it and is assembled once more.
                     if (!awaitNetwork(context, trackId) || !isOnline(context)) return;
                     current = freshSource(trackId, current);
-                    saved = download(context, trackId, current, location, cancelled);
+                    target = stillUsable(context, location);
+                    saved = download(context, trackId, current, target, cancelled);
                 }
             } catch (HlsDownloader.NoSpaceException ex) {
                 noSpace = true;
-                showNoSpace(context, location);
+                showNoSpace(context, target);
             } catch (Throwable ex) {
                 // An error (out of memory on a weak phone) would end the whole app together with the pool thread.
                 Logger.printException(() -> "Could not assemble " + trackId, ex);
@@ -473,16 +479,37 @@ public final class DownloadTrackPatch {
                 } else if (saved != null) {
                     rememberDownload(trackId, saved, -1, null);
                     // Downloaded again under another name: the new file is complete, so the earlier one goes.
-                    if (previous != null && !previous.sameFileAs(saved)) DownloadIndex.delete(context, previous);
+                    if (previous != null && !previous.sameFileAs(saved)) deleteReplaced(context, previous);
                     if (notify) {
                         showToast(context, text("Трек сохранён: ", "Saved to ") + saved.location().label());
                     }
                 } else if (notify && !noSpace) {
                     showToast(context, text("Не удалось собрать трек", "Could not assemble the track"));
+                } else if (!notify && !noSpace) {
+                    // A playlist starts its tracks quietly: one toast for all of them is shown when the queue is empty.
+                    quietFailures.incrementAndGet();
                 }
                 DownloadProgress.onAssemblyFinished(trackId);
+                if (!DownloadProgress.isAnyAssembling()) tellQuietFailures(context);
             }
         });
+    }
+
+    /** Tracks that were started without a message of their own and could not be saved, since the last summary. */
+    private static final java.util.concurrent.atomic.AtomicInteger quietFailures = new java.util.concurrent.atomic.AtomicInteger();
+
+    private static void tellQuietFailures(Context context) {
+        int failed = quietFailures.getAndSet(0);
+        if (failed == 0) return;
+        showToast(context, text("Не удалось сохранить треков: " + failed, "Could not save " + failed + " tracks"));
+    }
+
+    /**
+     * The folder a queued download is written to: the one it was queued for, or the folder new downloads go to now when
+     * that one is gone (it tells the user, once a minute at most).
+     */
+    private static DownloadLocation stillUsable(Context context, DownloadLocation queuedFor) {
+        return queuedFor.isAvailable(context) ? queuedFor : DownloadLocation.forNewDownload(context);
     }
 
     /** Downloads the file of a track by the app itself, and saves it into the location. */
@@ -1072,6 +1099,20 @@ public final class DownloadTrackPatch {
     }
 
     /**
+     * The files tracks keep in a location, as rows with the address that was recorded and without a size: what stands in
+     * for the listing of a location that cannot be listed now. A file without a recorded address is left out.
+     */
+    static java.util.List<DownloadLocation.Row> recordedRows(String locationId) {
+        java.util.List<DownloadLocation.Row> rows = new java.util.ArrayList<>();
+        for (String trackId : getDownloadedTracks()) {
+            DownloadIndex.Ref ref = fileRefOf(trackId);
+            if (ref == null || ref.uri == null || !locationId.equals(ref.locationId)) continue;
+            rows.add(new DownloadLocation.Row(ref.locationId, ref.name, Uri.parse(ref.uri), 0, 0, null));
+        }
+        return rows;
+    }
+
+    /**
      * The names of the files the tracks keep in a location: the file of a track and the one it will replace. Of a folder
      * of the user only these (and the files named by id) are of interest, see {@link DownloadLocation#holdsOtherFiles}.
      */
@@ -1112,6 +1153,86 @@ public final class DownloadTrackPatch {
         for (java.util.Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
             if (!entry.getKey().startsWith(TRACK_JOB_PREFIX) || !(entry.getValue() instanceof Long)) continue;
             settle(context, entry.getKey().substring(TRACK_JOB_PREFIX.length()), (Long) entry.getValue());
+        }
+    }
+
+    /**
+     * Files that could not be removed because their folder was out of reach (a card taken out), as JSON: the location,
+     * the name and the addresses. They are removed once the folder is back, see {@link #retryPendingDeletes}.
+     */
+    private static final String PENDING_DELETES = "pending_deletes";
+
+    /**
+     * Removes the earlier file of a track that was downloaded again. When its folder cannot be reached, the track no
+     * longer records the file, and it would stay in the folder for ever as a copy the app cannot find any more: it is
+     * written down and removed when the folder is back.
+     */
+    static void deleteReplaced(Context context, DownloadIndex.Ref replaced) {
+        if (DownloadIndex.delete(context, replaced)) return;
+        // Any other reason (a file of an earlier install) will not change with time: nothing to wait for.
+        if (replaced.location().isAvailable(context)) return;
+        SharedPreferences preferences = getPreferences();
+        String entry = pendingEntry(replaced);
+        if (preferences == null || entry == null) return;
+        synchronized (DOWNLOADS_LOCK) {
+            Set<String> pending = new HashSet<>(preferences.getStringSet(PENDING_DELETES, new HashSet<>()));
+            if (pending.add(entry)) preferences.edit().putStringSet(PENDING_DELETES, pending).apply();
+        }
+        Logger.printInfo(() -> "The folder of " + replaced.name + " cannot be reached, it is removed when it is back");
+    }
+
+    private static String pendingEntry(DownloadIndex.Ref ref) {
+        try {
+            JSONObject json = new JSONObject().put("d", ref.locationId).put("n", ref.name);
+            if (ref.uri != null) json.put("u", ref.uri);
+            if (ref.readUri != null) json.put("r", ref.readUri);
+            return json.toString();
+        } catch (org.json.JSONException ex) {
+            return null;
+        }
+    }
+
+    private static DownloadIndex.Ref parsePending(String entry) {
+        try {
+            JSONObject json = new JSONObject(entry);
+            return new DownloadIndex.Ref(json.getString("d"), json.getString("n"), json.optString("u", null),
+                    json.optString("r", null));
+        } catch (org.json.JSONException ex) {
+            return null;
+        }
+    }
+
+    /** Whether a track keeps this file now (it was downloaded to the same place again), so it is not an extra one. */
+    private static boolean isKept(DownloadIndex.Ref file) {
+        for (String trackId : getDownloadedTracks()) {
+            if (file.sameFileAs(fileRefOf(trackId)) || file.sameFileAs(replacedRefOf(trackId))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Removes the files that waited for their folder to be back, for the folders that are. A file is tried once: if
+     * the folder is back and the file still stays, it will not go by waiting longer. Call off the main thread.
+     */
+    static void retryPendingDeletes(Context context) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences == null || context == null) return;
+        Set<String> waiting = preferences.getStringSet(PENDING_DELETES, null);
+        if (waiting == null || waiting.isEmpty()) return;
+        Set<String> done = new HashSet<>();
+        for (String entry : new HashSet<>(waiting)) {
+            DownloadIndex.Ref file = parsePending(entry);
+            if (file != null) {
+                if (!file.location().isAvailable(context)) continue;
+                if (!isKept(file)) DownloadIndex.delete(context, file);
+            }
+            done.add(entry);
+        }
+        if (done.isEmpty()) return;
+        synchronized (DOWNLOADS_LOCK) {
+            Set<String> rest = new HashSet<>(preferences.getStringSet(PENDING_DELETES, new HashSet<>()));
+            rest.removeAll(done);
+            preferences.edit().putStringSet(PENDING_DELETES, rest).apply();
         }
     }
 
@@ -1170,7 +1291,7 @@ public final class DownloadTrackPatch {
         if (complete) {
             // The media store is asked off this thread: settling also runs where lists are drawn.
             Utils.runOnBackgroundThread(() -> {
-                if (replaced != null) DownloadIndex.delete(context, replaced);
+                if (replaced != null) deleteReplaced(context, replaced);
                 if (completed == null) return;
                 // The download manager's own address of the file is the one that opens for the app that asked for it.
                 recordManagerUri(manager, trackId, completed.name, job);
@@ -1277,7 +1398,7 @@ public final class DownloadTrackPatch {
 
         DownloadIndex.Ref file = fileRefOf(trackId);
         DownloadIndex.Ref replaced = replacedRefOf(trackId);
-        if (replaced != null) DownloadIndex.delete(context, replaced);
+        if (replaced != null) deleteReplaced(context, replaced);
         // A file that stays (made before a reinstall, so not this app's own) keeps its record: it still plays,
         // and the settings can have it removed through the system.
         if (file != null && !DownloadIndex.delete(context, file)) return false;
