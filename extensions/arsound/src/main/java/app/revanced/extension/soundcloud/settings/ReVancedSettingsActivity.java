@@ -876,14 +876,17 @@ public final class ReVancedSettingsActivity extends Activity {
                 text("Сердечко в виджете под цвет обложки", "Widget heart in the cover colour"),
                 text("Сердечко в виджете плеера на рабочем столе берёт цвет обложки играющего трека. У серой обложки и "
                                 + "у трека без обложки — цвет акцента темы, а с видом SoundCloud — как у SoundCloud. "
-                                + "Выключено — сердечко как у SoundCloud. Меняется со следующим обновлением виджета.",
+                                + "Выключено — сердечко как у SoundCloud. Виджет обновляется сразу.",
                         "The heart of the player widget on the home screen takes the colour of the playing track's "
                                 + "cover. For a grey cover or a track without one it takes the theme's accent, and with "
                                 + "the SoundCloud look it stays as SoundCloud draws it. Off: SoundCloud's own heart. "
-                                + "Changes with the next update of the widget."),
+                                + "The widget updates at once."),
                 app.revanced.extension.soundcloud.widget.WidgetHeart.isEnabled(),
-                (button, checked) -> Settings.putBoolean(
-                        app.revanced.extension.soundcloud.widget.WidgetHeart.COVER_COLOR_KEY, checked)
+                (button, checked) -> {
+                    Settings.putBoolean(
+                            app.revanced.extension.soundcloud.widget.WidgetHeart.COVER_COLOR_KEY, checked);
+                    app.revanced.extension.soundcloud.widget.WidgetHeart.refresh(this);
+                }
         ));
 
         list.addView(createSubHeading(text("Ещё", "More")));
