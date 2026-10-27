@@ -3,7 +3,9 @@ package app.revanced.extension.soundcloud.local;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.res.ColorStateList;
+import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -21,8 +23,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
@@ -44,9 +47,14 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * taken from are not changed.
  * <p>
  * A playlist of the user is changed the way SoundCloud's own "Add to playlist" does it: its whole track list is
- * saved with {@code editPlaylistTracks}, which SoundCloud then sends to the server. The tracks of imported files
- * stay on this phone. A playlist of somebody else (or an album) cannot be edited on the server, so its new tracks
- * are added on this phone only, like "Add to playlist locally".
+ * saved with {@code editPlaylistTracks}, which SoundCloud then sends to the server; the list is read once more right
+ * before, so a track that came to it meanwhile is kept. The tracks of imported files stay on this phone. A playlist
+ * of somebody else (or an album) cannot be edited on the server, so its new tracks are added on this phone only,
+ * like "Add to playlist locally".
+ * <p>
+ * A playlist screen lists the tracks on SoundCloud first and the ones added on this phone after them. When that
+ * would put the new tracks in another order than the one chosen (files among the tracks, or files the playlist had
+ * already), the order is saved as the manual order of the playlist ({@link TrackOrder}).
  */
 public final class PlaylistMerge {
     /** SoundCloud does not keep more tracks than this in one playlist. */
@@ -117,12 +125,18 @@ public final class PlaylistMerge {
         int duplicates;
         int overLimit;
         final List<String> failed = new ArrayList<>();
-        /** Set if nothing was changed: what went wrong, for the user. */
+        /** What went wrong, for the user; the playlist is unchanged unless {@link #touched}. */
         String error;
         /** The user stopped it before anything was saved. */
         boolean cancelled;
         boolean onPhoneOnly;
         boolean offline;
+        /** Imported files that went into a playlist of the user: they stay on this phone. */
+        int filesOnPhone;
+        /** Tracks that could not be added on this phone after the playlist was saved. */
+        int notOnPhone;
+        /** The playlist was, or may have been, changed: the screens and the library have to read it again. */
+        boolean touched;
     }
 
     // region Menu
@@ -221,12 +235,12 @@ public final class PlaylistMerge {
     private static Candidate candidate(Object item) {
         try {
             String urn = String.valueOf(call(item, "getUrn"));
-            int serverCount = (Integer) call(item, "getTracksCount");
+            int soundCloudCount = (Integer) call(item, "getTracksCount");
             Object playlist = call(item, "getPlaylist");
             return new Candidate(urn,
                     String.valueOf(call(item, "getTitle")),
-                    PlaylistTracks.shownCount(urn, serverCount),
-                    serverCount,
+                    PlaylistTracks.shownCount(urn, soundCloudCount),
+                    PlaylistTracks.serverCount(urn, soundCloudCount),
                     (String) call(playlist, "getArtworkImageUrl"),
                     Boolean.TRUE.equals(call(call(item, "getPermissions"), "isEditable")),
                     Boolean.TRUE.equals(call(item, "isAlbum")),
@@ -250,88 +264,104 @@ public final class PlaylistMerge {
             toast(activity, text("Совмещение уже идёт", "A merge is already running"));
             return;
         }
-        AtomicBoolean cancelled = new AtomicBoolean();
-        Progress progress = new Progress(activity, cancelled);
+        Progress progress = new Progress(activity);
         Utils.runOnBackgroundThread(() -> {
             Result result = new Result();
             try {
-                result = merge(target, sources, progress::update, cancelled);
+                merge(target, sources, progress, result);
             } catch (Throwable ex) {
                 Logger.printException(() -> "Could not merge the playlists", ex);
-                result.error = text("Что-то пошло не так. Плейлист не изменён.", "Something went wrong. The playlist was not changed.");
+                // The tracks may have been saved before the error: it is not said that nothing changed then.
+                result.error = result.touched
+                        ? text("Что-то пошло не так, результат может быть неполным. Откройте плейлист и проверьте.",
+                        "Something went wrong, the result may be partial. Open the playlist to check.")
+                        : text("Что-то пошло не так. Плейлист не изменён.", "Something went wrong. The playlist was not changed.");
             } finally {
                 RUNNING.set(false);
             }
-            Result done = result;
             Utils.runOnMainThread(() -> {
                 progress.dismiss();
                 // Open playlist screens and the library show the tracks and the numbers.
-                if (done.added > 0) LocalAdditions.notifyPlaylistChanged(target.urn);
-                if (done.cancelled) {
+                if (result.added > 0 || result.touched) LocalAdditions.notifyPlaylistChanged(target.urn);
+                if (result.cancelled) {
                     toast(activity, text("Совмещение отменено, плейлист не изменён", "Merge cancelled, the playlist was not changed"));
                 } else {
-                    showResult(activity, target, done);
+                    showResult(activity, target, result);
                 }
             });
         });
     }
 
+    /** A track to add, in the order chosen. */
+    private static final class Incoming {
+        final Object urn;
+        /** The urn text of a SoundCloud track, the file entry of an imported file. */
+        final String entry;
+        /** It goes to the track list of the playlist on SoundCloud; otherwise it is added on this phone only. */
+        final boolean server;
+        /** Left out at the last moment: the playlist has it by now, or it no longer fits. */
+        boolean skipped;
+
+        Incoming(Object urn, String entry, boolean server) {
+            this.urn = urn;
+            this.entry = entry;
+            this.server = server;
+        }
+    }
+
     /**
-     * Blocks: call it off the main thread. Either writes the new tracks or changes nothing.
+     * Blocks: call it off the main thread. Either writes the new tracks or changes nothing; {@code result} says what
+     * was done, also when an error stops the merge after the tracks were saved.
      *
-     * @param cancelled Set by the user; looked at between the playlists, until the tracks are saved.
+     * @param progress Looked at between the playlists, until the tracks are saved.
      */
-    private static Result merge(Candidate target, List<Candidate> sources, Consumer<String> progress,
-                                AtomicBoolean cancelled) throws Exception {
-        Result result = new Result();
+    private static void merge(Candidate target, List<Candidate> sources, Progress progress, Result result) throws Exception {
         Object operations = SavedPlaylist.playlistOperations();
         if (operations == null) {
             result.error = text("SoundCloud ещё запускается, повторите через минуту.", "SoundCloud is still starting, try again in a minute.");
-            return result;
+            return;
         }
         Class<?> type = operations.getClass();
         Class<?> urnClass = Class.forName(URN_CLASS, false, type.getClassLoader());
         Method forPlaylist = urnClass.getMethod("forPlaylist", String.class);
         Object targetUrn = forPlaylist.invoke(null, idOf(target.urn));
 
-        progress.accept(text("Читаю «" + target.title + "»", "Reading \"" + target.title + "\""));
+        progress.update(text("Читаю «" + target.title + "»", "Reading \"" + target.title + "\""));
         // The tracks the target has on SoundCloud. An edit saves the whole list, so it has to be there in full.
-        Object stored = Rx.blockingFirst(type.getMethod("playlistTrackUrns", urnClass).invoke(operations, targetUrn),
-                20, TimeUnit.SECONDS);
-        List<Object> existing = new ArrayList<>();
-        if (stored instanceof List) existing.addAll((List<?>) stored);
-        boolean complete = stored instanceof List && !(existing.isEmpty() && target.serverCount != 0);
+        List<Object> existing = serverTracks(operations, urnClass, targetUrn);
+        boolean complete = existing != null && !(existing.isEmpty() && target.serverCount != 0);
         if (target.editable && !complete) {
             result.error = text("Плейлист ещё не загружен. Откройте его, дождитесь списка треков и повторите.",
                     "The playlist is not loaded yet. Open it, wait for the tracks and try again.");
-            return result;
+            return;
         }
+        if (existing == null) existing = new ArrayList<>();
 
         // Everything the target holds already: its tracks on SoundCloud and the ones added on this phone.
+        List<String> earlier = LocalAdditions.getEntries(target.urn);
         Set<String> present = new HashSet<>();
         for (Object urn : existing) present.add(String.valueOf(urn));
-        present.addAll(LocalAdditions.getEntries(target.urn));
+        present.addAll(earlier);
 
-        Set<Object> merged = new LinkedHashSet<>(existing);
-        List<String> onPhone = new ArrayList<>();
+        List<Incoming> incoming = new ArrayList<>();
         Set<String> notFitted = new HashSet<>();
         int serverTracks = existing.size();
         int position = 0;
         for (Candidate source : sources) {
-            if (cancelled.get()) {
+            if (progress.cancelled()) {
                 result.cancelled = true;
-                return result;
+                return;
             }
             position++;
             String step = position + "/" + sources.size();
-            progress.accept(text("Читаю «" + source.title + "» (" + step + ")", "Reading \"" + source.title + "\" (" + step + ")"));
-            List<?> urns = readTracks(operations, urnClass, forPlaylist, source);
+            progress.update(text("Читаю «" + source.title + "» (" + step + ")", "Reading \"" + source.title + "\" (" + step + ")"));
+            List<?> urns = readTracks(operations, urnClass, forPlaylist, source, progress);
             if (urns == null) {
                 result.failed.add(source.title);
                 continue;
             }
             for (Object urn : urns) {
-                boolean file = urn.getClass().getName().endsWith(".LocalTrackUrn");
+                boolean file = isFile(urn);
                 String entry = file ? LocalAdditions.entryOf(urn) : String.valueOf(urn);
                 if (entry == null) continue;
                 if (present.contains(entry)) {
@@ -339,55 +369,176 @@ public final class PlaylistMerge {
                 } else if (file || !target.editable) {
                     // A file cannot be on SoundCloud, nor can anything on a playlist that is not the user's.
                     present.add(entry);
-                    onPhone.add(entry);
+                    incoming.add(new Incoming(urn, entry, false));
                 } else if (serverTracks >= MAX_TRACKS) {
                     notFitted.add(entry);
                 } else {
                     present.add(entry);
-                    merged.add(urn);
+                    incoming.add(new Incoming(urn, entry, true));
                     serverTracks++;
                 }
             }
         }
         result.overLimit = notFitted.size();
 
-        if (cancelled.get()) {
-            result.cancelled = true;
-            return result;
+        if (incoming.isEmpty()) {
+            logMerge(target, sources, result);
+            return;
         }
-        int sent = merged.size() - existing.size();
+        // Cancel no longer works from here: the tracks are saved.
+        if (!progress.commit()) {
+            result.cancelled = true;
+            return;
+        }
+        progress.update(text("Записываю в «" + target.title + "»", "Saving to \"" + target.title + "\""));
+
+        // The whole list of the target is saved, so it is read again now: a track that came to it while the playlists
+        // were read (added on the web or on another phone, then synced) must not be lost.
+        Set<Object> merged = null;
+        if (hasServerTracks(incoming)) {
+            List<Object> latest = serverTracks(operations, urnClass, targetUrn);
+            if (latest == null || (latest.isEmpty() && !existing.isEmpty())) {
+                result.error = text("Не удалось перечитать плейлист перед записью. Он не изменён.",
+                        "Could not read the playlist again before saving. It was not changed.");
+                return;
+            }
+            merged = new LinkedHashSet<>(latest);
+            Set<String> inList = new HashSet<>();
+            for (Object urn : latest) inList.add(String.valueOf(urn));
+            int size = latest.size();
+            for (Incoming item : incoming) {
+                if (!item.server) continue;
+                if (inList.contains(item.entry)) {
+                    item.skipped = true;
+                    result.duplicates++;
+                } else if (size >= MAX_TRACKS) {
+                    item.skipped = true;
+                    notFitted.add(item.entry);
+                } else {
+                    merged.add(item.urn);
+                    size++;
+                }
+            }
+            result.overLimit = notFitted.size();
+        }
+        int sent = 0;
+        for (Incoming item : incoming) if (item.server && !item.skipped) sent++;
+
+        // The screen lists the tracks on SoundCloud first and the ones added on this phone after them. If the order
+        // chosen is another one, the playlist gets it as its own order.
+        List<String> wanted = null;
+        if (target.editable && sent > 0 && (!earlier.isEmpty() || filesBeforeTracks(incoming))) {
+            wanted = chosenOrder(operations, urnClass, targetUrn, incoming);
+        }
+
         if (sent > 0) {
-            progress.accept(text("Записываю в «" + target.title + "»", "Saving to \"" + target.title + "\""));
+            result.touched = true;
             Throwable failure = Rx.awaitCompletable(
                     type.getMethod("editPlaylistTracks", urnClass, Set.class).invoke(operations, targetUrn, merged),
                     30, TimeUnit.SECONDS);
             if (failure != null) {
                 Logger.printException(() -> "Could not save the merged playlist", failure);
-                // Nothing is added on the phone either: the target stays as it was.
-                result.error = text("Не удалось записать треки в плейлист. Он не изменён.",
+                // Nothing is added on the phone either: the target stays as it was. A save that is only late may still go through.
+                boolean late = failure instanceof TimeoutException;
+                result.touched = late;
+                result.error = late
+                        ? text("SoundCloud не подтвердил запись вовремя. Плейлист мог измениться: откройте его и проверьте.",
+                        "The save did not finish in time. The playlist may have changed: open it to check.")
+                        : text("Не удалось записать треки в плейлист. Он не изменён.",
                         "Could not save the tracks to the playlist. It was not changed.");
-                return result;
+                return;
             }
-            // Sends the change to SoundCloud, as its own "Add to playlist" sheet does.
-            type.getMethod("syncPlaylist", urnClass).invoke(operations, targetUrn);
             result.added += sent;
             result.offline = !isOnline();
+            try {
+                // Sends the change to SoundCloud, as its own "Add to playlist" sheet does.
+                type.getMethod("syncPlaylist", urnClass).invoke(operations, targetUrn);
+            } catch (Exception ex) {
+                // The tracks are saved here already, and SoundCloud sends them with its next sync.
+                Logger.printException(() -> "Could not ask SoundCloud to send the merged playlist", ex);
+            }
         }
+
+        List<String> onPhone = new ArrayList<>();
+        for (Incoming item : incoming) if (!item.server) onPhone.add(item.entry);
         if (!onPhone.isEmpty()) {
-            result.added += LocalAdditions.addAll(target.urn, onPhone);
-            result.onPhoneOnly = !target.editable;
+            result.touched = true;
+            try {
+                int saved = LocalAdditions.addAll(target.urn, onPhone);
+                result.added += saved;
+                if (target.editable) result.filesOnPhone = saved;
+                result.onPhoneOnly = !target.editable;
+            } catch (RuntimeException ex) {
+                Logger.printException(() -> "Could not add the merged tracks on this phone", ex);
+                result.notOnPhone = onPhone.size();
+            }
         }
+        if (wanted != null && result.notOnPhone == 0) TrackOrder.saveUrns(target.urn, wanted);
+        logMerge(target, sources, result);
+    }
+
+    private static void logMerge(Candidate target, List<Candidate> sources, Result result) {
         Logger.printInfo(() -> "Merged " + sources.size() + " playlists into " + target.urn + ": added " + result.added
                 + ", already there " + result.duplicates + ", over the limit " + result.overLimit + ", unreadable " + result.failed.size());
-        return result;
+    }
+
+    private static boolean isFile(Object urn) {
+        return urn.getClass().getName().endsWith(".LocalTrackUrn");
+    }
+
+    private static boolean hasServerTracks(List<Incoming> incoming) {
+        for (Incoming item : incoming) if (item.server) return true;
+        return false;
+    }
+
+    /** Whether a file comes before a track of SoundCloud in the order chosen: the screen would put it after it. */
+    private static boolean filesBeforeTracks(List<Incoming> incoming) {
+        boolean file = false;
+        for (Incoming item : incoming) {
+            if (!item.server) file = true;
+            else if (file) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The order of the target as its screen shows it now, then the tracks to add in the order chosen.
+     *
+     * @return The urn texts, or null if the list of the screen cannot be read: the playlist then keeps the order of the screen.
+     */
+    private static List<String> chosenOrder(Object operations, Class<?> urnClass, Object targetUrn, List<Incoming> incoming) {
+        try {
+            Object single = operations.getClass().getMethod("playlistTrackUrns", urnClass).invoke(operations, targetUrn);
+            Object shown = Rx.blockingFirst(LocalAdditions.appendToTrackUrns(single, targetUrn), 20, TimeUnit.SECONDS);
+            if (!(shown instanceof List)) return null;
+            Set<String> order = new LinkedHashSet<>();
+            for (Object urn : (List<?>) shown) order.add(String.valueOf(urn));
+            for (Incoming item : incoming) if (!item.skipped) order.add(String.valueOf(item.urn));
+            return new ArrayList<>(order);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not read the order of the playlist screen", ex);
+            return null;
+        }
+    }
+
+    /** The tracks a playlist has on SoundCloud, from the database: no local additions. Null if the list is not there. */
+    private static List<Object> serverTracks(Object operations, Class<?> urnClass, Object playlistUrn) throws Exception {
+        Object stored = Rx.blockingFirst(operations.getClass().getMethod("playlistTrackUrns", urnClass).invoke(operations, playlistUrn),
+                20, TimeUnit.SECONDS);
+        return stored instanceof List ? new ArrayList<>((List<?>) stored) : null;
     }
 
     /** The tracks of a playlist as they play: SoundCloud's and the ones added here, in the order the user set. */
-    private static List<?> readTracks(Object operations, Class<?> urnClass, Method forPlaylist, Candidate source) {
+    private static List<?> readTracks(Object operations, Class<?> urnClass, Method forPlaylist, Candidate source, Progress progress) {
         try {
             Object urn = forPlaylist.invoke(null, idOf(source.urn));
+            if (source.serverCount > 0 && !hasStoredTracks(operations, urnClass, urn)) {
+                // A playlist that was never opened has none of its SoundCloud tracks stored. SoundCloud loads it by itself
+                // only when the list it reads is empty, but that list also holds the tracks added on this phone: load it here.
+                if (RegionGuard.blocksLastCountry() || progress.cancelled()) return null;
+                if (!PlaylistPreloader.syncAndWait(operations, urn) || !hasStoredTracks(operations, urnClass, urn)) return null;
+            }
             Object single = operations.getClass().getMethod("trackUrnsForPlayback", urnClass).invoke(operations, urn);
-            // May load the playlist from SoundCloud first, if it was never opened.
             Object list = Rx.blockingFirst(single, 60, TimeUnit.SECONDS);
             if (!(list instanceof List)) return null;
             // A playlist that has tracks but gives none was not loaded.
@@ -396,6 +547,11 @@ public final class PlaylistMerge {
             Logger.printException(() -> "Could not read the tracks of " + source.urn, ex);
             return null;
         }
+    }
+
+    private static boolean hasStoredTracks(Object operations, Class<?> urnClass, Object urn) throws Exception {
+        List<Object> stored = serverTracks(operations, urnClass, urn);
+        return stored != null && !stored.isEmpty();
     }
 
     private static String idOf(String urn) {
@@ -420,6 +576,7 @@ public final class PlaylistMerge {
         if (result.error != null) {
             title = text("Не удалось совместить", "Could not merge");
             message.append(result.error);
+            if (result.added > 0) message.append('\n').append(text("Добавлено ", "Added ")).append(tracks(result.added));
         } else {
             title = result.added > 0 ? text("Плейлисты совмещены", "Playlists merged")
                     : result.failed.isEmpty() ? text("Нечего добавлять", "Nothing to add")
@@ -442,13 +599,24 @@ public final class PlaylistMerge {
                         : !isOnline() ? text("Нет сети: такие плейлисты читаются только с интернетом.", "No network: these playlists need the internet.")
                         : text("Проверьте сеть и повторите.", "Check the network and try again."));
             }
+            if (result.notOnPhone > 0) {
+                message.append('\n').append(text("Не удалось сохранить на телефоне: " + tracks(result.notOnPhone) + ".",
+                        "Could not save on this phone: " + tracks(result.notOnPhone) + "."));
+            }
+            List<String> notes = new ArrayList<>();
             if (result.onPhoneOnly) {
-                message.append("\n\n").append(text("«" + target.title + "» не ваш плейлист: треки добавлены только на этом телефоне и не попадут в SoundCloud.",
+                notes.add(text("«" + target.title + "» не ваш плейлист: треки добавлены только на этом телефоне и не попадут в SoundCloud.",
                         "\"" + target.title + "\" is not your playlist: the tracks are added on this phone only and do not go to SoundCloud."));
-            } else if (result.offline) {
-                message.append("\n\n").append(text("Нет сети: изменения уйдут в SoundCloud, когда она появится.",
+            }
+            if (result.filesOnPhone > 0) {
+                notes.add(text("Файлы с этого телефона (" + result.filesOnPhone + ") остаются только на нём и не попадут в SoundCloud.",
+                        "The files from this phone (" + result.filesOnPhone + ") stay on this phone and do not go to SoundCloud."));
+            }
+            if (result.offline) {
+                notes.add(text("Нет сети: изменения уйдут в SoundCloud, когда она появится.",
                         "No network: the changes go to SoundCloud when it is back."));
             }
+            if (!notes.isEmpty()) message.append("\n\n").append(TextUtils.join("\n", notes));
         }
 
         boolean gone = activity instanceof Activity && (((Activity) activity).isFinishing() || ((Activity) activity).isDestroyed());
@@ -468,20 +636,24 @@ public final class PlaylistMerge {
 
     // endregion
 
-    /** A dialog with a spinner while the tracks are read and saved. It opens only if that takes a moment. */
+    /**
+     * A dialog with a spinner while the tracks are read and saved. It opens only if that takes a moment. Its Cancel
+     * button asks the merge to stop before the tracks are saved; the dialog stays until the merge has stopped.
+     */
     private static final class Progress {
         private static final long SHOW_AFTER_MS = 400;
+        private static final int RUNNING_STATE = 0, CANCELLED_STATE = 1, SAVING_STATE = 2;
 
         private final Context context;
-        private final AtomicBoolean cancelled;
+        /** One state for the button and for the merge, so Cancel and the start of the save cannot both win. */
+        private final AtomicInteger state = new AtomicInteger(RUNNING_STATE);
         private final TextView label;
         private final View content;
         private volatile Dialog dialog;
         private volatile boolean finished;
 
-        Progress(Context context, AtomicBoolean cancelled) {
+        Progress(Context context) {
             this.context = context;
-            this.cancelled = cancelled;
             int accent = ArsoundTheme.palette(context, "special");
             float density = context.getResources().getDisplayMetrics().density;
             LinearLayout box = new LinearLayout(context);
@@ -509,11 +681,45 @@ public final class PlaylistMerge {
             if (finished) return;
             dialog = new ArsoundDialog(context).setTitle(text("Совмещаю плейлисты", "Merging playlists"))
                     .setView(content).setCancelable(false)
-                    .setNegativeButton(android.R.string.cancel, (d, which) -> cancelled.set(true)).show();
+                    .setNegativeButtonKeepingOpen(context.getString(android.R.string.cancel), (d, which) -> {
+                        if (!state.compareAndSet(RUNNING_STATE, CANCELLED_STATE)) return;
+                        label.setText(text("Отменяю, когда дочитаю этот плейлист…", "Cancelling once this playlist is read…"));
+                        showCancelState();
+                    }).show();
+            showCancelState();
+        }
+
+        /** The button works while the merge can still be stopped. */
+        private void showCancelState() {
+            Dialog shown = dialog;
+            TextView button = shown == null ? null : ArsoundDialog.getButton(shown, DialogInterface.BUTTON_NEGATIVE);
+            if (button == null) return;
+            boolean open = state.get() == RUNNING_STATE;
+            button.setEnabled(open);
+            button.setAlpha(open ? 1f : 0.4f);
         }
 
         void update(String text) {
-            Utils.runOnMainThread(() -> label.setText(text));
+            // After Cancel the label keeps saying so.
+            Utils.runOnMainThread(() -> {
+                if (state.get() != CANCELLED_STATE) label.setText(text);
+            });
+        }
+
+        /** The user pressed Cancel. */
+        boolean cancelled() {
+            return state.get() == CANCELLED_STATE;
+        }
+
+        /**
+         * The tracks are about to be saved: from here Cancel does nothing.
+         *
+         * @return False if the user cancelled before.
+         */
+        boolean commit() {
+            if (!state.compareAndSet(RUNNING_STATE, SAVING_STATE)) return false;
+            Utils.runOnMainThread(this::showCancelState);
+            return true;
         }
 
         void dismiss() {

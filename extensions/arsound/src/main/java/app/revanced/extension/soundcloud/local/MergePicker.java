@@ -29,8 +29,9 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
@@ -54,13 +55,28 @@ final class MergePicker {
 
     private static final int ROW_DP = 56;
     private static final int COVER_DP = 40;
-    /** The covers of the last lists, so a dialog opened again does not load them again. */
-    private static final LruCache<String, Bitmap> THUMBNAILS = new LruCache<String, Bitmap>(3 * 1024 * 1024) {
+    private static final int MIN_CACHE_BYTES = 3 * 1024 * 1024;
+    private static final int MAX_CACHE_BYTES = 12 * 1024 * 1024;
+    /** What a cover takes in the cache, about: SoundCloud's small pictures are 100 by 100 pixels. */
+    private static final int COVER_CACHE_BYTES = 64 * 1024;
+    /** The covers of the last lists, so a dialog opened again does not load them again. Sized to the library when a picker opens. */
+    private static final LruCache<String, Bitmap> THUMBNAILS = new LruCache<String, Bitmap>(MIN_CACHE_BYTES) {
         @Override
         protected int sizeOf(String address, Bitmap bitmap) {
             return bitmap.getByteCount();
         }
     };
+    /** One pool for every picker, whose threads end by themselves when no cover is asked for: a picker that is never closed leaks nothing. */
+    private static final ThreadPoolExecutor COVERS = new ThreadPoolExecutor(3, 3, 10, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(), task -> {
+        Thread thread = new Thread(task, "arsound-merge-covers");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    static {
+        COVERS.allowCoreThreadTimeOut(true);
+    }
 
     private final Context context;
     private final PlaylistMerge.Library library;
@@ -68,15 +84,13 @@ final class MergePicker {
     private final float density;
     private final int accent, primary, secondary, highlight, error, surface;
     private final List<Row> rows = new ArrayList<>();
-    private final ExecutorService covers = Executors.newFixedThreadPool(3, task -> {
-        Thread thread = new Thread(task, "arsound-merge-covers");
-        thread.setDaemon(true);
-        return thread;
-    });
 
     private Dialog dialog;
+    /** Set once the dialog is gone: the covers still waiting for a thread are dropped. */
+    private volatile boolean closed;
     private ReorderColumn queue;
     private LinearLayout pool;
+    private CappedScroll scroll;
     private TextView queueTitle, poolTitle, summary;
 
     MergePicker(Context context, PlaylistMerge.Library library, Listener listener) {
@@ -99,6 +113,8 @@ final class MergePicker {
         final Box box;
         final View handle;
         final ImageView cover;
+        /** The picture is asked for once the row comes near the visible part of the list, not for the whole library at once. */
+        boolean coverRequested;
         boolean ticked;
         /** The tick is shown before the row moves, so a tap is seen to land. */
         boolean moving;
@@ -122,7 +138,6 @@ final class MergePicker {
             LinearLayout.LayoutParams coverParams = new LinearLayout.LayoutParams(dp(COVER_DP), dp(COVER_DP));
             coverParams.rightMargin = dp(12);
             view.addView(cover, coverParams);
-            loadCover(cover, candidate);
 
             view.addView(labels(candidate.title, subtitle(candidate)), new LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -137,6 +152,12 @@ final class MergePicker {
             box.setChecked(ticked);
             handle.setVisibility(ticked ? View.VISIBLE : View.GONE);
         }
+
+        void loadCoverIfNear() {
+            if (coverRequested || !isNearViewport(view)) return;
+            coverRequested = true;
+            loadCover(cover, candidate);
+        }
     }
 
     private String subtitle(PlaylistMerge.Candidate candidate) {
@@ -148,6 +169,8 @@ final class MergePicker {
 
     void show() {
         for (PlaylistMerge.Candidate candidate : library.sources) rows.add(new Row(candidate));
+        // Room for the covers of the whole library, so opening the window again does not load them again.
+        THUMBNAILS.resize(Math.max(MIN_CACHE_BYTES, Math.min(MAX_CACHE_BYTES, rows.size() * COVER_CACHE_BYTES)));
 
         Content content = new Content(context);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -170,7 +193,8 @@ final class MergePicker {
         content.addView(targetRow());
         content.addView(divider());
 
-        CappedScroll scroll = new CappedScroll(context);
+        scroll = new CappedScroll(context);
+        scroll.onViewportChanged = this::loadVisibleCovers;
         LinearLayout list = new LinearLayout(context);
         list.setOrientation(LinearLayout.VERTICAL);
         // A row lifted while dragged may reach over the edge of the list.
@@ -200,8 +224,10 @@ final class MergePicker {
                 .setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Совместить", "Merge"), (d, which) -> listener.onMerge(tickedCandidates()))
-                .setOnDismissListener((DialogInterface d) -> covers.shutdownNow())
+                .setOnDismissListener((DialogInterface d) -> closed = true)
                 .show();
+        // The window did not open (its screen is going away): nobody is there to see the covers.
+        if (!dialog.isShowing()) closed = true;
         updateState();
     }
 
@@ -245,15 +271,24 @@ final class MergePicker {
     // region State
 
     private void toggle(Row row) {
-        if (row.moving) return;
+        // A row cannot come or go while another one is dragged or settling into its place.
+        if (row.moving || queue.isBusy()) return;
         row.moving = true;
         row.setTicked(!row.ticked);
         updateState();
         // The row stays a moment where it is, so the tick is seen before it moves.
-        row.view.postDelayed(() -> {
-            row.moving = false;
-            move(row);
-            updateState();
+        row.view.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (queue.isBusy()) {
+                    // A finger took another row meanwhile: wait for the drop.
+                    row.view.postDelayed(this, 60);
+                    return;
+                }
+                row.moving = false;
+                move(row);
+                updateState();
+            }
         }, 130);
     }
 
@@ -414,16 +449,28 @@ final class MergePicker {
             showCover(view, cached);
             return;
         }
-        try {
-            covers.execute(() -> {
-                Bitmap bitmap = LocalCovers.thumbnail(address, dp(COVER_DP));
-                if (bitmap == null) return;
-                THUMBNAILS.put(address, bitmap);
-                Utils.runOnMainThread(() -> showCover(view, bitmap));
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ex) {
-            // The dialog was closed: there is nobody to show the picture to.
-        }
+        COVERS.execute(() -> {
+            // The window was closed while this waited for a thread: nobody is there to show the picture to.
+            if (closed) return;
+            Bitmap bitmap = LocalCovers.thumbnail(address, dp(COVER_DP));
+            if (bitmap == null) return;
+            THUMBNAILS.put(address, bitmap);
+            if (!closed) Utils.runOnMainThread(() -> showCover(view, bitmap));
+        });
+    }
+
+    /** Asks for the covers of the rows in the visible part of the list and a little around it. */
+    private void loadVisibleCovers() {
+        if (closed) return;
+        for (Row row : rows) row.loadCoverIfNear();
+    }
+
+    private boolean isNearViewport(View row) {
+        if (scroll == null || scroll.getHeight() == 0 || row.getHeight() == 0 || !(row.getParent() instanceof View)) return false;
+        // The pool and the column of ticked rows are both laid out from the top of the scrolling list.
+        int top = row.getTop() + ((View) row.getParent()).getTop();
+        int margin = scroll.getHeight() / 2;
+        return top + row.getHeight() > scroll.getScrollY() - margin && top < scroll.getScrollY() + scroll.getHeight() + margin;
     }
 
     private void showCover(ImageView view, Bitmap bitmap) {
@@ -467,9 +514,34 @@ final class MergePicker {
     /** A list that scrolls inside the dialog's own scrolling body, and keeps the touches that are meant for it. */
     private static final class CappedScroll extends ScrollView {
         int limit = Integer.MAX_VALUE;
+        /** Runs once the list was scrolled or laid out again, to ask for the covers that came into view. */
+        Runnable onViewportChanged;
+        private boolean viewportPending;
 
         CappedScroll(Context context) {
             super(context);
+        }
+
+        private void viewportChanged() {
+            // Posted: the covers are set outside of the layout pass.
+            if (onViewportChanged == null || viewportPending) return;
+            viewportPending = true;
+            post(() -> {
+                viewportPending = false;
+                onViewportChanged.run();
+            });
+        }
+
+        @Override
+        protected void onScrollChanged(int left, int top, int oldLeft, int oldTop) {
+            super.onScrollChanged(left, top, oldLeft, oldTop);
+            viewportChanged();
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            super.onLayout(changed, left, top, right, bottom);
+            viewportChanged();
         }
 
         @Override

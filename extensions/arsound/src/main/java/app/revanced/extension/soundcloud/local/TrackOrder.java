@@ -106,19 +106,29 @@ public final class TrackOrder {
 
     private static void save(List<Object> rows) {
         String playlistUrn = null;
-        StringBuilder order = new StringBuilder();
+        List<Object> urns = new ArrayList<>();
         for (Object item : rows) {
             if (!isTrackRow(item)) continue;
             if (playlistUrn == null) playlistUrn = String.valueOf(field(item, "c"));
             try {
-                order.append(item.getClass().getMethod("getUrn").invoke(item)).append('\n');
+                urns.add(item.getClass().getMethod("getUrn").invoke(item));
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not read track urn", ex);
                 return;
             }
         }
+        if (playlistUrn != null) saveUrns(playlistUrn, urns);
+    }
+
+    /**
+     * Saves the order of a playlist as the track urns, from first to last. The same as dragging a track does,
+     * for code that changes the list itself.
+     */
+    static void saveUrns(String playlistUrn, List<?> urns) {
         SharedPreferences preferences = preferences();
-        if (playlistUrn == null || preferences == null) return;
+        if (preferences == null) return;
+        StringBuilder order = new StringBuilder();
+        for (Object urn : urns) order.append(urn).append('\n');
         preferences.edit().putString(ORDER_PREFIX + playlistUrn, order.toString()).apply();
     }
 

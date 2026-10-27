@@ -88,6 +88,8 @@ public final class ReorderColumn extends LinearLayout {
      * @param key    Tells the row apart in {@link #keys()}.
      */
     public void addRow(View row, View handle, Object key) {
+        // A drag holds the places of the rows it began with: a row that comes or goes ends it.
+        if (dragged != null) resetDrag();
         keys.put(row, key);
         handle.setOnTouchListener((view, event) -> onHandleTouch(row, event));
         addView(row, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -95,6 +97,7 @@ public final class ReorderColumn extends LinearLayout {
 
     /** Takes the row out of the column; the view is left as it is. */
     public void removeRow(Object key) {
+        if (dragged != null) resetDrag();
         for (int i = 0; i < getChildCount(); i++) {
             View row = getChildAt(i);
             if (keys.get(row) != key) continue;
@@ -102,6 +105,11 @@ public final class ReorderColumn extends LinearLayout {
             keys.remove(row);
             return;
         }
+    }
+
+    /** True while a row is dragged or settling into its place after the drop: rows should not come or go now. */
+    public boolean isBusy() {
+        return dragged != null;
     }
 
     /** The keys of the rows from top to bottom. */

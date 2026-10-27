@@ -97,7 +97,6 @@ public final class PlaylistPreloader {
 
         ClassLoader loader = operations.getClass().getClassLoader();
         List<String> urns = libraryPlaylists(operations, loader);
-        Object syncInitiator = syncInitiator(playlistOperations, loader);
         Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
 
         int synced = 0, skipped = 0;
@@ -110,9 +109,7 @@ public final class PlaylistPreloader {
             }
             String id = urn.substring(urn.lastIndexOf(':') + 1);
             Object playlistUrn = urnClass.getMethod("forPlaylist", String.class).invoke(null, id);
-            Object single = syncInitiator.getClass().getMethod("d", urnClass).invoke(syncInitiator, playlistUrn);
-            Object result = Rx.blockingFirst(single, SYNC_TIMEOUT_S, TimeUnit.SECONDS);
-            if (result != null) {
+            if (syncAndWait(playlistOperations, playlistUrn)) {
                 preferences.edit().putLong(urn, System.currentTimeMillis()).apply();
                 synced++;
             }
@@ -169,6 +166,21 @@ public final class PlaylistPreloader {
         List<Object> items = new ArrayList<>();
         if (list instanceof List) items.addAll((List<?>) list);
         return items;
+    }
+
+    /**
+     * Loads a playlist from SoundCloud into its database and waits until that is done. Blocks: call it off the main thread.
+     *
+     * @param playlistOperations The {@code PlaylistOperations} of SoundCloud.
+     * @param playlistUrn        The {@code Urn} of the playlist.
+     * @return False if SoundCloud gave no answer in time.
+     */
+    public static boolean syncAndWait(Object playlistOperations, Object playlistUrn) throws Exception {
+        ClassLoader loader = playlistOperations.getClass().getClassLoader();
+        Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
+        Object syncInitiator = syncInitiator(playlistOperations, loader);
+        Object single = syncInitiator.getClass().getMethod("d", urnClass).invoke(syncInitiator, playlistUrn);
+        return Rx.blockingFirst(single, SYNC_TIMEOUT_S, TimeUnit.SECONDS) != null;
     }
 
     private static Object syncInitiator(Object playlistOperations, ClassLoader loader) throws Exception {

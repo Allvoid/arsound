@@ -43,6 +43,8 @@ public final class ArsoundDialog {
     private CharSequence positive, negative, neutral;
     private DialogInterface.OnClickListener onPositive, onNegative, onNeutral;
     private boolean cancelable = true;
+    /** The negative button leaves the dialog open: the listener closes it when it is time. */
+    private boolean negativeKeepsOpen;
     private View buttonsStart;
     private DialogInterface.OnDismissListener onDismiss;
 
@@ -100,6 +102,17 @@ public final class ArsoundDialog {
     public ArsoundDialog setNegativeButton(CharSequence text, DialogInterface.OnClickListener listener) {
         negative = text;
         onNegative = listener;
+        negativeKeepsOpen = false;
+        return this;
+    }
+
+    /**
+     * A negative button that does not close the dialog, for a dialog that shows a task under way: "Cancel" asks the
+     * task to stop, and the owner of the dialog closes it once the task has.
+     */
+    public ArsoundDialog setNegativeButtonKeepingOpen(CharSequence text, DialogInterface.OnClickListener listener) {
+        setNegativeButton(text, listener);
+        negativeKeepsOpen = true;
         return this;
     }
 
@@ -295,9 +308,10 @@ public final class ArsoundDialog {
         shape.setColor(main ? accent : Color.TRANSPARENT);
         button.setBackground(new RippleDrawable(ColorStateList.valueOf(main ? 0x33FFFFFF : (accent & 0x00FFFFFF) | 0x33000000),
                 shape, null));
+        boolean keepsOpen = which == DialogInterface.BUTTON_NEGATIVE && negativeKeepsOpen;
         button.setOnClickListener(v -> {
             if (listener != null) listener.onClick(dialog, which);
-            dialog.dismiss();
+            if (!keepsOpen) dialog.dismiss();
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
