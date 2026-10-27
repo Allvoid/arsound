@@ -20,8 +20,10 @@ import app.revanced.extension.shared.Utils;
  * graphics cache holds, so everything else is thrown out of it and loaded again, and the way down stutters.
  * <p>
  * Three things stop that. A corner that is already set is not set again. The layers are kept only while the corners
- * are really rounded: the full player has none, and a square image needs no layer. And the pages beside the one in
- * view take no part in the slide, they only get the final look when the sheet has arrived.
+ * are really rounded: the full player has none, and a square image needs no layer. They are given back when the
+ * player has opened fully, not on the way up: the sheet crosses the middle of its way in both directions, and a layer
+ * given back there would be made and drawn again as soon as the finger turns. And the pages beside the one in view
+ * take no part in the slide, they only get the final look when the sheet has arrived.
  * <p>
  * All of it is switched by the "Smooth player collapse" setting; off, SoundCloud's own behaviour comes back.
  */
@@ -48,8 +50,10 @@ public final class PlayerArtworkLayers {
             Integer last = corners.get(artwork);
             if (last != null && last == corner) return false;
             corners.put(artwork, corner);
-            // The layer comes before the corners and stays only while there are some to cut.
-            setLayers(artwork, corner > 0 ? View.LAYER_TYPE_HARDWARE : View.LAYER_TYPE_NONE);
+            // The layer comes before the corners. It goes when there are none to cut, but not in the middle of a
+            // slide: that waits for the sheet to rest in sheetRested.
+            if (corner > 0) setLayers(artwork, View.LAYER_TYPE_HARDWARE);
+            else if (!PlayerSheet.isBusy()) setLayers(artwork, View.LAYER_TYPE_NONE);
         } catch (Exception ex) {
             Logger.printException(() -> "Player artwork: corners not checked", ex);
         }
@@ -70,6 +74,21 @@ public final class PlayerArtworkLayers {
             if (PlayerSheet.isSmoothEnabled()) setLayers(artwork, View.LAYER_TYPE_NONE);
         } catch (Exception ex) {
             Logger.printException(() -> "Player artwork: layers not released", ex);
+        }
+    }
+
+    /**
+     * Called by {@link PlayerSheet} when the sheet has come to rest in a state. In the open player the artwork has no
+     * corners, so the layers the slide kept for it are given back; the next way down makes them again.
+     */
+    static void sheetRested(int state) {
+        if (state != PlayerSheet.EXPANDED || !PlayerSheet.isSmoothEnabled()) return;
+        try {
+            for (Map.Entry<View, Integer> page : corners.entrySet()) {
+                if (page.getValue() == 0) setLayers(page.getKey(), View.LAYER_TYPE_NONE);
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Player artwork: layers not given back", ex);
         }
     }
 

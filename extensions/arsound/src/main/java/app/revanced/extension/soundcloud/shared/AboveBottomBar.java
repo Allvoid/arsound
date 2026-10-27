@@ -21,11 +21,11 @@ import app.revanced.extension.soundcloud.player.PlayerSheet;
  * <p>
  * It remembers the views it looks at, so a frame costs a few measurements and no search of the window. While the
  * player slides, the place changes on every frame, and the element is put there at once instead of starting
- * an animation of its own towards it each time.
+ * an animation of its own towards it each time. With the "Smooth player collapse" setting off, it works as it did
+ * before: a search of the window on every frame and a new animation at every change.
  */
 public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener {
     private static final long MOVE_MS = 250;
-    private static final long LOOK_AGAIN_MS = 300;
 
     private final Context context;
     private final ViewGroup content;
@@ -100,11 +100,14 @@ public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener 
         if (first || PlayerSheet.isBusy()) {
             // Moving with the player: a new animation on every frame would only lag behind it.
             holder.setTranslationY(wanted);
-        } else {
+        } else if (PlayerSheet.isSmoothEnabled()) {
             mover = ObjectAnimator.ofFloat(holder, View.TRANSLATION_Y, wanted);
             mover.setDuration(MOVE_MS);
             mover.setInterpolator(new DecelerateInterpolator());
             mover.start();
+        } else {
+            holder.animate().translationY(wanted).setDuration(MOVE_MS)
+                    .setInterpolator(new DecelerateInterpolator()).start();
         }
         return true;
     }
@@ -125,7 +128,6 @@ public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener 
     private final class Lookup {
         private final int id;
         private WeakReference<View> view = new WeakReference<>(null);
-        private long lookedAt;
 
         Lookup(int id) {
             this.id = id;
@@ -133,12 +135,11 @@ public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener 
 
         View find() {
             if (id == 0) return null;
+            if (!PlayerSheet.isSmoothEnabled()) return content.getRootView().findViewById(id);
             View found = view.get();
             if (found != null && found.isAttachedToWindow()) return found;
-            // Not on every frame: a window without the view would be searched through each time.
-            long now = android.os.SystemClock.uptimeMillis();
-            if (now - lookedAt < LOOK_AGAIN_MS) return null;
-            lookedAt = now;
+            // A view that is gone, or was never there, is searched for again at once: a player that has just
+            // appeared must not be missed for a moment, or the element would be put in the wrong place first.
             found = content.getRootView().findViewById(id);
             view = new WeakReference<>(found);
             return found;

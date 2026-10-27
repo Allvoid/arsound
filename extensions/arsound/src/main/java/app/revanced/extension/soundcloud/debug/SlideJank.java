@@ -7,6 +7,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.view.Display;
 import android.view.FrameMetrics;
 import android.view.View;
 import android.view.Window;
@@ -30,8 +31,12 @@ public final class SlideJank {
     private static final int MAX_FRAMES = 240;
     /** The last frame of a slide is reported a little after the sheet's final state. */
     private static final long FINISH_DELAY_MS = 250;
-    /** A slide that never reached a final state (the screen went away) is closed after this. */
-    private static final long WATCHDOG_MS = 8_000;
+    /**
+     * A slide that never reached a final state (the screen went away) is closed this long after its last state.
+     * Long, because a finger that holds the sheet still sends nothing: a shorter time would cut one gesture into
+     * two lines.
+     */
+    private static final long WATCHDOG_MS = 60_000;
 
     /** The parts of a frame that are told apart, as the log names them. */
     private static final String[] NAMES = {"anim", "layout", "draw", "sync", "issue", "swap", "gpu", "late"};
@@ -55,6 +60,11 @@ public final class SlideJank {
             if (state == PlayerSheet.DRAGGING || state == PlayerSheet.SETTLING) {
                 if (current != null && current.ending) finish(current);
                 if (current == null && sheet instanceof View) start((View) sheet);
+                else if (current != null) {
+                    // Dragging, then settling: the same slide, still alive.
+                    main.removeCallbacks(current.finish);
+                    main.postDelayed(current.finish, WATCHDOG_MS);
+                }
                 return;
             }
             // Expanded, collapsed or hidden: the slide is over, its last frame is still to come.
@@ -74,14 +84,21 @@ public final class SlideJank {
         Activity activity = activityOf(sheet.getContext());
         if (activity == null) return;
         Window window = activity.getWindow();
-        float rate = 60f;
+        // The rate the screen runs at now and the slowest and fastest it can run at. The rate is only a start: a
+        // phone that adapts its rate may change it after the slide began, and the frames tell what it was.
+        float rate = 60f, lowest = rate, highest = rate;
         try {
             //noinspection deprecation
-            rate = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
+            Display display = activity.getWindowManager().getDefaultDisplay();
+            rate = lowest = highest = display.getRefreshRate();
+            for (Display.Mode mode : display.getSupportedModes()) {
+                lowest = Math.min(lowest, mode.getRefreshRate());
+                highest = Math.max(highest, mode.getRefreshRate());
+            }
         } catch (Exception ignored) {
-            // The usual 60 Hz.
+            // The usual 60 Hz, or what was read before the failure.
         }
-        Slide slide = new Slide(window, rest, PlayerSheet.isSmoothEnabled(), rate);
+        Slide slide = new Slide(window, rest, PlayerSheet.isSmoothEnabled(), rate, lowest, highest);
         if (worker == null) {
             thread = new HandlerThread("arsound-slide-jank", android.os.Process.THREAD_PRIORITY_BACKGROUND);
             thread.setDaemon(true);
@@ -118,7 +135,8 @@ public final class SlideJank {
         final Window window;
         final int from;
         final boolean smooth;
-        final float refreshRate;
+        /** The rate of the screen when the slide began, and the slowest and fastest rate it has. */
+        final float displayRate, lowestRate, highestRate;
         final long startedAt = android.os.SystemClock.uptimeMillis();
         final Runnable finish = () -> SlideJank.finish(this);
 
@@ -132,11 +150,13 @@ public final class SlideJank {
         private int frames;
         private boolean done;
 
-        Slide(Window window, int from, boolean smooth, float refreshRate) {
+        Slide(Window window, int from, boolean smooth, float displayRate, float lowestRate, float highestRate) {
             this.window = window;
             this.from = from;
             this.smooth = smooth;
-            this.refreshRate = refreshRate;
+            this.displayRate = displayRate;
+            this.lowestRate = lowestRate;
+            this.highestRate = highestRate;
         }
 
         @Override
@@ -165,7 +185,23 @@ public final class SlideJank {
         synchronized String summary() {
             done = true;
             if (frames == 0) return null;
-            float budget = 1000f / refreshRate;
+
+            // The time between two frames the system aimed for is one interval of the screen when the frames
+            // followed each other, so the shortest gap is that interval. A slide of nothing but slow frames has
+            // no short gap, which is why the result is kept within what the screen can run at.
+            long shortest = Long.MAX_VALUE;
+            for (int i = 1; i < frames; i++) {
+                long gap = vsync[i] - vsync[i - 1];
+                if (gap > 0) shortest = Math.min(shortest, gap);
+            }
+            boolean fromFrames = shortest != Long.MAX_VALUE;
+            long interval = Math.round(1_000_000_000d / displayRate);
+            if (fromFrames) {
+                interval = Math.max(Math.round(1_000_000_000d / highestRate),
+                        Math.min(Math.round(1_000_000_000d / lowestRate), shortest));
+            }
+            float rate = (float) (1_000_000_000d / interval);
+            float budget = interval / 1_000_000f;
 
             float[] sorted = Arrays.copyOf(total, frames);
             Arrays.sort(sorted);
@@ -173,7 +209,6 @@ public final class SlideJank {
             for (int i = 0; i < frames; i++) if (total[i] > budget) slow++;
 
             // Frames the screen did not get at all: the gaps between the frames the system aimed for.
-            long interval = Math.round(1_000_000_000d / refreshRate);
             int missed = 0;
             for (int i = 1; i < frames; i++) {
                 missed += Math.max(0, (int) Math.round((vsync[i] - vsync[i - 1]) / (double) interval) - 1);
@@ -201,9 +236,11 @@ public final class SlideJank {
             }
 
             return String.format(Locale.US,
-                    "slide %s -> %s, smooth %s, %.0f Hz, %d ms: %d frames, %d over %.1f ms, missed %d, about %.0f fps;"
-                            + " total median %.1f, p90 %.1f, max %.1f ms; average/max ms:%s; worst: %s",
-                    stateName(from), stateName(to), smooth ? "on" : "off", refreshRate,
+                    "slide %s -> %s, smooth %s, %.0f Hz (%s, display %.0f), %d ms: %d frames, %d over %.1f ms,"
+                            + " missed %d, about %.0f fps; total median %.1f, p90 %.1f, max %.1f ms;"
+                            + " average/max ms:%s; worst: %s",
+                    stateName(from), stateName(to), smooth ? "on" : "off", rate,
+                    fromFrames ? "frames" : "display", displayRate,
                     android.os.SystemClock.uptimeMillis() - startedAt, frames, slow, budget, missed, fps,
                     sorted[frames / 2], sorted[Math.min(frames - 1, (int) (frames * 0.9f))], sorted[frames - 1],
                     detail, NAMES[worst]);

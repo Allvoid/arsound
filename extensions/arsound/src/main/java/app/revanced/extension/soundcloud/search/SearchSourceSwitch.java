@@ -136,9 +136,11 @@ public final class SearchSourceSwitch {
     /** Adds the switch to the search screen if it is shown and has no switch yet. */
     private static void attach(View decor) {
         try {
-            LinearLayout known = switched.get();
+            // With the "Smooth player collapse" setting off, the screen is searched for every time, as before.
+            boolean remembered = PlayerSheet.isSmoothEnabled();
+            LinearLayout known = remembered ? switched.get() : null;
             if (known != null && known.isAttachedToWindow() && known.findViewWithTag(TAG) != null) return;
-            if (coordinatorId < 0) coordinatorId = id("search_coordinator");
+            if (!remembered || coordinatorId < 0) coordinatorId = id("search_coordinator");
             View found = decor.findViewById(coordinatorId);
             if (!(found instanceof LinearLayout)) return;
             LinearLayout coordinator = (LinearLayout) found;

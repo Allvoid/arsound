@@ -20,8 +20,13 @@ public final class PlayerSheet {
     /** The states of the sheet, those of the material BottomSheetBehavior. */
     public static final int DRAGGING = 1, SETTLING = 2, EXPANDED = 3, COLLAPSED = 4;
 
-    /** The sheet is never left "moving" for longer than this, whatever happened to the state callbacks. */
-    private static final long WATCHDOG_MS = 15_000;
+    /**
+     * The sheet is never left "moving" for longer than this after its last state callback, whatever happened to
+     * them. A held finger sends no callbacks, and nothing in the sheet's frames tells that it is still held, so the
+     * time is long: a drag held for a minute is not a drag people make, and a lost callback heals itself when the
+     * next sheet reports its state.
+     */
+    private static final long WATCHDOG_MS = 60_000;
 
     private static final Handler handler = new Handler(Looper.getMainLooper());
     private static final Runnable release = () -> setMoving(false);
@@ -56,6 +61,7 @@ public final class PlayerSheet {
                 handler.postDelayed(release, WATCHDOG_MS);
             }
             setMoving(slides);
+            PlayerArtworkLayers.sheetRested(state);
         } catch (Exception ex) {
             Logger.printException(() -> "Player sheet: state " + state + " not handled", ex);
         }
