@@ -1489,7 +1489,43 @@ public final class ReVancedSettingsActivity extends Activity {
                 }
         ));
         addStreamCacheOptions(list);
+        addLyricsOptions(list);
         addVivoMusicCardRow(list);
+    }
+
+    /** The lyrics button of the player, and the texts it kept on the phone. */
+    private void addLyricsOptions(LinearLayout list) {
+        list.addView(createSubHeading(text("Тексты песен", "Lyrics")));
+        list.addView(createToggleRow(
+                text("Кнопка текста в плеере", "Lyrics button in the player"),
+                text("В большом плеере под кнопкой подписки появляется кнопка с текстом песни. Пока её не нажали, "
+                                + "ничего не ищется. После нажатия название и исполнитель играющего трека отправляются "
+                                + "на lrclib.net, найденный текст сохраняется на телефоне.",
+                        "A lyrics button appears under the follow button in the full-screen player. Nothing is looked "
+                                + "up until you tap it. After that the title and the artist of the playing track are sent "
+                                + "to lrclib.net, and the text it finds is kept on the phone."),
+                Settings.isLyricsEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.LYRICS_ENABLED, checked)
+        ));
+        TextView[] used = new TextView[1];
+        View clearRow = createActionRow(text("Очистить кэш текстов", "Clear the lyrics cache"), "", v -> {
+            used[0].setText(text("Очищаю…", "Clearing…"));
+            inBackground(() -> {
+                app.revanced.extension.soundcloud.lyrics.LyricsRepository.clearStored();
+                Utils.runOnMainThread(() -> used[0].setText(text("Кэш текстов пуст.", "The lyrics cache is empty.")));
+            });
+        });
+        used[0] = (TextView) ((ViewGroup) clearRow).getChildAt(1);
+        used[0].setText(text("Считаю…", "Counting…"));
+        inBackground(() -> {
+            long bytes = app.revanced.extension.soundcloud.lyrics.LyricsRepository.storedBytes();
+            String size = android.text.format.Formatter.formatShortFileSize(this, bytes);
+            Utils.runOnMainThread(() -> used[0].setText(bytes == 0
+                    ? text("Кэш текстов пуст.", "The lyrics cache is empty.")
+                    : text("Сейчас занято: " + size + ". Тексты найденных песен, чтобы они открывались сразу и без интернета.",
+                    "Now used: " + size + ". The texts of the songs found, so they open at once and offline.")));
+        });
+        list.addView(clearRow);
     }
 
     /** Only on vivo phones: whether their control centre player sees Arsound, and how to add it. */

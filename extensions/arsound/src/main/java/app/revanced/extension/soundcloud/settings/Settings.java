@@ -313,6 +313,23 @@ public final class Settings {
         return preferences == null || preferences.getBoolean(INTERCEPT_DOWNLOAD_BUTTONS, true);
     }
 
+    public static final String LYRICS_ENABLED = "lyrics_enabled";
+
+    /** The lyrics button in the full-screen player. On by default; the lyrics themselves are shown after a tap on it. */
+    public static boolean isLyricsEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(LYRICS_ENABLED, true);
+    }
+
+    /** Whether the lyrics are shown in the player: the button's state, kept from one launch to the next. */
+    public static final String LYRICS_VISIBLE = "lyrics_visible";
+
+    /** Off until the user taps the button the first time; nothing is looked up while it is off. */
+    public static boolean isLyricsVisible() {
+        SharedPreferences preferences = getPreferences();
+        return preferences != null && preferences.getBoolean(LYRICS_VISIBLE, false);
+    }
+
     public static final String SCREENSHOT_SHARE = "screenshot_share";
 
     /** SoundCloud's "Share screenshot" sheet after a screenshot. Off by default. */

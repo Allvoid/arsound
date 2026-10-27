@@ -26,6 +26,7 @@ import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
 import app.arsound.patches.soundcloud.player.equalizerPatch
 import app.arsound.patches.soundcloud.player.listeningStatsPatch
+import app.arsound.patches.soundcloud.player.lyricsPatch
 import app.arsound.patches.soundcloud.player.mixWithOtherAppsPatch
 import app.arsound.patches.soundcloud.player.notificationArtworkPatch
 import app.arsound.patches.soundcloud.player.playModePatch
@@ -145,10 +146,11 @@ val arsoundRecommendationsGroup = arsoundGroup(
 val arsoundPlayerGroup = arsoundGroup(
     "Arsound: плеер",
     "Эквалайзер, размер и срок хранения кэша потоков, статистика прослушиваний, игра вместе с другими приложениями, " +
-        "плавное сворачивание плеера.",
+        "плавное сворачивание плеера, тексты песен.",
     streamCachePatch,
     listeningStatsPatch,
     equalizerPatch,
     mixWithOtherAppsPatch,
     smoothSheetPatch,
+    lyricsPatch,
 )
