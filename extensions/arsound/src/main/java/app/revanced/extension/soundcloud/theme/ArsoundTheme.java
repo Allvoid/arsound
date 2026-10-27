@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.player.PlayerSheet;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
@@ -490,6 +491,13 @@ public final class ArsoundTheme {
 
             @Override
             public void onActivityDestroyed(Activity activity) {
+                if (!activity.getClass().getName().endsWith(".MainActivity")) return;
+                try {
+                    // A slide of the player sheet that this screen was in the middle of will not be finished.
+                    PlayerSheet.reset();
+                } catch (Throwable ex) {
+                    Logger.printException(() -> "Theme: player sheet not reset", ex);
+                }
             }
         });
     }

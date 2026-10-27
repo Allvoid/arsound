@@ -2,6 +2,9 @@ package app.revanced.extension.soundcloud.player;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
+
+import java.lang.ref.WeakReference;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.debug.SlideJank;
@@ -23,8 +26,9 @@ public final class PlayerSheet {
     /**
      * The sheet is never left "moving" for longer than this after its last state callback, whatever happened to
      * them. A held finger sends no callbacks, and nothing in the sheet's frames tells that it is still held, so the
-     * time is long: a drag held for a minute is not a drag people make, and a lost callback heals itself when the
-     * next sheet reports its state.
+     * time is long: a drag held for a minute is not a drag people make. A sheet whose screen was rebuilt in the
+     * middle of a slide is not waited for that long: {@link #isBusy()} sees that the sheet is gone, and the
+     * rebuilt screen's end is told by {@link #reset()}.
      */
     private static final long WATCHDOG_MS = 60_000;
 
@@ -33,6 +37,12 @@ public final class PlayerSheet {
 
     /** Main thread only. */
     private static boolean moving;
+    /**
+     * The sheet that reported last. A screen that is rebuilt while the sheet slides (a turn, a fold) never gets the
+     * final state of that slide from the new sheet, which is made already at rest, so the flag must not outlive the
+     * sheet it was set for.
+     */
+    private static WeakReference<View> sheetRef = new WeakReference<>(null);
 
     private PlayerSheet() {
     }
@@ -47,12 +57,33 @@ public final class PlayerSheet {
      * own work that is not needed this frame waits.
      */
     public static boolean isBusy() {
-        return moving && isSmoothEnabled();
+        if (!moving) return false;
+        if (!sheetAlive()) {
+            // The screen of the slide is gone and its final state will not come.
+            setMoving(false);
+            return false;
+        }
+        return isSmoothEnabled();
+    }
+
+    /**
+     * Called when the main screen is destroyed. A slide that was running on it is over: the new screen starts at
+     * rest, and the frames of the old window are of no use to anyone.
+     */
+    public static void reset() {
+        setMoving(false);
+        SlideJank.abort();
+    }
+
+    private static boolean sheetAlive() {
+        View sheet = sheetRef.get();
+        return sheet != null && sheet.isAttachedToWindow();
     }
 
     /** Injection point. Called when the player sheet changes its state, before SoundCloud handles it. */
     public static void onSheetState(int state, Object sheet) {
         try {
+            if (sheet instanceof View) sheetRef = new WeakReference<>((View) sheet);
             SlideJank.onSheetState(state, sheet);
             boolean slides = state == DRAGGING || state == SETTLING;
             if (slides) {

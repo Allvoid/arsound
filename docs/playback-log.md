@@ -12,6 +12,12 @@ On by default (Settings → Arsound → Developer → Playback log, a change app
   SoundCloud's preparation (before ExoPlayer gets the track) and the stream download (after),
   the network at that moment, errors on the way and, for slow starts, the likely cause.
 - A pause mid-track while waiting for data is logged as `STALL` with its length.
+- Every slide of the player sheet (pulled up, pulled down, settling) writes one `jank:` line, to find where a stutter
+  comes from. It gives the states the slide went from and to, whether "Smooth player collapse" was on, the screen's
+  refresh rate, the number of frames, how many went over the time one frame has and how many were missed, about how many
+  frames a second, the median, 90th percentile and maximum of a frame's total time, the average and maximum of each
+  part of a frame (`anim`, `layout`, `draw`, `sync`, `issue`, `swap`, `gpu`, `late`) and the `worst` part. Nothing is
+  measured at rest, and a slide cut short by the screen being rebuilt (a turn, a fold) is not logged.
 
 A user saves the logs with Settings → Arsound → Developer → "Save the logs" (the first row): the playback log files
 and the mod log (`arsound-log.txt`, if it is on) go into one file `Downloads/arsound-logs-YYYY-MM-DD-HHmm.txt`

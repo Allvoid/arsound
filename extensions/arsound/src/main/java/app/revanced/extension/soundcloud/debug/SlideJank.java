@@ -59,6 +59,8 @@ public final class SlideJank {
         try {
             if (state == PlayerSheet.DRAGGING || state == PlayerSheet.SETTLING) {
                 if (current != null && current.ending) finish(current);
+                // A slide of another window is over: its screen was rebuilt (a turn, a fold) and this sheet is new.
+                if (current != null && sheet instanceof View && !isOnWindow(current, (View) sheet)) finish(current);
                 if (current == null && sheet instanceof View) start((View) sheet);
                 else if (current != null) {
                     // Dragging, then settling: the same slide, still alive.
@@ -78,6 +80,30 @@ public final class SlideJank {
         } catch (Exception ex) {
             Logger.printException(() -> "Slide jank: state " + state + " not handled", ex);
         }
+    }
+
+    /**
+     * Called when the main screen is destroyed in the middle of a slide: its window and the frames it measured are
+     * dropped, not logged, since a rebuilt screen is not a slide to judge. The new sheet starts at rest.
+     */
+    public static void abort() {
+        Slide slide = current;
+        if (slide == null) return;
+        current = null;
+        main.removeCallbacks(slide.finish);
+        try {
+            slide.window.removeOnFrameMetricsAvailableListener(slide);
+        } catch (Exception ignored) {
+            // The window may be gone already.
+        }
+        // Where the new sheet rests is not what the old one rested in before this slide.
+        rest = 0;
+    }
+
+    private static boolean isOnWindow(Slide slide, View sheet) {
+        Activity activity = activityOf(sheet.getContext());
+        // Not knowing the window is not a reason to cut a slide.
+        return activity == null || activity.getWindow() == slide.window;
     }
 
     private static void start(View sheet) {
