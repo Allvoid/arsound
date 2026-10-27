@@ -826,6 +826,10 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** Theme, app icon and language. */
     private void addAppearanceSection(LinearLayout list) {
+        // The theme picker is not a row of its own: the search finds it by the theme names, Monet's "Material You" and its colours.
+        StringBuilder themeNames = new StringBuilder("SoundCloud");
+        for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) themeNames.append(", ").append(theme.name());
+        recordForSearch(text("Тема", "Theme"), themeNames + text(", Material You, цвета обоев", ", Material You, wallpaper colours"));
         list.addView(createSubHeading(text("Тема", "Theme")));
         list.addView(createThemeDropdown());
         list.addView(openScreenRow(text("Цвета своей темы", "Custom theme colours"),
