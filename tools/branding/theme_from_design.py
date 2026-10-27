@@ -313,7 +313,7 @@ def from_palette(theme_id):
     old = next((t for t in themes if t["id"] == theme_id), None)
     if old is None:
         sys.exit(f"No theme {theme_id} in themes.json")
-    keep = ("id", "name", "description", "darkOnly", "dark", "light", "fonts", "radii")
+    keep = ("id", "runtime", "name", "description", "darkOnly", "dark", "light", "fonts", "radii", "effect")
     theme = {key: old[key] for key in keep if key in old}
     dark_only = old.get("darkOnly", False)
     theme.update(derived(tokens_from_palette(old["dark"], True),

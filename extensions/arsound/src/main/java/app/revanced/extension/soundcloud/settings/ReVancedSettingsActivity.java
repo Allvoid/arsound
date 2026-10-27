@@ -24,8 +24,12 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
+import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.theme.CustomTheme;
+import app.revanced.extension.soundcloud.theme.RuntimeThemes;
+import app.revanced.extension.soundcloud.theme.ThemeEffect;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
 
 /**
@@ -96,6 +100,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String SCREEN_APP_ICON = "app_icon";
     private static final String SCREEN_APPEARANCE = "appearance";
     private static final String SCREEN_STORAGE = "storage";
+    private static final String SCREEN_CUSTOM_THEME = "custom_theme";
 
     /** The chosen theme's animation behind the screen, over its background colour and glow. */
     private void addThemeEffect(View root) {
@@ -287,8 +292,9 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private static final String EXTRA_HIGHLIGHT = "arsound_highlight";
     /** Screens whose rows the search knows; the equalizer, the statistics and the icon grid are found by their section row. */
-    private static final String[] SEARCHED_SCREENS = {SCREEN_ACCOUNT, SCREEN_APPEARANCE, SCREEN_NETWORK, SCREEN_PLAYBACK,
-            SCREEN_ADS, SCREEN_RECOMMENDATIONS, SCREEN_MUSIC, SCREEN_STORAGE, SCREEN_PRIVACY, SCREEN_UPDATES, SCREEN_DEVELOPER};
+    private static final String[] SEARCHED_SCREENS = {SCREEN_ACCOUNT, SCREEN_APPEARANCE, SCREEN_CUSTOM_THEME, SCREEN_NETWORK,
+            SCREEN_PLAYBACK, SCREEN_ADS, SCREEN_RECOMMENDATIONS, SCREEN_MUSIC, SCREEN_STORAGE, SCREEN_PRIVACY, SCREEN_UPDATES,
+            SCREEN_DEVELOPER};
     private static final int MAX_RESULTS = 30;
     private static final int ANIMATED_RESULTS = 8;
 
@@ -759,6 +765,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 return text("Оформление", "Appearance");
             case SCREEN_APP_ICON:
                 return text("Иконка приложения", "App icon");
+            case SCREEN_CUSTOM_THEME:
+                return text("Своя тема", "Custom theme");
             case SCREEN_ACCOUNT:
                 return text("Аккаунт", "Account");
             default:
@@ -805,6 +813,9 @@ public final class ReVancedSettingsActivity extends Activity {
             case SCREEN_APP_ICON:
                 addAppIconSection(list);
                 break;
+            case SCREEN_CUSTOM_THEME:
+                addCustomThemeSection(list);
+                break;
             case SCREEN_ACCOUNT:
                 addAccountSection(list);
                 break;
@@ -817,6 +828,10 @@ public final class ReVancedSettingsActivity extends Activity {
     private void addAppearanceSection(LinearLayout list) {
         list.addView(createSubHeading(text("Тема", "Theme")));
         list.addView(createThemeDropdown());
+        list.addView(openScreenRow(text("Цвета своей темы", "Custom theme colours"),
+                text("Выберите акцент и фон, остальное подберётся само. Тема «Своя тема» из списка выше.",
+                        "Pick an accent and a background and the rest follows. This is the \"Custom theme\" of the list above."),
+                SCREEN_CUSTOM_THEME));
         list.addView(createToggleRow(
                 text("Анимация темы", "Theme animation"),
                 text("Лёгкий живой фон: искры у «Алого», звёзды у «Кобальта», светлячки у «Мяты», лепестки у «Сакуры», "
@@ -947,6 +962,12 @@ public final class ReVancedSettingsActivity extends Activity {
             option.setOnClickListener(v -> {
                 foldOptions(options, chevron, false);
                 if (choice.id.equals(ArsoundTheme.current())) return;
+                // The custom theme has no colours of the user's yet: the editor opens first.
+                if (RuntimeThemes.CUSTOM.equals(choice.id) && !CustomTheme.isSaved()) {
+                    startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
+                            .putExtra(EXTRA_SCREEN, SCREEN_CUSTOM_THEME));
+                    return;
+                }
                 ArsoundTheme.setCurrent(this, choice.id);
                 ArsoundTheme.restartApp(this);
             });
@@ -3116,6 +3137,365 @@ public final class ReVancedSettingsActivity extends Activity {
                         + "Действует сразу.",
                 "Slows down every SoundCloud request to test behavior on a poor connection. Applies immediately.");
     }
+
+    // region Custom theme
+
+    private static final String ROLE_ACCENT = "accent";
+    private static final String ROLE_DARK_BG = "darkBg";
+    private static final String ROLE_LIGHT_BG = "lightBg";
+    private static final String[] ACCENT_PRESETS = {
+            "#FF5500", "#E0242F", "#FF6B6B", "#FFB020", "#A3FF3D", "#34E0A1", "#2DD4BF", "#9FDDF0", "#4C9AFF", "#6366F1",
+            "#A78BFA", "#FF85BE", "#FFFFFF"};
+    private static final String[] DARK_BG_PRESETS = {
+            "#121212", "#000000", "#0D1117", "#0A1117", "#0E0809", "#0D110F", "#15121C", "#100C18", "#14110F", "#101820"};
+    private static final String[] LIGHT_BG_PRESETS = {
+            "#FFFFFF", "#F7F9FC", "#F5F9FB", "#F7FAF8", "#FEF8F9", "#FFF7FA", "#F9F8FC", "#FAF6EE", "#F2F2F2"};
+
+    /** The colours being edited; they are kept only when the user applies them. */
+    private CustomTheme editing;
+    private ThemePreviewView editorPreview;
+    /** Which look the preview shows when the theme has both. */
+    private boolean previewNight = true;
+    /** Redraw the parts of the editor that depend on {@link #editing}. */
+    private final java.util.List<Runnable> editorViews = new java.util.ArrayList<>();
+
+    /** The editor of the custom theme: a live drawing of the app, the mode, the colours, the corners, the animation. */
+    private void addCustomThemeSection(LinearLayout list) {
+        editing = CustomTheme.load();
+        editorViews.clear();
+
+        editorPreview = new ThemePreviewView(this);
+        int previewWidth = Math.min(getResources().getDisplayMetrics().widthPixels - 2 * dimen("spacing_m"), dp(340));
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(previewWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
+        previewParams.gravity = Gravity.CENTER_HORIZONTAL;
+        list.addView(editorPreview, previewParams);
+
+        View looks = createSegmented(new String[]{text("Тёмный вид", "Dark look"), text("Светлый вид", "Light look")},
+                previewNight ? 0 : 1, index -> {
+                    previewNight = index == 0;
+                    refreshEditor();
+                });
+        LinearLayout.LayoutParams looksParams = new LinearLayout.LayoutParams(previewWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
+        looksParams.gravity = Gravity.CENTER_HORIZONTAL;
+        looksParams.topMargin = dp(10);
+        list.addView(looks, looksParams);
+        editorViews.add(() -> looks.setVisibility(CustomTheme.MODE_AUTO.equals(editing.mode) ? View.VISIBLE : View.GONE));
+
+        list.addView(createSubHeading(text("Режим", "Mode")));
+        String[] modes = {CustomTheme.MODE_DARK, CustomTheme.MODE_LIGHT, CustomTheme.MODE_AUTO};
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        modeParams.leftMargin = modeParams.rightMargin = dimen("spacing_m");
+        list.addView(createSegmented(new String[]{text("Тёмная", "Dark"), text("Светлая", "Light"), text("Как на телефоне", "Like the phone")},
+                java.util.Arrays.asList(modes).indexOf(editing.mode), index -> {
+                    editing = editing.withMode(modes[index]);
+                    refreshEditor();
+                }), modeParams);
+        TextView modeNote = createText("Body.Secondary", "");
+        modeNote.setPadding(dimen("spacing_m"), dp(8), dimen("spacing_m"), dimen("spacing_s"));
+        list.addView(modeNote);
+        editorViews.add(() -> modeNote.setText(CustomTheme.MODE_DARK.equals(editing.mode)
+                ? text("Приложение всегда тёмное, что бы ни стояло на телефоне.", "The app is always dark, whatever the phone uses.")
+                : CustomTheme.MODE_LIGHT.equals(editing.mode)
+                ? text("Приложение всегда светлое, что бы ни стояло на телефоне.", "The app is always light, whatever the phone uses.")
+                : text("Тёмное или светлое, как на телефоне; у каждого вида свой фон.", "Dark or light as the phone is; each look has its own background.")));
+
+        list.addView(createSubHeading(text("Цвета", "Colours")));
+        addColorRow(list, text("Акцент", "Accent"), ROLE_ACCENT, null);
+        addColorRow(list, text("Фон тёмного вида", "Dark background"), ROLE_DARK_BG,
+                () -> !CustomTheme.MODE_LIGHT.equals(editing.mode));
+        addColorRow(list, text("Фон светлого вида", "Light background"), ROLE_LIGHT_BG,
+                () -> !CustomTheme.MODE_DARK.equals(editing.mode));
+        TextView adjusted = createText("Body.Secondary", "");
+        adjusted.setPadding(dimen("spacing_m"), dp(4), dimen("spacing_m"), dimen("spacing_s"));
+        list.addView(adjusted);
+        editorViews.add(() -> {
+            String note = adjustmentNote();
+            adjusted.setText(note);
+            adjusted.setVisibility(note.isEmpty() ? View.GONE : View.VISIBLE);
+        });
+
+        list.addView(createSubHeading(text("Форма и анимация", "Shape and animation")));
+        list.addView(createSliderRow(text("Скругление углов", "Corner roundness"),
+                text("Обложки, карточки и мини-плеер.", "Covers, cards and the mini player."),
+                CustomTheme.MAX_RADIUS, editing.radius, value -> value + " dp", value -> {
+                    editing = editing.withRadius(value);
+                    refreshEditor();
+                }));
+        TextView[] effectDescription = new TextView[1];
+        View effectRow = createActionRow(text("Анимация фона", "Background animation"), "", v -> chooseCustomEffect());
+        effectDescription[0] = (TextView) ((ViewGroup) effectRow).getChildAt(1);
+        list.addView(effectRow);
+        editorViews.add(() -> effectDescription[0].setText(effectName(editing.effect)));
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        buttons.setPadding(dimen("spacing_m"), dp(18), dimen("spacing_m"), dp(24));
+        buttons.addView(createPillButton(text("Сбросить", "Reset"), false, v -> {
+            editing = CustomTheme.defaults();
+            refreshEditor();
+        }));
+        buttons.addView(createPillButton(text("Применить", "Apply"), true, v -> {
+            editing.save();
+            Toast.makeText(this, text("Применяю тему…", "Applying the theme…"), Toast.LENGTH_SHORT).show();
+            ArsoundTheme.setCurrent(this, RuntimeThemes.CUSTOM);
+            ArsoundTheme.restartApp(this);
+        }));
+        list.addView(buttons);
+
+        refreshEditor();
+    }
+
+    /** Draws the editor again after a change of {@link #editing}. */
+    private void refreshEditor() {
+        ArsoundTheme.Theme theme = RuntimeThemes.custom(this, editing);
+        boolean night = CustomTheme.MODE_AUTO.equals(editing.mode) ? previewNight : CustomTheme.MODE_DARK.equals(editing.mode);
+        editorPreview.setTheme(theme, night);
+        for (Runnable view : editorViews) view.run();
+    }
+
+    /** A row with the name of a colour, its code and a dot in it; opens the picker. Hidden while {@code shown} says no. */
+    private void addColorRow(LinearLayout list, String title, String role, java.util.function.BooleanSupplier shown) {
+        TextView[] code = new TextView[1];
+        View[] dot = new View[1];
+        View row = createActionRow(title, "", v -> pickColor(title, role));
+        code[0] = (TextView) ((ViewGroup) row).getChildAt(1);
+        LinearLayout titleLine = (LinearLayout) ((ViewGroup) row).getChildAt(0);
+        titleLine.getChildAt(0).setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        dot[0] = new View(this);
+        titleLine.addView(dot[0], new LinearLayout.LayoutParams(dp(28), dp(28)));
+        list.addView(row);
+        editorViews.add(() -> {
+            String color = colorOf(editing, role);
+            code[0].setText(color);
+            android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+            shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            shape.setColor(android.graphics.Color.parseColor(color));
+            shape.setStroke(dp(2), 0x55808080);
+            dot[0].setBackground(shape);
+            row.setVisibility(shown == null || shown.getAsBoolean() ? View.VISIBLE : View.GONE);
+        });
+    }
+
+    private static String colorOf(CustomTheme theme, String role) {
+        return ROLE_ACCENT.equals(role) ? theme.accent : ROLE_DARK_BG.equals(role) ? theme.darkBg : theme.lightBg;
+    }
+
+    private static CustomTheme withColor(CustomTheme theme, String role, String color) {
+        return ROLE_ACCENT.equals(role) ? theme.withAccent(color)
+                : ROLE_DARK_BG.equals(role) ? theme.withDarkBg(color) : theme.withLightBg(color);
+    }
+
+    private void pickColor(String title, String role) {
+        String[] presets = ROLE_ACCENT.equals(role) ? ACCENT_PRESETS : ROLE_DARK_BG.equals(role) ? DARK_BG_PRESETS : LIGHT_BG_PRESETS;
+        // The accent of the wallpaper (Android 12+) is one more ready colour.
+        String system = ROLE_ACCENT.equals(role) ? RuntimeThemes.systemAccent(getResources()) : null;
+        if (system != null) {
+            presets = java.util.Arrays.copyOf(presets, presets.length + 1);
+            presets[presets.length - 1] = system;
+        }
+        boolean light = CustomTheme.MODE_LIGHT.equals(editing.mode);
+        boolean night = ROLE_LIGHT_BG.equals(role) ? false : ROLE_DARK_BG.equals(role) ? true : !light;
+        ColorPickerDialog.show(this, title, colorOf(editing, role), presets, new ColorPickerDialog.Preview() {
+            @Override
+            public ArsoundTheme.Theme theme(String hex) {
+                return RuntimeThemes.custom(ReVancedSettingsActivity.this, withColor(editing, role, hex));
+            }
+
+            @Override
+            public boolean night() {
+                return night;
+            }
+
+            @Override
+            public String note(String hex, ArsoundTheme.Theme theme) {
+                int wanted = android.graphics.Color.parseColor(hex) & 0xFFFFFF;
+                if (ROLE_ACCENT.equals(role)) {
+                    return (theme.color(night, "special") & 0xFFFFFF) == wanted ? null
+                            : text("Акцент подправлен, чтобы читаться на фоне.", "The accent was adjusted to read on the background.");
+                }
+                return (theme.color(night, "surface") & 0xFFFFFF) == wanted ? null
+                        : night ? text("Фон оставлен тёмным: на светлом не видны белые значки.", "The background is kept dark: white icons would vanish on a light one.")
+                        : text("Фон оставлен светлым: на тёмном не видны тёмные значки.", "The background is kept light: dark icons would vanish on a dark one.");
+            }
+        }, color -> {
+            editing = withColor(editing, role, color);
+            refreshEditor();
+        });
+    }
+
+    /** What the theme changed in the user's colours to keep the app readable, or an empty text. */
+    private String adjustmentNote() {
+        ArsoundTheme.Theme theme = RuntimeThemes.custom(this, editing);
+        int accent = android.graphics.Color.parseColor(editing.accent) & 0xFFFFFF;
+        StringBuilder note = new StringBuilder();
+        if (!CustomTheme.MODE_LIGHT.equals(editing.mode)) {
+            if ((theme.color(true, "special") & 0xFFFFFF) != accent) {
+                note.append(text("В тёмном виде акцент осветлён, чтобы читаться на фоне. ", "In the dark look the accent is lightened to read on the background. "));
+            }
+            if ((theme.color(true, "surface") & 0xFFFFFF) != (android.graphics.Color.parseColor(editing.darkBg) & 0xFFFFFF)) {
+                note.append(text("Тёмный фон приведён к тёмному оттенку. ", "The dark background was brought to a dark shade. "));
+            }
+        }
+        if (!CustomTheme.MODE_DARK.equals(editing.mode)) {
+            if ((theme.color(false, "special") & 0xFFFFFF) != accent) {
+                note.append(text("В светлом виде акцент затемнён, чтобы читаться на светлом фоне. ", "In the light look the accent is darkened to read on the light background. "));
+            }
+            if ((theme.color(false, "surface") & 0xFFFFFF) != (android.graphics.Color.parseColor(editing.lightBg) & 0xFFFFFF)) {
+                note.append(text("Светлый фон приведён к светлому оттенку. ", "The light background was brought to a light shade. "));
+            }
+        }
+        return note.toString().trim();
+    }
+
+    private String effectName(String effect) {
+        if (!ThemeEffect.exists(effect)) return text("Без анимации", "No animation");
+        for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) if (theme.id.equals(effect)) return theme.name();
+        return effect;
+    }
+
+    private void chooseCustomEffect() {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        java.util.List<String> names = new java.util.ArrayList<>();
+        ids.add(CustomTheme.NO_EFFECT);
+        names.add(effectName(CustomTheme.NO_EFFECT));
+        for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) {
+            if (theme.runtime != null || !ThemeEffect.exists(theme.id)) continue;
+            ids.add(theme.id);
+            names.add(theme.name());
+        }
+        new ArsoundDialog(this)
+                .setTitle(text("Анимация фона", "Background animation"))
+                .setSingleChoiceItems(names.toArray(new String[0]), Math.max(0, ids.indexOf(editing.effect)), (dialog, which) -> {
+                    dialog.dismiss();
+                    editing = editing.withEffect(ids.get(which));
+                    refreshEditor();
+                })
+                .show();
+    }
+
+    /** A pill-shaped choice of a few labels; the chosen one is filled with the accent. */
+    private View createSegmented(String[] labels, int selected, java.util.function.IntConsumer onSelect) {
+        int accent = ArsoundTheme.palette(this, "special");
+        LinearLayout track = new LinearLayout(this);
+        track.setOrientation(LinearLayout.HORIZONTAL);
+        android.graphics.drawable.GradientDrawable trackShape = new android.graphics.drawable.GradientDrawable();
+        trackShape.setColor(ArsoundTheme.palette(this, "highlight"));
+        trackShape.setCornerRadius(dp(100));
+        track.setBackground(trackShape);
+        track.setPadding(dp(3), dp(3), dp(3), dp(3));
+        TextView[] items = new TextView[labels.length];
+        Runnable[] draw = new Runnable[1];
+        int[] chosen = {selected};
+        draw[0] = () -> {
+            for (int i = 0; i < items.length; i++) {
+                android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+                pill.setCornerRadius(dp(100));
+                pill.setColor(i == chosen[0] ? accent : android.graphics.Color.TRANSPARENT);
+                items[i].setBackground(pill);
+                items[i].setTextColor(i == chosen[0] ? ArsoundDialog.contrast(accent) : ArsoundTheme.palette(this, "secondary"));
+            }
+        };
+        for (int i = 0; i < labels.length; i++) {
+            TextView item = createText("H4.Primary", labels[i]);
+            item.setGravity(Gravity.CENTER);
+            item.setSingleLine(true);
+            item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.setPadding(dp(6), 0, dp(6), 0);
+            int index = i;
+            item.setOnClickListener(v -> {
+                if (chosen[0] == index) return;
+                chosen[0] = index;
+                draw[0].run();
+                onSelect.accept(index);
+            });
+            items[i] = item;
+            track.addView(item, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        }
+        draw[0].run();
+        return track;
+    }
+
+    /**
+     * A row with a title, the value and a slider in the accent; the description follows. Every change of the value is
+     * told to {@code onChange}.
+     *
+     * @param label Writes the value shown at the end of the title line.
+     */
+    private View createSliderRow(String title, String description, int max, int progress,
+                                 java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange) {
+        recordForSearch(title, description);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dimen("spacing_s"), 0, dimen("spacing_s"));
+        int accent = ArsoundTheme.palette(this, "special");
+
+        LinearLayout titleLine = new LinearLayout(this);
+        titleLine.setOrientation(LinearLayout.HORIZONTAL);
+        titleLine.setGravity(Gravity.CENTER_VERTICAL);
+        titleLine.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        titleLine.addView(createText("H4.Primary", title), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView value = createText("H4.Primary", label.apply(progress));
+        value.setTextColor(accent);
+        titleLine.addView(value);
+        row.addView(titleLine);
+
+        android.widget.SeekBar slider = new android.widget.SeekBar(this);
+        slider.setMax(max);
+        slider.setProgress(progress);
+        slider.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
+        slider.setThumbTintList(android.content.res.ColorStateList.valueOf(accent));
+        slider.setSaveEnabled(false);
+        slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                value.setText(label.apply(progress));
+                onChange.accept(progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sliderParams.topMargin = dp(4);
+        row.addView(slider, sliderParams);
+
+        TextView details = createText("Body.Secondary", description);
+        details.setPadding(dimen("spacing_m"), dp(4), dp(72), 0);
+        row.addView(details);
+        return row;
+    }
+
+    /** A button in the look of the dialogs' buttons: the main one filled with the accent. */
+    private View createPillButton(String label, boolean main, View.OnClickListener listener) {
+        int accent = ArsoundTheme.palette(this, "special");
+        TextView button = createText("H4.Primary", label);
+        button.setTextColor(main ? ArsoundDialog.contrast(accent) : accent);
+        button.setGravity(Gravity.CENTER);
+        button.setMinHeight(dp(44));
+        button.setPadding(dp(22), dp(8), dp(22), dp(8));
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setCornerRadius(dp(100));
+        shape.setColor(main ? accent : android.graphics.Color.TRANSPARENT);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(
+                main ? 0x33FFFFFF : (accent & 0x00FFFFFF) | 0x33000000), shape, null));
+        button.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.leftMargin = dp(8);
+        button.setLayoutParams(params);
+        return button;
+    }
+
+    // endregion
 
     private View createLocalMusicContent() {
         LinearLayout root = new LinearLayout(this);

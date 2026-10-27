@@ -331,7 +331,8 @@ public final class ArsoundDialog {
         return view;
     }
 
-    private static int contrast(int color) {
+    /** White or near-black, whichever reads on this colour: for text on an accent button. */
+    public static int contrast(int color) {
         double luminance = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) / 255;
         return luminance > 0.6 ? 0xFF111111 : 0xFFFFFFFF;
     }

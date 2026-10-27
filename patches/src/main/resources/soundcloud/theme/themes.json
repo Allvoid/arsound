@@ -89,6 +89,36 @@
       "decor": {"settingsGlow": "#1E3946", "settingsBadge": "#9FDDF0", "settingsStrips": ["#4F7684"], "homeHelloColor": "#F2C46D", "shortcutScrim": "#00000040"},
       "decorLight": {"settingsGlow": "#CDE4EC", "settingsBadge": "#1784A6", "settingsStrips": ["#84B9CC"], "homeHelloColor": "#A86A12"},
       "colors": {"extended_palette_grey_950": "#121C25", "extended_palette_grey_900": "#1A242D", "extended_palette_grey_800": "#2B3741", "extended_palette_grey_700": "#3B4853", "extended_palette_grey_600": "#46535E", "extended_palette_grey_500": "#5B6A76", "extended_palette_grey_400": "#6F7F8C", "extended_palette_grey_300": "#94A6B4", "extended_palette_grey_200": "#B9C6D0", "extended_palette_grey_100": "#E6EBEE", "extended_palette_grey_50": "#F3F5F7", "extended_palette_orange_900": "#9FDDF0", "sdui_blue": "#9FDDF0", "sdui_green": "#CAECF7", "sdui_magenta": "#B7E6F4", "sdui_orange": "#77A6B4", "sdui_purple": "#94A6B4", "sdui_red": "#9FDDF0", "sdui_teal": "#CAECF7", "sdui_violet": "#B7E6F4", "sdui_yellow": "#77A6B4"}
+    },
+    {
+      "id": "monet",
+      "runtime": "monet",
+      "name": {"ru": "Monet", "en": "Monet"},
+      "description": {"ru": "Цвета обоев телефона (Material You), как у системы. Меняются вместе с обоями, без перезапуска. Android 12 и новее; если в прошивке нет динамических цветов, будет стандартная палитра.", "en": "The colours of the phone's wallpaper (Material You), like the system's. They follow the wallpaper without a restart. Android 12 and later; firmware without dynamic colour shows the standard palette."},
+      "dark": {"surface": "#141218", "primary": "#E6E0E9", "secondary": "#CAC4D0", "highlight": "#2B2930", "special": "#D0BCFF", "error": "#F2B8B5", "overlay": "#141218B3", "imageBorders": "#E6E0E929", "dialog": "#211F26"},
+      "light": {"surface": "#FEF7FF", "primary": "#1D1B20", "secondary": "#49454F", "highlight": "#F3EDF7", "special": "#6750A4", "error": "#B3261E", "overlay": "#1D1B2066", "imageBorders": "#1D1B2021", "dialog": "#FFFFFF"},
+      "radii": {"card": 12, "miniPlayer": 28},
+      "tokens": {"bg": "#141218", "surface": "#211F26", "surface2": "#3A383F", "deep": "#564E69", "border": "#3A383F", "accent": "#D0BCFF", "pink": "#E5DAFF", "muted": "#CAC4D0", "text2": "#D5CFDA", "tabbar": "#1A181F", "mini": "#322F3CE6", "miniBorder": "#E5DAFF47"},
+      "tokensLight": {"bg": "#FEF7FF", "surface": "#FFFFFF", "surface2": "#EAE5EE", "deep": "#E3D9EF", "border": "#DED8E2", "accent": "#6750A4", "pink": "#6750A4", "muted": "#49454F", "text2": "#37343C", "tabbar": "#FEFBFF", "mini": "#F5EDFAEB", "miniBorder": "#6750A440"},
+      "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar", "playerSkin"],
+      "decor": {"settingsGlow": "#564E69", "settingsBadge": "#D0BCFF", "settingsStrips": ["#7E7395"], "homeHelloColor": "#E5DAFF", "shortcutScrim": "#00000040"},
+      "decorLight": {"settingsGlow": "#E3D9EF", "settingsBadge": "#6750A4", "settingsStrips": ["#AFA2CD"], "homeHelloColor": "#6750A4"},
+      "colors": {"extended_palette_grey_950": "#211F26", "extended_palette_grey_900": "#28262E", "extended_palette_grey_800": "#3A383F", "extended_palette_grey_700": "#504E55", "extended_palette_grey_600": "#5F5C64", "extended_palette_grey_500": "#7C7881", "extended_palette_grey_400": "#98939D", "extended_palette_grey_300": "#CAC4D0", "extended_palette_grey_200": "#D5CFDA", "extended_palette_grey_100": "#F0EEF2", "extended_palette_grey_50": "#F8F7F8", "extended_palette_orange_900": "#D0BCFF", "sdui_blue": "#D0BCFF", "sdui_green": "#E5DAFF", "sdui_magenta": "#DCCDFF", "sdui_orange": "#9C8DBF", "sdui_purple": "#CAC4D0", "sdui_red": "#D0BCFF", "sdui_teal": "#E5DAFF", "sdui_violet": "#DCCDFF", "sdui_yellow": "#9C8DBF"}
+    },
+    {
+      "id": "custom",
+      "runtime": "custom",
+      "name": {"ru": "Своя тема", "en": "Custom theme"},
+      "description": {"ru": "Ваши цвета: выберите акцент и фон, остальное подберётся само, в тёмном и светлом виде. Редактор — под списком тем.", "en": "Your own colours: pick an accent and a background and the rest follows, dark and light. The editor is under the theme list."},
+      "dark": {"surface": "#121212", "primary": "#FFFFFF", "secondary": "#B2B2B2", "highlight": "#282828", "special": "#FF5500", "error": "#FF8A80", "overlay": "#090909B3", "imageBorders": "#FFFFFF29", "dialog": "#1E1E1E"},
+      "light": {"surface": "#FFFFFF", "primary": "#141414", "secondary": "#727272", "highlight": "#F2F2F2", "special": "#D14600", "error": "#C62E3A", "overlay": "#14141466", "imageBorders": "#14141421", "dialog": "#FFFFFF"},
+      "radii": {"card": 8, "miniPlayer": 14},
+      "tokens": {"bg": "#121212", "surface": "#1E1E1E", "surface2": "#393939", "deep": "#65290C", "border": "#393939", "accent": "#FF5500", "pink": "#FFA273", "muted": "#B2B2B2", "text2": "#D1D1D1", "tabbar": "#181818", "mini": "#34241BE6", "miniBorder": "#FFA27347"},
+      "tokensLight": {"bg": "#FFFFFF", "surface": "#FFFFFF", "surface2": "#E9E9E9", "deep": "#F7DED1", "border": "#DCDCDC", "accent": "#D14600", "pink": "#D14600", "muted": "#727272", "text2": "#4C4C4C", "tabbar": "#FFFFFF", "mini": "#FCF4F0EB", "miniBorder": "#D1460040"},
+      "parts": ["lucideIcons", "homeGreeting", "libraryIcons", "miniPlayer", "playerButtons", "tabBar", "playerSkin"],
+      "decor": {"settingsGlow": "#65290C", "settingsBadge": "#FF5500", "settingsStrips": ["#92461F"], "homeHelloColor": "#FFA273", "shortcutScrim": "#00000040"},
+      "decorLight": {"settingsGlow": "#F7DED1", "settingsBadge": "#D14600", "settingsStrips": ["#DEA080"], "homeHelloColor": "#D14600"},
+      "colors": {"extended_palette_grey_950": "#1E1E1E", "extended_palette_grey_900": "#262626", "extended_palette_grey_800": "#393939", "extended_palette_grey_700": "#4C4C4C", "extended_palette_grey_600": "#585858", "extended_palette_grey_500": "#707070", "extended_palette_grey_400": "#888888", "extended_palette_grey_300": "#B2B2B2", "extended_palette_grey_200": "#D1D1D1", "extended_palette_grey_100": "#EFEFEF", "extended_palette_grey_50": "#F7F7F7", "extended_palette_orange_900": "#FF5500", "sdui_blue": "#FF5500", "sdui_green": "#FFA273", "sdui_magenta": "#FF8040", "sdui_orange": "#BF4000", "sdui_purple": "#B2B2B2", "sdui_red": "#FF5500", "sdui_teal": "#FFA273", "sdui_violet": "#FF8040", "sdui_yellow": "#BF4000"}
     }
   ]
 }

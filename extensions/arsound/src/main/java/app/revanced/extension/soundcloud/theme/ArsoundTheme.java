@@ -47,7 +47,9 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * "SoundCloud" adds no loader and leaves the original look.
  * <p>
  * The themes are described in {@code assets/arsound/themes.json}, put there by the theme patch together with
- * the fonts and a start screen per theme.
+ * the fonts and a start screen per theme. Two of them, Monet and the user's Custom theme, only have a seed there: their
+ * colours are made on the phone ({@link RuntimeThemes}) and may change while the app runs, so a theme is told apart
+ * by its {@link Theme#key()}, not only by its id.
  */
 public final class ArsoundTheme {
     public static final String KEY = "arsound_theme";
@@ -76,12 +78,39 @@ public final class ArsoundTheme {
         public final String id;
         /** The app stays dark whatever the phone's mode: the design has no light version. */
         public final boolean darkOnly;
+        /** The app stays light whatever the phone's mode (the user's choice for the custom theme). */
+        public final boolean lightOnly;
+        /** "monet" or "custom" for a theme whose colours are made on the phone, null for the others. */
+        public final String runtime;
         final JSONObject json;
+        private final String key;
 
         Theme(JSONObject json) {
+            this(json, null);
+        }
+
+        /** @param key What tells this theme's colours from the same theme's other colours, null for its id. */
+        Theme(JSONObject json, String key) {
             this.json = json;
             id = json.optString("id");
             darkOnly = json.optBoolean("darkOnly");
+            lightOnly = json.optBoolean("lightOnly");
+            runtime = json.has("runtime") ? json.optString("runtime") : null;
+            this.key = key != null ? key : id;
+        }
+
+        /**
+         * The id of a shipped theme; for a theme made on the phone also its colours, so the resource table is built
+         * again when they change.
+         */
+        public String key() {
+            return key;
+        }
+
+        /** Corner radius of covers and cards in dp, the theme's own or SoundCloud's 6. */
+        public int cardRadius() {
+            JSONObject radii = json.optJSONObject("radii");
+            return radii == null ? 6 : radii.optInt("card", 6);
         }
 
         /** In the app language of the moment. */
@@ -93,8 +122,24 @@ public final class ArsoundTheme {
             return json.optJSONObject("description").optString(russian() ? "ru" : "en");
         }
 
-        int color(boolean night, String role) {
+        /** A colour of the palette: "surface", "primary", "secondary", "highlight", "special", "dialog"... */
+        public int color(boolean night, String role) {
             return parse(json.optJSONObject(night ? "dark" : "light").optString(role));
+        }
+
+        /** A design token ("bg", "surface", "accent", "muted", "mini", "tabbar"...) of the dark or the light look. */
+        public int token(boolean night, String name) {
+            JSONObject tokens = json.optJSONObject(night || json.optJSONObject("tokensLight") == null ? "tokens" : "tokensLight");
+            return parse(tokens == null ? "" : tokens.optString(name));
+        }
+
+        /**
+         * The value of a colour resource a runtime theme's files name (arsound_rt_*): a token with the opacity
+         * in percent instead of its own (-1 keeps it). {@code dark} keeps the dark look in both modes.
+         */
+        int runtimeColor(boolean night, String token, int percent, boolean dark) {
+            int color = token(night || dark, token);
+            return percent < 0 ? color : (Math.round(percent * 2.55f) << 24) | (color & 0xFFFFFF);
         }
 
         public int accent(boolean night) {
@@ -121,15 +166,31 @@ public final class ArsoundTheme {
         return (int) Long.parseLong(value, 16);
     }
 
+    /** The themes as themes.json has them: the runtime ones only as seeds. */
     private static volatile List<Theme> themes;
     private static volatile ResourcesLoader loader;
-    private static volatile String loaderTheme;
+    /** The {@link Theme#key()} the loader's table was built for. */
+    private static volatile String loaderKey;
     private static Context appContext;
 
     private ArsoundTheme() {
     }
 
+    /** The themes to choose from, the runtime ones in their present colours; Monet is left out where it cannot be made. */
     public static List<Theme> all(Context context) {
+        List<Theme> result = new ArrayList<>();
+        for (Theme theme : seeds(context)) {
+            if (theme.runtime == null) {
+                result.add(theme);
+                continue;
+            }
+            Theme resolved = RuntimeThemes.resolve(context.getResources(), theme);
+            if (resolved != null) result.add(resolved);
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    private static List<Theme> seeds(Context context) {
         List<Theme> result = themes;
         if (result != null) return result;
         result = new ArrayList<>();
@@ -141,6 +202,12 @@ public final class ArsoundTheme {
         }
         themes = result = Collections.unmodifiableList(result);
         return result;
+    }
+
+    /** A theme as themes.json has it (a runtime theme with its neutral seed colours). */
+    static Theme seed(Context context, String id) {
+        for (Theme theme : seeds(context)) if (theme.id.equals(id)) return theme;
+        throw new IllegalArgumentException("No theme " + id);
     }
 
     /**
@@ -227,6 +294,9 @@ public final class ArsoundTheme {
      * Call from {@code attachBaseContext}, after the super call: the activity then reads night resources.
      */
     public static void forceDark(Activity activity, Context base) {
+        // A light theme chosen by the user is light on Arsound's screens too.
+        Theme theme = appContext == null ? null : currentTheme(appContext);
+        if (theme != null && theme.lightOnly) return;
         android.content.res.Configuration override = new android.content.res.Configuration();
         int mode = base.getResources().getConfiguration().uiMode;
         override.uiMode = (mode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
@@ -306,9 +376,26 @@ public final class ArsoundTheme {
     }
 
     private static Theme currentTheme(Context context) {
+        return currentTheme(context, context.getResources());
+    }
+
+    /** @param resources Where a runtime theme reads the system palette, the newest the caller has. */
+    private static Theme currentTheme(Context context, Resources resources) {
         String id = current();
-        for (Theme theme : all(context)) if (theme.id.equals(id)) return theme;
+        for (Theme theme : seeds(context)) {
+            if (!theme.id.equals(id)) continue;
+            return theme.runtime == null ? theme : RuntimeThemes.resolve(resources, theme);
+        }
         return null;
+    }
+
+    /**
+     * Tells when the chosen theme's colours change: the id for the shipped themes, more for the ones made on the
+     * phone. For screens that draw with the palette and must be drawn again when it changes.
+     */
+    public static String paletteKey(Context context) {
+        Theme theme = currentTheme(context);
+        return theme == null ? SOUNDCLOUD : theme.key();
     }
 
     /**
@@ -367,6 +454,7 @@ public final class ArsoundTheme {
             public void onActivityPreCreated(Activity activity, Bundle savedInstanceState) {
                 try {
                     apply(activity.getResources());
+                    appliedKeys.put(activity, loaderKey);
                 } catch (Throwable ex) {
                     Logger.printException(() -> "Theme: could not apply to " + activity, ex);
                 }
@@ -382,6 +470,7 @@ public final class ArsoundTheme {
 
             @Override
             public void onActivityResumed(Activity activity) {
+                refreshIfStale(activity);
                 ThemeBackdrop.onActivityResumed(activity);
             }
 
@@ -404,58 +493,96 @@ public final class ArsoundTheme {
     }
 
     /**
-     * Keeps the app dark for a dark-only theme, through Android's own per-app dark mode (Android 12 and later):
-     * every screen, the status bar and SoundCloud's night resources then follow it. Android remembers the mode,
-     * so it is given back to the phone's setting once, when another theme is chosen.
+     * Keeps the app dark for a dark-only theme (or light for a light-only one), through Android's own per-app dark
+     * mode (Android 12 and later): every screen, the status bar and SoundCloud's night resources then follow it.
+     * Android remembers the mode, so it is given back to the phone's setting once, when another theme is chosen.
      */
     private static void applyNightMode(Context context, Theme theme) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
-        boolean dark = theme != null && theme.darkOnly;
-        boolean forced = !Settings.getString(FORCED_NIGHT_KEY, "").isEmpty();
-        if (dark == forced) return;
+        String wanted = theme == null ? "" : theme.darkOnly ? "yes" : theme.lightOnly ? "no" : "";
+        if (wanted.equals(Settings.getString(FORCED_NIGHT_KEY, ""))) return;
         android.app.UiModeManager modes = context.getSystemService(android.app.UiModeManager.class);
         if (modes == null) return;
-        modes.setApplicationNightMode(dark ? android.app.UiModeManager.MODE_NIGHT_YES : android.app.UiModeManager.MODE_NIGHT_AUTO);
-        Settings.putString(FORCED_NIGHT_KEY, dark ? "yes" : "");
+        modes.setApplicationNightMode("yes".equals(wanted) ? android.app.UiModeManager.MODE_NIGHT_YES
+                : "no".equals(wanted) ? android.app.UiModeManager.MODE_NIGHT_NO : android.app.UiModeManager.MODE_NIGHT_AUTO);
+        Settings.putString(FORCED_NIGHT_KEY, wanted);
     }
 
     /** How often the build of a theme is tried in one process; a failure that stays would be repeated for every screen. */
     private static final int MAX_BUILD_ATTEMPTS = 2;
-    private static String failedTheme;
+    private static String failedKey;
     private static int failedBuilds;
 
-    /** Adds the loader of the chosen theme to these resources; nothing for the original look. */
+    /** The theme each live activity was given at its start, to tell one that missed a change of the palette. */
+    private static final java.util.Map<Activity, String> appliedKeys =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+    /** The palette an activity was last recreated for, so a change is followed once and never in a loop. */
+    private static String recreatedFor;
+
+    /**
+     * Adds the loader of the chosen theme to these resources; nothing for the original look. When the theme's colours
+     * changed since the table was built (the wallpaper changed Monet's palette), the table is built again and put
+     * into the same loader, which updates every screen that already has it.
+     */
     private static synchronized void apply(Resources resources) throws Exception {
-        Theme theme = currentTheme(appContext);
+        Theme theme = currentTheme(appContext, resources);
         if (theme == null) return;
-        if (loader == null || !theme.id.equals(loaderTheme)) {
+        if (loader == null || !theme.key().equals(loaderKey)) {
             // Each try is work on the main thread that gives no theme anyway; a later start tries again.
-            if (theme.id.equals(failedTheme) && failedBuilds >= MAX_BUILD_ATTEMPTS) return;
-            ResourcesLoader created = new ResourcesLoader();
+            if (theme.key().equals(failedKey) && failedBuilds >= MAX_BUILD_ATTEMPTS) return;
+            ResourcesProvider provider;
             try {
-                created.addProvider(provider(theme));
+                provider = provider(theme);
             } catch (Throwable ex) {
-                failedBuilds = theme.id.equals(failedTheme) ? failedBuilds + 1 : 1;
-                failedTheme = theme.id;
+                failedBuilds = theme.key().equals(failedKey) ? failedBuilds + 1 : 1;
+                failedKey = theme.key();
                 throw ex;
             }
-            failedTheme = null;
+            failedKey = null;
             failedBuilds = 0;
-            loader = created;
-            loaderTheme = theme.id;
+            if (loader == null) {
+                loader = new ResourcesLoader();
+                loader.addProvider(provider);
+            } else {
+                loader.setProviders(Collections.singletonList(provider));
+            }
+            loaderKey = theme.key();
         }
         // Adding a loader that is already there changes nothing.
         resources.addLoaders(loader);
     }
 
+    /**
+     * A screen that came back after the wallpaper changed Monet's colours without being recreated by the system:
+     * the table is brought up to date (for every screen) and this one is recreated once to draw with it.
+     */
+    private static void refreshIfStale(Activity activity) {
+        try {
+            Theme theme = currentTheme(appContext, activity.getResources());
+            if (theme == null || theme.runtime == null) return;
+            String applied = appliedKeys.get(activity);
+            if (applied == null || applied.equals(theme.key()) || theme.key().equals(recreatedFor)) return;
+            recreatedFor = theme.key();
+            apply(activity.getResources());
+            appliedKeys.put(activity, loaderKey);
+            activity.recreate();
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not follow the new palette", ex);
+        }
+    }
+
     private static ResourcesProvider provider(Theme theme) throws Exception {
         Context context = appContext;
-        File file = new File(context.getCacheDir(), "arsound-theme-" + theme.id + ".arsc");
+        // The colours of a runtime theme are part of the file name: the table of the old colours may still be
+        // mapped by the screens that were drawn with it, and rewriting a mapped file in place could crash them.
+        String suffix = theme.runtime == null ? "" : "-" + Integer.toHexString(theme.key().hashCode());
+        File file = new File(context.getCacheDir(), "arsound-theme-" + theme.id + suffix + ".arsc");
         // The resource table and the files it names are the same until the app is updated (or the player skin is
         // switched), so they are built once, not at every cold start. The stamp is written last: a build that
         // stopped half way leaves no stamp, and its files are not trusted.
         File stamp = new File(context.getFilesDir(), ASSETS + "theme/" + theme.id + ".stamp");
         String key = cacheKey(context);
+        if (key != null && theme.runtime != null) key += "/" + theme.key();
         if (key != null && file.isFile() && key.equals(readText(stamp))) {
             try {
                 return load(context, file);
@@ -466,6 +593,7 @@ public final class ArsoundTheme {
         }
         stamp.delete();
         build(context, theme, file);
+        if (theme.runtime != null) removeOldTables(context, theme, file);
         if (key != null) {
             try {
                 write(stamp, key.getBytes("UTF-8"));
@@ -474,6 +602,16 @@ public final class ArsoundTheme {
             }
         }
         return load(context, file);
+    }
+
+    /** Deletes the tables of the earlier colours of a runtime theme; a screen that still maps one keeps working. */
+    private static void removeOldTables(Context context, Theme theme, File current) {
+        File[] files = context.getCacheDir().listFiles();
+        if (files == null) return;
+        String prefix = "arsound-theme-" + theme.id + "-";
+        for (File file : files) {
+            if (file.getName().startsWith(prefix) && file.getName().endsWith(".arsc") && !file.equals(current)) file.delete();
+        }
     }
 
     /** What the built files depend on: the installed app (the themes ship inside it) and the player skin switch. */
@@ -524,10 +662,12 @@ public final class ArsoundTheme {
         // theme patch as arsound_<theme>__<name> and listed in theme-resources.json, stands in for SoundCloud's.
         // Files whose name starts with "arsound_" are the theme's additions, used by its other files.
         JSONArray replaced = null;
+        JSONArray runtimeColors = null;
         java.util.Set<String> switchedOff = new java.util.HashSet<>();
         try (InputStream input = context.getAssets().open(ASSETS + "theme-resources.json")) {
             JSONObject index = new JSONObject(new String(readAll(input), "UTF-8"));
             replaced = index.optJSONArray(theme.id);
+            runtimeColors = index.optJSONArray("_runtimeColors");
             // Parts switched on in the settings ("_optional": part -> its resources) stay out while off.
             JSONObject optional = index.optJSONObject("_optional");
             JSONArray playerSkin = optional == null ? null : optional.optJSONArray(PLAYER_SKIN_PART);
@@ -536,6 +676,19 @@ public final class ArsoundTheme {
             }
         } catch (Exception ex) {
             Logger.printException(() -> "Theme: could not read the theme resources", ex);
+        }
+        // The files of a runtime theme name colour resources of the app (arsound_rt_*) instead of holding colours; they
+        // get the theme's tokens here, in the day and the night value.
+        if (theme.runtime != null && runtimeColors != null) {
+            for (int i = 0; i < runtimeColors.length(); i++) {
+                JSONArray entry = runtimeColors.optJSONArray(i);
+                if (entry == null) continue;
+                String token = entry.optString(1);
+                int percent = entry.optInt(2, -1);
+                boolean dark = entry.optBoolean(3);
+                ids.color(table, entry.optString(0), theme.runtimeColor(false, token, percent, dark),
+                        theme.runtimeColor(true, token, percent, dark));
+            }
         }
         if (replaced != null) {
             for (int i = 0; i < replaced.length(); i++) {
@@ -568,9 +721,10 @@ public final class ArsoundTheme {
         }
 
         // The loading animation: the drawing letter in the accent.
+        Originals originals = new Originals(context);
         int animation = resources.getIdentifier("loading_animation", "raw", packageName);
         if (animation != 0) {
-            byte[] original = readAll(resources.openRawResource(animation));
+            byte[] original = originals.loadingAnimation(resources, animation);
             String day = "arsound/theme/" + theme.id + "-loading.json";
             String night = "arsound/theme/" + theme.id + "-loading-night.json";
             write(new File(context.getFilesDir(), day), tintLottie(original, theme.accent(false)));
@@ -591,8 +745,8 @@ public final class ArsoundTheme {
                 continue;
             }
             try {
-                tintPicture(context, table, theme, narrow, picture, name, false);
-                if (!sameFile(narrow, wide, picture)) tintPicture(context, table, theme, wide, picture, name, true);
+                tintPicture(context, table, theme, originals, narrow, picture, name, false);
+                if (!sameFile(narrow, wide, picture)) tintPicture(context, table, theme, originals, wide, picture, name, true);
             } catch (Exception ex) {
                 Logger.printException(() -> "Theme: could not recolour " + name, ex);
             }
@@ -602,10 +756,12 @@ public final class ArsoundTheme {
     }
 
     /** One picture behind a page title in the accent of day and night, for a narrow or a wide screen. */
-    private static void tintPicture(Context context, ArscWriter table, Theme theme, Resources source, int picture,
-                                    String name, boolean wide) throws Exception {
-        byte[] day = HeaderArtwork.tint(source, picture, theme.accent(false));
-        byte[] night = HeaderArtwork.tint(source, picture, theme.accent(true));
+    private static void tintPicture(Context context, ArscWriter table, Theme theme, Originals originals,
+                                    Resources source, int picture, String name, boolean wide) throws Exception {
+        byte[] original = originals.picture(source, picture, name, wide);
+        if (original == null) return;
+        byte[] day = HeaderArtwork.tint(original, theme.accent(false));
+        byte[] night = HeaderArtwork.tint(original, theme.accent(true));
         if (day == null || night == null) return;
         // A path under res/, as for the fonts; the provider below reads it from the files folder.
         String base = "arsound/theme/" + theme.id + "-" + name + (wide ? "-wide" : "");
@@ -650,6 +806,68 @@ public final class ArsoundTheme {
                     }
                 }
             });
+        }
+    }
+
+    /**
+     * The pictures a theme recolours (the loading animation, the hearts behind page titles) as the app ships them.
+     * Once a loader is attached, every read of those resources gives the recoloured copy of the theme that is on, and
+     * tinting that again would darken it. So the first build of an app version, which runs before any loader exists in
+     * the process, keeps the originals in files, and a later build in the same process (the palette of Monet changed)
+     * tints those.
+     */
+    private static final class Originals {
+        private final File dir;
+        /** True while no loader was added in this process: the resources still show the app's own files. */
+        private final boolean pristine = loader == null;
+
+        Originals(Context context) {
+            long installed = 0;
+            try {
+                installed = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).lastUpdateTime;
+            } catch (Exception ex) {
+                Logger.printException(() -> "Theme: could not read when the app was installed", ex);
+            }
+            File parent = new File(context.getFilesDir(), ASSETS + "theme");
+            dir = new File(parent, "orig-" + installed);
+            // The copies of an older version of the app are no use.
+            File[] others = parent.listFiles((folder, name) -> name.startsWith("orig-") && !name.equals(dir.getName()));
+            if (others != null) {
+                for (File other : others) {
+                    File[] files = other.listFiles();
+                    if (files != null) for (File file : files) file.delete();
+                    other.delete();
+                }
+            }
+        }
+
+        byte[] loadingAnimation(Resources resources, int animation) throws Exception {
+            File file = new File(dir, "loading_animation.json");
+            if (file.isFile()) return readAll(new FileInputStream(file));
+            byte[] bytes = readAll(resources.openRawResource(animation));
+            keep(file, bytes);
+            return bytes;
+        }
+
+        /** The picture as PNG bytes, for a narrow or a wide screen; null if it could not be read. */
+        byte[] picture(Resources source, int picture, String name, boolean wide) throws Exception {
+            File file = new File(dir, name + (wide ? "-wide" : "") + ".png");
+            if (file.isFile()) return readAll(new FileInputStream(file));
+            byte[] bytes = HeaderArtwork.original(source, picture);
+            if (bytes != null) keep(file, bytes);
+            return bytes;
+        }
+
+        private void keep(File file, byte[] bytes) {
+            if (!pristine) {
+                Logger.printInfo(() -> "Theme: no kept original of " + file.getName() + ", reading it from the themed app");
+                return;
+            }
+            try {
+                write(file, bytes);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Theme: could not keep the original " + file.getName(), ex);
+            }
         }
     }
 

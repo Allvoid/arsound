@@ -159,6 +159,12 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).apply();
     }
 
+    /** Written to the disk before it returns, for a value the app restarts right after. */
+    public static void putStringNow(String key, String value) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences != null) preferences.edit().putString(key, value).commit();
+    }
+
     public static boolean getBoolean(String key, boolean defaultValue) {
         SharedPreferences preferences = getPreferences();
         return preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
@@ -328,6 +334,9 @@ public final class Settings {
         SharedPreferences preferences = getPreferences();
         return preferences == null || preferences.getBoolean(THEME_EFFECTS, true);
     }
+
+    /** The colours of the "Custom theme" as JSON (theme/CustomTheme); empty until the user saves some. */
+    public static final String CUSTOM_THEME = "arsound_custom_theme";
 
     public static final String HIDE_HEADER_ARTWORK = "hide_header_artwork";
 

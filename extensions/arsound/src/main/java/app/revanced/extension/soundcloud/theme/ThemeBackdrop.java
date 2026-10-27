@@ -88,8 +88,9 @@ public final class ThemeBackdrop {
             if (content == null) return;
             View existing = content.findViewWithTag(TAG);
             // The settings may have changed while another screen was open; the key tells whether to rebuild.
+            // The palette is part of the key: the effect is drawn in the accent, which a runtime theme can change.
             String key = Settings.isThemeEffectsEnabled() + "/" + ArsoundTheme.effect(activity) + "/" + density()
-                    + "/" + ArsoundTheme.isNight(activity);
+                    + "/" + ArsoundTheme.isNight(activity) + "/" + ArsoundTheme.paletteKey(activity);
             if (existing != null) {
                 if (key.equals(existing.getTag(TAG.hashCode()))) {
                     // Android's animations may have been switched while another app was open.
