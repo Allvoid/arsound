@@ -863,6 +863,17 @@ public final class ReVancedSettingsActivity extends Activity {
         trackColors.setVisibility(ArsoundTheme.isPlayerSkinEnabled() ? View.VISIBLE : View.GONE);
         list.addView(trackColors);
         list.addView(createToggleRow(
+                text("Плавное сворачивание плеера", "Smooth player collapse"),
+                text("Плеер сворачивается и раскрывается без рывков: пока он движется, Arsound не перерисовывает "
+                                + "обложку зря и ставит анимацию темы на паузу. Если что-то выглядит не так, "
+                                + "выключите: плеер станет таким, как в SoundCloud. Действует со следующего движения плеера.",
+                        "The player collapses and opens without stutter: while it moves, Arsound does not redraw the "
+                                + "artwork needlessly and pauses the theme animation. If something looks wrong, turn it "
+                                + "off: the player goes back to SoundCloud's own behaviour. Applies from the next move of the player."),
+                Settings.isSmoothPlayerCollapseEnabled(),
+                (button, checked) -> Settings.putBoolean(Settings.SMOOTH_PLAYER_COLLAPSE, checked)
+        ));
+        list.addView(createToggleRow(
                 text("Без картинки в шапке «Ваши лайки»", "No picture at the top of \"Your likes\""),
                 text("Убирает сердца за заголовком «Ваши лайки» и карточки за заголовком покупок: остаётся фон темы. "
                                 + "Выключено — картинка в цвете темы. Открытая страница меняется, когда её откроют снова.",

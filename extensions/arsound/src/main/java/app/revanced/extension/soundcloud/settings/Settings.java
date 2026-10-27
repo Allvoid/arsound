@@ -340,6 +340,17 @@ public final class Settings {
     /** How many particles the theme animation draws, in percent of the design. */
     public static final String THEME_EFFECTS_DENSITY = "theme_effects_density";
 
+    public static final String SMOOTH_PLAYER_COLLAPSE = "smooth_player_collapse";
+
+    /**
+     * Keeps the player from doing needless work while it is pulled up and down, so it does not stutter on the way
+     * down. Off puts SoundCloud's own behaviour back. On by default.
+     */
+    public static boolean isSmoothPlayerCollapseEnabled() {
+        SharedPreferences preferences = getPreferences();
+        return preferences == null || preferences.getBoolean(SMOOTH_PLAYER_COLLAPSE, true);
+    }
+
     public static final String DUPLICATE_FILTER = "duplicate_filter";
     public static final String MERGE_EDITED_VERSIONS = "merge_edited_versions";
 

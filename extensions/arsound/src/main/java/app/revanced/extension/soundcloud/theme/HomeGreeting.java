@@ -6,6 +6,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
@@ -19,6 +20,7 @@ import org.json.JSONObject;
 import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.player.PlayerSheet;
 
 /**
  * The greeting at the top of the home screen ("ПРИВЕТ, ALLVOID / Что послушаем?") of a theme that puts it
@@ -32,22 +34,30 @@ public final class HomeGreeting extends LinearLayout {
         return "ru".equals(Locale.getDefault().getLanguage());
     }
     private static final long FOLD_MS = 220;
+    /** The shortest time between two looks at the list. */
+    private static final long CHECK_EVERY_MS = 100;
 
     private int fullHeight = -1;
     private boolean folded;
     private ValueAnimator animator;
     private boolean checkPosted;
+    private long checkedAt;
     /**
      * The home list scrolls without telling the window (its sections are drawn by Compose), so the greeting
-     * looks at it after each frame.
+     * looks at it after the frames. With the smooth player collapse on, not after every one: the walk through
+     * the list is made at most every {@link #CHECK_EVERY_MS}, a little later when a frame came too soon, so the
+     * last position is always seen. And not at all while the player slides: the list does not move then.
      */
     private final ViewTreeObserver.OnDrawListener drawListener = () -> {
-        if (checkPosted) return;
+        if (checkPosted || PlayerSheet.isBusy()) return;
         checkPosted = true;
-        post(() -> {
+        long wait = PlayerSheet.isSmoothEnabled()
+                ? Math.max(0, checkedAt + CHECK_EVERY_MS - SystemClock.uptimeMillis()) : 0;
+        postDelayed(() -> {
             checkPosted = false;
+            checkedAt = SystemClock.uptimeMillis();
             onScroll();
-        });
+        }, wait);
     };
 
     public HomeGreeting(Context context) {
