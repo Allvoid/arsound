@@ -159,6 +159,12 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).apply();
     }
 
+    /** Written to the disk before it returns, for a value the app restarts right after. */
+    public static void putStringNow(String key, String value) {
+        SharedPreferences preferences = getPreferences();
+        if (preferences != null) preferences.edit().putString(key, value).commit();
+    }
+
     public static boolean getBoolean(String key, boolean defaultValue) {
         SharedPreferences preferences = getPreferences();
         return preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
@@ -345,6 +351,22 @@ public final class Settings {
         SharedPreferences preferences = getPreferences();
         return preferences == null || preferences.getBoolean(THEME_EFFECTS, true);
     }
+
+    /** The colours of the "Custom theme" as JSON (theme/CustomTheme); empty until the user saves some. */
+    public static final String CUSTOM_THEME = "arsound_custom_theme";
+
+    /** The wallpaper behind Arsound's screens and the top of the home screen (wallpaper/WallpaperStore). On once one is chosen. */
+    public static final String WALLPAPER_ENABLED = "arsound_wallpaper_enabled";
+    /** How much of the theme's surface colour lies over the wallpaper, in percent. */
+    public static final String WALLPAPER_DIM = "arsound_wallpaper_dim";
+    /** How much the wallpaper is blurred, in percent. */
+    public static final String WALLPAPER_BLUR = "arsound_wallpaper_blur";
+    /** The user's Wallhaven API key. Optional; only read to be sent as a header, never logged, never put into an address. */
+    public static final String WALLHAVEN_KEY = "arsound_wallhaven_key";
+    /** Offers sketchy and NSFW wallpapers in the Wallhaven browser. Works only with a key; off by default. */
+    public static final String WALLHAVEN_ADULT = "arsound_wallhaven_adult";
+    /** The last search of the Wallhaven browser as JSON (wallpaper/Wallhaven.Query), so it opens where it was left. */
+    public static final String WALLHAVEN_LAST = "arsound_wallhaven_last";
 
     public static final String HIDE_HEADER_ARTWORK = "hide_header_artwork";
 

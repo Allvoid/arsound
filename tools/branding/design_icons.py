@@ -138,6 +138,8 @@ def items():
     themes = json.loads(THEMES.read_text(encoding="utf-8"))["themes"]
     result = []
     for theme in themes:
+        if "runtime" in theme:
+            continue  # its colours are made on the phone ("monet", "custom"), so it has no launcher icons of its own
         group, group_en = GROUPS.get(theme["id"], (theme["name"]["ru"], theme["name"]["en"]))
         for design, (name, name_en) in DESIGNS.items():
             result.append({"id": f"d_{design}_{theme['id']}", "name": name, "nameEn": name_en,

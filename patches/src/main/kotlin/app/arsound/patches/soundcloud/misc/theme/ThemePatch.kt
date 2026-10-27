@@ -140,6 +140,13 @@ private const val SHORTCUT_SCRIM = 0xb3000000L
 
 private class ThemeColors(val id: String, val darkSurface: String, val darkAccent: String)
 
+/**
+ * The start screen colours of Monet follow the wallpaper: Android reads framework colour references in a style when
+ * the screen is shown, so they are the system palette's tones, not fixed colours.
+ */
+private const val MONET_SURFACE = "@android:color/system_neutral1_900"
+private const val MONET_ACCENT = "@android:color/system_accent1_200"
+
 private fun resource(path: String) = object {}.javaClass.classLoader.getResourceAsStream("$THEME_RESOURCES/$path")
     ?: error("Missing theme resource $path")
 
@@ -150,10 +157,9 @@ private fun androidColor(hex: String) = if (hex.length == 9) "#" + hex.substring
 private fun readThemes(json: String): List<ThemeColors> = json.split("\"id\":").drop(1).map { block ->
     fun color(mode: String, role: String) = Regex("\"$mode\":\\s*\\{[^}]*\"$role\":\\s*\"(#[0-9A-Fa-f]+)\"")
         .find(block)?.groupValues?.get(1) ?: error("No $mode $role in themes.json")
-    ThemeColors(
-        Regex("\"(\\w+)\"").find(block)!!.groupValues[1],
-        color("dark", "surface"), color("dark", "special"),
-    )
+    val id = Regex("\"(\\w+)\"").find(block)!!.groupValues[1]
+    if (runtimeOf(block) == "monet") ThemeColors(id, MONET_SURFACE, MONET_ACCENT)
+    else ThemeColors(id, color("dark", "surface"), color("dark", "special"))
 }
 
 /**
@@ -165,7 +171,32 @@ private class ThemeDesign(
     val tokens: Map<String, String>,
     val tokensLight: Map<String, String>,
     val parts: List<String>,
+    /**
+     * Set for a theme whose colours are made on the phone ("monet", "custom"): its tokens are only a seed. Its files
+     * name colour resources (@color/arsound_rt_*) instead of holding the colours, and the app fills those in.
+     */
+    val runtime: String? = null,
 )
+
+/** The glyph on an accent button. A shipped theme may give it; without one it is white, as SoundCloud draws it. */
+private const val ON_ACCENT = "onAccent"
+private const val ON_ACCENT_DEFAULT = "#FFFFFF"
+
+private fun runtimeOf(block: String): String? = Regex("\"runtime\":\\s*\"(\\w+)\"").find(block)?.groupValues?.get(1)
+
+/**
+ * A colour of a runtime theme that the app sets when it builds the theme's resource table: the resource the files
+ * name, the token it comes from, the opacity in percent (null: the token's own) and whether it keeps the dark look in
+ * both modes (the files marked arsound:one-look).
+ */
+private class RuntimeColor(val name: String, val token: String, val alpha: Int?, val dark: Boolean)
+
+/** A token's colour as Android's #aarrggbb, with the opacity in percent in place of its own when given. */
+private fun tokenColor(tokens: Map<String, String>, name: String, alpha: Int?, file: String): String {
+    val hex = tokens[name] ?: if (name == ON_ACCENT) ON_ACCENT_DEFAULT else error("No token \"$name\" used by $file")
+    val color = androidColor(hex).removePrefix("#").let { if (it.length == 6) "FF$it" else it }
+    return if (alpha == null) "#$color" else "#%02X%s".format(Math.round(alpha * 2.55f), color.substring(2))
+}
 
 private fun tokenMap(block: String, key: String): Map<String, String> {
     val body = Regex("\"$key\":\\s*\\{([^}]*)\\}").find(block)?.groupValues?.get(1).orEmpty()
@@ -180,21 +211,34 @@ private fun readThemeDesigns(json: String): List<ThemeDesign> = json.split("\"id
         tokenMap(block, "tokens"),
         tokenMap(block, "tokensLight"),
         Regex("\"(\\w+)\"").findAll(parts).map { it.groupValues[1] }.toList(),
+        runtimeOf(block),
     )
 }
 
 /**
  * A part's or a theme's file with the theme filled in: ${theme} is the theme id, ${token} a colour of the theme's
  * tokens as Android's #aarrggbb, ${token@NN} the same colour with NN % opacity.
+ *
+ * For a runtime theme the colour is not known yet: the file names a colour resource of the app instead
+ * (@color/arsound_rt_accent_30), collected in [runtimeColors], and the app puts the real colour into its resource
+ * table when it builds the theme. A file marked arsound:one-look names the dark colours, which the other files get in
+ * the night folder only; the colour of the glyph on the accent follows the mode like the accent does.
  */
-private fun render(text: String, design: ThemeDesign, tokens: Map<String, String>, file: String): String =
+private fun render(
+    text: String, design: ThemeDesign, tokens: Map<String, String>, file: String,
+    runtimeColors: MutableMap<String, RuntimeColor>,
+): String =
     Regex("\\$\\{(\\w+)(?:@(\\d{1,3}))?\\}").replace(text) { match ->
         val name = match.groupValues[1]
         if (name == "theme") return@replace design.id
-        val hex = tokens[name] ?: error("Theme ${design.id} has no token \"$name\" used by $file")
-        val color = androidColor(hex).removePrefix("#").let { if (it.length == 6) "FF$it" else it }
-        val alpha = match.groupValues[2]
-        if (alpha.isEmpty()) "#$color" else "#%02X%s".format(Math.round(alpha.toInt() * 2.55f), color.substring(2))
+        val alpha = match.groupValues[2].takeIf { it.isNotEmpty() }?.toInt()
+        if (design.runtime == null) return@replace tokenColor(tokens, name, alpha, "$file of theme ${design.id}")
+        if (name != ON_ACCENT && name !in design.tokens) error("Theme ${design.id} has no token \"$name\" used by $file")
+        val dark = name != ON_ACCENT && text.contains("arsound:one-look")
+        val resource = "arsound_rt_" + (if (dark) "dark_" else "") +
+            name.replace(Regex("[A-Z]")) { "_" + it.value.lowercase() } + (alpha?.let { "_$it" } ?: "")
+        runtimeColors[resource] = RuntimeColor(resource, name, alpha, dark)
+        "@color/$resource"
     }
 
 /**
@@ -220,6 +264,8 @@ private val themeResourcesPatch = resourcePatch {
         // files (overrides/<theme>/<type>/<name>.xml) go to res/<type>/arsound_<theme>__<name>.xml. The app points
         // SoundCloud's resource of that name at them; names starting with arsound_ are additions used by other files.
         val index = resource("index.txt").use { String(it.readBytes()) }.lines().filter { it.endsWith(".xml") }
+        val designs = readThemeDesigns(String(json))
+        val runtimeColors = sortedMapOf<String, RuntimeColor>()
         val replaced = StringBuilder("{")
         // The resources of the parts the user switches on in the settings: the app leaves them out while off.
         val optional = OPTIONAL_PARTS.associateWith { part ->
@@ -231,7 +277,7 @@ private val themeResourcesPatch = resourcePatch {
         replaced.append("\n  \"_optional\": {")
             .append(optional.entries.joinToString(", ") { (part, names) -> "\"$part\": [${names.joinToString(", ")}]" })
             .append("}")
-        for (design in readThemeDesigns(String(json))) {
+        for (design in designs) {
             // The theme's own files come last, so they win over a part's file of the same name.
             val files = index.filter { path -> design.parts.any { path.startsWith("parts/$it/") } } +
                 index.filter { path -> path.startsWith("overrides/${design.id}/") }
@@ -244,12 +290,13 @@ private val themeResourcesPatch = resourcePatch {
                 val text = resource(path).use { String(it.readBytes()) }
                 fun write(folder: String, tokens: Map<String, String>) =
                     get("res").resolve(folder).apply { mkdirs() }.resolve("arsound_${design.id}__$name.xml")
-                        .writeText(render(text, design, tokens, path))
+                        .writeText(render(text, design, tokens, path, runtimeColors))
                 // A theme with a light look gets each coloured file twice: light in res/<type>, dark in
                 // res/<type>-night, and Android picks the one of the phone's mode. A file marked arsound:one-look
-                // (the player, dark in every mode) keeps the dark colours.
+                // (the player, dark in every mode) keeps the dark colours. A runtime theme needs one file: its
+                // colour resources have the day and the night value (see render).
                 val coloured = Regex("\\$\\{(?!theme\\})\\w+").containsMatchIn(text)
-                if (design.tokensLight.isNotEmpty() && coloured && !text.contains("arsound:one-look")) {
+                if (design.runtime == null && design.tokensLight.isNotEmpty() && coloured && !text.contains("arsound:one-look")) {
                     write(type, design.tokensLight)
                     write("$type-night", design.tokens)
                 } else {
@@ -259,6 +306,21 @@ private val themeResourcesPatch = resourcePatch {
             }
             if (replaced.length > 1) replaced.append(",")
             replaced.append("\n  \"${design.id}\": [${names.distinct().joinToString(", ")}]")
+        }
+        // The colours of the runtime themes: [resource, token, opacity in percent or -1, dark in both modes]. The app
+        // fills them in for the chosen theme; the values written here are the seed theme's, for the case it cannot.
+        if (runtimeColors.isNotEmpty()) {
+            replaced.append(",\n  \"_runtimeColors\": [")
+                .append(runtimeColors.values.joinToString(", ") { "[\"${it.name}\", \"${it.token}\", ${it.alpha ?: -1}, ${it.dark}]" })
+                .append("]")
+            val seed = designs.first { it.runtime != null }
+            for ((folder, tokens) in listOf("values" to seed.tokensLight.ifEmpty { seed.tokens }, "values-night" to seed.tokens)) {
+                val colors = runtimeColors.values.joinToString("\n") {
+                    "    <color name=\"${it.name}\">${tokenColor(if (it.dark) seed.tokens else tokens, it.token, it.alpha, it.name)}</color>"
+                }
+                get("res").resolve(folder).apply { mkdirs() }.resolve("arsound_runtime_colors.xml")
+                    .writeText("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n$colors\n</resources>\n")
+            }
         }
         assets.resolve("theme-resources.json").writeText(replaced.append("\n}\n").toString())
 

@@ -26,9 +26,16 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadFolder;
 import app.revanced.extension.soundcloud.download.DownloadIndex;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
+import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.theme.CustomTheme;
+import app.revanced.extension.soundcloud.theme.PaletteEngine;
+import app.revanced.extension.soundcloud.theme.RuntimeThemes;
+import app.revanced.extension.soundcloud.theme.ThemeEffect;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
+import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * Settings screen of the ReVanced SoundCloud patches.
@@ -43,6 +50,7 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private static final String EXTRA_SCREEN = "arsound_screen";
     private static final String SCREEN_LOCAL_MUSIC = "local_music";
+    private static final String SCREEN_WALLHAVEN = "wallhaven";
     private static final int REQUEST_IMPORT = 1;
     /** Android's confirmation for removing downloaded files the app cannot remove by itself. */
     private static final int REQUEST_DELETE_DOWNLOADS = 2;
@@ -50,13 +58,15 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final int REQUEST_DOWNLOAD_FOLDER = 3;
 
     private LinearLayout localTrackList;
+    /** The Wallhaven browser while this activity shows it, so its downloads and threads end with the screen. */
+    private WallhavenScreen wallhavenScreen;
 
     /** Read each time: the app language can change while the app runs (the welcome switch). */
     private static boolean russian() {
         return "ru".equals(Locale.getDefault().getLanguage());
     }
 
-    private static String text(String russian, String english) {
+    static String text(String russian, String english) {
         return russian() ? russian : english;
     }
 
@@ -75,6 +85,7 @@ public final class ReVancedSettingsActivity extends Activity {
             String screen = getIntent().getStringExtra(EXTRA_SCREEN);
             View content = screen == null ? createContent()
                     : SCREEN_LOCAL_MUSIC.equals(screen) ? createLocalMusicContent()
+                    : SCREEN_WALLHAVEN.equals(screen) ? (wallhavenScreen = new WallhavenScreen(this)).create()
                     : createSection(screen);
             addThemeEffect(content);
             setContentView(content);
@@ -100,6 +111,7 @@ public final class ReVancedSettingsActivity extends Activity {
     private static final String SCREEN_APP_ICON = "app_icon";
     private static final String SCREEN_APPEARANCE = "appearance";
     private static final String SCREEN_STORAGE = "storage";
+    private static final String SCREEN_CUSTOM_THEME = "custom_theme";
 
     /** The chosen theme's animation behind the screen, over its background colour and glow. */
     private void addThemeEffect(View root) {
@@ -111,11 +123,17 @@ public final class ReVancedSettingsActivity extends Activity {
                 new android.graphics.drawable.Drawable[]{background, effect}));
     }
 
-    /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
-    private LinearLayout createScreen(LinearLayout[] listOut) {
+    /** The wallpaper if one is shown, else the theme's surface colour. */
+    private android.graphics.drawable.Drawable screenBackground() {
+        android.graphics.drawable.Drawable wallpaper = WallpaperStore.background(this);
+        return wallpaper != null ? wallpaper : new android.graphics.drawable.ColorDrawable(themeColor("themeColorSurface"));
+    }
+
+    /** The root of a screen: the background and room for the system bars. */
+    LinearLayout createRoot() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(themeColor("themeColorSurface"));
+        root.setBackground(screenBackground());
 
         // targetSdk 35+ draws activities edge to edge, so keep the content out of the system bars.
         root.setOnApplyWindowInsetsListener((view, insets) -> {
@@ -127,7 +145,12 @@ public final class ReVancedSettingsActivity extends Activity {
             );
             return insets.consumeSystemWindowInsets();
         });
+        return root;
+    }
 
+    /** A screen with the toolbar and a scrolling list. Returns the root; the list is the last child of the scroll view. */
+    private LinearLayout createScreen(LinearLayout[] listOut) {
+        LinearLayout root = createRoot();
         root.addView(createToolbar());
 
         ScrollView scrollView = new ScrollView(this);
@@ -223,10 +246,10 @@ public final class ReVancedSettingsActivity extends Activity {
         if (glow != 0) {
             android.graphics.drawable.GradientDrawable fade = new android.graphics.drawable.GradientDrawable(
                     android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{glow, themeColor("themeColorSurface")});
+                    // Over a wallpaper the glow fades into the picture, not into a slab of the surface colour.
+                    new int[]{glow, WallpaperStore.isActive() ? themeColor("themeColorSurface") & 0x00FFFFFF : themeColor("themeColorSurface")});
             android.graphics.drawable.LayerDrawable background = new android.graphics.drawable.LayerDrawable(
-                    new android.graphics.drawable.Drawable[]{
-                            new android.graphics.drawable.ColorDrawable(themeColor("themeColorSurface")), fade});
+                    new android.graphics.drawable.Drawable[]{screenBackground(), fade});
             background.setLayerHeight(1, dp(280));
             background.setLayerGravity(1, Gravity.TOP);
             root.setBackground(background);
@@ -291,8 +314,9 @@ public final class ReVancedSettingsActivity extends Activity {
 
     private static final String EXTRA_HIGHLIGHT = "arsound_highlight";
     /** Screens whose rows the search knows; the equalizer, the statistics and the icon grid are found by their section row. */
-    private static final String[] SEARCHED_SCREENS = {SCREEN_ACCOUNT, SCREEN_APPEARANCE, SCREEN_NETWORK, SCREEN_PLAYBACK,
-            SCREEN_ADS, SCREEN_RECOMMENDATIONS, SCREEN_MUSIC, SCREEN_STORAGE, SCREEN_PRIVACY, SCREEN_UPDATES, SCREEN_DEVELOPER};
+    private static final String[] SEARCHED_SCREENS = {SCREEN_ACCOUNT, SCREEN_APPEARANCE, SCREEN_CUSTOM_THEME, SCREEN_NETWORK,
+            SCREEN_PLAYBACK, SCREEN_ADS, SCREEN_RECOMMENDATIONS, SCREEN_MUSIC, SCREEN_STORAGE, SCREEN_PRIVACY, SCREEN_UPDATES,
+            SCREEN_DEVELOPER};
     private static final int MAX_RESULTS = 30;
     private static final int ANIMATED_RESULTS = 8;
 
@@ -763,6 +787,8 @@ public final class ReVancedSettingsActivity extends Activity {
                 return text("Оформление", "Appearance");
             case SCREEN_APP_ICON:
                 return text("Иконка приложения", "App icon");
+            case SCREEN_CUSTOM_THEME:
+                return text("Своя тема", "Custom theme");
             case SCREEN_ACCOUNT:
                 return text("Аккаунт", "Account");
             default:
@@ -809,6 +835,9 @@ public final class ReVancedSettingsActivity extends Activity {
             case SCREEN_APP_ICON:
                 addAppIconSection(list);
                 break;
+            case SCREEN_CUSTOM_THEME:
+                addCustomThemeSection(list);
+                break;
             case SCREEN_ACCOUNT:
                 addAccountSection(list);
                 break;
@@ -819,8 +848,16 @@ public final class ReVancedSettingsActivity extends Activity {
 
     /** Theme, app icon and language. */
     private void addAppearanceSection(LinearLayout list) {
+        // The theme picker is not a row of its own: the search finds it by the theme names, Monet's "Material You" and its colours.
+        StringBuilder themeNames = new StringBuilder("SoundCloud");
+        for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) themeNames.append(", ").append(theme.name());
+        recordForSearch(text("Тема", "Theme"), themeNames + text(", Material You, цвета обоев", ", Material You, wallpaper colours"));
         list.addView(createSubHeading(text("Тема", "Theme")));
         list.addView(createThemeDropdown());
+        list.addView(openScreenRow(text("Цвета своей темы", "Custom theme colours"),
+                text("Выберите акцент и фон, остальное подберётся само. Тема «Своя тема» из списка выше.",
+                        "Pick an accent and a background and the rest follows. This is the \"Custom theme\" of the list above."),
+                SCREEN_CUSTOM_THEME));
         list.addView(createToggleRow(
                 text("Анимация темы", "Theme animation"),
                 text("Лёгкий живой фон: искры у «Алого», звёзды у «Кобальта», светлячки у «Мяты», лепестки у «Сакуры», "
@@ -904,11 +941,252 @@ public final class ReVancedSettingsActivity extends Activity {
                 }
         ));
 
+        addWallpaperRows(list);
+
         list.addView(createSubHeading(text("Ещё", "More")));
         list.addView(openScreenRow(text("Иконка приложения", "App icon"),
                 text("Цвет и градиент значка на рабочем столе", "Colour and gradient of the home screen icon"),
                 SCREEN_APP_ICON));
         addLanguageRow(list);
+    }
+
+    /**
+     * The wallpaper: the switch, a small preview, the Wallhaven catalogue, the API key and the 18+ switch, the dim and
+     * the blur. The rows of a picture that is not chosen yet are built too (and hidden), so the settings search knows
+     * them; the screen is built again once a picture is chosen.
+     */
+    private void addWallpaperRows(LinearLayout list) {
+        // The search finds the whole group by these words, which the rows do not all say.
+        recordForSearch(text("Обои", "Wallpaper"), text("Фон приложения: картинка, Wallhaven, затемнение, размытие, ключ API, 18+",
+                "App background picture: Wallhaven, dim, blur, API key, 18+"));
+        list.addView(createSubHeading(text("Обои", "Wallpaper")));
+        boolean chosen = WallpaperStore.has();
+
+        list.addView(createToggleRow(
+                text("Показывать обои", "Show the wallpaper"),
+                text("Картинка за экранами Arsound и вверху главной. Остальные экраны SoundCloud закрашены своим фоном, "
+                                + "за ними обоев нет. С видом «SoundCloud» главная остаётся как есть.",
+                        "The picture behind Arsound's screens and the top of the home screen. SoundCloud's other screens paint "
+                                + "their own background, so the wallpaper is not behind them. With the \"SoundCloud\" look the home "
+                                + "screen stays as it is."),
+                WallpaperStore.isActive(),
+                (button, checked) -> {
+                    if (checked && !WallpaperStore.has()) {
+                        // Nothing to show yet.
+                        button.setChecked(false);
+                        Toast.makeText(this, text("Сначала выберите обои ниже", "Choose a wallpaper below first"),
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (Settings.getBoolean(Settings.WALLPAPER_ENABLED, false) == checked) return;
+                    Settings.putBoolean(Settings.WALLPAPER_ENABLED, checked);
+                    WallpaperStore.refresh();
+                    recreate();
+                }
+        ));
+
+        View preview = createWallpaperPreview();
+        preview.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(preview);
+
+        list.addView(createActionRow(
+                text("Обои Wallhaven", "Wallhaven wallpapers"),
+                text("Каталог wallhaven.cc: поиск, популярное, случайные. Нужен интернет.",
+                        "The wallhaven.cc catalogue: search, popular, random. Needs the internet."),
+                v -> startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
+                        .putExtra(EXTRA_SCREEN, SCREEN_WALLHAVEN))
+        ));
+
+        View adultRow = createToggleRow(
+                text("Показывать 18+", "Show 18+"),
+                text("Картинки Sketchy и NSFW в каталоге Wallhaven. Только с ключом и только для совершеннолетних.",
+                        "Sketchy and NSFW pictures in the Wallhaven catalogue. Only with a key, and only for adults."),
+                Settings.getBoolean(Settings.WALLHAVEN_ADULT, false),
+                (button, checked) -> {
+                    if (checked == Settings.getBoolean(Settings.WALLHAVEN_ADULT, false)) return;
+                    if (!checked) {
+                        Settings.putBoolean(Settings.WALLHAVEN_ADULT, false);
+                        return;
+                    }
+                    new ArsoundDialog(this)
+                            .setTitle(text("Вам есть 18 лет?", "Are you 18 or older?"))
+                            .setMessage(text("В каталоге появятся картинки Sketchy и NSFW. Они только для совершеннолетних.",
+                                    "Sketchy and NSFW pictures will appear in the catalogue. They are for adults only."))
+                            .setCancelable(false)
+                            .setNegativeButton(text("Мне нет 18", "I am under 18"), (dialog, which) -> button.setChecked(false))
+                            .setPositiveButton(text("Мне есть 18", "I am 18 or older"),
+                                    (dialog, which) -> Settings.putBoolean(Settings.WALLHAVEN_ADULT, true))
+                            .show();
+                });
+        TextView[] keyDescription = new TextView[1];
+        View keyRow = createActionRow(
+                text("API-ключ Wallhaven", "Wallhaven API key"),
+                wallhavenKeySummary(),
+                HelpBadge.create(this, createText("H4.Primary", "").getCurrentTextColor(),
+                        text("Зачем ключ Wallhaven", "What the Wallhaven key is for"),
+                        text("Ключ не обязателен: безопасные обои ищутся без него.",
+                                "The key is optional: safe wallpapers are found without it."),
+                        text("Он нужен только для картинок 18+. Ключ берётся на wallhaven.cc в настройках аккаунта.",
+                                "It is only needed for 18+ pictures. The key comes from your account settings on wallhaven.cc."),
+                        text("Ключ хранится только на этом телефоне и уходит только на wallhaven.cc в заголовке запроса. "
+                                        + "В журнал он не пишется.",
+                                "The key stays on this phone and goes only to wallhaven.cc in a request header. It is never logged.")),
+                v -> editWallhavenKey(keyDescription[0], adultRow));
+        keyDescription[0] = (TextView) ((ViewGroup) keyRow).getChildAt(1);
+        list.addView(keyRow);
+        adultRow.setVisibility(Wallhaven.key().isEmpty() ? View.GONE : View.VISIBLE);
+        list.addView(adultRow);
+
+        View dim = createSliderRow(text("Затемнение обоев", "Wallpaper dim"),
+                text("Сколько цвета темы лежит поверх картинки. Больше — текст читается лучше.",
+                        "How much of the theme's colour lies over the picture. More makes the text easier to read."),
+                95, WallpaperStore.dim(), value -> value + " %", value -> {
+                    WallpaperStore.setDim(value);
+                    // The pictures on this screen follow the dim live, so it must not rebuild itself for it when it is shown again.
+                    wallpaperStamp = WallpaperStore.stamp();
+                });
+        dim.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(dim);
+        View blur = createSliderRow(text("Размытие обоев", "Wallpaper blur"),
+                text("Мягче картинка — спокойнее фон. Применяется, когда отпустите ползунок.",
+                        "A softer picture makes a calmer background. Applies when you let go of the slider."),
+                100, WallpaperStore.blur(), value -> value + " %", value -> {
+                }, value -> {
+                    Settings.putLong(Settings.WALLPAPER_BLUR, value);
+                    Utils.runOnBackgroundThread(() -> {
+                        WallpaperStore.rebake(getApplicationContext());
+                        // This screen shows the new picture at once, so it must not rebuild itself for it.
+                        Utils.runOnMainThread(() -> wallpaperStamp = WallpaperStore.stamp());
+                    });
+                });
+        blur.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(blur);
+        View remove = createActionRow(text("Убрать обои", "Remove the wallpaper"),
+                text("Картинка удаляется с телефона, фон снова как у темы.",
+                        "The picture is deleted from the phone and the background is the theme's again."),
+                v -> new ArsoundDialog(this)
+                        .setTitle(text("Убрать обои?", "Remove the wallpaper?"))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
+                            WallpaperStore.remove();
+                            recreate();
+                        })
+                        .show());
+        remove.setVisibility(chosen ? View.VISIBLE : View.GONE);
+        list.addView(remove);
+    }
+
+    /** A strip with the wallpaper as it is drawn behind the screens, with a line of text on it to judge the dim by. */
+    private View createWallpaperPreview() {
+        FrameLayout strip = new FrameLayout(this);
+        android.graphics.drawable.Drawable picture = WallpaperStore.background(this);
+        strip.setBackground(picture != null ? picture
+                : new android.graphics.drawable.ColorDrawable(ArsoundTheme.palette(this, "highlight")));
+        float radius = dp(18);
+        strip.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+            }
+        });
+        strip.setClipToOutline(true);
+        TextView sample = createText("H4.Primary", text("Так выглядит текст на обоях", "This is how text looks on the wallpaper"));
+        sample.setGravity(Gravity.CENTER);
+        strip.addView(sample, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150));
+        params.leftMargin = params.rightMargin = dimen("spacing_m");
+        params.topMargin = dimen("spacing_s");
+        params.bottomMargin = dimen("spacing_s");
+        strip.setLayoutParams(params);
+        return strip;
+    }
+
+    private static String wallhavenKeySummary() {
+        return Wallhaven.key().isEmpty()
+                ? text("Не задан. Без ключа доступны только безопасные картинки.",
+                "Not set. Without a key only safe pictures are offered.")
+                : text("Задан. Хранится только на этом телефоне.", "Set. It stays on this phone only.");
+    }
+
+    /** The key field with a check button; the check asks the service and tells whether it knows the key. */
+    private void editWallhavenKey(TextView description, View adultRow) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setHint(text("Ключ из настроек аккаунта wallhaven.cc", "Key from your wallhaven.cc account settings"));
+        field.setText(Wallhaven.key());
+        // The keyboard must not learn or suggest the key.
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        form.addView(field);
+
+        TextView result = createText("Body.Secondary", "");
+        result.setTag(ArsoundDialog.KEEP_COLORS);
+        result.setTextColor(ArsoundTheme.palette(this, "secondary"));
+        result.setPadding(0, dp(10), 0, 0);
+        View check = createPillButton(text("Проверить ключ", "Check the key"), false, v -> {
+            String key = Wallhaven.clean(field.getText().toString());
+            result.setTextColor(ArsoundTheme.palette(this, "secondary"));
+            if (key.isEmpty()) {
+                result.setText(text("Сначала вставьте ключ.", "Paste the key first."));
+                return;
+            }
+            result.setText(text("Проверяю…", "Checking…"));
+            Utils.runOnBackgroundThread(() -> {
+                Wallhaven.KeyState state = Wallhaven.checkKey(key);
+                Utils.runOnMainThread(() -> {
+                    boolean valid = state == Wallhaven.KeyState.VALID;
+                    result.setTextColor(ArsoundTheme.palette(this, valid ? "special" : "error"));
+                    result.setText(valid ? text("Ключ принят.", "The key is accepted.")
+                            : state == Wallhaven.KeyState.INVALID
+                            ? text("Wallhaven не знает этот ключ (ошибка 401).", "Wallhaven does not know this key (error 401).")
+                            : text("Не удалось проверить: нет связи с Wallhaven.", "Could not check: no connection to Wallhaven."));
+                });
+            });
+        });
+        check.setTag(ArsoundDialog.KEEP_COLORS);
+        LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        checkParams.topMargin = dp(10);
+        checkParams.leftMargin = -dp(8);
+        form.addView(check, checkParams);
+        form.addView(result);
+
+        ArsoundDialog dialog = new ArsoundDialog(this)
+                .setTitle(text("API-ключ Wallhaven", "Wallhaven API key"))
+                .setView(form)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(text("Сохранить", "Save"), (d, which) -> {
+                    String typed = field.getText().toString().trim();
+                    String key = Wallhaven.clean(typed);
+                    if (!typed.isEmpty() && key.isEmpty()) {
+                        Toast.makeText(this, text("Это не похоже на ключ: только буквы и цифры",
+                                "That does not look like a key: letters and digits only"), Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    saveWallhavenKey(key, description, adultRow);
+                });
+        if (!Wallhaven.key().isEmpty()) {
+            dialog.setNeutralButton(text("Удалить ключ", "Remove the key"), (d, which) -> saveWallhavenKey("", description, adultRow));
+        }
+        android.app.Dialog shown = dialog.show();
+        if (shown.getWindow() != null) {
+            shown.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+    }
+
+    /** Keeps the key (an empty one removes it). Without a key there is no 18+ mode. */
+    private void saveWallhavenKey(String key, TextView description, View adultRow) {
+        Settings.putString(Settings.WALLHAVEN_KEY, key);
+        description.setText(wallhavenKeySummary());
+        adultRow.setVisibility(key.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!key.isEmpty()) return;
+        Settings.putBoolean(Settings.WALLHAVEN_ADULT, false);
+        // The switch shows what is kept.
+        CompoundButton toggle = adultRow.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "action_list_switch_button"));
+        if (toggle != null) toggle.setChecked(false);
     }
 
     /** One entry of the theme list: the original look has no theme object. */
@@ -978,6 +1256,12 @@ public final class ReVancedSettingsActivity extends Activity {
             option.setOnClickListener(v -> {
                 foldOptions(options, chevron, false);
                 if (choice.id.equals(ArsoundTheme.current())) return;
+                // The custom theme has no colours of the user's yet: the editor opens first.
+                if (RuntimeThemes.CUSTOM.equals(choice.id) && !CustomTheme.isSaved()) {
+                    startActivity(new android.content.Intent(this, ReVancedSettingsActivity.class)
+                            .putExtra(EXTRA_SCREEN, SCREEN_CUSTOM_THEME));
+                    return;
+                }
                 ArsoundTheme.setCurrent(this, choice.id);
                 ArsoundTheme.restartApp(this);
             });
@@ -1055,8 +1339,9 @@ public final class ReVancedSettingsActivity extends Activity {
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
         row.setContentDescription(choice.name);
 
-        // Tiles show the dark look: SoundCloud's own screens, where the animation plays, stay dark.
-        boolean night = true;
+        // Tiles show the dark look: SoundCloud's own screens, where the animation plays, stay dark. A theme that is
+        // light whatever the phone uses is shown as it is.
+        boolean night = choice.theme == null || !choice.theme.lightOnly;
         int surface = choice.theme == null ? (night ? 0xFF121212 : 0xFFFFFFFF) : choice.theme.surface(night);
         int dotColor = choice.theme == null ? 0xFFFF5500 : choice.theme.accent(night);
 
@@ -1100,7 +1385,7 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /** A small line icon (an arrow, a tick) from points in a unit square. */
-    private android.graphics.drawable.Drawable lineIcon(float[] points, int color) {
+    android.graphics.drawable.Drawable lineIcon(float[] points, int color) {
         android.graphics.Path path = new android.graphics.Path();
         path.moveTo(points[0], points[1]);
         for (int i = 2; i < points.length; i += 2) path.lineTo(points[i], points[i + 1]);
@@ -1416,7 +1701,7 @@ public final class ReVancedSettingsActivity extends Activity {
     }
 
     /** A compact row with a tick on the right, for picking several items of a list. */
-    private View createCheckRow(String title, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
+    View createCheckRow(String title, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
         recordForSearch(title, "");
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -2095,10 +2380,21 @@ public final class ReVancedSettingsActivity extends Activity {
         }
     }
 
+    /** What the wallpaper looked like when this screen was built; a screen opened before a change is built again. */
+    private String wallpaperStamp = WallpaperStore.stamp();
+
+    @Override
+    protected void onDestroy() {
+        if (wallhavenScreen != null) wallhavenScreen.close();
+        super.onDestroy();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         updateFolderNames();
+        // The wallpaper was chosen, switched off or changed on a screen opened later.
+        if (!wallpaperStamp.equals(WallpaperStore.stamp())) recreate();
     }
 
     private void addStreamCacheOptions(LinearLayout list) {
@@ -3454,19 +3750,384 @@ public final class ReVancedSettingsActivity extends Activity {
                 "Slows down every SoundCloud request to test behavior on a poor connection. Applies immediately.");
     }
 
-    private View createLocalMusicContent() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(themeColor("themeColorSurface"));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(
-                    insets.getSystemWindowInsetLeft(),
-                    insets.getSystemWindowInsetTop(),
-                    insets.getSystemWindowInsetRight(),
-                    insets.getSystemWindowInsetBottom()
-            );
-            return insets.consumeSystemWindowInsets();
+    // region Custom theme
+
+    private static final String ROLE_ACCENT = "accent";
+    private static final String ROLE_DARK_BG = "darkBg";
+    private static final String ROLE_LIGHT_BG = "lightBg";
+    private static final String[] ACCENT_PRESETS = {
+            "#FF5500", "#E0242F", "#FF6B6B", "#FFB020", "#A3FF3D", "#34E0A1", "#2DD4BF", "#9FDDF0", "#4C9AFF", "#6366F1",
+            "#A78BFA", "#FF85BE", "#FFFFFF"};
+    private static final String[] DARK_BG_PRESETS = {
+            "#121212", "#000000", "#0D1117", "#0A1117", "#0E0809", "#0D110F", "#15121C", "#100C18", "#14110F", "#101820"};
+    private static final String[] LIGHT_BG_PRESETS = {
+            "#FFFFFF", "#F7F9FC", "#F5F9FB", "#F7FAF8", "#FEF8F9", "#FFF7FA", "#F9F8FC", "#FAF6EE", "#F2F2F2"};
+
+    /** The colours being edited; they are kept only when the user applies them. */
+    private CustomTheme editing;
+    private ThemePreviewView editorPreview;
+    /** Which look the preview shows when the theme has both. */
+    private boolean previewNight = true;
+    /** Redraw the parts of the editor that depend on {@link #editing}. */
+    private final java.util.List<Runnable> editorViews = new java.util.ArrayList<>();
+
+    /** The editor of the custom theme: a live drawing of the app, the mode, the colours, the corners, the animation. */
+    private void addCustomThemeSection(LinearLayout list) {
+        editing = CustomTheme.load();
+        editorViews.clear();
+
+        editorPreview = new ThemePreviewView(this);
+        int previewWidth = Math.min(getResources().getDisplayMetrics().widthPixels - 2 * dimen("spacing_m"), dp(340));
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(previewWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
+        previewParams.gravity = Gravity.CENTER_HORIZONTAL;
+        list.addView(editorPreview, previewParams);
+
+        View looks = createSegmented(new String[]{text("Тёмный вид", "Dark look"), text("Светлый вид", "Light look")},
+                previewNight ? 0 : 1, index -> {
+                    previewNight = index == 0;
+                    refreshEditor();
+                });
+        LinearLayout.LayoutParams looksParams = new LinearLayout.LayoutParams(previewWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
+        looksParams.gravity = Gravity.CENTER_HORIZONTAL;
+        looksParams.topMargin = dp(10);
+        list.addView(looks, looksParams);
+        editorViews.add(() -> looks.setVisibility(CustomTheme.MODE_AUTO.equals(editing.mode) ? View.VISIBLE : View.GONE));
+
+        list.addView(createSubHeading(text("Режим", "Mode")));
+        String[] modes = {CustomTheme.MODE_DARK, CustomTheme.MODE_LIGHT, CustomTheme.MODE_AUTO};
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        modeParams.leftMargin = modeParams.rightMargin = dimen("spacing_m");
+        list.addView(createSegmented(new String[]{text("Тёмная", "Dark"), text("Светлая", "Light"), text("Как на телефоне", "Like the phone")},
+                java.util.Arrays.asList(modes).indexOf(editing.mode), index -> {
+                    editing = editing.withMode(modes[index]);
+                    refreshEditor();
+                }), modeParams);
+        TextView modeNote = createText("Body.Secondary", "");
+        modeNote.setPadding(dimen("spacing_m"), dp(8), dimen("spacing_m"), dimen("spacing_s"));
+        list.addView(modeNote);
+        editorViews.add(() -> modeNote.setText(CustomTheme.MODE_DARK.equals(editing.mode)
+                ? text("Приложение всегда тёмное, что бы ни стояло на телефоне.", "The app is always dark, whatever the phone uses.")
+                : CustomTheme.MODE_LIGHT.equals(editing.mode)
+                ? text("Приложение всегда светлое, что бы ни стояло на телефоне.", "The app is always light, whatever the phone uses.")
+                : text("Тёмное или светлое, как на телефоне; у каждого вида свой фон.", "Dark or light as the phone is; each look has its own background.")));
+
+        list.addView(createSubHeading(text("Цвета", "Colours")));
+        addColorRow(list, text("Акцент", "Accent"), ROLE_ACCENT, null);
+        addColorRow(list, text("Фон тёмного вида", "Dark background"), ROLE_DARK_BG,
+                () -> !CustomTheme.MODE_LIGHT.equals(editing.mode));
+        addColorRow(list, text("Фон светлого вида", "Light background"), ROLE_LIGHT_BG,
+                () -> !CustomTheme.MODE_DARK.equals(editing.mode));
+        TextView adjusted = createText("Body.Secondary", "");
+        adjusted.setPadding(dimen("spacing_m"), dp(4), dimen("spacing_m"), dimen("spacing_s"));
+        list.addView(adjusted);
+        editorViews.add(() -> {
+            String note = adjustmentNote();
+            adjusted.setText(note);
+            adjusted.setVisibility(note.isEmpty() ? View.GONE : View.VISIBLE);
         });
+
+        list.addView(createSubHeading(text("Форма и анимация", "Shape and animation")));
+        list.addView(createSliderRow(text("Скругление углов", "Corner roundness"),
+                text("Обложки, карточки и мини-плеер.", "Covers, cards and the mini player."),
+                CustomTheme.MAX_RADIUS, editing.radius, value -> value + " dp", value -> {
+                    editing = editing.withRadius(value);
+                    refreshEditor();
+                }));
+        TextView[] effectDescription = new TextView[1];
+        View effectRow = createActionRow(text("Анимация фона", "Background animation"), "", v -> chooseCustomEffect());
+        effectDescription[0] = (TextView) ((ViewGroup) effectRow).getChildAt(1);
+        list.addView(effectRow);
+        editorViews.add(() -> effectDescription[0].setText(effectName(editing.effect)));
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        buttons.setPadding(dimen("spacing_m"), dp(18), dimen("spacing_m"), dp(24));
+        buttons.addView(createPillButton(text("Сбросить", "Reset"), false, v -> {
+            editing = CustomTheme.defaults();
+            refreshEditor();
+        }));
+        buttons.addView(createPillButton(text("Применить", "Apply"), true, v -> {
+            editing.save();
+            Toast.makeText(this, text("Применяю тему…", "Applying the theme…"), Toast.LENGTH_SHORT).show();
+            ArsoundTheme.setCurrent(this, RuntimeThemes.CUSTOM);
+            ArsoundTheme.restartApp(this);
+        }));
+        list.addView(buttons);
+
+        refreshEditor();
+    }
+
+    /** Draws the editor again after a change of {@link #editing}. */
+    private void refreshEditor() {
+        ArsoundTheme.Theme theme = RuntimeThemes.custom(this, editing);
+        boolean night = CustomTheme.MODE_AUTO.equals(editing.mode) ? previewNight : CustomTheme.MODE_DARK.equals(editing.mode);
+        editorPreview.setTheme(theme, night);
+        for (Runnable view : editorViews) view.run();
+    }
+
+    /** A row with the name of a colour, its code and a dot in it; opens the picker. Hidden while {@code shown} says no. */
+    private void addColorRow(LinearLayout list, String title, String role, java.util.function.BooleanSupplier shown) {
+        TextView[] code = new TextView[1];
+        View[] dot = new View[1];
+        View row = createActionRow(title, "", v -> pickColor(title, role));
+        code[0] = (TextView) ((ViewGroup) row).getChildAt(1);
+        LinearLayout titleLine = (LinearLayout) ((ViewGroup) row).getChildAt(0);
+        titleLine.getChildAt(0).setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        dot[0] = new View(this);
+        titleLine.addView(dot[0], new LinearLayout.LayoutParams(dp(28), dp(28)));
+        list.addView(row);
+        editorViews.add(() -> {
+            String color = colorOf(editing, role);
+            code[0].setText(color);
+            android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+            shape.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            shape.setColor(android.graphics.Color.parseColor(color));
+            shape.setStroke(dp(2), 0x55808080);
+            dot[0].setBackground(shape);
+            row.setVisibility(shown == null || shown.getAsBoolean() ? View.VISIBLE : View.GONE);
+        });
+    }
+
+    private static String colorOf(CustomTheme theme, String role) {
+        return ROLE_ACCENT.equals(role) ? theme.accent : ROLE_DARK_BG.equals(role) ? theme.darkBg : theme.lightBg;
+    }
+
+    private static CustomTheme withColor(CustomTheme theme, String role, String color) {
+        return ROLE_ACCENT.equals(role) ? theme.withAccent(color)
+                : ROLE_DARK_BG.equals(role) ? theme.withDarkBg(color) : theme.withLightBg(color);
+    }
+
+    private void pickColor(String title, String role) {
+        String[] presets = ROLE_ACCENT.equals(role) ? ACCENT_PRESETS : ROLE_DARK_BG.equals(role) ? DARK_BG_PRESETS : LIGHT_BG_PRESETS;
+        // The accent of the wallpaper (Android 12+) is one more ready colour.
+        String system = ROLE_ACCENT.equals(role) ? RuntimeThemes.systemAccent(getResources()) : null;
+        if (system != null) {
+            presets = java.util.Arrays.copyOf(presets, presets.length + 1);
+            presets[presets.length - 1] = system;
+        }
+        boolean light = CustomTheme.MODE_LIGHT.equals(editing.mode);
+        boolean night = ROLE_LIGHT_BG.equals(role) ? false : ROLE_DARK_BG.equals(role) ? true : !light;
+        ColorPickerDialog.show(this, title, colorOf(editing, role), presets, new ColorPickerDialog.Preview() {
+            @Override
+            public ArsoundTheme.Theme theme(String hex) {
+                return RuntimeThemes.custom(ReVancedSettingsActivity.this, withColor(editing, role, hex));
+            }
+
+            @Override
+            public boolean night() {
+                return night;
+            }
+
+            @Override
+            public String note(String hex, ArsoundTheme.Theme theme) {
+                int wanted = android.graphics.Color.parseColor(hex) & 0xFFFFFF;
+                if (ROLE_ACCENT.equals(role)) {
+                    return (theme.color(night, "special") & 0xFFFFFF) == wanted ? null
+                            : text("Акцент подправлен, чтобы читаться на фоне.", "The accent was adjusted to read on the background.");
+                }
+                if ((theme.color(night, "surface") & 0xFFFFFF) != wanted) {
+                    return night ? text("Фон оставлен тёмным: на светлом не видны белые значки и текст.", "The background is kept dark: white icons and text would vanish on a light one.")
+                            : text("Фон оставлен светлым: на тёмном не видны тёмные значки.", "The background is kept light: dark icons would vanish on a dark one.");
+                }
+                // The background itself stayed, but the text had to move to read on the cards above it.
+                return night && PaletteEngine.darkTextAdjusted(hex)
+                        ? text("Цвет текста слегка подправлен, чтобы читаться на этом фоне.", "The text colour is slightly adjusted to read on this background.")
+                        : null;
+            }
+        }, color -> {
+            editing = withColor(editing, role, color);
+            refreshEditor();
+        });
+    }
+
+    /** What the theme changed in the user's colours to keep the app readable, or an empty text. */
+    private String adjustmentNote() {
+        ArsoundTheme.Theme theme = RuntimeThemes.custom(this, editing);
+        int accent = android.graphics.Color.parseColor(editing.accent) & 0xFFFFFF;
+        StringBuilder note = new StringBuilder();
+        if (!CustomTheme.MODE_LIGHT.equals(editing.mode)) {
+            if ((theme.color(true, "special") & 0xFFFFFF) != accent) {
+                note.append(text("В тёмном виде акцент осветлён, чтобы читаться на фоне. ", "In the dark look the accent is lightened to read on the background. "));
+            }
+            if ((theme.color(true, "surface") & 0xFFFFFF) != (android.graphics.Color.parseColor(editing.darkBg) & 0xFFFFFF)) {
+                note.append(text("Тёмный фон приведён к тёмному оттенку, чтобы на нём читались белые значки и текст. ",
+                        "The dark background was brought to a dark shade so white icons and text read on it. "));
+            } else if (PaletteEngine.darkTextAdjusted(editing.darkBg)) {
+                note.append(text("В тёмном виде цвет текста слегка подправлен, чтобы читаться на карточках. ",
+                        "In the dark look the text colour is slightly adjusted to read on the cards. "));
+            }
+        }
+        if (!CustomTheme.MODE_DARK.equals(editing.mode)) {
+            if ((theme.color(false, "special") & 0xFFFFFF) != accent) {
+                note.append(text("В светлом виде акцент затемнён, чтобы читаться на светлом фоне. ", "In the light look the accent is darkened to read on the light background. "));
+            }
+            if ((theme.color(false, "surface") & 0xFFFFFF) != (android.graphics.Color.parseColor(editing.lightBg) & 0xFFFFFF)) {
+                note.append(text("Светлый фон приведён к светлому оттенку. ", "The light background was brought to a light shade. "));
+            }
+        }
+        return note.toString().trim();
+    }
+
+    private String effectName(String effect) {
+        if (!ThemeEffect.exists(effect)) return text("Без анимации", "No animation");
+        for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) if (theme.id.equals(effect)) return theme.name();
+        return effect;
+    }
+
+    private void chooseCustomEffect() {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        java.util.List<String> names = new java.util.ArrayList<>();
+        ids.add(CustomTheme.NO_EFFECT);
+        names.add(effectName(CustomTheme.NO_EFFECT));
+        for (ArsoundTheme.Theme theme : ArsoundTheme.all(this)) {
+            if (theme.runtime != null || !ThemeEffect.exists(theme.id)) continue;
+            ids.add(theme.id);
+            names.add(theme.name());
+        }
+        new ArsoundDialog(this)
+                .setTitle(text("Анимация фона", "Background animation"))
+                .setSingleChoiceItems(names.toArray(new String[0]), Math.max(0, ids.indexOf(editing.effect)), (dialog, which) -> {
+                    dialog.dismiss();
+                    editing = editing.withEffect(ids.get(which));
+                    refreshEditor();
+                })
+                .show();
+    }
+
+    /** A pill-shaped choice of a few labels; the chosen one is filled with the accent. */
+    private View createSegmented(String[] labels, int selected, java.util.function.IntConsumer onSelect) {
+        int accent = ArsoundTheme.palette(this, "special");
+        LinearLayout track = new LinearLayout(this);
+        track.setOrientation(LinearLayout.HORIZONTAL);
+        android.graphics.drawable.GradientDrawable trackShape = new android.graphics.drawable.GradientDrawable();
+        trackShape.setColor(ArsoundTheme.palette(this, "highlight"));
+        trackShape.setCornerRadius(dp(100));
+        track.setBackground(trackShape);
+        track.setPadding(dp(3), dp(3), dp(3), dp(3));
+        TextView[] items = new TextView[labels.length];
+        Runnable[] draw = new Runnable[1];
+        int[] chosen = {selected};
+        draw[0] = () -> {
+            for (int i = 0; i < items.length; i++) {
+                android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+                pill.setCornerRadius(dp(100));
+                pill.setColor(i == chosen[0] ? accent : android.graphics.Color.TRANSPARENT);
+                items[i].setBackground(pill);
+                items[i].setTextColor(i == chosen[0] ? ArsoundDialog.contrast(accent) : ArsoundTheme.palette(this, "secondary"));
+            }
+        };
+        for (int i = 0; i < labels.length; i++) {
+            TextView item = createText("H4.Primary", labels[i]);
+            item.setGravity(Gravity.CENTER);
+            item.setSingleLine(true);
+            item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.setPadding(dp(6), 0, dp(6), 0);
+            int index = i;
+            item.setOnClickListener(v -> {
+                if (chosen[0] == index) return;
+                chosen[0] = index;
+                draw[0].run();
+                onSelect.accept(index);
+            });
+            items[i] = item;
+            track.addView(item, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        }
+        draw[0].run();
+        return track;
+    }
+
+    /**
+     * A row with a title, the value and a slider in the accent; the description follows. Every change of the value is
+     * told to {@code onChange}.
+     *
+     * @param label Writes the value shown at the end of the title line.
+     */
+    private View createSliderRow(String title, String description, int max, int progress,
+                                 java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange) {
+        return createSliderRow(title, description, max, progress, label, onChange, null);
+    }
+
+    /** @param onRelease Told the value when the finger leaves the slider, or null. */
+    private View createSliderRow(String title, String description, int max, int progress,
+                                 java.util.function.IntFunction<String> label, java.util.function.IntConsumer onChange,
+                                 java.util.function.IntConsumer onRelease) {
+        recordForSearch(title, description);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dimen("spacing_s"), 0, dimen("spacing_s"));
+        int accent = ArsoundTheme.palette(this, "special");
+
+        LinearLayout titleLine = new LinearLayout(this);
+        titleLine.setOrientation(LinearLayout.HORIZONTAL);
+        titleLine.setGravity(Gravity.CENTER_VERTICAL);
+        titleLine.setPadding(dimen("spacing_m"), 0, dimen("spacing_m"), 0);
+        titleLine.addView(createText("H4.Primary", title), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView value = createText("H4.Primary", label.apply(progress));
+        value.setTextColor(accent);
+        titleLine.addView(value);
+        row.addView(titleLine);
+
+        android.widget.SeekBar slider = new android.widget.SeekBar(this);
+        slider.setMax(max);
+        slider.setProgress(progress);
+        slider.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
+        slider.setThumbTintList(android.content.res.ColorStateList.valueOf(accent));
+        slider.setSaveEnabled(false);
+        slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                value.setText(label.apply(progress));
+                onChange.accept(progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+                if (onRelease != null) onRelease.accept(bar.getProgress());
+            }
+        });
+        LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sliderParams.topMargin = dp(4);
+        row.addView(slider, sliderParams);
+
+        TextView details = createText("Body.Secondary", description);
+        details.setPadding(dimen("spacing_m"), dp(4), dp(72), 0);
+        row.addView(details);
+        return row;
+    }
+
+    /** A button in the look of the dialogs' buttons: the main one filled with the accent. */
+    View createPillButton(String label, boolean main, View.OnClickListener listener) {
+        int accent = ArsoundTheme.palette(this, "special");
+        TextView button = createText("H4.Primary", label);
+        button.setTextColor(main ? ArsoundDialog.contrast(accent) : accent);
+        button.setGravity(Gravity.CENTER);
+        button.setMinHeight(dp(44));
+        button.setPadding(dp(22), dp(8), dp(22), dp(8));
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setCornerRadius(dp(100));
+        shape.setColor(main ? accent : android.graphics.Color.TRANSPARENT);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(
+                main ? 0x33FFFFFF : (accent & 0x00FFFFFF) | 0x33000000), shape, null));
+        button.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.leftMargin = dp(8);
+        button.setLayoutParams(params);
+        return button;
+    }
+
+    // endregion
+
+    private View createLocalMusicContent() {
+        LinearLayout root = createRoot();
         root.addView(createToolbar());
 
         ScrollView scrollView = new ScrollView(this);
@@ -3735,7 +4396,7 @@ public final class ReVancedSettingsActivity extends Activity {
         });
     }
 
-    private View createToolbar() {
+    View createToolbar() {
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setOrientation(LinearLayout.HORIZONTAL);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -3806,7 +4467,7 @@ public final class ReVancedSettingsActivity extends Activity {
         }
     }
 
-    private TextView createText(String styleName, String value) {
+    TextView createText(String styleName, String value) {
         TextView view = new TextView(this);
         int style = Utils.getResourceIdentifier(ResourceType.STYLE, styleName);
         if (style != 0) {
@@ -3828,18 +4489,18 @@ public final class ReVancedSettingsActivity extends Activity {
         }
     }
 
-    private int themeAttribute(int attribute) {
+    int themeAttribute(int attribute) {
         TypedValue value = new TypedValue();
         getTheme().resolveAttribute(attribute, value, true);
         return value.resourceId;
     }
 
-    private int dimen(String name) {
+    int dimen(String name) {
         int id = Utils.getResourceIdentifier(ResourceType.DIMEN, name);
         return id == 0 ? dp(16) : getResources().getDimensionPixelSize(id);
     }
 
-    private int dp(int value) {
+    int dp(int value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
     }
 }
