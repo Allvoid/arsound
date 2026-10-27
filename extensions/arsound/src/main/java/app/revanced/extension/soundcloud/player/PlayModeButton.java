@@ -9,7 +9,11 @@ import android.os.Looper;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
@@ -36,6 +40,7 @@ public final class PlayModeButton {
     private static final String REPEAT_MODE = "com.soundcloud.android.foundation.domain.playqueue.RepeatMode";
     private static final String STATE_BUILDER = "android.support.v4.media.session.PlaybackStateCompat$Builder";
     private static final String STATE = "android.support.v4.media.session.PlaybackStateCompat";
+    private static final String CUSTOM_ACTION = STATE + "$CustomAction";
     private static final String NOTIFICATION_ACTION = "androidx.core.app.NotificationCompat$Action";
 
     private enum Mode {
@@ -140,19 +145,77 @@ public final class PlayModeButton {
         }
     }
 
-    /** @return The state with the button among its custom actions, or the state as it was. */
+    /** The playback state classes looked up once: {@link #withAction} runs for every position update. */
+    private static final class StateApi {
+        /** {@code PlaybackStateCompat.Builder(PlaybackStateCompat)}: copies the state with its custom actions. */
+        final Constructor<?> copy;
+        final Method build;
+        final Method addCustomAction;
+        final Method getCustomActions;
+        final Method actionId;
+
+        StateApi() throws Exception {
+            Class<?> stateClass = Class.forName(STATE);
+            Class<?> builderClass = Class.forName(STATE_BUILDER);
+            copy = builderClass.getConstructor(stateClass);
+            build = builderClass.getMethod("build");
+            addCustomAction = builderClass.getMethod("addCustomAction", String.class, String.class, int.class);
+            getCustomActions = stateClass.getMethod("getCustomActions");
+            actionId = Class.forName(CUSTOM_ACTION).getMethod("getAction");
+        }
+    }
+
+    private static volatile StateApi stateApi;
+
+    private static StateApi stateApi() throws Exception {
+        StateApi known = stateApi;
+        if (known == null) {
+            known = new StateApi();
+            stateApi = known;
+        }
+        return known;
+    }
+
+    /**
+     * The state with the button as the last of its custom actions, whatever the state held before: the other actions
+     * keep their order and each stays once. SoundCloud's method that gets the state also gets it again whenever the
+     * metadata of a new track arrives (it hands the session's current state through once more), and after a tap on
+     * the button. Only adding the button each time put a second one in front of the like: Android lays the custom
+     * actions out in the order they were added, so the button took the like's place and the like the button's, until
+     * the next position update (seconds on a slow start, as long as playback is paused).
+     *
+     * @return The state with the button among its custom actions, or the state as it was.
+     */
+    @SuppressWarnings("unchecked")
     private static Object withAction(Object state) {
         if (state == null) return null;
         try {
+            StateApi api = stateApi();
+            // A copy, never the state itself: SoundCloud edits the list of the state it is given in place, and the
+            // session keeps that object. The list of a freshly built state is its own.
+            Object clean = api.build.invoke(api.copy.newInstance(state));
+            List<Object> actions = (List<Object>) api.getCustomActions.invoke(clean);
+            Set<String> seen = new HashSet<>();
+            int dropped = 0;
+            for (Iterator<Object> it = actions.iterator(); it.hasNext(); ) {
+                String id = (String) api.actionId.invoke(it.next());
+                // Ours is added again below; a repeat of any other action (the like, the end of casting) is stale.
+                if (ACTION.equals(id) || !seen.add(id)) {
+                    it.remove();
+                    dropped++;
+                }
+            }
+            if (dropped > 0) {
+                int count = dropped;
+                Logger.printDebug(() -> "Play mode: dropped " + count + " stale actions");
+            }
             Mode mode = currentMode();
-            if (mode == null) return state;
-            int icon = icon(mode);
-            if (icon == 0) return state;
-            Class<?> builderClass = Class.forName(STATE_BUILDER);
-            Object builder = builderClass.getConstructor(Class.forName(STATE)).newInstance(state);
-            builderClass.getMethod("addCustomAction", String.class, String.class, int.class)
-                    .invoke(builder, ACTION, mode.title(), icon);
-            return builderClass.getMethod("build").invoke(builder);
+            int icon = mode == null ? 0 : icon(mode);
+            // No queue: no button, and no stale one either.
+            if (icon == 0) return clean;
+            Object builder = api.copy.newInstance(clean);
+            api.addCustomAction.invoke(builder, ACTION, mode.title(), icon);
+            return api.build.invoke(builder);
         } catch (Throwable ex) {
             Logger.printException(() -> "Play mode: could not add the button to the session", ex);
             return state;
