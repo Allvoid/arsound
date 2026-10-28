@@ -6,8 +6,12 @@ import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.applicationOnCreateMethod
 import app.arsound.patches.soundcloud.misc.extension.sharedExtensionPatch
-import app.arsound.util.getNode
+import app.arsound.patches.soundcloud.misc.manifest.addApplicationComponent
+import app.arsound.util.ResourceGroup
+import app.arsound.util.copyResources
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
@@ -21,23 +25,42 @@ private const val SETTINGS_ENTRY_CLASS_DESCRIPTOR =
 private val settingsActivityPatch = resourcePatch {
     apply {
         document("AndroidManifest.xml").use { document ->
-            document.getNode("application").appendChild(
-                document.createElement("activity").apply {
-                    setAttribute("android:name", SETTINGS_ACTIVITY_CLASS)
-                    setAttribute("android:exported", "false")
-                    setAttribute("android:theme", "@style/SoundcloudAppTheme")
-                    setAttribute("android:configChanges", "orientation|screenSize|uiMode")
-                },
+            document.addApplicationComponent(
+                "activity",
+                "android:name" to SETTINGS_ACTIVITY_CLASS,
+                "android:exported" to "false",
+                "android:theme" to "@style/SoundcloudAppTheme",
+                "android:configChanges" to "orientation|screenSize|uiMode",
             )
         }
     }
 }
 
+/**
+ * The pictures of the settings rows (a palette, a globe, a shield...): our own vector drawables, white, tinted by the
+ * rows in code. A row falls back to a SoundCloud icon, or to none, when one of them is missing (SettingsIcons).
+ */
+private val settingsIconsResourcePatch = resourcePatch {
+    apply {
+        copyResources(
+            "soundcloud/settings",
+            ResourceGroup(
+                "drawable",
+                "arsound_set_adult.xml", "arsound_set_ads.xml", "arsound_set_animation.xml", "arsound_set_appearance.xml",
+                "arsound_set_appicon.xml", "arsound_set_battery.xml", "arsound_set_cache.xml", "arsound_set_developer.xml",
+                "arsound_set_dns.xml", "arsound_set_folder.xml", "arsound_set_key.xml", "arsound_set_language.xml",
+                "arsound_set_mix.xml", "arsound_set_privacy.xml", "arsound_set_reset.xml", "arsound_set_storage.xml",
+                "arsound_set_update.xml", "arsound_set_widget.xml",
+            ),
+        )
+    }
+}
+
 /** Settings: Adds a ReVanced menu to the SoundCloud settings, styled like the app. Part of the "Arsound" patch, not shown on its own. */
 val settingsPatch = bytecodePatch {
-    dependsOn(sharedExtensionPatch, settingsActivityPatch)
+    dependsOn(sharedExtensionPatch, settingsActivityPatch, settingsIconsResourcePatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         settingsScreenContentMethod.apply {

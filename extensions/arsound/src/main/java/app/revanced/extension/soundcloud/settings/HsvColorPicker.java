@@ -11,18 +11,24 @@ import android.graphics.PorterDuff;
 import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
-import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
+import app.revanced.extension.soundcloud.shared.Dimens;
+
 /**
  * A colour picker: a square for saturation (across) and brightness (down) of the hue below it, and a hue bar. The
  * thumbs are round, in the colour they pick, with a white ring and a soft shadow, and grow a little under the finger.
+ * While a finger drags, a bigger bubble in the picked colour floats above it, so the colour can be seen and not hidden
+ * by the finger.
+ * <p>
+ * The square shows a {@link ColorRange}: all of it for an accent, only the dark (or the pale) part for a background,
+ * where the shades differ by a few steps of brightness and the full square would give them a few pixels.
  * <p>
  * Holds the colour as hue, saturation and value, so dragging through a grey keeps the hue instead of jumping to red.
  */
-public final class ColorPickerView extends View {
+public final class HsvColorPicker extends View {
     public interface Listener {
         /** @param fromUser False when the colour was set from code, for example from the hex field. */
         void onColorChanged(int color, boolean fromUser);
@@ -34,16 +40,20 @@ public final class ColorPickerView extends View {
     private final float[] hsv = {210f, .6f, .9f};
     /** The colour as it was set or last dragged to: converting to hue, saturation and value and back can shift a channel. */
     private int color = Color.HSVToColor(hsv);
+    private ColorRange range = ColorRange.FULL;
     private final RectF square = new RectF();
     private final RectF bar = new RectF();
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thumb = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final float density;
     private final float corner;
     private final float thumbRadius;
+    private final float bubbleRadius;
+    private final float bubbleLift;
     private final float barHeight;
     private final float gap;
+    /** How far from a shape a touch still grabs it: a thumb is smaller than a fingertip. */
+    private final float reach;
 
     private Shader squareShader;
     private float squareShaderHue = -1;
@@ -55,13 +65,15 @@ public final class ColorPickerView extends View {
     private int scaled = NONE;
     private Listener listener;
 
-    public ColorPickerView(Context context) {
+    public HsvColorPicker(Context context) {
         super(context);
-        density = context.getResources().getDisplayMetrics().density;
         corner = dp(14);
-        thumbRadius = dp(13);
-        barHeight = dp(26);
-        gap = dp(18);
+        thumbRadius = dp(14);
+        bubbleRadius = dp(22);
+        bubbleLift = dp(58);
+        barHeight = dp(36);
+        gap = dp(22);
+        reach = dp(24);
         edge.setStyle(Paint.Style.STROKE);
         edge.setStrokeWidth(Math.max(1f, dp(1)));
         edge.setColor(0x22808080);
@@ -69,6 +81,13 @@ public final class ColorPickerView extends View {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /** Which part of the square is offered; the picked colour stays, its thumb goes to the nearest edge if it is outside. */
+    void setRange(ColorRange range) {
+        this.range = range;
+        squareShaderHue = -1;
+        invalidate();
     }
 
     /** The picked colour, opaque. */
@@ -88,24 +107,27 @@ public final class ColorPickerView extends View {
     }
 
     private float dp(float value) {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+        return Dimens.dpExact(getContext(), value);
     }
 
     private void notifyListener(boolean fromUser) {
         if (listener != null) listener.onColorChanged(getColor(), fromUser);
     }
 
+    private float squareHeightFor(int width) {
+        return Math.min(dp(190), (width - 2 * thumbRadius) * .62f);
+    }
+
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
         int width = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED ? Math.round(dp(280)) : MeasureSpec.getSize(widthSpec);
-        float squareHeight = Math.min(dp(190), (width - 2 * thumbRadius) * .62f);
-        int height = Math.round(thumbRadius + squareHeight + gap + barHeight + thumbRadius);
+        int height = Math.round(thumbRadius + squareHeightFor(width) + gap + barHeight + thumbRadius);
         setMeasuredDimension(width, resolveSize(height, heightSpec));
     }
 
     @Override
     protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
-        float squareHeight = Math.min(dp(190), (width - 2 * thumbRadius) * .62f);
+        float squareHeight = squareHeightFor(width);
         square.set(thumbRadius, thumbRadius, width - thumbRadius, thumbRadius + squareHeight);
         bar.set(thumbRadius, square.bottom + gap, width - thumbRadius, square.bottom + gap + barHeight);
         barShader = new LinearGradient(bar.left, 0, bar.right, 0, HUES, null, Shader.TileMode.CLAMP);
@@ -115,12 +137,13 @@ public final class ColorPickerView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         if (square.isEmpty()) return;
-        // The square: white to the hue across, multiplied by white to black down.
+        // The square: white to the hue across, multiplied by a grey that falls down. The range cuts the part shown.
         if (squareShaderHue != hsv[0]) {
-            int hue = Color.HSVToColor(new float[]{hsv[0], 1f, 1f});
+            int hue = Color.HSVToColor(new float[]{hsv[0], range.saturationMax, 1f});
+            int top = grey(range.valueMax), bottom = grey(range.valueMin);
             squareShader = new ComposeShader(
                     new LinearGradient(square.left, 0, square.right, 0, Color.WHITE, hue, Shader.TileMode.CLAMP),
-                    new LinearGradient(0, square.top, 0, square.bottom, Color.WHITE, Color.BLACK, Shader.TileMode.CLAMP),
+                    new LinearGradient(0, square.top, 0, square.bottom, top, bottom, Shader.TileMode.CLAMP),
                     PorterDuff.Mode.MULTIPLY);
             squareShaderHue = hsv[0];
         }
@@ -132,10 +155,19 @@ public final class ColorPickerView extends View {
         canvas.drawRoundRect(bar, barHeight / 2, barHeight / 2, edge);
         fill.setShader(null);
 
-        drawThumb(canvas, square.left + hsv[1] * square.width(), square.top + (1 - hsv[2]) * square.height(), getColor(),
-                scaled == SQUARE);
-        drawThumb(canvas, bar.left + hsv[0] / 360f * bar.width(), bar.centerY(),
-                Color.HSVToColor(new float[]{hsv[0], 1f, 1f}), scaled == BAR);
+        float squareX = square.left + range.acrossOf(hsv[1]) * square.width();
+        float squareY = square.top + range.downOf(hsv[2]) * square.height();
+        int hueColor = Color.HSVToColor(new float[]{hsv[0], 1f, 1f});
+        float barX = bar.left + hsv[0] / 360f * bar.width();
+        drawThumb(canvas, squareX, squareY, getColor(), scaled == SQUARE);
+        drawThumb(canvas, barX, bar.centerY(), hueColor, scaled == BAR);
+        if (dragging == SQUARE) drawBubble(canvas, squareX, squareY, getColor());
+        else if (dragging == BAR) drawBubble(canvas, barX, bar.centerY(), hueColor);
+    }
+
+    private static int grey(float value) {
+        int level = Math.round(Math.max(0f, Math.min(1f, value)) * 255f);
+        return Color.rgb(level, level, level);
     }
 
     /** A round thumb in the colour it stands for: a soft shadow below, a white ring and a faint dark edge for pale colours. */
@@ -157,19 +189,38 @@ public final class ColorPickerView extends View {
         canvas.drawCircle(x, y, radius - dp(3.5f), thumb);
     }
 
+    /**
+     * The bubble over the finger: a big disc of the picked colour. It floats above the thumb, or below it when there is
+     * no room above (the thumb is near the top of the view).
+     */
+    private void drawBubble(Canvas canvas, float x, float y, int color) {
+        float cx = Math.max(bubbleRadius, Math.min(getWidth() - bubbleRadius, x));
+        float cy = y - bubbleLift;
+        if (cy < bubbleRadius + dp(2)) cy = y + bubbleLift;
+        thumb.setStyle(Paint.Style.FILL);
+        thumb.setColor(0x44000000);
+        canvas.drawCircle(cx, cy + dp(2), bubbleRadius + dp(1.5f), thumb);
+        thumb.setColor(Color.WHITE);
+        canvas.drawCircle(cx, cy, bubbleRadius, thumb);
+        thumb.setColor(color);
+        canvas.drawCircle(cx, cy, bubbleRadius - dp(3), thumb);
+    }
+
+    /** How far a point is from a rectangle: 0 inside it. */
+    private static float distance(RectF rect, float x, float y) {
+        float dx = Math.max(Math.max(rect.left - x, 0f), x - rect.right);
+        float dy = Math.max(Math.max(rect.top - y, 0f), y - rect.bottom);
+        return (float) Math.hypot(dx, dy);
+    }
+
     @Override
-    public boolean onTouchEvent(MotionEvent event) {
+    public boolean onTouchEvent(android.view.MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
                 float x = event.getX(), y = event.getY();
-                float reach = thumbRadius;
-                if (x >= square.left - reach && x <= square.right + reach && y >= square.top - reach && y <= square.bottom + reach / 2) {
-                    dragging = SQUARE;
-                } else if (x >= bar.left - reach && x <= bar.right + reach && y >= bar.top - reach && y <= bar.bottom + reach) {
-                    dragging = BAR;
-                } else {
-                    return false;
-                }
+                float toSquare = distance(square, x, y), toBar = distance(bar, x, y);
+                if (Math.min(toSquare, toBar) > reach) return false;
+                dragging = toSquare <= toBar ? SQUARE : BAR;
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                 // Another thumb than the one that was still shrinking: that one is at its size at once.
                 if (scaled != dragging) thumbScale = 1f;
@@ -186,6 +237,7 @@ public final class ColorPickerView extends View {
                 if (dragging != NONE) {
                     growThumb(false);
                     dragging = NONE;
+                    invalidate();
                     performClick();
                 }
                 return true;
@@ -201,8 +253,8 @@ public final class ColorPickerView extends View {
 
     private void move(float x, float y) {
         if (dragging == SQUARE) {
-            hsv[1] = clamp((x - square.left) / square.width());
-            hsv[2] = 1f - clamp((y - square.top) / square.height());
+            hsv[1] = range.saturationAt((x - square.left) / square.width());
+            hsv[2] = range.valueAt((y - square.top) / square.height());
         } else {
             hsv[0] = clamp((x - bar.left) / bar.width()) * 360f;
         }

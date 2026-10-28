@@ -1,5 +1,7 @@
 package app.arsound.patches.soundcloud.misc.translation
 
+import app.arsound.patches.soundcloud.misc.resources.ensureValuesFile
+import app.arsound.patches.soundcloud.misc.resources.patchResourceStream
 import app.arsound.util.asSequence
 import app.revanced.patcher.patch.resourcePatch
 import org.w3c.dom.Element
@@ -20,16 +22,11 @@ val russianTranslationPatch = resourcePatch {
 
     apply {
         TRANSLATIONS.forEach { (source, target) ->
-            val stream = object {}.javaClass.classLoader.getResourceAsStream("soundcloud/translation/$source")
-                ?: error("Missing translation $source")
+            val stream = patchResourceStream("soundcloud/translation/$source", "Missing translation $source")
             val translated = stream.use { DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it) }
 
             val path = "res/values-ru/$target"
-            val file = get(path)
-            if (!file.exists()) {
-                file.parentFile.mkdirs()
-                file.writeText("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n</resources>\n")
-            }
+            ensureValuesFile(path)
             document(path).use { document ->
                 val resources = document.documentElement
                 // Some strings keep <xliff:g> placeholders.

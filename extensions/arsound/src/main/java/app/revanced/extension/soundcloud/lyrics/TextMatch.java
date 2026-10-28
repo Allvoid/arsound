@@ -114,23 +114,32 @@ final class TextMatch {
      * other: the same artist is "Кино" in one place and "Kino" in the next.
      */
     static boolean differentAlphabets(String first, String second) {
-        int a = alphabet(first);
-        int b = alphabet(second);
-        return a != 0 && b != 0 && a != b;
+        Alphabet a = Alphabet.of(first);
+        Alphabet b = Alphabet.of(second);
+        return a != Alphabet.NONE && b != Alphabet.NONE && a != b;
     }
 
-    /** 1 for a text with Cyrillic letters, 2 for other letters only, 0 for no letters at all. */
-    private static int alphabet(String text) {
-        if (text == null) return 0;
-        boolean letters = false;
-        for (int i = 0; i < text.length(); ) {
-            int code = text.codePointAt(i);
-            i += Character.charCount(code);
-            if (!Character.isLetter(code)) continue;
-            if (Character.UnicodeScript.of(code) == Character.UnicodeScript.CYRILLIC) return 1;
-            letters = true;
+    /** What a text is written in, as far as telling Cyrillic from the rest goes. */
+    private enum Alphabet {
+        /** No letters at all. */
+        NONE,
+        /** Has Cyrillic letters. */
+        CYRILLIC,
+        /** Letters, none of them Cyrillic. */
+        OTHER;
+
+        static Alphabet of(String text) {
+            if (text == null) return NONE;
+            boolean letters = false;
+            for (int i = 0; i < text.length(); ) {
+                int code = text.codePointAt(i);
+                i += Character.charCount(code);
+                if (!Character.isLetter(code)) continue;
+                if (Character.UnicodeScript.of(code) == Character.UnicodeScript.CYRILLIC) return CYRILLIC;
+                letters = true;
+            }
+            return letters ? OTHER : NONE;
         }
-        return letters ? 2 : 0;
     }
 
     private static Set<String> words(String normalized) {
@@ -139,8 +148,11 @@ final class TextMatch {
         return result;
     }
 
-    /** A short stable hash of a text, for telling whether a stored answer belongs to the same track. */
-    static String hash(String text) {
+    /**
+     * A short stable hash of a text (64-bit FNV-1a over its chars, in hex), for telling whether a stored answer belongs
+     * to the same track. Stored answers carry it, so the arithmetic must never change.
+     */
+    static String fnv1aHex(String text) {
         long hash = 0xcbf29ce484222325L;
         for (int i = 0; i < text.length(); i++) {
             hash ^= text.charAt(i);

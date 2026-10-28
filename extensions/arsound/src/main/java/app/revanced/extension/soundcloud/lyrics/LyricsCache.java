@@ -7,12 +7,13 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
+
+import app.revanced.extension.soundcloud.shared.AtomicFiles;
 
 /**
  * Answers of the lyrics search kept on the phone, one small file per track named after its URN, so a track that was
@@ -43,12 +44,12 @@ final class LyricsCache {
         try {
             JSONObject json = new JSONObject(new String(readAll(file), StandardCharsets.UTF_8));
             if (json.optInt("v") != VERSION || !signature.equals(json.optString("sig"))) return null;
+            LyricsResult.Status status = LyricsResult.Status.fromCacheKey(json.optString("status"));
+            if (status == null) return null;
             long age = System.currentTimeMillis() - json.optLong("at");
-            String status = json.optString("status");
-            if ("missing".equals(status)) return age <= MISSING_TTL_MS && age >= 0 ? LyricsResult.missing() : null;
-            if (age > FOUND_TTL_MS || age < 0) return null;
-            if ("instrumental".equals(status)) return LyricsResult.instrumental();
-            if (!"found".equals(status)) return null;
+            if (age < 0 || age > timeToLive(status)) return null;
+            if (status == LyricsResult.Status.INSTRUMENTAL) return LyricsResult.instrumental();
+            if (status == LyricsResult.Status.MISSING) return LyricsResult.missing();
             JSONArray lines = json.getJSONArray("lines");
             String[] text = new String[lines.length()];
             for (int i = 0; i < text.length; i++) text[i] = lines.getString(i);
@@ -65,6 +66,11 @@ final class LyricsCache {
         }
     }
 
+    /** How long an answer is believed: "no lyrics" is checked again sooner than a text. */
+    private static long timeToLive(LyricsResult.Status status) {
+        return status == LyricsResult.Status.MISSING ? MISSING_TTL_MS : FOUND_TTL_MS;
+    }
+
     synchronized void write(String urn, String signature, LyricsResult result) {
         if (!result.isStorable()) return;
         try {
@@ -72,34 +78,20 @@ final class LyricsCache {
             json.put("v", VERSION);
             json.put("sig", signature);
             json.put("at", System.currentTimeMillis());
-            switch (result.status) {
-                case FOUND:
-                    json.put("status", "found");
-                    json.put("lines", new JSONArray(Arrays.asList(result.lyrics.lines)));
-                    if (result.lyrics.times != null) {
-                        JSONArray stamps = new JSONArray();
-                        for (long time : result.lyrics.times) stamps.put(time);
-                        json.put("times", stamps);
-                    }
-                    break;
-                case INSTRUMENTAL:
-                    json.put("status", "instrumental");
-                    break;
-                default:
-                    json.put("status", "missing");
-                    break;
+            json.put("status", result.status.cacheKey);
+            if (result.status == LyricsResult.Status.FOUND) {
+                json.put("lines", new JSONArray(Arrays.asList(result.lyrics.lines)));
+                if (result.lyrics.times != null) {
+                    JSONArray stamps = new JSONArray();
+                    for (long time : result.lyrics.times) stamps.put(time);
+                    json.put("times", stamps);
+                }
             }
             if (!directory.isDirectory() && !directory.mkdirs()) return;
             File file = file(urn);
-            File temporary = new File(directory, file.getName() + ".tmp");
-            try (FileOutputStream output = new FileOutputStream(temporary)) {
-                output.write(json.toString().getBytes(StandardCharsets.UTF_8));
-            }
             // Written whole or not at all: a track opened right now never reads half a file.
-            if (!temporary.renameTo(file)) {
-                if (file.exists() && !file.delete()) return;
-                if (!temporary.renameTo(file)) temporary.delete();
-            }
+            AtomicFiles.write(new File(directory, file.getName() + ".tmp"), file,
+                    json.toString().getBytes(StandardCharsets.UTF_8));
             if (++writesSincePrune >= 25) {
                 writesSincePrune = 0;
                 prune();

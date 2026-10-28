@@ -1,9 +1,7 @@
 package app.arsound.patches.soundcloud.local
 
 import app.revanced.patcher.definingClass
-import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructions
-import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.extensions.fieldReference
@@ -13,6 +11,9 @@ import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
+import app.arsound.patches.soundcloud.misc.hooks.GuardExit
+import app.arsound.patches.soundcloud.misc.hooks.insertGuard
+import app.arsound.patches.soundcloud.misc.resources.ensureValuesFile
 import app.arsound.util.getNode
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.AccessFlags
@@ -23,7 +24,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/local/TrackCellMarks;"
 
-private const val CELL_ICON_CLASS = "Lcom/soundcloud/android/ui/components/compose/listviews/CellIcon;"
+private const val CELL_ICON_DESCRIPTOR = "Lcom/soundcloud/android/ui/components/compose/listviews/CellIcon;"
 
 /** Composes a track cell of the playlist screen. */
 private val BytecodePatchContext.playlistTrackCellMethod by gettingFirstMethodDeclaratively {
@@ -47,11 +48,7 @@ private val importedTrackStringPatch = resourcePatch {
     apply {
         mapOf("values" to "Imported track", "values-ru" to "Импортированный трек").forEach { (folder, text) ->
             val path = "res/$folder/strings.xml"
-            val file = get(path)
-            if (!file.exists()) {
-                file.parentFile.mkdirs()
-                file.writeText("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n</resources>\n")
-            }
+            ensureValuesFile(path)
             document(path).use { document ->
                 document.getNode("resources").appendChild(
                     document.createElement("string").apply {
@@ -73,14 +70,14 @@ internal val trackCellMarksPatch = bytecodePatch {
 
     apply {
         // The icon is a new value of the CellIcon enum, created by the extension.
-        firstClassDef(CELL_ICON_CLASS).methods.first { it.name == "<init>" }.apply {
+        firstClassDef(CELL_ICON_DESCRIPTOR).methods.first { it.name == "<init>" }.apply {
             accessFlags = (accessFlags and AccessFlags.PRIVATE.value.inv()) or AccessFlags.PUBLIC.value
         }
 
         playlistTrackCellEndMethod.apply {
             val overflowIndex = indexOfFirstInstructionOrThrow {
                 opcode == Opcode.SGET_OBJECT && fieldReference?.let {
-                    it.definingClass == CELL_ICON_CLASS && it.name == "d"
+                    it.definingClass == CELL_ICON_DESCRIPTOR && it.name == "d"
                 } == true
             }
             // At this point the row scope is in v0 and the composer in v4; v1 is set right after.
@@ -110,16 +107,9 @@ internal val trackCellMarksPatch = bytecodePatch {
             )
         }
 
-        playlistTrackCellTapMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->onTap(Ljava/lang/Object;)Z
-                move-result v0
-                if-eqz v0, :original
-                sget-object v0, Lkotlin/Unit;->INSTANCE:Lkotlin/Unit;
-                return-object v0
-            """,
-            ExternalLabel("original", playlistTrackCellTapMethod.getInstruction(0)),
+        playlistTrackCellTapMethod.insertGuard(
+            "invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->onTap(Ljava/lang/Object;)Z",
+            GuardExit.ReturnUnit,
         )
     }
 }

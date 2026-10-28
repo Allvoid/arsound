@@ -15,8 +15,9 @@ import app.revanced.extension.soundcloud.settings.Settings;
 /**
  * Puts the chosen theme's animation ({@link ThemeEffect}) on the main screen and makes it for Arsound's screens.
  * <p>
- * SoundCloud's screens paint opaque backgrounds, so on the main screen the effect lies over them, faint and
- * transparent to touches. It is placed right above SoundCloud's own views, under Arsound's pills and icons.
+ * SoundCloud's screens paint opaque backgrounds (all but the ones that show a wallpaper, see WallpaperSurfaces), so on
+ * the main screen the effect lies over them, faint and transparent to touches. It is placed right above SoundCloud's
+ * own views, under Arsound's pills and icons.
  */
 public final class ThemeBackdrop {
     private static final String TAG = "arsound_theme_effect";
@@ -44,7 +45,7 @@ public final class ThemeBackdrop {
     }
 
     /** Particle amount chosen in the settings, 1 as in the design. */
-    public static float density() {
+    private static float density() {
         return Settings.getLong(Settings.THEME_EFFECTS_DENSITY, 100) / 100f;
     }
 

@@ -1,9 +1,10 @@
 package app.arsound.patches.soundcloud.player
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.GuardExit
+import app.arsound.patches.soundcloud.misc.hooks.insertGuard
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.patcher.definingClass
-import app.revanced.patcher.extensions.ExternalLabel
-import app.revanced.patcher.extensions.addInstructionsWithLabels
 import app.revanced.patcher.extensions.fieldReference
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
@@ -42,7 +43,7 @@ private val BytecodePatchContext.requestAudioFocusMethod by gettingFirstMethodDe
 val mixWithOtherAppsPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         requestAudioFocusMethod.apply {
@@ -52,17 +53,10 @@ val mixWithOtherAppsPatch = bytecodePatch {
                     opcode == Opcode.IGET_OBJECT && fieldReference?.type == "Landroidx/media/AudioFocusRequestCompat;"
                 },
             ).reference
-            addInstructionsWithLabels(
-                0,
-                """
-                    iget-object v0, p0, $requestField
-                    invoke-static { v0 }, $EXTENSION_CLASS_DESCRIPTOR->skipAudioFocus(Ljava/lang/Object;)Z
-                    move-result v0
-                    if-eqz v0, :request
-                    const/4 v0, 0x1
-                    return v0
-                """,
-                ExternalLabel("request", getInstruction(0)),
+            insertGuard(
+                "invoke-static { v0 }, $EXTENSION_CLASS_DESCRIPTOR->skipAudioFocus(Ljava/lang/Object;)Z",
+                GuardExit.ReturnTrue,
+                prelude = "iget-object v0, p0, $requestField",
             )
         }
     }

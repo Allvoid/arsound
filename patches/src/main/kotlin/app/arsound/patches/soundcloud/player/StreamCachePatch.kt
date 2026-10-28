@@ -2,14 +2,14 @@ package app.arsound.patches.soundcloud.player
 
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
-import app.revanced.patcher.extensions.addInstructionsWithLabels
-import app.revanced.patcher.extensions.getInstruction
-import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.GuardExit
+import app.arsound.patches.soundcloud.misc.hooks.insertGuard
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
@@ -33,20 +33,20 @@ private val BytecodePatchContext.openCacheMethod by gettingFirstMethodDeclarativ
 val streamCachePatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
-        cacheSizeMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->hasCustomSize()Z
-                move-result v0
-                if-eqz v0, :original
-                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->customSize()J
-                move-result-wide v0
-                return-wide v0
-            """,
-            ExternalLabel("original", cacheSizeMethod.getInstruction(0)),
+        // A size set by the user replaces the default one; the size is a long, so the guard returns it from a pair.
+        cacheSizeMethod.insertGuard(
+            "invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->hasCustomSize()Z",
+            GuardExit.Custom(
+                "move-result",
+                """
+                    invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->customSize()J
+                    move-result-wide v0
+                    return-wide v0
+                """,
+            ),
         )
         // Before the monitor: v0 is written before it is read.
         openCacheMethod.addInstructions(

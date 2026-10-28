@@ -1,30 +1,26 @@
 package app.revanced.extension.soundcloud.local;
 
-import static app.revanced.extension.soundcloud.local.PlaylistMerge.text;
-import static app.revanced.extension.soundcloud.local.PlaylistMerge.tracks;
+import static app.revanced.extension.soundcloud.local.LocalText.tracks;
+import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.RectF;
+import android.graphics.Outline;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
+import android.text.TextUtils;
 import android.util.LruCache;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -37,6 +33,8 @@ import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
+import app.revanced.extension.soundcloud.shared.Colors;
+import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.shared.ReorderColumn;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
@@ -50,7 +48,7 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 final class MergePicker {
     /** Called with the ticked playlists in the order the user put them in. */
     interface Listener {
-        void onMerge(List<PlaylistMerge.Candidate> sources);
+        void onMerge(List<MergeCandidate> sources);
     }
 
     private static final int ROW_DP = 56;
@@ -79,7 +77,7 @@ final class MergePicker {
     }
 
     private final Context context;
-    private final PlaylistMerge.Library library;
+    private final MergeLibrary library;
     private final Listener listener;
     private final float density;
     private final int accent, primary, secondary, highlight, error, surface;
@@ -93,7 +91,7 @@ final class MergePicker {
     private CappedScroll scroll;
     private TextView queueTitle, poolTitle, summary;
 
-    MergePicker(Context context, PlaylistMerge.Library library, Listener listener) {
+    MergePicker(Context context, MergeLibrary library, Listener listener) {
         this.context = context;
         this.library = library;
         this.listener = listener;
@@ -108,9 +106,9 @@ final class MergePicker {
 
     /** One playlist of the library: its row stays the same view, in the pool or in the column of ticked ones. */
     private final class Row {
-        final PlaylistMerge.Candidate candidate;
+        final MergeCandidate candidate;
         final LinearLayout view;
-        final Box box;
+        final TickBox box;
         final View handle;
         final ImageView cover;
         /** The picture is asked for once the row comes near the visible part of the list, not for the whole library at once. */
@@ -119,7 +117,7 @@ final class MergePicker {
         /** The tick is shown before the row moves, so a tap is seen to land. */
         boolean moving;
 
-        Row(PlaylistMerge.Candidate candidate) {
+        Row(MergeCandidate candidate) {
             this.candidate = candidate;
             view = new LinearLayout(context);
             view.setOrientation(LinearLayout.HORIZONTAL);
@@ -129,7 +127,7 @@ final class MergePicker {
             view.setBackground(ripple());
             view.setOnClickListener(v -> toggle(this));
 
-            box = new Box(context, accent, secondary);
+            box = new TickBox(context, accent, secondary);
             LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(20), dp(20));
             boxParams.rightMargin = dp(14);
             view.addView(box, boxParams);
@@ -160,7 +158,7 @@ final class MergePicker {
         }
     }
 
-    private String subtitle(PlaylistMerge.Candidate candidate) {
+    private String subtitle(MergeCandidate candidate) {
         String count = candidate.count < 0 ? "" : tracks(candidate.count);
         return candidate.album ? text("Альбом", "Album") + (count.isEmpty() ? "" : " · " + count) : count;
     }
@@ -168,11 +166,11 @@ final class MergePicker {
     // region Window
 
     void show() {
-        for (PlaylistMerge.Candidate candidate : library.sources) rows.add(new Row(candidate));
+        for (MergeCandidate candidate : library.sources) rows.add(new Row(candidate));
         // Room for the covers of the whole library, so opening the window again does not load them again.
         THUMBNAILS.resize(Math.max(MIN_CACHE_BYTES, Math.min(MAX_CACHE_BYTES, rows.size() * COVER_CACHE_BYTES)));
 
-        Content content = new Content(context);
+        PickerContent content = new PickerContent(context);
         content.setOrientation(LinearLayout.VERTICAL);
         // The colours are set here, so the dialog leaves the texts alone.
         content.setTag(ArsoundDialog.KEEP_COLORS);
@@ -233,7 +231,7 @@ final class MergePicker {
 
     /** The playlist that gets the tracks: it cannot be moved or unticked. */
     private View targetRow() {
-        PlaylistMerge.Candidate target = library.target;
+        MergeCandidate target = library.target;
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -313,8 +311,8 @@ final class MergePicker {
     }
 
     /** The ticked playlists in the order the user put them in. */
-    private List<PlaylistMerge.Candidate> tickedCandidates() {
-        List<PlaylistMerge.Candidate> result = new ArrayList<>();
+    private List<MergeCandidate> tickedCandidates() {
+        List<MergeCandidate> result = new ArrayList<>();
         // A row that was just unticked is still in the column for a moment, one that was just ticked is not there yet.
         for (Object key : queue.keys()) if (((Row) key).ticked) result.add(((Row) key).candidate);
         for (Row row : rows) if (row.ticked && row.moving && !queue.keys().contains(row)) result.add(row.candidate);
@@ -345,7 +343,7 @@ final class MergePicker {
         }
         int sum = 0;
         for (Row row : rows) if (row.ticked) sum += row.candidate.count;
-        PlaylistMerge.Candidate target = library.target;
+        MergeCandidate target = library.target;
         if (!target.editable) {
             summary.setTextColor(secondary);
             summary.setText(text("Выбрано: " + ticked + " · добавится до " + tracks(sum),
@@ -372,14 +370,7 @@ final class MergePicker {
 
     /** The colour of a row while it is dragged: a little off the card. */
     private int liftColor() {
-        return Color.argb(255,
-                blend(Color.red(surface), Color.red(primary)),
-                blend(Color.green(surface), Color.green(primary)),
-                blend(Color.blue(surface), Color.blue(primary)));
-    }
-
-    private static int blend(int from, int to) {
-        return Math.round(from + (to - from) * 0.12f);
+        return Colors.blend(surface, primary, 0.12f);
     }
 
     private RippleDrawable ripple() {
@@ -415,11 +406,11 @@ final class MergePicker {
         titleView.setTextColor(primary);
         titleView.setText(title);
         titleView.setSingleLine();
-        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titleView.setEllipsize(TextUtils.TruncateAt.END);
         column.addView(titleView);
         TextView detailsView = label(details, 12, secondary);
         detailsView.setSingleLine();
-        detailsView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        detailsView.setEllipsize(TextUtils.TruncateAt.END);
         column.addView(detailsView);
         return column;
     }
@@ -429,7 +420,7 @@ final class MergePicker {
         view.setBackgroundColor(highlight);
         view.setOutlineProvider(new ViewOutlineProvider() {
             @Override
-            public void getOutline(View v, android.graphics.Outline outline) {
+            public void getOutline(View v, Outline outline) {
                 outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), 6 * density);
             }
         });
@@ -442,7 +433,7 @@ final class MergePicker {
         return view;
     }
 
-    private void loadCover(ImageView view, PlaylistMerge.Candidate candidate) {
+    private void loadCover(ImageView view, MergeCandidate candidate) {
         String address = candidate.cover;
         if (address == null || address.isEmpty()) return;
         Bitmap cached = THUMBNAILS.get(address);
@@ -482,127 +473,8 @@ final class MergePicker {
     }
 
     private int dp(float value) {
-        return Math.round(value * density);
+        return Dimens.dp(context, value);
     }
 
     // endregion
-
-    /** The whole content of the window: fits the list to the height the dialog allows, below the parts that stay in view. */
-    private static final class Content extends LinearLayout {
-        CappedScroll scroll;
-
-        Content(Context context) {
-            super(context);
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            if (scroll != null) {
-                int fixed = 0;
-                for (int i = 0; i < getChildCount(); i++) {
-                    View child = getChildAt(i);
-                    if (child == scroll || child.getVisibility() == GONE) continue;
-                    measureChild(child, widthSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                    fixed += child.getMeasuredHeight();
-                }
-                int room = ArsoundDialog.bodyMaxHeight(getContext()) - fixed;
-                scroll.limit = Math.max(Math.round(120 * getResources().getDisplayMetrics().density), room);
-            }
-            super.onMeasure(widthSpec, heightSpec);
-        }
-    }
-
-    /** A list that scrolls inside the dialog's own scrolling body, and keeps the touches that are meant for it. */
-    private static final class CappedScroll extends ScrollView {
-        int limit = Integer.MAX_VALUE;
-        /** Runs once the list was scrolled or laid out again, to ask for the covers that came into view. */
-        Runnable onViewportChanged;
-        private boolean viewportPending;
-
-        CappedScroll(Context context) {
-            super(context);
-        }
-
-        private void viewportChanged() {
-            // Posted: the covers are set outside of the layout pass.
-            if (onViewportChanged == null || viewportPending) return;
-            viewportPending = true;
-            post(() -> {
-                viewportPending = false;
-                onViewportChanged.run();
-            });
-        }
-
-        @Override
-        protected void onScrollChanged(int left, int top, int oldLeft, int oldTop) {
-            super.onScrollChanged(left, top, oldLeft, oldTop);
-            viewportChanged();
-        }
-
-        @Override
-        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-            super.onLayout(changed, left, top, right, bottom);
-            viewportChanged();
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
-        }
-
-        @Override
-        public boolean dispatchTouchEvent(MotionEvent event) {
-            // The body of the dialog scrolls too, when the window is very low: this list goes first.
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN && getParent() != null) {
-                getParent().requestDisallowInterceptTouchEvent(true);
-            }
-            return super.dispatchTouchEvent(event);
-        }
-    }
-
-    /** A tick box in the colours of the theme. */
-    private static final class Box extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path tick = new Path();
-        private final int on, off;
-        private boolean checked;
-
-        Box(Context context, int on, int off) {
-            super(context);
-            this.on = on;
-            this.off = off;
-        }
-
-        void setChecked(boolean checked) {
-            this.checked = checked;
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            float stroke = 2 * getResources().getDisplayMetrics().density;
-            float radius = 5 * getResources().getDisplayMetrics().density;
-            RectF box = new RectF(stroke / 2, stroke / 2, getWidth() - stroke / 2, getHeight() - stroke / 2);
-            if (checked) {
-                paint.setStyle(Paint.Style.FILL);
-                paint.setColor(on);
-                canvas.drawRoundRect(box, radius, radius, paint);
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(stroke);
-                paint.setStrokeCap(Paint.Cap.ROUND);
-                paint.setStrokeJoin(Paint.Join.ROUND);
-                paint.setColor(ArsoundDialog.contrast(on));
-                tick.reset();
-                tick.moveTo(getWidth() * 0.26f, getHeight() * 0.52f);
-                tick.lineTo(getWidth() * 0.43f, getHeight() * 0.69f);
-                tick.lineTo(getWidth() * 0.74f, getHeight() * 0.33f);
-                canvas.drawPath(tick, paint);
-            } else {
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(stroke);
-                paint.setColor(off);
-                canvas.drawRoundRect(box, radius, radius, paint);
-            }
-        }
-    }
 }

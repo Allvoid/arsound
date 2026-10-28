@@ -120,45 +120,34 @@ public final class StreamCache {
         return removed;
     }
 
-    /** Low priority: the playback that started the cache must not compete with the deletion. */
+    /** Empties the trash, also what an earlier run did not finish deleting. */
     private static void deleteInBackground(File trash) {
         if (trash == null || !trash.exists()) return;
-        Thread thread = new Thread(() -> {
+        runInBackground("arsound-cache-trash", () -> {
             try {
-                int deleted = deleteAll(trash);
+                int deleted = FileTree.deleteAll(trash);
                 Logger.printInfo(() -> "Stream cache trash emptied: " + deleted + " files");
             } catch (Throwable t) {
                 Logger.printException(() -> "Could not empty the stream cache trash", t);
             }
-        }, "arsound-cache-trash");
-        thread.setPriority(Thread.MIN_PRIORITY);
-        thread.setDaemon(true);
-        thread.start();
-    }
-
-    private static int deleteAll(File file) {
-        int removed = 0;
-        File[] children = file.listFiles();
-        if (children != null) {
-            for (File child : children) removed += deleteAll(child);
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
-        } else if (file.delete()) {
-            removed++;
-        }
-        return removed;
+        });
     }
 
     /** Counts the cache for {@link #customSize()} of the next start: counting walks every part. */
     private static void measureInBackground(File directory) {
-        Thread thread = new Thread(() -> {
+        runInBackground("arsound-cache-size", () -> {
             try {
-                long used = size(directory);
+                long used = FileTree.size(directory);
                 Settings.putLong(AVAILABLE_BYTES, used + directory.getUsableSpace());
             } catch (Throwable t) {
                 Logger.printException(() -> "Could not measure the stream cache", t);
             }
-        }, "arsound-cache-size");
+        });
+    }
+
+    /** Low priority: the playback that started the cache must not compete with the work. */
+    private static void runInBackground(String name, Runnable work) {
+        Thread thread = new Thread(work, name);
         thread.setPriority(Thread.MIN_PRIORITY);
         thread.setDaemon(true);
         thread.start();
@@ -171,17 +160,7 @@ public final class StreamCache {
      * @param before {@link Long#MAX_VALUE} removes every part.
      */
     private static int removeOlderThan(File directory, long before) {
-        int removed = 0;
-        File[] files = directory.listFiles();
-        if (files == null) return 0;
-        for (File file : files) {
-            if (file.isDirectory()) {
-                removed += removeOlderThan(file, before);
-            } else if (file.getName().endsWith(".exo") && lastUse(file) < before && file.delete()) {
-                removed++;
-            }
-        }
-        return removed;
+        return FileTree.deleteFiles(directory, file -> file.getName().endsWith(".exo") && lastUse(file) < before);
     }
 
     private static long lastUse(File part) {
@@ -206,15 +185,6 @@ public final class StreamCache {
 
     /** Space taken by the cache, in bytes. Blocks. */
     public static long usedBytes() {
-        return size(directory());
-    }
-
-    private static long size(File file) {
-        if (file == null || !file.exists()) return 0;
-        if (file.isFile()) return file.length();
-        long total = 0;
-        File[] files = file.listFiles();
-        if (files != null) for (File child : files) total += size(child);
-        return total;
+        return FileTree.size(directory());
     }
 }

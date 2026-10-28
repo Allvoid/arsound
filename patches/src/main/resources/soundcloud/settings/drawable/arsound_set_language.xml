@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings icon "language": A globe. Drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the row tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.25,12a8.75,8.75 0 1 0 17.5,0a8.75,8.75 0 1 0 -17.5,0"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M3.25,12h17.5"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M12,3.25c2.4,2.4 3.6,5.3 3.6,8.75s-1.2,6.35 -3.6,8.75c-2.4,-2.4 -3.6,-5.3 -3.6,-8.75s1.2,-6.35 3.6,-8.75z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -65,8 +65,8 @@ public final class ForYouJob extends JobService {
             return false;
         }
         new Thread(() -> {
-            ForYou.Outcome outcome = ForYou.refreshScheduled();
-            boolean retry = outcome == ForYou.Outcome.RETRY;
+            RefreshResult.Outcome outcome = ForYou.refreshScheduled();
+            boolean retry = outcome == RefreshResult.Outcome.RETRY;
             // A retry keeps this job with its backoff; a finished run plans the next midnight once it is done
             // (scheduling the same job while it runs would stop it).
             jobFinished(params, retry);

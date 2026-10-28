@@ -10,8 +10,12 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import app.arsound.shaded.newpipe.extractor.Image;
 import app.arsound.shaded.newpipe.extractor.InfoItem;
@@ -38,6 +42,8 @@ import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.arsound.shaded.newpipe.extractor.stream.StreamInfo;
 import app.arsound.shaded.newpipe.extractor.stream.StreamInfoItem;
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.network.RegionGuard;
+import app.revanced.extension.soundcloud.network.StreamText;
 
 /**
  * Search and audio streams from YouTube Music, through NewPipeExtractor.
@@ -46,6 +52,8 @@ import app.revanced.extension.shared.Logger;
 public final class OtherSource {
     private static final String USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
+    private static final int CONNECT_TIMEOUT_MS = 15_000;
+    private static final int READ_TIMEOUT_MS = 30_000;
     private static boolean initialized;
 
     private OtherSource() {
@@ -98,10 +106,8 @@ public final class OtherSource {
             for (InfoItem item : info.getRelatedItems()) {
                 if (!(item instanceof StreamInfoItem)) continue;
                 StreamInfoItem stream = (StreamInfoItem) item;
-                String artist = stream.getUploaderName();
-                if (artist != null && artist.endsWith(" - Topic")) artist = artist.substring(0, artist.length() - 8);
-                tracks.add(new Track(stream.getUrl(), stream.getName(), artist == null ? "" : artist, stream.getDuration(),
-                        coverUrl(stream.getThumbnails())));
+                tracks.add(new Track(stream.getUrl(), stream.getName(), artistName(stream.getUploaderName()),
+                        stream.getDuration(), coverUrl(stream.getThumbnails())));
             }
             if (!tracks.isEmpty()) break;
         }
@@ -271,7 +277,7 @@ public final class OtherSource {
 
     /** The file size, which YouTube puts into the stream link. */
     public static long sizeOf(String url) throws IOException {
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("[?&]clen=(\\d+)").matcher(url);
+        Matcher matcher = Pattern.compile("[?&]clen=(\\d+)").matcher(url);
         if (matcher.find()) return Long.parseLong(matcher.group(1));
         throw new IOException("No size in the stream link");
     }
@@ -281,11 +287,11 @@ public final class OtherSource {
      * without a range, so every read asks for its part with the {@code range} parameter.
      */
     public static byte[] readPart(String url, long position, int length) throws IOException {
-        app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlockedAnyHost();
+        RegionGuard.throwIfBlockedAnyHost();
         HttpURLConnection connection = (HttpURLConnection) new URL(
                 url + "&range=" + position + "-" + (position + length - 1)).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setRequestProperty("User-Agent", USER_AGENT);
         try {
             int code = connection.getResponseCode();
@@ -298,7 +304,7 @@ public final class OtherSource {
                     if (n > 0) body = new String(head, 0, n, "UTF-8");
                 }
                 String info = "HTTP " + code + " " + body;
-                app.revanced.extension.shared.Logger.printInfo(() -> "Stream part refused: " + info);
+                Logger.printInfo(() -> "Stream part refused: " + info);
                 throw code == 403 ? new RefusedException(info) : new IOException(info);
             }
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(length);
@@ -332,7 +338,7 @@ public final class OtherSource {
         private static final int PART = 256 * 1024;
         private final String url;
         private final long size;
-        private final Map<Long, byte[]> parts = new java.util.LinkedHashMap<Long, byte[]>(16, 0.75f, true) {
+        private final Map<Long, byte[]> parts = new LinkedHashMap<Long, byte[]>(16, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<Long, byte[]> eldest) {
                 return size() > 24;
@@ -375,12 +381,12 @@ public final class OtherSource {
     private static final class HttpDownloader extends Downloader {
         @Override
         public Response execute(Request request) throws IOException {
-            app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlockedAnyHost();
+            RegionGuard.throwIfBlockedAnyHost();
             HttpURLConnection connection = (HttpURLConnection) new URL(request.url()).openConnection();
             // Disconnects also when the request or the read of the body fails.
             try {
-                connection.setConnectTimeout(15_000);
-                connection.setReadTimeout(30_000);
+                connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+                connection.setReadTimeout(READ_TIMEOUT_MS);
                 connection.setRequestMethod(request.httpMethod());
                 connection.setRequestProperty("User-Agent", USER_AGENT);
                 for (Map.Entry<String, List<String>> header : request.headers().entrySet()) {
@@ -396,15 +402,9 @@ public final class OtherSource {
                 int code = connection.getResponseCode();
                 String body = "";
                 try (InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
-                    if (input != null) {
-                        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                        byte[] buffer = new byte[16 * 1024];
-                        int read;
-                        while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
-                        body = bytes.toString("UTF-8");
-                    }
+                    if (input != null) body = StreamText.readUtf8(input);
                 }
-                Map<String, List<String>> headers = new java.util.HashMap<>();
+                Map<String, List<String>> headers = new HashMap<>();
                 for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
                     if (header.getKey() != null) headers.put(header.getKey(), header.getValue());
                 }

@@ -1,9 +1,8 @@
 package app.arsound.patches.soundcloud.misc.appname
 
+import app.arsound.patches.soundcloud.misc.resources.findStringOrNull
 import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.patch.stringOption
-import app.arsound.util.asSequence
-import org.w3c.dom.Element
 
 /** Custom app name: Changes the app name shown on the home screen and in the "Open with" dialog. Part of the "Arsound" patch, not shown on its own. */
 val appNamePatch = resourcePatch {
@@ -24,10 +23,7 @@ val appNamePatch = resourcePatch {
             .filter { it.exists() }
             .forEach { stringsFile ->
                 document("res/${stringsFile.parentFile.name}/strings.xml").use { document ->
-                    document.getElementsByTagName("string").asSequence()
-                        .map { it as Element }
-                        .firstOrNull { it.getAttribute("name") == "app_name" }
-                        ?.textContent = appName!!
+                    document.findStringOrNull("app_name")?.textContent = appName!!
                 }
             }
     }

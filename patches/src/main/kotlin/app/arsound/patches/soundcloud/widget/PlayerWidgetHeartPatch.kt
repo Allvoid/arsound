@@ -1,8 +1,9 @@
 package app.arsound.patches.soundcloud.widget
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.findInstructionIndicesReversed
-import app.arsound.util.indexOfFirstInstructionOrThrow
+import app.arsound.patches.soundcloud.misc.hooks.requireInstruction
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.getInstruction
@@ -18,14 +19,14 @@ import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/widget/WidgetHeart;"
-private const val WIDGET_BUILDER = "Lcom/soundcloud/android/playback/widget/PlayerWidgetRemoteViewsBuilder;"
+private const val WIDGET_BUILDER_DESCRIPTOR = "Lcom/soundcloud/android/playback/widget/PlayerWidgetRemoteViewsBuilder;"
 
 /**
  * Builds the RemoteViews of the player widget: every update of the widget (a new track, a like, play and pause) goes
  * through it. It holds the track and the cover, and returns the finished views from two places.
  */
 private val BytecodePatchContext.playerWidgetViewsMethod by gettingFirstMethodDeclaratively {
-    definingClass(WIDGET_BUILDER)
+    definingClass(WIDGET_BUILDER_DESCRIPTOR)
     returnType("Lcom/soundcloud/android/playback/widget/PlayerWidgetRemoteViews;")
     parameterTypes(
         "Landroid/content/Context;",
@@ -43,18 +44,18 @@ private val BytecodePatchContext.playerWidgetViewsMethod by gettingFirstMethodDe
 val playerWidgetHeartPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // The extension finds the cover by its type: it has to be the only bitmap the builder holds.
-        val bitmapFields = firstClassDef(WIDGET_BUILDER).fields.count { it.type == "Landroid/graphics/Bitmap;" }
+        val bitmapFields = firstClassDef(WIDGET_BUILDER_DESCRIPTOR).fields.count { it.type == "Landroid/graphics/Bitmap;" }
         if (bitmapFields != 1) {
-            throw PatchException("$WIDGET_BUILDER holds $bitmapFields bitmaps, not one: the widget heart would not find the cover")
+            throw PatchException("$WIDGET_BUILDER_DESCRIPTOR holds $bitmapFields bitmaps, not one: the widget heart would not find the cover")
         }
 
         playerWidgetViewsMethod.apply {
             // The cover is put on the views here, as the widget's picture.
-            indexOfFirstInstructionOrThrow {
+            requireInstruction {
                 opcode == Opcode.INVOKE_VIRTUAL && methodReference?.let {
                     it.definingClass == "Landroid/widget/RemoteViews;" && it.name == "setImageViewBitmap"
                 } == true

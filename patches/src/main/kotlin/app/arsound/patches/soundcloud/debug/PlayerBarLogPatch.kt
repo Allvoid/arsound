@@ -1,6 +1,9 @@
 package app.arsound.patches.soundcloud.debug
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+import app.arsound.patches.soundcloud.player.TRACK_PAGE_PRESENTER
+import app.arsound.patches.soundcloud.player.bindPlayerPageMethod
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.gettingFirstMethodDeclaratively
@@ -12,16 +15,6 @@ import app.revanced.patcher.returnType
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/debug/PlayerBarLog;"
-
-private const val TRACK_PAGE_PRESENTER = "Lcom/soundcloud/android/playback/ui/TrackPagePresenter;"
-
-/** Fills the player page with a track. */
-private val BytecodePatchContext.bindPlayerPageMethod by gettingFirstMethodDeclaratively {
-    definingClass(TRACK_PAGE_PRESENTER)
-    name("i")
-    returnType("V")
-    parameterTypes("Landroid/view/View;", "Lcom/soundcloud/android/playback/ui/PlayerItem;")
-}
 
 /** Moves the player page to another queue item, emptying what was shown. */
 private val BytecodePatchContext.resetPlayerPageMethod by gettingFirstMethodDeclaratively {
@@ -47,7 +40,7 @@ private val BytecodePatchContext.playStatePlayerPageMethod by gettingFirstMethod
 val playerBarLogPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // The range form is required: these methods use dozens of registers, and a plain

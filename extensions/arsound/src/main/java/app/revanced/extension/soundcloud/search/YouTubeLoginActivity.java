@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.search;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
@@ -14,7 +16,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
-import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
 
@@ -39,10 +40,6 @@ public final class YouTubeLoginActivity extends Activity {
         }
     }
 
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,7 +59,7 @@ public final class YouTubeLoginActivity extends Activity {
                     String host = url == null ? null : Uri.parse(url).getHost();
                     if (host == null || !host.endsWith("youtube.com")) return;
                     CookieManager.getInstance().flush();
-                    if (YouTubeAccount.saveSession(null)) {
+                    if (YouTubeAccount.saveSession()) {
                         Toast.makeText(YouTubeLoginActivity.this,
                                 text("Вход в YouTube Music выполнен", "Signed in to YouTube Music"), Toast.LENGTH_SHORT).show();
                         setResult(RESULT_OK);

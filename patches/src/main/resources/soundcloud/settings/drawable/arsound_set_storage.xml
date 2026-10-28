@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings icon "storage": A drive. Drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the row tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.75,13.5l2.5,-7.25h11.5l2.5,7.25"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M5.25,13.5h13.5a1.5,1.5 0 0 1 1.5,1.5v2.75a1.5,1.5 0 0 1 -1.5,1.5H5.25a1.5,1.5 0 0 1 -1.5,-1.5V15a1.5,1.5 0 0 1 1.5,-1.5z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M7.5,16.4h0.01 M10.5,16.4h0.01"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

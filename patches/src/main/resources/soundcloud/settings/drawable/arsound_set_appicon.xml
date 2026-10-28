@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings icon "appicon": Four app tiles. Drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the row tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4.75,4.75h5.5v5.5h-5.5z M13.75,4.75h5.5v5.5h-5.5z M4.75,13.75h5.5v5.5h-5.5z M13.75,13.75h5.5v5.5h-5.5z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

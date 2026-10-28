@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.misc.playservices
 
+import app.arsound.util.findInstructionIndicesReversed
 import app.revanced.patcher.extensions.removeInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
@@ -21,14 +22,14 @@ private val BytecodePatchContext.playServicesCheckMethod by gettingFirstMethodDe
 val playServicesDialogPatch = bytecodePatch {
     apply {
         playServicesCheckMethod.apply {
-            val calls = implementation!!.instructions.withIndex().filter { (_, instruction) ->
-                instruction.opcode == Opcode.INVOKE_VIRTUAL &&
-                    (instruction as ReferenceInstruction).reference.toString()
+            val calls = findInstructionIndicesReversed {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as ReferenceInstruction).reference.toString()
                         .endsWith("GoogleApiAvailability;->showErrorDialogFragment(Landroid/app/Activity;II)Z")
-            }.map { it.index }
+            }
             check(calls.isNotEmpty()) { "No Google Play services dialog found" }
             // The calls' results are not used, so they go without anything in their place. Last first: indices stay.
-            calls.sortedDescending().forEach { removeInstruction(it) }
+            calls.forEach { removeInstruction(it) }
         }
     }
 }

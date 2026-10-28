@@ -1,6 +1,7 @@
 package app.arsound.patches.soundcloud.player
 
-import app.arsound.util.getNode
+import app.arsound.patches.soundcloud.misc.manifest.addApplicationComponent
+import app.arsound.patches.soundcloud.misc.manifest.appendElement
 import app.revanced.patcher.patch.resourcePatch
 
 /**
@@ -11,30 +12,24 @@ import app.revanced.patcher.patch.resourcePatch
 val vivoMusicCardPatch = resourcePatch {
     apply {
         document("AndroidManifest.xml").use { document ->
-            val manifest = document.getNode("manifest")
             // Only adb can grant it; without it Arsound only reads the list.
-            manifest.appendChild(
-                document.createElement("uses-permission").apply {
-                    setAttribute("android:name", "android.permission.WRITE_SECURE_SETTINGS")
-                },
+            document.appendElement(
+                "manifest",
+                "uses-permission",
+                "android:name" to "android.permission.WRITE_SECURE_SETTINGS",
             )
             // Lets Arsound see whether the vivo player is on the phone.
-            manifest.appendChild(
-                document.createElement("queries").apply {
-                    appendChild(
-                        document.createElement("package").apply {
-                            setAttribute("android:name", "com.vivo.musicwidgetmix")
-                        },
-                    )
+            document.appendElement("manifest", "queries").appendChild(
+                document.createElement("package").apply {
+                    setAttribute("android:name", "com.vivo.musicwidgetmix")
                 },
             )
             // Only a sender holding WRITE_SECURE_SETTINGS itself (the adb shell) may wake it.
-            document.getNode("application").appendChild(
-                document.createElement("receiver").apply {
-                    setAttribute("android:name", "app.revanced.extension.soundcloud.player.VivoMusicCardReceiver")
-                    setAttribute("android:exported", "true")
-                    setAttribute("android:permission", "android.permission.WRITE_SECURE_SETTINGS")
-                },
+            document.addApplicationComponent(
+                "receiver",
+                "android:name" to "app.revanced.extension.soundcloud.player.VivoMusicCardReceiver",
+                "android:exported" to "true",
+                "android:permission" to "android.permission.WRITE_SECURE_SETTINGS",
             )
         }
     }

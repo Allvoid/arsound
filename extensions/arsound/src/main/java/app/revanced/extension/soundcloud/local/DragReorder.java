@@ -4,8 +4,10 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.view.GestureDetector;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 
@@ -29,6 +31,12 @@ import app.revanced.extension.shared.Logger;
  * {@code ItemTouchHelper.r} startDrag, {@code Adapter.m(II)} notifyItemMoved (as called by {@code AdapterListUpdateCallback.e}, onMoved), {@code UniflowAdapter.h} items.
  */
 public final class DragReorder {
+    private static final int TAG_WIGGLE = 0x7f_ad_50_01;
+    /** The shrunk names of this app version, see the class comment. */
+    private static final String ITEMS_FIELD = "h";
+    private static final String NOTIFY_MOVED_METHOD = "m";
+    private static final String START_DRAG_METHOD = "r";
+
     private final ViewGroup recycler;
     private final Predicate<Object> movable;
     private final Consumer<List<Object>> saver;
@@ -40,6 +48,8 @@ public final class DragReorder {
     private ViewTreeObserver.OnGlobalLayoutListener layoutListener;
     private final List<ObjectAnimator> wiggles = new ArrayList<>();
     private final GestureDetector gestures;
+    /** {@code UniflowAdapter.h}, found at the first use. */
+    private Field itemsField;
 
     /**
      * @param recycler The RecyclerView of a {@code UniflowAdapter} list.
@@ -155,7 +165,7 @@ public final class DragReorder {
     private boolean intercept(MotionEvent event) {
         gestures.onTouchEvent(event);
         if (active && event.getActionMasked() == MotionEvent.ACTION_UP
-                && event.getEventTime() - event.getDownTime() < android.view.ViewConfiguration.getLongPressTimeout()) {
+                && event.getEventTime() - event.getDownTime() < ViewConfiguration.getLongPressTimeout()) {
             stop();
             return true;
         }
@@ -185,13 +195,20 @@ public final class DragReorder {
         }
     }
 
+    private Object adapter() throws Exception {
+        return recycler.getClass().getMethod("getAdapter").invoke(recycler);
+    }
+
     private List<Object> items() throws Exception {
-        Object adapter = recycler.getClass().getMethod("getAdapter").invoke(recycler);
-        Class<?> type = Class.forName("com.soundcloud.android.uniflow.android.UniflowAdapter", false, loader);
-        Field field = type.getDeclaredField("h");
-        field.setAccessible(true);
+        Object adapter = adapter();
+        if (itemsField == null) {
+            Class<?> type = Class.forName("com.soundcloud.android.uniflow.android.UniflowAdapter", false, loader);
+            Field field = type.getDeclaredField(ITEMS_FIELD);
+            field.setAccessible(true);
+            itemsField = field;
+        }
         //noinspection unchecked
-        return (List<Object>) field.get(adapter);
+        return (List<Object>) itemsField.get(adapter);
     }
 
     private boolean isMovableAt(int position) {
@@ -221,8 +238,8 @@ public final class DragReorder {
             List<Object> items = items();
             if (from < 0 || to < 0 || from >= items.size() || to >= items.size()) return;
             items.add(to, items.remove(from));
-            Object adapter = recycler.getClass().getMethod("getAdapter").invoke(recycler);
-            adapter.getClass().getMethod("m", int.class, int.class).invoke(adapter, from, to);
+            Object adapter = adapter();
+            adapter.getClass().getMethod(NOTIFY_MOVED_METHOD, int.class, int.class).invoke(adapter, from, to);
             // SoundCloud may deliver a fresh list at any moment (like counts, sync) and diffs it against
             // the adapter. Saving at every step keeps that list in the order on screen, otherwise the
             // diff moves rows back under the finger and RecyclerView becomes inconsistent.
@@ -244,8 +261,8 @@ public final class DragReorder {
         try {
             Object holder = viewHolder(child);
             Class<?> holderType = Class.forName("androidx.recyclerview.widget.RecyclerView$ViewHolder", false, loader);
-            touchHelper.getClass().getMethod("r", holderType).invoke(touchHelper, holder);
-            child.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            touchHelper.getClass().getMethod(START_DRAG_METHOD, holderType).invoke(touchHelper, holder);
+            child.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not start dragging", ex);
         }
@@ -280,6 +297,4 @@ public final class DragReorder {
             wiggles.add(animator);
         }
     }
-
-    private static final int TAG_WIGGLE = 0x7f_ad_50_01;
 }

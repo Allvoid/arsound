@@ -53,10 +53,8 @@ final class FileNames {
      * an extension of its own ("Name.wav.mp3").
      */
     static String mimeTypeOf(String fileName) {
-        if (fileName.endsWith(".m4a")) return "audio/mp4";
-        if (fileName.endsWith(".aac")) return "audio/aac";
-        if (fileName.endsWith(".opus")) return "audio/ogg";
-        if (fileName.endsWith(".mp3")) return "audio/mpeg";
+        AudioFormat format = AudioFormat.ofName(fileName);
+        if (format != null && format.mimeType() != null) return format.mimeType();
         int dot = fileName.lastIndexOf('.');
         String known = dot < 0 ? null : MimeTypeMap.getSingleton()
                 .getMimeTypeFromExtension(fileName.substring(dot + 1).toLowerCase(Locale.ROOT));

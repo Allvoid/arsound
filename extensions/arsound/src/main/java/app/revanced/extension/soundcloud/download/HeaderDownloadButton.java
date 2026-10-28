@@ -3,13 +3,11 @@ package app.revanced.extension.soundcloud.download;
 import android.app.Activity;
 import android.view.View;
 
-import java.lang.reflect.Field;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Reflect;
+import app.revanced.extension.soundcloud.shared.Urns;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function0;
@@ -22,7 +20,6 @@ import kotlin.jvm.functions.Function0;
  */
 @SuppressWarnings("unused")
 public final class HeaderDownloadButton {
-    private static final Pattern PLAYLIST_URN = Pattern.compile("^soundcloud:playlists:(\\d+)$");
 
     private static final Function0<Unit> LIKES_TAP = () -> {
         Activity activity = UpdateChecker.resumedActivity();
@@ -41,8 +38,7 @@ public final class HeaderDownloadButton {
      */
     public static void onPlaylistHeaderBound(View actionBar, Object metadata) {
         // Turned off, or a subscription with downloads: the button is SoundCloud's own.
-        if (!app.revanced.extension.soundcloud.settings.Settings.isInterceptDownloadButtonsEnabled()
-                || DownloadButtons.subscriptionDownloads()) return;
+        if (!DownloadButtons.interceptsHeaderButton()) return;
         try {
             String playlistId = playlistId(metadata);
             View button = actionBar.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "download_action"));
@@ -69,19 +65,15 @@ public final class HeaderDownloadButton {
      * @return The Arsound check of the liked tracks instead of SoundCloud's offline mode.
      */
     public static Function0<Unit> likesAction(Function0<Unit> original) {
-        return app.revanced.extension.soundcloud.settings.Settings.isInterceptDownloadButtonsEnabled()
-                && !DownloadButtons.subscriptionDownloads() ? LIKES_TAP : original;
+        return DownloadButtons.interceptsHeaderButton() ? LIKES_TAP : original;
     }
 
     /** The urn is a field of the metadata; field names are obfuscated, so it is found by its value. */
     private static String playlistId(Object metadata) throws IllegalAccessException {
-        for (Field field : metadata.getClass().getDeclaredFields()) {
-            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-            field.setAccessible(true);
-            Object value = field.get(metadata);
+        for (Object value : Reflect.instanceFieldValues(metadata)) {
             if (value == null) continue;
-            Matcher matcher = PLAYLIST_URN.matcher(value.toString());
-            if (matcher.find()) return matcher.group(1);
+            String playlistId = Urns.playlistId(value.toString());
+            if (playlistId != null) return playlistId;
         }
         return null;
     }

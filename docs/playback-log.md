@@ -23,6 +23,23 @@ A user saves the logs with Settings → Arsound → Developer → "Save the logs
 and the mod log (`arsound-log.txt`, if it is on) go into one file `Downloads/arsound-logs-YYYY-MM-DD-HHmm.txt`
 with the Arsound, SoundCloud and Android versions on top. The app shows the path and offers to send the file.
 
+The file has more than the logs of the app. After the header comes a snapshot of what decides whether the sign-in
+works: the network (Wi-Fi, mobile, VPN, DNS, proxy), the clock and its automatic setting, the browsers that can show
+the sign-in page, the WebView version and the Arsound settings that change the network. Then the crashes, the playback
+log, the mod log and the end of the system log (`logcat`) of the app. Android shows an app only its own lines, so
+nothing of other apps is read. The command has a 3 second limit and a 1 MB cap; if the phone refuses it, the file
+has a line saying so. The sign-in codes and tokens (`sc://auth?code=...`, `access_token=...`, `Authorization`
+headers) are replaced with `<redacted>` in everything that is copied.
+
+Before the user is signed in the settings cannot be reached, so the first sign-in page (the whole sign-in
+activity) has a "Save logs" pill in its top corner. It makes the same file and shows the same dialog with "Send".
+There the file is made even when the app has written nothing yet, because the snapshot is what there is to send.
+On the settings screen a file with no earlier records still gives "No logs yet".
+
+The code: `debug/LogExport` makes the file from `LogSection` parts (`debug/sections/`), `debug/LogComposer` writes
+them in order and turns a part that cannot be read into one line, `login/LoginLogsButton` is the pill (added from the
+activity callbacks in `UpdateChecker`, no patch needed).
+
 Pull the logs with adb:
 
 ```

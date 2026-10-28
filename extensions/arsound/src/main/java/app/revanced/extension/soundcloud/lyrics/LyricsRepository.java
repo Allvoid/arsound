@@ -24,7 +24,7 @@ import app.revanced.extension.soundcloud.network.RegionGuard;
  */
 public final class LyricsRepository {
     /** A lookup in progress; cancelled when another track is wanted. */
-    static final class Request implements LrclibClient.Watch {
+    static final class Request implements LrclibHttp.Watch {
         private volatile boolean cancelled;
         /** The connection of the request on the network now, if any. */
         private volatile HttpURLConnection connection;
@@ -137,7 +137,9 @@ public final class LyricsRepository {
                     result = LyricsResult.error();
                 }
                 final LyricsResult answer = result;
-                remember(info, answer);
+                // LRCLIB never answers with recognised words: such an answer stands in for "no lyrics" or "no connection".
+                // It is not kept in memory, so the next load asks LRCLIB again when it can (the text found there is better).
+                if (answer.lyrics == null || answer.lyrics.source != Lyrics.Source.NEURAL) remember(info, answer);
                 if (request.isCancelled()) return;
                 Utils.runOnMainThread(new Runnable() {
                     @Override
@@ -153,32 +155,54 @@ public final class LyricsRepository {
     private static LyricsResult lookUp(TrackInfo info, Request request) throws IOException {
         TrackQuery query = info.query();
         LyricsResult stored = cache().read(info.urn, query.signature);
-        if (stored != null) return stored;
-        if (query.durationMs > LyricsFinder.MAX_TRACK_MS || query.variants.isEmpty()) return LyricsResult.missing();
-        if (!isOnline()) return LyricsResult.offline();
+        if (stored != null) return orRecognised(info, stored);
+        if (query.durationMs > LyricsFinder.MAX_TRACK_MS || query.variants.isEmpty()) {
+            return orRecognised(info, LyricsResult.missing());
+        }
+        if (!isOnline()) return orRecognised(info, LyricsResult.offline());
 
         // Wait out a quick skip; stop at once if the track is not wanted any more.
-        for (long waited = 0; waited < DEBOUNCE_MS; waited += 50) {
-            if (request.isCancelled()) throw new IOException("Lookup cancelled");
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted", ex);
-            }
-        }
-        LyricsFinder finder = new LyricsFinder(new LrclibClient(new LrclibClient.Gate() {
+        Pause.cancellable(DEBOUNCE_MS, request);
+        LrclibHttp http = new LrclibHttp(new LrclibHttp.Gate() {
             @Override
             public void check() throws IOException {
                 RegionGuard.throwIfBlockedAnyHost();
             }
-        }, request), request);
+        }, request);
+        LyricsFinder finder = new LyricsFinder(new LrclibClient(http), request);
         Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
         LyricsResult result = finder.find(query);
         Logger.printInfo(() -> "Lyrics: " + info.urn + " -> " + result.status
                 + (result.lyrics == null ? "" : result.lyrics.isTimed() ? ", synced" : ", plain"));
         cache().write(info.urn, query.signature, result);
-        return result;
+        return orRecognised(info, result);
+    }
+
+    /**
+     * What the neural network heard, in place of "no lyrics" (or "no connection": the recognised text is on the phone).
+     * It is never written to the cache above: LRCLIB is asked again when "no lyrics" runs out, and a text found there
+     * is better than this one.
+     */
+    private static LyricsResult orRecognised(TrackInfo info, LyricsResult result) {
+        if (result.status != LyricsResult.Status.MISSING && result.status != LyricsResult.Status.OFFLINE) return result;
+        Lyrics recognised = AiTranscripts.lookUp(info);
+        return recognised == null ? result : LyricsResult.found(recognised);
+    }
+
+    /** The words the neural network just recognised, so a page that asks for the track gets them at once. */
+    static void rememberRecognised(TrackInfo info, Lyrics lyrics) {
+        remember(info, LyricsResult.found(lyrics));
+    }
+
+    /** Forgets the recognised texts kept in memory (they were removed from the phone, or the recognition was switched off). */
+    public static void forgetRecognised() {
+        synchronized (MEMORY) {
+            java.util.Iterator<LyricsResult> it = MEMORY.values().iterator();
+            while (it.hasNext()) {
+                LyricsResult result = it.next();
+                if (result.lyrics != null && result.lyrics.source == Lyrics.Source.NEURAL) it.remove();
+            }
+        }
     }
 
     private static boolean isOnline() {

@@ -6,6 +6,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Rx;
+import app.revanced.extension.soundcloud.shared.Reflect;
 
 /**
  * Makes playlist and album screens show what is stored on the device immediately.
@@ -38,12 +39,12 @@ public final class OfflineFirstPatch {
         Utils.runOnBackgroundThread(() -> {
             try {
                 ClassLoader loader = repository.getClass().getClassLoader();
-                Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
-                Class<?> playlistUrnClass = Class.forName("com.soundcloud.android.foundation.domain.PlaylistUrn", false, loader);
-                Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
-                Class<?> repositoryClass = Class.forName("com.soundcloud.android.foundation.domain.playlists.PlaylistWithTracksRepository", false, loader);
+                Class<?> urnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.Urn");
+                Class<?> playlistUrnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.PlaylistUrn");
+                Class<?> strategyClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.repository.LoadStrategy");
+                Class<?> repositoryClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.playlists.PlaylistWithTracksRepository");
 
-                Object playlistUrn = Class.forName("com.soundcloud.android.foundation.domain.UrnKt", false, loader)
+                Object playlistUrn = Reflect.type(loader, "com.soundcloud.android.foundation.domain.UrnKt")
                         .getMethod("toPlaylist", urnClass).invoke(null, urn);
                 Object synced = strategyClass.getField("SYNCED").get(null);
                 Object observable = repositoryClass.getMethod("playlistWithTracks", playlistUrnClass, strategyClass)
@@ -92,8 +93,8 @@ public final class OfflineFirstPatch {
      */
     public static Object localUsersFirst(Object repository, Object urns, Object strategy) throws Exception {
         ClassLoader loader = repository.getClass().getClassLoader();
-        Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
-        Class<?> repositoryClass = Class.forName("com.soundcloud.android.foundation.domain.users.UserRepository", false, loader);
+        Class<?> strategyClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.repository.LoadStrategy");
+        Class<?> repositoryClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.users.UserRepository");
         Object requested = repositoryClass.getMethod("users", java.util.Set.class, strategyClass).invoke(repository, urns, strategy);
         return localFirst(repository, repositoryClass.getName(), "users", java.util.Set.class, urns, requested);
     }
@@ -104,8 +105,8 @@ public final class OfflineFirstPatch {
         if (!isEnabled()) return syncIfMissing;
         try {
             ClassLoader loader = repository.getClass().getClassLoader();
-            Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
-            Class<?> repositoryClass = Class.forName(repositoryName, false, loader);
+            Class<?> strategyClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.repository.LoadStrategy");
+            Class<?> repositoryClass = Reflect.type(loader, repositoryName);
             Method method = repositoryClass.getMethod(methodName, urnsType, strategyClass);
             Object local = method.invoke(repository, urns, strategyClass.getField("LOCAL_ONLY").get(null));
             return Rx.localUntilRemote(local, syncIfMissing);

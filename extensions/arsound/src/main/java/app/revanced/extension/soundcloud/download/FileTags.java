@@ -9,7 +9,6 @@ import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Locale;
 
 /**
  * Writes the title and artist of a track into the file itself, as the tags music players read.
@@ -56,10 +55,8 @@ final class FileTags {
         String cleanTitle = clean(title);
         String cleanArtist = clean(artist);
         if (cleanTitle.isEmpty() && cleanArtist.isEmpty()) return null;
-        String lower = fileName.toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".mp3")) return planId3(source, cleanTitle, cleanArtist);
-        if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return planMp4(source, cleanTitle, cleanArtist);
-        return null;
+        AudioFormat format = AudioFormat.ofNameIgnoringCase(fileName);
+        return format == null ? null : format.tagged(source, cleanTitle, cleanArtist);
     }
 
     private static String clean(String text) {
@@ -71,7 +68,7 @@ final class FileTags {
 
     // region mp3
 
-    private static Tagged planId3(File source, String title, String artist) throws IOException {
+    static Tagged planId3(File source, String title, String artist) throws IOException {
         try (InputStream input = new FileInputStream(source)) {
             byte[] head = new byte[3];
             // A tag the uploader wrote is theirs: it stays.
@@ -126,7 +123,7 @@ final class FileTags {
 
     // region m4a
 
-    private static Tagged planMp4(File source, String title, String artist) throws IOException {
+    static Tagged planMp4(File source, String title, String artist) throws IOException {
         try (RandomAccessFile file = new RandomAccessFile(source, "r")) {
             long length = file.length();
             long moovStart = -1;

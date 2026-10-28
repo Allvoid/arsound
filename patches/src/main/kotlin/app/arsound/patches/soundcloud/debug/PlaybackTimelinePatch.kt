@@ -1,22 +1,13 @@
 package app.arsound.patches.soundcloud.debug
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.applicationOnCreateMethod
 import app.arsound.patches.soundcloud.misc.extension.sharedExtensionPatch
-import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
-import app.revanced.patcher.gettingFirstMethodDeclaratively
-import app.revanced.patcher.name
-import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
-import app.revanced.patcher.returnType
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/debug/PlaybackTimeline;"
-
-private val BytecodePatchContext.applicationOnCreateMethod by gettingFirstMethodDeclaratively {
-    name("onCreate")
-    definingClass("Lcom/soundcloud/android/app/RealSoundCloudApplication;")
-    returnType("V")
-}
 
 /**
  * Playback timeline (off by default, switched in the developer settings): Catches SoundCloud's own playback log and writes it to a file
@@ -26,7 +17,7 @@ private val BytecodePatchContext.applicationOnCreateMethod by gettingFirstMethod
 val playbackTimelinePatch = bytecodePatch {
     dependsOn(sharedExtensionPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         applicationOnCreateMethod.addInstructions(

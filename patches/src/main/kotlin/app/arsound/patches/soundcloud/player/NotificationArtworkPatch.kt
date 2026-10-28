@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.player
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
@@ -40,7 +41,7 @@ private val BytecodePatchContext.trackMetadataMethod by gettingFirstMethodDeclar
  * colours. Part of the "Arsound" patch, not shown on its own.
  */
 val notificationArtworkPatch = bytecodePatch {
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         imageProviderUriMethod.addInstructions(

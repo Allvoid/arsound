@@ -1,16 +1,8 @@
 package app.revanced.extension.soundcloud.download;
 
-import android.app.Activity;
-import android.content.Context;
-
-import java.lang.reflect.Field;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
-import app.revanced.extension.soundcloud.update.UpdateChecker;
+import app.revanced.extension.soundcloud.shared.Reflect;
 
 /**
  * SoundCloud's own download buttons: "Download" in the menu of a track, a playlist or an album, the button on the
@@ -27,8 +19,6 @@ import app.revanced.extension.soundcloud.update.UpdateChecker;
 @SuppressWarnings("unused")
 public final class DownloadButtons {
     private static final String UPGRADE_TARGET = "com.soundcloud.android.navigation.NavigationLinks$Target$Upgrade";
-    private static final Pattern TRACK_URN = Pattern.compile("^soundcloud:tracks:(\\d+)$");
-    private static final Pattern PLAYLIST_URN = Pattern.compile("^soundcloud:playlists:(\\d+)$");
 
     /** SoundCloud's DefaultFeatureOperations, a single instance. */
     private static volatile java.lang.ref.WeakReference<Object> featureOperations = new java.lang.ref.WeakReference<>(null);
@@ -57,6 +47,14 @@ public final class DownloadButtons {
     }
 
     /**
+     * True if the round download button on top of a list is Arsound's: the setting is on and the subscription has no
+     * downloads of its own. See {@link HeaderDownloadButton}.
+     */
+    static boolean interceptsHeaderButton() {
+        return Settings.isInterceptDownloadButtonsEnabled() && !subscriptionDownloads();
+    }
+
+    /**
      * Injection point. The start of SoundCloud's navigator, which opens every screen.
      *
      * @return True if the screen is the subscription offer of a download button, which is replaced by the Arsound
@@ -68,10 +66,7 @@ public final class DownloadButtons {
         try {
             String upsell = null;
             String urn = null;
-            for (Field field : target.getClass().getDeclaredFields()) {
-                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-                field.setAccessible(true);
-                Object value = field.get(target);
+            for (Object value : Reflect.instanceFieldValues(target)) {
                 if (value instanceof Enum && value.getClass().getName().endsWith(".UpsellContext")) {
                     upsell = ((Enum<?>) value).name();
                 } else if (urn == null && value != null && value.toString().startsWith("soundcloud:")) {
@@ -87,57 +82,9 @@ public final class DownloadButtons {
 
     private static boolean handle(String upsell, String urn) {
         if (upsell == null) return false;
-        switch (upsell) {
-            case "OFFLINE_TRACK":
-            case "OFFLINE_TRACK_PLUS": {
-                Matcher track = urn == null ? null : TRACK_URN.matcher(urn);
-                if (track == null || !track.find()) return false;
-                String trackId = track.group(1);
-                Logger.printInfo(() -> "SoundCloud download button: track " + trackId);
-                Context context = Utils.getContext();
-                if (context != null) Utils.runOnMainThread(() -> DownloadTrackPatch.downloadFromSoundCloudButton(context, trackId));
-                return true;
-            }
-            case "OFFLINE_PLAYLIST":
-            case "OFFLINE_PLAYLIST_PLUS": {
-                Matcher playlist = urn == null ? null : PLAYLIST_URN.matcher(urn);
-                if (playlist == null || !playlist.find()) {
-                    // A list made by SoundCloud (a mix, "Related tracks") has no playlist to check.
-                    showToast(DownloadTrackPatch.text("Этот список собирает SoundCloud: скачайте треки по одному из их меню",
-                            "SoundCloud makes this list: download its tracks one by one from their menus"));
-                    return true;
-                }
-                String playlistId = playlist.group(1);
-                Logger.printInfo(() -> "SoundCloud download button: playlist " + playlistId);
-                Utils.runOnMainThread(() -> {
-                    Context context = screen();
-                    if (context != null) DownloadPlaylistPatch.checkPlaylist(context, playlistId);
-                });
-                return true;
-            }
-            case "OFFLINE_LIKES":
-                Logger.printInfo(() -> "SoundCloud download button: likes");
-                Utils.runOnMainThread(() -> {
-                    Context context = screen();
-                    if (context != null) DownloadPlaylistPatch.checkLikes(context);
-                });
-                return true;
-            default:
-                // The Downloads row of the library and SoundCloud's offline settings: not a download of something.
-                return false;
-        }
-    }
-
-    /** The screen on top: the playlist check asks in a dialog. */
-    private static Context screen() {
-        Activity activity = UpdateChecker.resumedActivity();
-        if (activity != null && !activity.isFinishing()) return activity;
-        return Utils.getContext();
-    }
-
-    private static void showToast(String message) {
-        Context context = Utils.getContext();
-        if (context != null) DownloadTrackPatch.showToast(context, message);
+        DownloadOffer offer = DownloadOffer.of(upsell);
+        // The Downloads row of the library and SoundCloud's offline settings: not a download of something.
+        return offer != null && offer.download(urn);
     }
 
     /**

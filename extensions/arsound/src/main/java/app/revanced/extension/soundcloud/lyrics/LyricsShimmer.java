@@ -9,9 +9,10 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
-import android.util.TypedValue;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
+
+import app.revanced.extension.soundcloud.shared.Dimens;
 
 /**
  * What stands in for the lyrics while they are looked up: faint rounded bars where the lines will be, with a soft
@@ -52,7 +53,7 @@ final class LyricsShimmer extends View {
     }
 
     private float dp(float value) {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+        return Dimens.dpExact(getContext(), value);
     }
 
     @Override

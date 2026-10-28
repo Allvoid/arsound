@@ -1,16 +1,25 @@
 package app.revanced.extension.soundcloud.local;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -22,7 +31,7 @@ import app.revanced.extension.shared.Utils;
  * It also picks a picture from the gallery as the cover of an imported track or of a playlist.
  */
 @SuppressWarnings("unused")
-public final class ImportActivity extends Activity {
+public final class ImportActivity extends LocalActivity {
     private static final String EXTRA_PLAYLIST_URN = "arsound_playlist_urn";
     private static final String EXTRA_COVER_FILE = "arsound_cover_file";
     private static final String EXTRA_COVER_PLAYLIST = "arsound_cover_playlist";
@@ -38,7 +47,7 @@ public final class ImportActivity extends Activity {
      */
     private static final int MAX_KEPT_ACCESS = 100;
     /** Files whose kept access an import in progress still needs. */
-    private static final java.util.Set<Uri> COPYING = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Set<Uri> COPYING = ConcurrentHashMap.newKeySet();
 
     /** Opens the folder picker for the watched folder. */
     public static void pickWatchFolder(Context context) {
@@ -52,13 +61,19 @@ public final class ImportActivity extends Activity {
      */
     public static void start(Context context, String playlistUrn) {
         try {
-            Intent intent = new Intent(context, ImportActivity.class);
+            Intent intent = newIntent(context);
             if (playlistUrn != null) intent.putExtra(EXTRA_PLAYLIST_URN, playlistUrn);
-            if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not open the import screen", ex);
         }
+    }
+
+    /** An intent for this screen; it starts a task of its own when the caller is not an activity. */
+    private static Intent newIntent(Context context) {
+        Intent intent = new Intent(context, ImportActivity.class);
+        if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return intent;
     }
 
     /** Opens the gallery to pick the cover of an imported file. */
@@ -73,9 +88,7 @@ public final class ImportActivity extends Activity {
 
     private static void startForCover(Context context, String extra, String value) {
         try {
-            Intent intent = new Intent(context, ImportActivity.class).putExtra(extra, value);
-            if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
+            context.startActivity(newIntent(context).putExtra(extra, value));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not open the cover picker", ex);
         }
@@ -83,17 +96,6 @@ public final class ImportActivity extends Activity {
 
     private boolean isCoverPick() {
         return getIntent().hasExtra(EXTRA_COVER_FILE) || getIntent().hasExtra(EXTRA_COVER_PLAYLIST);
-    }
-
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
-    @Override
-    protected void attachBaseContext(android.content.Context base) {
-        super.attachBaseContext(base);
-        // Dark like SoundCloud's own screens, whatever the phone's mode.
-        app.revanced.extension.soundcloud.theme.ArsoundTheme.forceDark(this, base);
     }
 
     @Override
@@ -127,7 +129,7 @@ public final class ImportActivity extends Activity {
     /** The system photo picker needs no permission; older systems get the "choose an image" screen. */
     private void openGallery() {
         Intent picker = new Intent("android.provider.action.PICK_IMAGES");
-        if (android.os.Build.VERSION.SDK_INT < 33 || picker.resolveActivity(getPackageManager()) == null) {
+        if (Build.VERSION.SDK_INT < 33 || picker.resolveActivity(getPackageManager()) == null) {
             picker = new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
         }
         try {
@@ -139,7 +141,7 @@ public final class ImportActivity extends Activity {
     }
 
     /** Reads the whole stream, or returns null if it is longer than the limit. */
-    private static byte[] readLimited(java.io.InputStream input, int limit) throws java.io.IOException {
+    private static byte[] readLimited(InputStream input, int limit) throws IOException {
         // Sized by what the stream says is left, so a picture is held once, not copied while it grows.
         byte[] data = new byte[Math.min(Math.max(input.available(), 64 * 1024), limit)];
         int size = 0;
@@ -148,11 +150,11 @@ public final class ImportActivity extends Activity {
                 int next = input.read();
                 if (next == -1) return data;
                 if (size >= limit) return null;
-                data = java.util.Arrays.copyOf(data, (int) Math.min((long) size * 2, limit));
+                data = Arrays.copyOf(data, (int) Math.min((long) size * 2, limit));
                 data[size++] = (byte) next;
             }
             int read = input.read(data, size, data.length - size);
-            if (read == -1) return size == data.length ? data : java.util.Arrays.copyOf(data, size);
+            if (read == -1) return size == data.length ? data : Arrays.copyOf(data, size);
             size += read;
         }
     }
@@ -163,7 +165,7 @@ public final class ImportActivity extends Activity {
         String playlistUrn = getIntent().getStringExtra(EXTRA_COVER_PLAYLIST);
         Utils.runOnBackgroundThread(() -> {
             boolean saved = false;
-            try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
+            try (InputStream input = context.getContentResolver().openInputStream(uri)) {
                 // Read at once: the access to the picture goes with this screen. LocalCovers makes a big picture smaller.
                 byte[] image = input == null ? null : readLimited(input, MAX_PICTURE_BYTES);
                 if (image == null) {
@@ -196,22 +198,24 @@ public final class ImportActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         finish();
         if (requestCode == REQUEST_FOLDER) {
-            if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
-            Uri folder = data.getData();
-            try {
-                getContentResolver().takePersistableUriPermission(folder, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (Exception ex) {
-                Logger.printException(() -> "Could not keep the folder access", ex);
-            }
-            WatchFolder.setFolder(getApplicationContext(), folder);
-            return;
-        }
-        if (requestCode == REQUEST_COVER) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) onFolderPicked(data.getData());
+        } else if (requestCode == REQUEST_COVER) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) onCoverPicked(data.getData());
-            return;
+        } else if (requestCode == REQUEST_PICK) {
+            if (resultCode == RESULT_OK && data != null) onFilesPicked(data);
         }
-        if (requestCode != REQUEST_PICK || resultCode != RESULT_OK || data == null) return;
+    }
 
+    private void onFolderPicked(Uri folder) {
+        try {
+            getContentResolver().takePersistableUriPermission(folder, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not keep the folder access", ex);
+        }
+        WatchFolder.setFolder(getApplicationContext(), folder);
+    }
+
+    private void onFilesPicked(Intent data) {
         List<Uri> uris = new ArrayList<>();
         if (data.getClipData() != null) {
             for (int i = 0; i < data.getClipData().getItemCount(); i++) uris.add(data.getClipData().getItemAt(i).getUri());
@@ -258,9 +262,9 @@ public final class ImportActivity extends Activity {
         // Access kept by an import that the system cut short (the app was closed during the copy) is given back
         // now; only the watched folder, a folder grant, keeps its access for good.
         try {
-            for (android.content.UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+            for (UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
                 Uri uri = permission.getUri();
-                if (permission.isReadPermission() && !android.provider.DocumentsContract.isTreeUri(uri)
+                if (permission.isReadPermission() && !DocumentsContract.isTreeUri(uri)
                         && !COPYING.contains(uri)) {
                     getContentResolver().releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 }

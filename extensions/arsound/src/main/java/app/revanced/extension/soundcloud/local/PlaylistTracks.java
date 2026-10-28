@@ -41,7 +41,7 @@ public final class PlaylistTracks {
     private static final String SERVER_PREFIX = "server:";
     /** An imported file in a stored list: only its kind matters for the numbers. */
     static final String IMPORTED = "imported";
-    private static final String TRACK_PREFIX = "soundcloud:tracks:";
+    private static final String TRACK_PREFIX = TrackEntry.PREFIX;
     /** Cells whose meta line is being built wait for this many tagged states at most. */
     private static final int TAG_LIMIT = 400;
     /** A burst of changes (an import of many files, a batch) is read once. */
@@ -78,8 +78,7 @@ public final class PlaylistTracks {
     }
 
     private static SharedPreferences preferences() {
-        Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+        return LocalPrefs.open(PREFERENCES_NAME);
     }
 
     private static void load() {
@@ -104,10 +103,6 @@ public final class PlaylistTracks {
         loaded = true;
     }
 
-    private static boolean isImported(Object urn) {
-        return urn.getClass().getName().endsWith(".LocalTrackUrn");
-    }
-
     /**
      * Remembers the list a playlist screen shows. Called off the main thread.
      *
@@ -117,7 +112,7 @@ public final class PlaylistTracks {
     static boolean record(String playlistUrn, List<?> urns, int serverSize) {
         load();
         List<String> tracks = new ArrayList<>();
-        for (Object urn : urns) tracks.add(isImported(urn) ? IMPORTED : String.valueOf(urn));
+        for (Object urn : urns) tracks.add(Urns.isLocalFile(urn) ? IMPORTED : String.valueOf(urn));
         int count = countDownloaded(tracks);
         boolean changed = !tracks.equals(lists.get(playlistUrn));
         Integer previous = downloaded.get(playlistUrn);
@@ -202,15 +197,13 @@ public final class PlaylistTracks {
      * @param playlistUrns Urn strings of library playlists.
      */
     public static void recordAll(List<String> playlistUrns) {
-        Object operations = SavedPlaylist.playlistOperations();
+        PlaylistOps operations = PlaylistOps.current();
         if (operations == null) return;
         int done = 0;
         for (String urn : playlistUrns) {
             try {
-                ClassLoader loader = operations.getClass().getClassLoader();
-                Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
-                Object playlistUrn = urnClass.getMethod("forPlaylist", String.class).invoke(null, urn.substring(urn.lastIndexOf(':') + 1));
-                Object single = operations.getClass().getMethod("playlistTrackUrns", urnClass).invoke(operations, playlistUrn);
+                Object playlistUrn = operations.playlistUrn(urn);
+                Object single = operations.trackUrns(playlistUrn);
                 // The same list as on the screen: local additions, kept deleted tracks, own order.
                 Object screen = LocalAdditions.appendToTrackUrns(single, playlistUrn);
                 if (Rx.blockingFirst(screen, 20, TimeUnit.SECONDS) != null) done++;
@@ -310,7 +303,7 @@ public final class PlaylistTracks {
     public static int cellTracksCount(Object playlist, int count) {
         try {
             load();
-            String urn = urnOf(playlist);
+            String urn = Urns.textOf(playlist);
             cellPlaylist.set(urn);
             Integer seen = seenCounts.put(urn, count);
             if (seen != null && seen != count && lists.containsKey(urn)) refreshAfterCountChange(urn);
@@ -461,7 +454,4 @@ public final class PlaylistTracks {
 
     // endregion
 
-    private static String urnOf(Object playlist) throws Exception {
-        return String.valueOf(playlist.getClass().getMethod("getUrn").invoke(playlist));
-    }
 }

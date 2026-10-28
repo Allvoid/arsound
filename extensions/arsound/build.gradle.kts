@@ -5,6 +5,8 @@ dependencies {
     compileOnly(project(":extensions:arsound:stub"))
     compileOnly(libs.annotation)
     implementation(project(":extensions:arsound:newpipe", configuration = "shadowRuntimeElements"))
+    // JVM tests of the pure logic (no Android): ./gradlew :extensions:arsound:testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }
 
 android {

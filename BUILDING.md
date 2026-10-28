@@ -41,13 +41,121 @@ local/                            Локальные файлы, в Git не п�
 | **Offline first playlists** | Сохранённая копия плейлиста отдаётся сразу, синхронизация уходит в фон; фоновое сохранение метаданных всех плейлистов библиотеки (`SyncInitiator`) и копий их обложек файлами (`LocalCovers`, отдаются вместо ссылки в `Playlist.getArtworkImageUrl`). |
 | **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`): элемент воспроизведения собирается сразу в `PlaybackMediaProvider.j`, без ожидания `TrackRepository` (`SYNC_MISSING`), метаданные уведомления ждут не больше 2 с. Таймаут обложки уведомления, повтор при сбое потока. Разрешение `READ_MEDIA_AUDIO` для файлов, скачанных до переустановки. |
 | **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, значок статуса сети над плеером. |
-| **Local music** | Импорт файлов, плейлист «Импортированные», локальные добавления в любые плейлисты, свой порядок плейлистов в библиотеке и треков в плейлисте (`DragReorder`, порядок применяется к `playlistTrackUrns`). |
+| **Region hint** | Значок «?» справа от пометки «Недоступно в вашей стране» (`RegionHint`): метку рисуют два пути, и в оба вставлено по два вызова — `noteLabels` (в списке типов меток есть `MetaLabelType.IconWithText` с иконкой-замком `ic_labels_geo_locked`, `GeoLabel`) и `appendBadge` (Compose, `MetaLabelKt.a`: к списку частей перед `FlowRow` добавляется `AndroidView` с `RegionHintBadge`) или `appendBadgeView` (View, `MetaLabel.n`: к списку видов перед Flow), плюс баннер страницы трека (`GeoBlockedBannerRendererKt.a`, `bannerBadge`). Значок покачивается раз в 4,2 с (`ShakeCurve`), по нажатию окно `RegionHintDialog` с галочкой «Больше не показывать»; настройка `region_hint`, по умолчанию включена. |
+| **Local music** | Импорт файлов, плейлист «Импортированные», локальные добавления в любые плейлисты, свой порядок плейлистов в библиотеке и треков в плейлисте (`DragReorder`, порядок применяется к `playlistTrackUrns`). Импортированные файлы в «Ваших лайках» (`ImportedLikesPatch` + `ImportedLikes`): хуки на `RoomLikesReadStorage.pagedLiveLoadTrackLikes` (первая страница; смещения следующих страниц переводит `LikesPaging`, живой список — `LikesFeed`), `loadLikedTrackPlayItems` (очередь), число в шапке `TrackLikesPresenter`, сердечко (`LikedStatuses.isLiked`, `LikeToggler.toggleTrackLike`, `LikeHearts`: убранные из лайков файлы помнит `HiddenLikes`); в таблицу `Likes` и на сервер локальные urn не попадают, `RelatedLikersService.getUsersLikedTracks` их отбрасывает. Настройка `imported_in_likes`, по умолчанию включена. |
 | **Power saving** | Реже опрос входящих, без фоновых отчётов SDK, без WifiLock при проигрывании файла. |
 | **Hide duplicate recommendations** | Фильтр перезаливов в автовоспроизведении и на серверной главной (`SDUIView`). |
 | **Hide subscription offers** | Экран покупки Go/Go+, окна MoEngage, вкладка Upgrade, серверные блоки главной `UpsellPlaceholder` и `BannerAdPlaceholder`, кнопка «Get Pro» в шапке. |
 | **Change account type** | Свой тип аккаунта Android, чтобы мод работал рядом с оригиналом. |
 | **Custom app name**, **Arsound branding** | Название, иконки (и 93 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
 | **Change package name** | Патч ReVanced: пакет `com.arsound.app` (до 0.9.3 включительно был `com.soundcloud.android.revanced`). |
+
+### Как устроен код расширения
+
+Пакеты в `extensions/arsound/src/main/java/app/revanced/extension/soundcloud/` повторяют функции: `settings`,
+`theme` (и `theme/effect`), `wallpaper`, `local`, `download`, `lyrics`, `player`, `search`, `network`, `region`,
+`login`, `recommendations`, `debug` и т. д.
+
+У **каждого** пакета есть `package-info.java`: что функция даёт пользователю, точки входа (какие методы вызывают
+Kotlin-патчи и хуки жизненного цикла), главные классы, где лежат ключи настроек и подводные камни. Читать код пакета
+лучше с него. Ниже карта всех пакетов:
+
+| Пакет | Что делает | С чего начать читать |
+|---|---|---|
+| `ads` | блокирует рекламу в плеере | `PlaybackAdPatch` |
+| `analytics` | отключает телеметрию SoundCloud | `DisableTelemetryPatch` |
+| `branding` | выбор значка приложения (варианты, псевдонимы лаунчера) | `AppIcons` |
+| `debug` | «Сохранить журналы», журнал падений, таймлиния запуска треков | `LogExport`, `CrashLog` |
+| `debug/sections` | части файла журналов (шапка, вход, падения, плеер, logcat) | `LogSection` (в `debug`), затем нужный `*Section` |
+| `download` | скачивание треков и плейлистов, индекс скачанного, папка; DRM-часть пока в работе, не править | `DownloadIndex`, `DownloadButtons` |
+| `library` | прячет баннер импорта плейлистов | `HideImportBannerPatch` |
+| `local` | импорт файлов, плейлист «Импортированные», свои добавления и порядок, слияние, лайки с файлами | `LocalMusic`, `LocalAdditions`, `ImportedLikes` |
+| `login` | кнопка «Сохранить журналы» на экране входа | `LoginLogsButton` |
+| `lyrics` | синхронный текст песни из LRCLIB в полноэкранном плеере | `LyricsHooks`, `LyricsLayer`, `LyricsRepository` |
+| `lyrics/transcribe` | распознавание слов песни нейросетью Whisper на телефоне | `TranscriptionManager`, `TranscriptionJob` |
+| `network` | свой DNS, блокировка по стране IP, значок сети, вопрос перед DataDome, общие обложки | `NetworkPatch`, `RegionGuard` |
+| `offline` | сохранённое показывается сразу, скачанное играет из файла, повтор при сбое сети | `OfflineFirstPatch`, `InstantFilePlayback` |
+| `permissions` | приветствие при первом запуске, объяснение разрешений, переключатель языка (имя историческое) | `WelcomePermissions` |
+| `player` | эквалайзер, таймер сна, кнопка режима воспроизведения, статистика, кэш потока, обложка уведомления, плеер vivo | `AudioEqualizer`, `SleepTimer`, `PlayModeButton` |
+| `power` | экономия энергии: реже опрос, без фоновых отчётов | `PowerSavingPatch` |
+| `recommendations` | фильтр дублей, «Не для меня», плейлист «Для вас» | `DuplicateFilter`, `ForYou`, `TrackDislikes` |
+| `region` | значок «?» у пометки «Недоступно в вашей стране» | `RegionHint` |
+| `screenshot` | окно «Поделиться скриншотом» | `ScreenshotShare` |
+| `search` | поиск Arsound по YouTube Music под строкой поиска (не поиск настроек) | `SearchSourceSwitch`, `OtherSource` |
+| `settings` | значения настроек и все экраны настроек | `Settings`, `BoolSettings`, `SettingsScreens`, `SettingsEntry` |
+| `settings/search` | движок поиска по настройкам, без Android | `SearchIndex` |
+| `shared` | общие помощники: язык, размеры, цвета, Reflect, Rx, диалоги | `Lang`, `Reflect`, `ArsoundDialog` |
+| `theme` | темы поверх интерфейса SoundCloud, цвета, шрифты, стартовый экран | `ArsoundTheme`, `ThemeLifecycle` |
+| `theme/effect` | анимированные фоны тем (искры, звёзды, лепестки, снег) | `EffectKind`, `EffectScene` |
+| `update` | проверка обновлений и реестр реакций на экраны (`ScreenHooks`) | `UpdateChecker` |
+| `upsell` | прячет предложения подписки и вкладку Upgrade | `HidePaywallPatch` |
+| `wallpaper` | обои за главными экранами, браузер Wallhaven | `WallpaperSurfaces`, `WallpaperStore` |
+| `widget` | сердечко виджета плеера по цвету обложки, обложки виджета лайков | `WidgetHeart`, `WidgetImages` |
+
+Правила, по которым код разложен:
+
+- **Точки входа патчей не переименовываются.** Kotlin-патч вызывает метод расширения по строке вида
+  `Lapp/revanced/extension/soundcloud/local/LocalAdditions;->tracksWithLocalFiles(...)`. Поэтому крупные классы
+  остались тонкими фасадами с теми же публичными методами, а работа лежит в классах рядом (например,
+  `LocalAdditions` → `AdditionsStore`, `LocalTrackLoader`, `LocalFileTracks`, `AdditionsMenus`).
+- **Общие помощники — в `shared/`:** `Lang.text(ru, en)` (язык интерфейса), `Dimens.dp` (dp в пиксели),
+  `Colors` (контраст, прозрачность, смешение), `Reflect` (поиск поля или метода по условию), `AtomicFiles`
+  (запись через временный файл), `AppResources` (ресурс по имени с запасным пакетом `com.soundcloud.android`),
+  `Toasts`, `Rx`, `ArsoundDialog`. Своих копий этих функций в классах быть не должно.
+- **Экраны настроек** — по классу на экран (`AccountScreen`, `NetworkScreen`, `StorageScreen`…), список и порядок —
+  в `SettingsScreens` и `SettingsLayout` (группы главного экрана), общие ряды и переключатели — в `SettingsUi`.
+  Экран просто добавляет ряды (`SettingRow`) в список, а `SettingsPage` сама кладёт подряд идущие ряды в карточку
+  (`SettingsGroup`); заголовок `createSubHeading` начинает новую карточку, параметры включаемой функции — `SubRows`.
+  Поиск (`settings/search`: стеммер, синонимы `SynonymTable`, опечатки, раскладка) не зависит от Android и покрыт
+  JUnit-тестами; ряды попадают в него сами, при сборке экранов. `ReVancedSettingsActivity` только выбирает
+  экран. Булевы настройки описаны один раз в `BoolSettings` (ключ и значение по умолчанию); методы
+  `Settings.isX()` оставлены для остального кода.
+- **Варианты поведения — через полиморфизм**, а не через `switch` по строке: эффекты тем (`theme/effect/*Scene`),
+  режимы таймера сна (`TimerMode`), DNS-резолверы (`DohResolver`, `PlainDnsResolver`), записи плейлиста
+  (`FileEntry`, `TrackEntry`), части файла журналов (`debug/sections/*`), вид стартового экрана темы
+  (`SplashLook` в `ThemePatch`).
+- **Реакции на экраны** (`onActivityResumed`/`onActivityPaused`) собраны в `update/ScreenHooks`: порядок
+  регистрации важен, сбой одной функции не роняет остальные.
+- **В Kotlin-патчах** повторяющиеся вставки собраны в `misc/hooks`: `insertGuard` с видом выхода `GuardExit`
+  (вызвать расширение и вернуть его ответ или продолжить оригинал), хуки на возвращаемое значение и конец
+  конструктора. Версия SoundCloud, под которую написаны обфусцированные имена, — `SOUNDCLOUD_VERSION` в
+  `misc/SoundCloudTarget.kt`.
+
+Чистая логика без Android (подбор цветов, смещения страниц лайков, разбор текстов, маскировка секретов в журналах
+и т. п.) покрыта JUnit-тестами в `extensions/arsound/src/test/java`. Запуск:
+
+```bash
+./gradlew :extensions:arsound:testDebugUnitTest
+```
+
+### Распознавание текста нейросетью
+
+Пакет `lyrics/transcribe` слушает песни, текста которых нет в LRCLIB, моделью Whisper на телефоне (sherpa-onnx и ONNX
+Runtime). Чтобы APK не вырос, **в него не входит ни нативная библиотека, ни модель**: они скачиваются при включении
+функции в `files/arsound/asr` (только 64-битные ARM-телефоны, на других функции нет).
+
+- **Что скачивается и откуда.** Библиотека: официальный AAR `sherpa-onnx-static-link-onnxruntime` с GitHub Releases,
+  из него вырезается один файл `jni/arm64-v8a/libsherpa-onnx-jni.so` (ONNX Runtime внутри него, 16 КБ-выравнивание
+  проверено). Модели: `csukuangfj/sherpa-onnx-whisper-small` и `-base` на Hugging Face (int8-энкодер, int8-декодер,
+  `tokens.txt`), с **фиксированного коммита**, не с `main`. Всё качается по HTTPS с докачкой (`ResumableDownload`).
+- **Проверка.** SHA-256 каждого файла записан в коде (`AsrLibrary`, `AsrModel`), а не берётся от сервера; файл с чужой
+  суммой удаляется. Ссылки на другие хосты, кроме HTTPS, не принимаются, в том числе при перенаправлении.
+- **Java-классы** sherpa-onnx лежат в `extensions/arsound/src/main/java/com/k2fsa/sherpa/onnx` (Apache-2.0, **того же
+  тега**, что и библиотека: нативный код читает их поля по именам). Только классы, нужные `OfflineRecognizer`; от
+  оригинала отличается `LibraryLoader` (ничего не грузит сам: библиотеку после проверки грузит `NativeLibs` через
+  `System.load`). Правило `-keep class com.k2fsa.sherpa.onnx.**` стоит в `extensions/proguard-rules.pro`.
+- **Как обновить версии.** `python tools/asr/pin.py library <тег>` печатает константы для `AsrLibrary`;
+  `python tools/asr/pin.py model small` (и `base`) печатает адрес, коммит, размеры и суммы файлов для `AsrModel`
+  (порядок в `AsrModel`: энкодер, декодер, токены); `python tools/asr/pin.py sources <тег>` заново скачивает Java-классы.
+  Потом поправить тег в `NOTICE.txt` рядом с ними, прогнать `./gradlew :extensions:arsound:testDebugUnitTest` и проверить
+  на телефоне: «Модель нейросети» в настройках скачивается, песня без текста распознаётся.
+- **Качество (проверка 29.10).** На русских песнях `small` даёт WER около 0,67 и CER около 0,37, `base` — WER 1,1–1,3 (мусор), поэтому по умолчанию `small`, а `base` подписан как быстрая модель с ошибками. Модель сама зацикливается на длинных окнах («17-19-19-…», «もう一回 もう一回 …») и на выбранном «auto» уходила в японский: поэтому `Loops` режет повторы, `TextCleaner` отбрасывает окна «в основном повтор» и «не тем письмом», `LanguagePolicy` верит только русскому, английскому и языку телефона (русский язык по умолчанию в русском приложении), а `SongListener` слушает зациклившееся окно ещё раз двумя половинами. Из настроек декодера в теге 1.13.8 есть только `tailPaddings` (стоит 300), предела токенов и штрафа за повторы нет.
+- **Лицензии.** sherpa-onnx — Apache-2.0, ONNX Runtime и Whisper — MIT; указаны в `README` и `NOTICE.txt`.
+- **Хранение.** Распознанные тексты лежат в `files/arsound/transcripts` (не в кэше, который система вправе очистить),
+  по файлу на трек и модель, недоделанные продолжаются с того же окна. «Очистить кэш текстов» их не трогает.
+- **Звук берётся только из разрешённого.** Импортированный файл, трек, скачанный Arsound, или поток, который отдаётся
+  всем (`download/TranscriptionAudio`): отрывки, треки по подписке и всё, что закрыто DRM (FairPlay, Widevine,
+  SAMPLE-AES), отвергаются до запроса звука, а `HlsPlaylist` отвергает такой плейлист ещё раз.
 
 ## Что нужно для сборки
 
@@ -186,6 +294,20 @@ python tools/branding/design_icons.py
 Темы описаны в `patches/src/main/resources/soundcloud/theme/themes.json`. Патч кладёт его и шрифты в `assets/arsound/`
 и делает заставку каждой темы; приложение подменяет ресурсы SoundCloud на лету, после выбора темы оно перезапускается.
 
+Заставку (системный экран запуска Android 12+: буква, которая рисуется на плоском фоне) рисует система из ресурсов APK
+ещё до кода приложения, поэтому во время работы её перекрасить нельзя — можно только выбрать готовый стиль
+(`SplashScreen.setSplashScreenTheme`, Android 13+). Что именно печь для темы, описывает `SplashLook` в `misc/theme/SplashLook.kt`:
+у обычной темы один стиль `Arsound.Splash.<id>` (тёмный фон и акцент темы), у Monet один стиль на цвета системной
+палитры, а у «Своей темы» (`"runtime": "custom"`) — сетка. Её цвета лежат в `SplashGridColors`: 29 тёмных фонов и 27 цветов
+буквы (точные #121212 и #FF5500 первыми, чтобы тема по умолчанию выглядела точно), на каждую пару свой стиль
+`Arsound.Splash.custom_<фон>_<буква>` и по одной подкрашенной анимации на цвет буквы. Патч кладёт список цветов в
+`assets/arsound/splash-grid.json`, и приложение (`theme/SplashStyle.java`) выбирает ближайшую пару к настоящим цветам темы
+по расстоянию в OKLab (`SplashColors`, `SplashGrid`, тесты рядом). Сетку можно урезать: нужно поправить два списка в
+`SplashGridColors` (без мягких цветов буквы стилей втрое меньше), больше ничего менять не надо. Выбор запоминается в
+настройке `arsound_splash_style` и сверяется при каждом открытии экрана, поэтому заставка чинится сама после обновления.
+Окно `LauncherActivity` после заставки рисует уже приложение: его фон — цвет `arsound_launch_background`, который
+`ArsoundTheme` подменяет на тёмную поверхность темы точно.
+
 Анимация фона темы (`theme/ThemeEffect.java`) повторяет макет «Анимации тем»: частицы считаются от времени, как
 CSS-кадры, рисуются на Canvas и идут только пока видны. Эффект выбирается по id темы (`scarlet`, `cobalt`, `mint`,
 `sakura`, `lime`, `winter`); новой теме можно отдать чужой эффект полем `"effect"` в `themes.json`.
@@ -251,6 +373,32 @@ python tools/branding/theme_fonts.py <папка с файлами шрифто�
 ```bash
 python tools/branding/theme_icons.py <папка пакета lucide-static 0.460.0>
 ```
+
+**Обои за экранами SoundCloud.** Картинка (`wallpaper/WallpaperStore`, `WallpaperDrawable`) — фон окна главной
+активности: `WallpaperSurfaces.onActivityPreCreated` ставит её до создания экранов и делает строку состояния
+прозрачной. SoundCloud поверх окна закрашивает слои цветом поверхности, поэтому, пока обои включены, их снимают
+(патч `WallpaperSurfacesPatch.kt`, входит в тему):
+
+- `Fragment.performViewCreated` (имя не обфусцировано): после `onViewCreated` вызывается
+  `WallpaperSurfaces.onFragmentViewCreated(view)`. Если вид лежит в контейнере `main_container` активности, а не в
+  плеере, окне или шторке, `ScreenBackgrounds` обходит контейнеры (до 10 уровней, внутрь `RecyclerView`, `AbsListView`
+  и Compose не заходит) и убирает непрозрачную заливку цветами поверхности, в том числе у верхних панелей
+  (`AppBarLayout`, `Toolbar`: их цвет Material прячет в `MaterialShapeDrawable`, это различает `ViewKind`).
+- `ThemeKt.a` и `ScaffoldKt.a` (Compose-обёртка каждого экрана SoundCloud): вызов `Colors.j(Composer)` заменён на
+  `WallpaperSurfaces.screenSurface(composer)`, который отдаёт прозрачный цвет, если вид Compose лежит в
+  `main_container` окна с обоями, и обычный цвет иначе. Цвет, который вызывающий передал сам, не трогается.
+  `Colors.j` обфусцирован: при обновлении SoundCloud ищите статический метод `Colors`, который возвращает `J`,
+  принимает `Composer` и читает цвет `dark_surface`.
+- Включение и выключение обоев перезапускает `MainActivity` (`onActivityResumed`): уже построенные экраны остались бы
+  с лишней заливкой или без неё. Картинка, затемнение и размытие перерисовываются без перезапуска.
+
+Плеер, очередь, мини-плеер, нижняя панель, диалоги и шторки лежат вне `main_container` и остаются непрозрачными.
+Каталог Wallhaven (`settings/WallhavenScreen`, `wallpaper/ThumbnailLoader`) показывает ячейку в два этапа: миниатюра (300 пикселей, ARGB_8888),
+затем, когда прокрутка стихла на 400 мс, `SharpLoader` скачивает полный файл (`SharpPolicy`: не больше 6 МБ и сеть без счётчика трафика),
+уменьшает его при декодировании не меньше чем до ячейки (`CoverCrop`) и кладёт JPEG в `cacheDir/wallhaven-grid` (`GridDiskCache`, до 150 МБ,
+первыми уходят давно не открывавшиеся). Тесты: `CoverCropTest`, `SharpPolicyTest`, `GridDiskCacheTest`, `WallhavenRulesTest`.
+Скачанный JPEG не больше 2560 по длинной стороне ставится обоями без повторного кодирования (`WallpaperKeep`); запечённая копия пишется с качеством 95.
+Чистая логика (цвета поверхности, имена классов) проверяется тестами `SurfaceColoursTest` и `ClassNamesTest`.
 
 Русский перевод SoundCloud лежит в `patches/src/main/resources/soundcloud/translation/` (строки и множественные формы,
 которые SoundCloud переводит на другие языки).
@@ -349,6 +497,10 @@ disk.dataPartition.size=16G
   остаются в кэше. Лечится кнопкой «Сбросить данные SoundCloud».
 - **Экран подписки и «Oops… try again».** Экран покупки загружает цены из Google Play, а мод установлен не
   из Play. Патч подменяет переход на этот экран пустым прозрачным экраном.
+- **Кнопка «Сохранить логи» на экране входа.** Настройки Arsound до входа недоступны, поэтому плашка добавляется
+  поверх `AuthenticationActivity` из обратных вызовов жизненного цикла в `UpdateChecker` (`LoginLogsButton`),
+  патч не нужен. Если на какой-то версии SoundCloud плашка не появится, запасной путь — вызвать
+  `LoginLogsButton.onActivityResumed` из `AuthLandingFragment.onViewCreated` (отдельный патч).
 - **Сразу после запуска Android блокирует сеть приложению, которое ещё не на экране**, и кэширует неудачный
   DNS-ответ на несколько секунд. Сетевые проверки при старте нужно начинать после выхода на передний план.
 

@@ -5,18 +5,13 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.RenderProcessGoneDetail;
-import android.webkit.ValueCallback;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -25,6 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.network.StreamText;
 
 /**
  * Deciphers YouTube's {@code signatureCipher}/{@code n} playback-URL obfuscation.
@@ -38,7 +34,7 @@ import app.revanced.extension.shared.Logger;
  * <p>
  * The player's own cipher JS is never fully loaded here. Faraday/Zemer already reverse-engineers
  * YouTube's obfuscated player into two small, hash-keyed JS expression templates per player
- * version ({@code sig} and {@code nClass}, see {@link Player_configs}) that are published at
+ * version ({@code sig} and {@code nClass}, see {@link PlayerConfig}) that are published at
  * {@code https://raw.githubusercontent.com/ZemerTeam/zemer-cipher/master/library/src/main/assets/player_configs.json}.
  * This class fetches and caches that table, resolves the current player hash from
  * {@code https://www.youtube.com/iframe_api}, and evaluates the matching expression.
@@ -78,27 +74,18 @@ public final class PlayerCipher {
     private static volatile long lastConfigRefetchAtMs;
     private static volatile String fetchedPlayerHash;
     private static volatile long fetchedPlayerHashAtMs;
-    private static volatile String cachedPlayerHash;
-    private static volatile PlayerConfig cachedResolvedConfig;
 
     private PlayerCipher() {
     }
 
-    /**
-     * A single hash-keyed entry from {@code player_configs.json}: a JS expression template for
-     * deriving the signature ({@code sig}, with {@code INPUT} standing in for the ciphered
-     * value), the class name used to n-transform ({@code nClass}), and the signature timestamp
-     * ({@code sts}) YouTube's player API expects to be echoed back.
-     */
-    private static final class PlayerConfig {
-        final String sigJsExpression;
-        final String nClass;
-        final int sts;
+    /** The player YouTube serves now and the cipher config the table has for it. */
+    private static final class ResolvedPlayer {
+        final String hash;
+        final PlayerConfig config;
 
-        PlayerConfig(String sigJsExpression, String nClass, int sts) {
-            this.sigJsExpression = sigJsExpression;
-            this.nClass = nClass;
-            this.sts = sts;
+        ResolvedPlayer(String hash, PlayerConfig config) {
+            this.hash = hash;
+            this.config = config;
         }
     }
 
@@ -122,7 +109,7 @@ public final class PlayerCipher {
         String baseUrl;
         String deciphered;
         // One lookup of the player serves both the signature and the n parameter.
-        boolean resolved = false;
+        ResolvedPlayer player = null;
         if (signatureCipherOrNull != null) {
             Map<String, String> params = parseQueryString(signatureCipherOrNull);
             String s = params.get("s");
@@ -132,9 +119,8 @@ public final class PlayerCipher {
             }
             String sp = params.containsKey("sp") ? params.get("sp") : "signature";
 
-            resolveConfig(ctx);
-            resolved = true;
-            deciphered = callSolver(ctx, "_cipherSigFunc", s);
+            player = resolveConfig();
+            deciphered = callSolver(ctx, player, "_cipherSigFunc", s);
             if (deciphered == null) {
                 throw new IOException("Failed to decipher signature");
             }
@@ -149,8 +135,8 @@ public final class PlayerCipher {
         Uri uri = Uri.parse(baseUrl);
         String n = uri.getQueryParameter("n");
         if (n != null) {
-            if (!resolved) resolveConfig(ctx);
-            String transformed = callSolver(ctx, "_nTransformFunc", n);
+            if (player == null) player = resolveConfig();
+            String transformed = callSolver(ctx, player, "_nTransformFunc", n);
             if (transformed != null && !transformed.isEmpty()) {
                 baseUrl = setQueryParam(baseUrl, "n", transformed);
             }
@@ -163,41 +149,23 @@ public final class PlayerCipher {
      * callers must echo back as {@code sts} in the player request to get working stream URLs.
      */
     public static synchronized int signatureTimestamp(Context ctx) throws Exception {
-        return resolveConfig(ctx).sts;
+        return resolveConfig().config.sts;
     }
 
     //region Player hash / config resolution
 
-    private static PlayerConfig resolveConfig(Context ctx) throws Exception {
+    private static ResolvedPlayer resolveConfig() throws Exception {
         String playerHash = fetchPlayerHash();
-        Map<String, PlayerConfig> configs = fetchConfigs(false);
-
-        PlayerConfig config = configs.get(playerHash);
-        if (config == null) {
-            // Not found directly: search every entry's aliases (player_configs.json groups
-            // several player hashes under one config when YouTube reuses the same cipher logic
-            // across builds).
-            config = findByAlias(configs, playerHash);
-        }
+        // player_configs.json groups several player hashes under one config when YouTube reuses the same cipher
+        // logic across builds; the aliases are listed as keys of the table when it is parsed.
+        PlayerConfig config = fetchConfigs(false).get(playerHash);
         if (config == null) {
             config = refetchedConfig(playerHash);
         }
         if (config == null) {
             throw new IOException("Player " + playerHash + " is not in the cipher config");
         }
-
-        cachedPlayerHash = playerHash;
-        cachedResolvedConfig = config;
-        return config;
-    }
-
-    private static PlayerConfig findByAlias(Map<String, PlayerConfig> configs, String hash) {
-        // player_configs.json's schema nests "aliases" inside each hash's own object; since we
-        // parse the whole document generically below, aliases are flattened into the same map
-        // (each alias hash is inserted as its own key pointing at the parent's PlayerConfig) at
-        // parse time, so a direct map lookup already covers this. This method stays as a defensive
-        // no-op fallback in case of a parser edge case.
-        return configs.get(hash);
+        return new ResolvedPlayer(playerHash, config);
     }
 
     /**
@@ -212,9 +180,7 @@ public final class PlayerCipher {
         }
         lastConfigRefetchAtMs = now;
         try {
-            Map<String, PlayerConfig> configs = fetchConfigs(true);
-            PlayerConfig config = configs.get(playerHash);
-            return config != null ? config : findByAlias(configs, playerHash);
+            return fetchConfigs(true).get(playerHash);
         } catch (Exception ex) {
             Logger.printInfo(() -> "Could not fetch the cipher config again", ex);
             return null;
@@ -248,79 +214,11 @@ public final class PlayerCipher {
         }
 
         String json = httpGet(PLAYER_CONFIGS_URL, CONFIG_FETCH_TIMEOUT_MS);
-        Map<String, PlayerConfig> parsed = parsePlayerConfigs(json);
+        Map<String, PlayerConfig> parsed = PlayerConfig.parseTable(json);
 
         cachedConfigs = parsed;
         cachedConfigsAtMs = System.currentTimeMillis();
         return parsed;
-    }
-
-    /**
-     * Parses {@code player_configs.json}: {@code {"schemaVersion":1,"players":{"<hash>":
-     * {"sig":"...","nClass":"...","sts":12345,"aliases":["<hash2>",...]}}}}. Each entry's
-     * "sig" is a JS expression such as {@code Tl(48,5831,INPUT)}, matching innertubex's
-     * {@code RemotePlayerConfigParser} expectations.
-     */
-    private static Map<String, PlayerConfig> parsePlayerConfigs(String json) throws IOException {
-        Object rootObj = new SimpleJsonParser(json).parse();
-        if (!(rootObj instanceof Map)) {
-            throw new IOException("player_configs.json root is not an object");
-        }
-        @SuppressWarnings("unchecked")
-        Map<String, Object> root = (Map<String, Object>) rootObj;
-
-        Object schemaVersionObj = root.get("schemaVersion");
-        if (!(schemaVersionObj instanceof Number) || ((Number) schemaVersionObj).intValue() != 1) {
-            throw new IOException("Unsupported player_configs.json schemaVersion: " + schemaVersionObj);
-        }
-
-        Object playersObj = root.get("players");
-        if (!(playersObj instanceof Map)) {
-            throw new IOException("player_configs.json 'players' is not an object");
-        }
-        @SuppressWarnings("unchecked")
-        Map<String, Object> players = (Map<String, Object>) playersObj;
-
-        Map<String, PlayerConfig> result = new HashMap<>();
-        for (Map.Entry<String, Object> entry : players.entrySet()) {
-            if (!(entry.getValue() instanceof Map)) {
-                continue;
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> obj = (Map<String, Object>) entry.getValue();
-
-            Object sigObj = obj.get("sig");
-            Object nClassObj = obj.get("nClass");
-            Object stsObj = obj.get("sts");
-            if (!(sigObj instanceof String) || !(nClassObj instanceof String) || !(stsObj instanceof Number)) {
-                continue; // malformed entry: skip, mirroring RemotePlayerConfigParser's per-entry skip behavior
-            }
-
-            PlayerConfig config = new PlayerConfig((String) sigObj, (String) nClassObj, ((Number) stsObj).intValue());
-            result.put(entry.getKey(), config);
-
-            Object aliasesObj = obj.get("aliases");
-            if (aliasesObj instanceof List) {
-                for (Object alias : (List<?>) aliasesObj) {
-                    if (alias instanceof String) {
-                        result.put((String) alias, config);
-                    }
-                }
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Builds the n-transform JS expression the same way innertubex's
-     * {@code RemotePlayerConfigParser.buildNJsExpression} does: it instantiates the player's own
-     * n-transform class ({@code nClass}) against a synthetic {@code googlevideo.com} URL and reads
-     * back its {@code n} query parameter, since the class's real entry point operates on a whole
-     * URL object rather than a bare string.
-     */
-    private static String buildNJsExpression(String nClass) {
-        return "(function(n){try{var u=new g." + nClass + "('https://x.googlevideo.com/videoplayback?n='+n,true);"
-                + "var t=u.get('n');return(t&&t!==n)?t:n;}catch(e){return n;}})(INPUT)";
     }
 
     //endregion
@@ -355,10 +253,9 @@ public final class PlayerCipher {
      * the page through a JavaScript interface and run with a global eval: put into the HTML it could
      * end the script tag early, and it is too big to send whole with evaluateJavascript.
      */
-    private static String callSolver(Context ctx, String function, String input) throws Exception {
-        String hash = cachedPlayerHash;
-        PlayerConfig config = cachedResolvedConfig;
-        if (hash == null || config == null) throw new IOException("No resolved player");
+    private static String callSolver(Context ctx, ResolvedPlayer player, String function, String input) throws Exception {
+        String hash = player.hash;
+        PlayerConfig config = player.config;
         Handler main = new Handler(Looper.getMainLooper());
 
         if (solver == null || !hash.equals(solverHash)) {
@@ -367,7 +264,7 @@ public final class PlayerCipher {
             }
             String playerCode = httpGet(String.format(BASE_JS_URL, hash), CONFIG_FETCH_TIMEOUT_MS);
             String sigExpression = config.sigJsExpression.replace("INPUT", "sig");
-            String nExpression = buildNJsExpression(config.nClass).replace("INPUT", "n");
+            String nExpression = config.nJsExpression().replace("INPUT", "n");
             String exports = "; window._cipherSigFunc=function(sig){try{return " + sigExpression + ";}catch(e){return null;}};"
                     + "window._nTransformFunc=function(n){try{return " + nExpression + ";}catch(e){return n;}}; ";
             String modified = playerCode.contains(PLAYER_IIFE_TRAILER)
@@ -596,202 +493,11 @@ public final class PlayerCipher {
             if (code < 200 || code >= 300) {
                 throw new IOException("HTTP " + code + " fetching " + url);
             }
-            return readStream(connection.getInputStream());
+            return StreamText.readUtf8(connection.getInputStream());
         } finally {
             connection.disconnect();
         }
     }
 
-    private static String readStream(InputStream in) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int read;
-        while ((read = in.read(buffer)) != -1) {
-            out.write(buffer, 0, read);
-        }
-        return out.toString("UTF-8");
-    }
-
     //endregion
-
-    /**
-     * A minimal recursive-descent JSON object/array parser sufficient for player_configs.json's
-     * shape (nested objects, arrays of strings, string/number/boolean/null leaves). Avoids pulling
-     * in a JSON dependency for this single call site.
-     */
-    private static final class SimpleJsonParser {
-        private final String s;
-        private int pos;
-
-        SimpleJsonParser(String s) {
-            this.s = s;
-        }
-
-        Object parse() throws IOException {
-            skipWhitespace();
-            return parseValue();
-        }
-
-        private Object parseValue() throws IOException {
-            skipWhitespace();
-            if (pos >= s.length()) {
-                throw new IOException("Unexpected end of JSON");
-            }
-            char c = s.charAt(pos);
-            if (c == '{') {
-                return parseObject();
-            } else if (c == '[') {
-                return parseArray();
-            } else if (c == '"') {
-                return parseString();
-            } else if (c == 'n' && s.startsWith("null", pos)) {
-                pos += 4;
-                return null;
-            } else if (c == 't' && s.startsWith("true", pos)) {
-                pos += 4;
-                return Boolean.TRUE;
-            } else if (c == 'f' && s.startsWith("false", pos)) {
-                pos += 5;
-                return Boolean.FALSE;
-            } else {
-                return parseNumber();
-            }
-        }
-
-        private Map<String, Object> parseObject() throws IOException {
-            Map<String, Object> map = new HashMap<>();
-            pos++; // '{'
-            skipWhitespace();
-            if (pos < s.length() && s.charAt(pos) == '}') {
-                pos++;
-                return map;
-            }
-            while (true) {
-                skipWhitespace();
-                String key = parseString();
-                skipWhitespace();
-                if (pos >= s.length() || s.charAt(pos) != ':') {
-                    throw new IOException("Expected ':' in JSON object");
-                }
-                pos++;
-                Object value = parseValue();
-                map.put(key, value);
-                skipWhitespace();
-                if (pos >= s.length()) {
-                    throw new IOException("Unterminated JSON object");
-                }
-                char c = s.charAt(pos);
-                if (c == ',') {
-                    pos++;
-                } else if (c == '}') {
-                    pos++;
-                    break;
-                } else {
-                    throw new IOException("Malformed JSON object");
-                }
-            }
-            return map;
-        }
-
-        private List<Object> parseArray() throws IOException {
-            java.util.List<Object> list = new java.util.ArrayList<>();
-            pos++; // '['
-            skipWhitespace();
-            if (pos < s.length() && s.charAt(pos) == ']') {
-                pos++;
-                return list;
-            }
-            while (true) {
-                list.add(parseValue());
-                skipWhitespace();
-                if (pos >= s.length()) {
-                    throw new IOException("Unterminated JSON array");
-                }
-                char c = s.charAt(pos);
-                if (c == ',') {
-                    pos++;
-                } else if (c == ']') {
-                    pos++;
-                    break;
-                } else {
-                    throw new IOException("Malformed JSON array");
-                }
-            }
-            return list;
-        }
-
-        private String parseString() throws IOException {
-            if (pos >= s.length() || s.charAt(pos) != '"') {
-                throw new IOException("Expected string in JSON");
-            }
-            pos++;
-            StringBuilder sb = new StringBuilder();
-            while (pos < s.length()) {
-                char c = s.charAt(pos++);
-                if (c == '"') {
-                    return sb.toString();
-                }
-                if (c == '\\') {
-                    if (pos >= s.length()) {
-                        break;
-                    }
-                    char esc = s.charAt(pos++);
-                    switch (esc) {
-                        case '"':
-                            sb.append('"');
-                            break;
-                        case '\\':
-                            sb.append('\\');
-                            break;
-                        case '/':
-                            sb.append('/');
-                            break;
-                        case 'n':
-                            sb.append('\n');
-                            break;
-                        case 'r':
-                            sb.append('\r');
-                            break;
-                        case 't':
-                            sb.append('\t');
-                            break;
-                        case 'b':
-                            sb.append('\b');
-                            break;
-                        case 'f':
-                            sb.append('\f');
-                            break;
-                        case 'u':
-                            String hex = s.substring(pos, pos + 4);
-                            pos += 4;
-                            sb.append((char) Integer.parseInt(hex, 16));
-                            break;
-                        default:
-                            sb.append(esc);
-                    }
-                } else {
-                    sb.append(c);
-                }
-            }
-            throw new IOException("Unterminated JSON string");
-        }
-
-        private Number parseNumber() {
-            int start = pos;
-            while (pos < s.length() && (Character.isDigit(s.charAt(pos)) || "+-.eE".indexOf(s.charAt(pos)) >= 0)) {
-                pos++;
-            }
-            String numStr = s.substring(start, pos);
-            if (numStr.contains(".") || numStr.contains("e") || numStr.contains("E")) {
-                return Double.parseDouble(numStr);
-            }
-            return Long.parseLong(numStr);
-        }
-
-        private void skipWhitespace() {
-            while (pos < s.length() && Character.isWhitespace(s.charAt(pos))) {
-                pos++;
-            }
-        }
-    }
 }

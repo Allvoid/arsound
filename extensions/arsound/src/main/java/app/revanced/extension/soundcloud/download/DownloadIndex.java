@@ -2,13 +2,11 @@ package app.revanced.extension.soundcloud.download;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.DocumentsContract;
-import android.provider.MediaStore;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -16,8 +14,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -27,8 +23,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -59,25 +53,17 @@ public final class DownloadIndex {
      */
     static final String TRACK_READ_PREFIX = "track_read_";
 
-    /** Files this small are not a track, whatever their name: a failed download leaves a few bytes. */
-    private static final long MIN_ADOPT_BYTES = 10 * 1024;
-    /** Names made by earlier versions: "soundcloud-ID", "soundcloud-ID-ID" for a taken name, and the media store's " (1)". */
-    private static final Pattern ID_NAME = Pattern.compile("^soundcloud-(\\d+)(?:-\\d+)*(?: \\(\\d+\\))?\\.(?:m4a|mp3|aac|opus)$");
-    private static final Pattern COPY_SUFFIX = Pattern.compile(" \\((\\d+)\\)(?=\\.[^.]*$)");
     private static final long REFRESH_INTERVAL_MS = 30_000;
-    /** How long the answer of opening a file stays good: playback asks again and again while a queue loads. */
-    private static final long OPEN_CHECK_MS = 10_000;
     /** The longest a track that is about to play waits for the first listing of the files, see {@link #resolveForPlayback}. */
     private static final long PLAYBACK_LISTING_WAIT_MS = 1_500;
     private static final Object REFRESH_LOCK = new Object();
     /** Woken when a listing is made, for those who wait for the first one. */
     private static final Object LISTED = new Object();
-    private static final Object ADOPT_LOCK = new Object();
     private static final AtomicBoolean loggedMainThread = new AtomicBoolean();
     private static final AtomicBoolean loggedBackgroundThread = new AtomicBoolean();
 
     /** The files the media store lists, by name and by address. Null until the first listing is done. */
-    private static volatile Snapshot snapshot;
+    private static volatile MediaSnapshot snapshot;
     private static final AtomicBoolean refreshQueued = new AtomicBoolean();
     private static volatile long lastRefreshAt;
     private static volatile long lastFailureAt;
@@ -85,40 +71,15 @@ public final class DownloadIndex {
     private static volatile Boolean lastGranted;
     /** Tracks whose missing file was already written down, so a list that asks every second does not fill the log. */
     private static final Set<String> diagnosed = ConcurrentHashMap.newKeySet();
-    private static final Map<String, long[]> openChecks = new ConcurrentHashMap<>();
-    /** The rows that are being opened in the background right now, so a list that asks again does not queue the same check. */
-    private static final Set<String> openChecking = ConcurrentHashMap.newKeySet();
-    /** The rows of a location the listing could not reach, noted as unopenable until the location lists again. */
-    private static final Set<String> unreachableRows = ConcurrentHashMap.newKeySet();
     /** When a file was last asked of the system by name and not found, so a recount of many tracks asks once per name. */
     private static final Map<String, Long> missingLookups = new ConcurrentHashMap<>();
 
     private DownloadIndex() {
     }
 
-    /** What the media store lists in the known locations. The maps are changed in place when a file is removed. */
-    private static final class Snapshot {
-        final Map<String, DownloadLocation.Row> byName = new ConcurrentHashMap<>();
-        final Map<String, DownloadLocation.Row> byUri = new ConcurrentHashMap<>();
-
-        void add(DownloadLocation.Row row) {
-            byName.put(key(row.locationId, row.name), row);
-            byUri.put(row.uri.toString(), row);
-        }
-
-        void remove(DownloadLocation.Row row) {
-            byName.remove(key(row.locationId, row.name));
-            byUri.remove(row.uri.toString());
-        }
-
-        boolean sameAs(Snapshot other) {
-            if (byUri.size() != other.byUri.size()) return false;
-            for (Map.Entry<String, DownloadLocation.Row> entry : byUri.entrySet()) {
-                DownloadLocation.Row row = other.byUri.get(entry.getKey());
-                if (row == null || !row.sameAs(entry.getValue())) return false;
-            }
-            return true;
-        }
+    /** What the media store lists, or null before the first listing. */
+    static MediaSnapshot snapshot() {
+        return snapshot;
     }
 
     /** The name for the user of the place new downloads go to, in the language of the app: "Music/Arsound". */
@@ -138,6 +99,11 @@ public final class DownloadIndex {
             if (ref != null) labels.add(ref.location().label());
         }
         if (labels.isEmpty()) return label();
+        return joinLabels(labels);
+    }
+
+    /** Folder names for the user, separated by commas. */
+    private static String joinLabels(Iterable<String> labels) {
         StringBuilder place = new StringBuilder();
         for (String label : labels) place.append(place.length() == 0 ? "" : ", ").append(label);
         return place.toString();
@@ -146,10 +112,6 @@ public final class DownloadIndex {
     /** The folders of all downloaded tracks, see {@link #placeOf}. */
     public static String downloadsPlace() {
         return placeOf(DownloadTrackPatch.getDownloadedTrackIds());
-    }
-
-    private static String key(String locationId, String name) {
-        return locationId + '\u0000' + name;
     }
 
     /**
@@ -229,9 +191,9 @@ public final class DownloadIndex {
             // From Android 11 a path to a file of the app works as it did. Before it (and for a file of another
             // app) the row is the way in, so it goes first there.
             if (pathReadable && (uri == null || Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)) return file.getPath();
-            if (uri != null && canOpen(context, uri)) return uri.toString();
+            if (uri != null && OpenChecks.canOpen(context, uri)) return uri.toString();
             // A file the download manager wrote: its own address opens for the app that asked for the file.
-            if (ref.readUri != null && canOpen(context, Uri.parse(ref.readUri))) return ref.readUri;
+            if (ref.readUri != null && OpenChecks.canOpen(context, Uri.parse(ref.readUri))) return ref.readUri;
             return pathReadable ? file.getPath() : null;
         }
 
@@ -310,16 +272,16 @@ public final class DownloadIndex {
     /**
      * @param usable True to find a file the app can read; false to find any file that is there.
      */
-    private static Entry find(Ref ref, boolean usable) {
+    static Entry find(Ref ref, boolean usable) {
         DownloadLocation location = ref.location();
         String[] names = namesOf(ref);
 
-        Snapshot listed = snapshot;
+        MediaSnapshot listed = snapshot;
         if (listed == null) {
             requestFirstListing();
         } else {
             DownloadLocation.Row row = ref.uri == null ? null : listed.byUri.get(ref.uri);
-            for (int i = 0; row == null && i < names.length; i++) row = listed.byName.get(key(location.id(), names[i]));
+            for (int i = 0; row == null && i < names.length; i++) row = listed.byName.get(MediaSnapshot.key(location.id(), names[i]));
             if (row != null) {
                 return new Entry(ref, row.name, row.uri, location.file(row.name), row.size, row.modifiedMs);
             }
@@ -346,11 +308,11 @@ public final class DownloadIndex {
         // A file saved while the listing was being made is not in it: the address kept for the track decides, as it
         // does for a picked folder, which has no path to ask and no single name to look up.
         Context context = Utils.getContext();
-        if (ref.uri != null && canOpen(context, Uri.parse(ref.uri))) {
+        if (ref.uri != null && OpenChecks.canOpen(context, Uri.parse(ref.uri))) {
             return new Entry(ref, ref.name, Uri.parse(ref.uri), found, size, modified);
         }
         // The download manager's own address of a file it wrote opens for the app that asked for it.
-        if (ref.readUri != null && canOpen(context, Uri.parse(ref.readUri))) {
+        if (ref.readUri != null && OpenChecks.canOpen(context, Uri.parse(ref.readUri))) {
             return new Entry(ref, ref.name, null, found, size, modified);
         }
         return null;
@@ -360,16 +322,16 @@ public final class DownloadIndex {
      * Asks the system for one file by name: one cheap question for a location of the media store, where the listing
      * would be a whole. Not on the main thread, and a name that is not there is not asked for again for a while.
      */
-    private static Entry lookUp(Ref ref, DownloadLocation location, String[] names, Snapshot listed) {
+    private static Entry lookUp(Ref ref, DownloadLocation location, String[] names, MediaSnapshot listed) {
         Context context = Utils.getContext();
         if (context == null || Looper.myLooper() == Looper.getMainLooper()) return null;
         long now = SystemClock.elapsedRealtime();
         for (String name : names) {
-            String key = key(location.id(), name);
+            String key = MediaSnapshot.key(location.id(), name);
             Long missed = missingLookups.get(key);
-            if (missed != null && now - missed < OPEN_CHECK_MS) continue;
+            if (missed != null && now - missed < OpenChecks.GOOD_FOR_MS) continue;
             DownloadLocation.Row row = location.lookUp(context, name);
-            if (row == null || !canOpen(context, row.uri)) {
+            if (row == null || !OpenChecks.canOpen(context, row.uri)) {
                 missingLookups.put(key, now);
                 continue;
             }
@@ -389,61 +351,17 @@ public final class DownloadIndex {
         if (trackId == null || !diagnosed.add(trackId + '/' + ref.name)) return;
         try {
             File file = ref.location().file(ref.name);
-            Snapshot listed = snapshot;
+            MediaSnapshot listed = snapshot;
             Context context = Utils.getContext();
             boolean granted = context != null && MusicAccess.isGranted(context);
             Logger.printInfo(() -> "Download index: no usable file for " + trackId + " (" + ref.locationId + ref.name
-                    + "), listed " + (listed == null ? "not yet" : String.valueOf(listed.byName.containsKey(key(ref.locationId, ref.name))))
+                    + "), listed " + (listed == null ? "not yet" : String.valueOf(listed.byName.containsKey(MediaSnapshot.key(ref.locationId, ref.name))))
                     + ", recorded row " + ref.uri + ", path " + (file == null ? "none"
                     : "exists " + file.exists() + " file " + file.isFile() + " length " + file.length()
                     + " canRead " + file.canRead()) + ", music access " + granted);
         } catch (Exception ex) {
             Logger.printInfo(() -> "Download index: could not write down the missing file of " + trackId + ": " + ex);
         }
-    }
-
-    /**
-     * Whether the player can open the row: a row of a file that is gone, or of an app that did not share it, cannot.
-     * The main thread is never made to wait for the system: a row not asked about before is taken for good there, and
-     * opened in the background to find out. A bad one is then found at the next try, and the lists and the player go on
-     * streaming the track. Once the answer is there it holds on the main thread also when it is old, until the
-     * background has a newer one: a file found missing does not become "yes" again only because time has passed.
-     */
-    private static boolean canOpen(Context context, Uri uri) {
-        if (context == null) return false;
-        String key = uri.toString();
-        long now = SystemClock.elapsedRealtime();
-        long[] known = openChecks.get(key);
-        if (known != null && now - known[0] < OPEN_CHECK_MS) return known[1] == 1;
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            // Before the check starts: the check must not be overwritten by the guess when it is quick.
-            if (known == null) openChecks.put(key, new long[]{now, 1});
-            if (openChecking.add(key)) {
-                Utils.runOnBackgroundThread(() -> {
-                    try {
-                        opens(context, uri);
-                    } finally {
-                        openChecking.remove(key);
-                    }
-                });
-            }
-            return known == null || known[1] == 1;
-        }
-        return opens(context, uri);
-    }
-
-    private static boolean opens(Context context, Uri uri) {
-        boolean ok;
-        try (AssetFileDescriptor descriptor = context.getContentResolver().openAssetFileDescriptor(uri, "r")) {
-            ok = descriptor != null;
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Download index: cannot open " + uri + ": " + ex);
-            ok = false;
-            // The listing may be out of date: the file can have been removed in a file manager.
-            refreshAsync();
-        }
-        openChecks.put(uri.toString(), new long[]{SystemClock.elapsedRealtime(), ok ? 1 : 0});
-        return ok;
     }
 
     /** Writes down once for each kind of thread where a playback source is asked for, which decides how it may wait. */
@@ -536,47 +454,16 @@ public final class DownloadIndex {
         boolean listedAll = false;
         synchronized (REFRESH_LOCK) {
             try {
-                Snapshot before = snapshot;
-                Snapshot fresh = new Snapshot();
+                MediaSnapshot before = snapshot;
+                MediaSnapshot fresh = new MediaSnapshot();
                 boolean complete = true;
                 for (DownloadLocation location : knownLocations()) {
                     List<DownloadLocation.Row> rows = location.list(context);
                     if (rows == null) {
-                        // A card that is out, or a folder whose access was taken back: its tracks are still downloaded,
-                        // they only cannot be opened for now. What was known of them stays until it can be listed again.
                         complete = false;
-                        List<DownloadLocation.Row> unreachable = new ArrayList<>();
-                        if (before != null) {
-                            for (DownloadLocation.Row row : before.byUri.values()) {
-                                if (row.locationId.equals(location.id())) unreachable.add(row);
-                            }
-                        }
-                        // The app started with the card out, or the folder was not listed before: the recorded files
-                        // stand in for what the listing would say, so that these tracks are downloaded here as well.
-                        Set<String> keptNames = new HashSet<>();
-                        for (DownloadLocation.Row kept : unreachable) keptNames.add(kept.name);
-                        for (DownloadLocation.Row row : DownloadTrackPatch.recordedRows(location.id())) {
-                            if (keptNames.add(row.name)) unreachable.add(row);
-                        }
-                        long now = SystemClock.elapsedRealtime();
-                        for (DownloadLocation.Row row : unreachable) {
-                            fresh.add(row);
-                            // The files cannot be reached: the first tap on one of them already streams the track.
-                            unreachableRows.add(row.uri.toString());
-                            openChecks.put(row.uri.toString(), new long[]{now, 0});
-                        }
-                        continue;
-                    }
-                    // A folder of the user has files of all kinds: only those of downloads are kept.
-                    Set<String> names = location.holdsOtherFiles() ? DownloadTrackPatch.recordedNames(location.id()) : null;
-                    for (DownloadLocation.Row row : rows) {
-                        if (names == null || names.contains(row.name) || ID_NAME.matcher(row.name).matches()) {
-                            fresh.add(row);
-                            // The location is back: a file that was taken for unreachable is asked about again.
-                            if (!unreachableRows.isEmpty() && unreachableRows.remove(row.uri.toString())) {
-                                openChecks.remove(row.uri.toString());
-                            }
-                        }
+                        addUnreachable(fresh, before, location);
+                    } else {
+                        addListed(fresh, location, rows);
                     }
                 }
                 snapshot = fresh;
@@ -602,11 +489,50 @@ public final class DownloadIndex {
     }
 
     /**
+     * A location the listing could not reach: a card that is out, or a folder whose access was taken back. Its tracks
+     * are still downloaded, they only cannot be opened for now. What was known of them stays until it can be listed
+     * again.
+     */
+    private static void addUnreachable(MediaSnapshot fresh, MediaSnapshot before, DownloadLocation location) {
+        List<DownloadLocation.Row> unreachable = new ArrayList<>();
+        if (before != null) {
+            for (DownloadLocation.Row row : before.byUri.values()) {
+                if (row.locationId.equals(location.id())) unreachable.add(row);
+            }
+        }
+        // The app started with the card out, or the folder was not listed before: the recorded files
+        // stand in for what the listing would say, so that these tracks are downloaded here as well.
+        Set<String> keptNames = new HashSet<>();
+        for (DownloadLocation.Row kept : unreachable) keptNames.add(kept.name);
+        for (DownloadLocation.Row row : DownloadTrackPatch.recordedRows(location.id())) {
+            if (keptNames.add(row.name)) unreachable.add(row);
+        }
+        long now = SystemClock.elapsedRealtime();
+        for (DownloadLocation.Row row : unreachable) {
+            fresh.add(row);
+            // The files cannot be reached: the first tap on one of them already streams the track.
+            OpenChecks.noteUnreachable(row.uri.toString(), now);
+        }
+    }
+
+    /** What a location lists. A folder of the user has files of all kinds: only those of downloads are kept. */
+    private static void addListed(MediaSnapshot fresh, DownloadLocation location, List<DownloadLocation.Row> rows) {
+        Set<String> names = location.holdsOtherFiles() ? DownloadTrackPatch.recordedNames(location.id()) : null;
+        for (DownloadLocation.Row row : rows) {
+            if (names == null || names.contains(row.name) || EarlierDownloadNames.trackIdOf(row.name) != null) {
+                fresh.add(row);
+                // The location is back: a file that was taken for unreachable is asked about again.
+                OpenChecks.noteReachable(row.uri.toString());
+            }
+        }
+    }
+
+    /**
      * A file was just saved: it is in the listing at once, so the lists find it without the system being asked to list
      * the whole location again, which for a folder of thousands of files takes seconds for each track of a playlist.
      */
     static void noteSaved(Context context, Ref file, long size) {
-        Snapshot listed = snapshot;
+        MediaSnapshot listed = snapshot;
         if (listed == null || file.uri == null) return;
         listed.add(new DownloadLocation.Row(file.locationId, file.name, Uri.parse(file.uri), size,
                 System.currentTimeMillis(), context.getPackageName()));
@@ -614,9 +540,9 @@ public final class DownloadIndex {
 
     /** A file was removed: it is left out of the listing at once, so it is not shown as downloaded any more. */
     private static void forget(Ref ref, Uri removedRow) {
-        Snapshot listed = snapshot;
+        MediaSnapshot listed = snapshot;
         if (listed != null) {
-            DownloadLocation.Row byName = listed.byName.get(key(ref.locationId, ref.name));
+            DownloadLocation.Row byName = listed.byName.get(MediaSnapshot.key(ref.locationId, ref.name));
             if (byName != null) listed.remove(byName);
             DownloadLocation.Row byUri = removedRow == null ? null : listed.byUri.get(removedRow.toString());
             if (byUri != null) listed.remove(byUri);
@@ -634,7 +560,7 @@ public final class DownloadIndex {
         Boolean before = lastGranted;
         lastGranted = granted;
         if (granted && before != null && !before) {
-            Utils.runOnBackgroundThread(() -> adopt(context, false));
+            Utils.runOnBackgroundThread(() -> adoptOnAccess(context));
         } else if (snapshot == null || SystemClock.elapsedRealtime() - lastRefreshAt > REFRESH_INTERVAL_MS) {
             refreshAsync();
         }
@@ -657,9 +583,9 @@ public final class DownloadIndex {
         String[] names = namesOf(ref);
         Set<Uri> rows = new LinkedHashSet<>();
         if (ref.uri != null) rows.add(Uri.parse(ref.uri));
-        Snapshot listed = snapshot;
+        MediaSnapshot listed = snapshot;
         for (String name : names) {
-            DownloadLocation.Row row = listed == null ? null : listed.byName.get(key(location.id(), name));
+            DownloadLocation.Row row = listed == null ? null : listed.byName.get(MediaSnapshot.key(location.id(), name));
             if (row != null) rows.add(row.uri);
         }
 
@@ -715,15 +641,7 @@ public final class DownloadIndex {
      * consent; {@link #duplicates} offers those.
      */
     static void deleteCopies(Context context, String trackId) {
-        Snapshot listed = snapshot;
-        if (listed == null) return;
-        String own = context.getPackageName();
-        for (DownloadLocation.Row row : new ArrayList<>(listed.byUri.values())) {
-            Matcher matcher = ID_NAME.matcher(row.name);
-            if (!matcher.matches() || !trackId.equals(matcher.group(1))) continue;
-            if (row.owner != null && !own.equals(row.owner) && MediaStore.AUTHORITY.equals(row.uri.getAuthority())) continue;
-            if (DownloadLocation.deleteRow(context, row.uri)) listed.remove(row);
-        }
+        DuplicateFiles.deleteCopiesOf(context, trackId);
     }
 
     // endregion
@@ -731,66 +649,14 @@ public final class DownloadIndex {
     // region files the app has no record of
 
     /**
-     * Gives a track back its file when the app lost the record of it: after a reinstall, a change of the package or
-     * of the signature (the files then belong to the old install for Android), or when the stored data was wiped.
-     * Files made by earlier versions carry the track id in their name ("soundcloud-ID.m4a"), so they need no network.
-     * A track that has a usable file is left alone; of several copies of one track one is picked: a copy the app
-     * made itself (it can remove it), then the one without a " (n)", then the lowest n.
-     * <p>
-     * Needs the access to music to see the files of an earlier install. Call off the main thread.
+     * Looks for files of tracks the app has no record of (after a reinstall or a change of the signature), other than
+     * the ones the user deleted. For the moment the access to music was given, which makes the files of an earlier
+     * install visible; see {@link DownloadAdoption}. Call off the main thread.
      *
-     * @param manual True if the user asked for it: then the tracks the user deleted are found again too, as the user
-     *               asked for the files. Otherwise they are not, or deleting a track whose copies are left would bring
-     *               it back at the next start.
      * @return How many tracks were found.
      */
-    private static int adopt(Context context, boolean manual) {
-        if (context == null) return 0;
-        synchronized (ADOPT_LOCK) {
-            refreshNow();
-            Snapshot listed = snapshot;
-            if (listed == null) return 0;
-
-            Set<String> deleted = DownloadTrackPatch.deletedTrackIds();
-            Map<String, List<DownloadLocation.Row>> byTrack = new HashMap<>();
-            for (DownloadLocation.Row row : listed.byName.values()) {
-                Matcher matcher = ID_NAME.matcher(row.name);
-                if (!matcher.matches() || row.size < MIN_ADOPT_BYTES) continue;
-                if (!manual && deleted.contains(matcher.group(1))) continue;
-                List<DownloadLocation.Row> rows = byTrack.get(matcher.group(1));
-                if (rows == null) byTrack.put(matcher.group(1), rows = new ArrayList<>());
-                rows.add(row);
-            }
-
-            String own = context.getPackageName();
-            Map<String, DownloadLocation.Row> found = new HashMap<>();
-            for (Map.Entry<String, List<DownloadLocation.Row>> entry : byTrack.entrySet()) {
-                String trackId = entry.getKey();
-                // A track on its way has its own record; a track with a usable file needs none.
-                if (DownloadProgress.isAssembling(trackId) || DownloadTrackPatch.isDownloadPending(trackId)) continue;
-                Ref ref = DownloadTrackPatch.fileRefOf(trackId);
-                if (ref != null && find(ref, true) != null) continue;
-                List<DownloadLocation.Row> rows = entry.getValue();
-                Collections.sort(rows, preferredCopy(own));
-                found.put(trackId, rows.get(0));
-            }
-            if (found.isEmpty()) {
-                Logger.printInfo(() -> "Download index: no tracks to take over among " + byTrack.size() + " named by id");
-                return 0;
-            }
-            DownloadTrackPatch.rememberAdopted(found);
-            Logger.printInfo(() -> "Download index: took over the files of " + found.size() + " tracks");
-            DownloadProgress.onFilesChanged();
-            return found.size();
-        }
-    }
-
-    /**
-     * Looks for files of tracks the app has no record of, other than the ones the user deleted. For the moment the
-     * access to music was given, which makes the files of an earlier install visible. Call off the main thread.
-     */
-    public static int adopt(Context context) {
-        return adopt(context, false);
+    private static int adoptOnAccess(Context context) {
+        return DownloadAdoption.adopt(context, false);
     }
 
     /**
@@ -800,34 +666,19 @@ public final class DownloadIndex {
      */
     public static int adoptAtStart(Context context) {
         if (!DownloadTrackPatch.getDownloadedTracks().isEmpty()) return 0;
-        return adopt(context, false);
+        return DownloadAdoption.adopt(context, false);
     }
 
     /** The same, because the user asked for it: also the tracks the user deleted. Call off the main thread. */
     public static int adoptManually(Context context) {
-        return adopt(context, true);
-    }
-
-    private static Comparator<DownloadLocation.Row> preferredCopy(String ownPackage) {
-        return (left, right) -> {
-            boolean leftOwn = ownPackage.equals(left.owner);
-            if (leftOwn != ownPackage.equals(right.owner)) return leftOwn ? -1 : 1;
-            int byCopy = copyNumber(left.name) - copyNumber(right.name);
-            return byCopy != 0 ? byCopy : left.name.length() - right.name.length();
-        };
-    }
-
-    /** The n of " (n)" in a name the media store made for a taken one, 0 without it. */
-    private static int copyNumber(String name) {
-        Matcher matcher = COPY_SUFFIX.matcher(name);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
+        return DownloadAdoption.adopt(context, true);
     }
 
     /** The extra copies of downloaded tracks: how many files and how many bytes. */
     public static final class Duplicates {
         public final int files;
         public final long bytes;
-        private final List<DownloadLocation.Row> rows;
+        final List<DownloadLocation.Row> rows;
 
         Duplicates(List<DownloadLocation.Row> rows) {
             this.rows = rows;
@@ -844,48 +695,7 @@ public final class DownloadIndex {
      * already there. Call off the main thread.
      */
     public static Duplicates duplicates() {
-        refreshIfStale();
-        Snapshot listed = snapshot;
-        List<DownloadLocation.Row> extra = new ArrayList<>();
-        if (listed == null) return new Duplicates(extra);
-
-        Set<String> downloaded = DownloadTrackPatch.getDownloadedTracks();
-        Set<String> deleted = DownloadTrackPatch.deletedTrackIds();
-        // The files a track keeps (and the one a download again will replace), the tracks that keep one, and the
-        // tracks whose files are changing. A track that keeps none has its copies taken over by adopt, not removed,
-        // unless the user deleted the track: then the copies it left are all extra.
-        Set<String> kept = new HashSet<>();
-        // The names alone as well: the same folder reached two ways (the media store and a picked folder) lists one
-        // file twice, and that is not a copy to remove.
-        Set<String> keptNames = new HashSet<>();
-        Set<String> keeping = new HashSet<>();
-        Set<String> busy = new HashSet<>();
-        for (String trackId : downloaded) {
-            if (DownloadProgress.isAssembling(trackId) || DownloadTrackPatch.isDownloadPending(trackId)) {
-                busy.add(trackId);
-                continue;
-            }
-            for (Ref ref : new Ref[]{DownloadTrackPatch.fileRefOf(trackId), DownloadTrackPatch.replacedRefOf(trackId)}) {
-                Entry entry = ref == null ? null : find(ref, false);
-                if (entry == null) continue;
-                kept.add(key(ref.locationId, entry.name));
-                keptNames.add(entry.name);
-                keeping.add(trackId);
-            }
-        }
-        for (DownloadLocation.Row row : listed.byName.values()) {
-            Matcher matcher = ID_NAME.matcher(row.name);
-            if (!matcher.matches()) continue;
-            String trackId = matcher.group(1);
-            if (busy.contains(trackId)) continue;
-            if (!keeping.contains(trackId)) {
-                // The leftovers of a track the user deleted, which a copy of an earlier install can be.
-                if (deleted.contains(trackId) && !downloaded.contains(trackId)) extra.add(row);
-                continue;
-            }
-            if (!kept.contains(key(row.locationId, row.name)) && !keptNames.contains(row.name)) extra.add(row);
-        }
-        return new Duplicates(extra);
+        return DuplicateFiles.find();
     }
 
     /**
@@ -895,17 +705,7 @@ public final class DownloadIndex {
      * @return How many files were removed.
      */
     public static int removeDuplicates(Context context, Duplicates duplicates, List<Uri> needsConsent) {
-        int removed = 0;
-        for (DownloadLocation.Row row : duplicates.rows) {
-            if (DownloadLocation.deleteRow(context, row.uri)) {
-                removed++;
-            } else if (MediaStore.AUTHORITY.equals(row.uri.getAuthority())) {
-                // Only the media store can ask the user about a file of another install; a picked folder cannot.
-                needsConsent.add(row.uri);
-            }
-        }
-        refreshAsync();
-        return removed;
+        return DuplicateFiles.remove(context, duplicates, needsConsent);
     }
 
     // endregion
@@ -975,9 +775,7 @@ public final class DownloadIndex {
         Lost(Set<String> trackIds, Set<String> labels) {
             this.trackIds = trackIds;
             tracks = trackIds.size();
-            StringBuilder place = new StringBuilder();
-            for (String label : labels) place.append(place.length() == 0 ? "" : ", ").append(label);
-            places = place.toString();
+            places = joinLabels(labels);
         }
 
         /** How many of these tracks are in the list. */
@@ -1049,8 +847,8 @@ public final class DownloadIndex {
         for (String trackId : DownloadTrackPatch.getDownloadedTracks()) {
             Ref ref = DownloadTrackPatch.fileRefOf(trackId);
             if (ref == null) continue;
-            Snapshot listed = snapshot;
-            if (listed != null && listed.byName.containsKey(key(ref.locationId, ref.name))) continue;
+            MediaSnapshot listed = snapshot;
+            if (listed != null && listed.byName.containsKey(MediaSnapshot.key(ref.locationId, ref.name))) continue;
             File file = ref.location().file(ref.name);
             if (file != null && file.exists() && !file.canRead()) return true;
         }

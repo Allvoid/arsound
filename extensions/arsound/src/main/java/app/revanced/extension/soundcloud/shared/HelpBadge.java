@@ -1,5 +1,8 @@
 package app.revanced.extension.soundcloud.shared;
 
+import static app.revanced.extension.soundcloud.shared.Dimens.dpTruncated;
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -7,8 +10,6 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
-import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
@@ -19,14 +20,6 @@ import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
  */
 public final class HelpBadge {
     private HelpBadge() {
-    }
-
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, context.getResources().getDisplayMetrics());
     }
 
     /**
@@ -48,8 +41,8 @@ public final class HelpBadge {
 
     /** Size and gap of the badge after a title in a horizontal row. */
     public static LinearLayout.LayoutParams layoutParams(Context context) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(context, 17), dp(context, 17));
-        params.leftMargin = dp(context, 6);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dpTruncated(context, 17), dpTruncated(context, 17));
+        params.leftMargin = dpTruncated(context, 6);
         return params;
     }
 
@@ -57,13 +50,13 @@ public final class HelpBadge {
         badge.setTextColor(color);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setStroke(dp(badge.getContext(), 1.2f), color);
+        circle.setStroke(dpTruncated(badge.getContext(), 1.2f), color);
         badge.setBackground(circle);
     }
 
     public static void show(Context context, CharSequence... paragraphs) {
         try {
-            new app.revanced.extension.soundcloud.shared.ArsoundDialog(context)
+            new ArsoundDialog(context)
                     .setView(WelcomePermissions.createDialogContent(context, paragraphs))
                     .setPositiveButton(text("Понятно", "Got it"), null)
                     .show();

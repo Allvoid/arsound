@@ -6,4 +6,7 @@ public interface Composer {
 
     /** endReplaceGroup. */
     void o();
+
+    /** consume: the value of a composition local at this place. */
+    Object D(CompositionLocal<?> local);
 }

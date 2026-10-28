@@ -1,10 +1,11 @@
 package app.arsound.patches.soundcloud.misc.screenshot
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.FiresOn
+import app.arsound.patches.soundcloud.misc.hooks.GuardExit
+import app.arsound.patches.soundcloud.misc.hooks.insertGuard
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.patcher.definingClass
-import app.revanced.patcher.extensions.ExternalLabel
-import app.revanced.patcher.extensions.addInstructionsWithLabels
-import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
@@ -49,31 +50,21 @@ private val BytecodePatchContext.unregisterCallbackMethod by gettingFirstMethodD
 val screenshotSharePatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
-        shareScreenshotMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->shouldShare()Z
-                move-result v0
-                if-nez v0, :share
-                return-void
-            """,
-            ExternalLabel("share", shareScreenshotMethod.getInstruction(0)),
+        shareScreenshotMethod.insertGuard(
+            "invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->shouldShare()Z",
+            GuardExit.ReturnVoid,
+            FiresOn.FALSE,
         )
         // With the sheet off the screens do not watch for screenshots at all, so Android does not report the app
         // as one that detected them.
         mapOf(registerCallbackMethod to "register", unregisterCallbackMethod to "unregister").forEach { (method, call) ->
-            method.addInstructionsWithLabels(
-                0,
-                """
-                    invoke-static { p1 }, $EXTENSION_CLASS_DESCRIPTOR->$call(Ljava/lang/Object;)Z
-                    move-result v0
-                    if-nez v0, :proceed
-                    return-void
-                """,
-                ExternalLabel("proceed", method.getInstruction(0)),
+            method.insertGuard(
+                "invoke-static { p1 }, $EXTENSION_CLASS_DESCRIPTOR->$call(Ljava/lang/Object;)Z",
+                GuardExit.ReturnVoid,
+                FiresOn.FALSE,
             )
         }
     }

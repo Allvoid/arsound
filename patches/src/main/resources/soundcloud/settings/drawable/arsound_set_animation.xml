@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings icon "animation": A four-pointed sparkle. Drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the row tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,3.5C12,8.2 13.8,10.2 20.5,12C13.8,13.8 12,15.8 12,20.5C12,15.8 10.2,13.8 3.5,12C10.2,10.2 12,8.2 12,3.5z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

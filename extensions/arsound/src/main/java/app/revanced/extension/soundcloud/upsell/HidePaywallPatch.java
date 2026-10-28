@@ -5,13 +5,27 @@ import android.content.ComponentName;
 import android.content.Intent;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.Settings;
 
+/**
+ * Hides what sells a subscription: the offer screen, the Upgrade tab of the bottom bar, the banner of the library
+ * and the marketing popups. Each hook is switched by its own setting.
+ */
 @SuppressWarnings("unused")
 public final class HidePaywallPatch {
+    /** The bottom bar tabs (by class name) that open the subscription shop. */
+    private static final Set<String> UPGRADE_TABS = new HashSet<>(Arrays.asList(
+            "GoNavigationTarget", "GoPlusNavigationTarget", "ProUnlimitedNavigationTarget"));
+
+    private HidePaywallPatch() {
+    }
+
     /**
      * Injection point. Called with the intent that opens the subscription offer screen.
      *
@@ -58,8 +72,7 @@ public final class HidePaywallPatch {
         List<Object> filtered = new ArrayList<>(tabs.size());
         for (Object tab : tabs) {
             String name = tab == null ? "" : tab.getClass().getSimpleName();
-            if (name.equals("GoNavigationTarget") || name.equals("GoPlusNavigationTarget")
-                    || name.equals("ProUnlimitedNavigationTarget")) {
+            if (UPGRADE_TABS.contains(name)) {
                 Logger.printDebug(() -> "Hiding bottom bar tab " + name);
                 continue;
             }

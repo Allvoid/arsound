@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.widget
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.getInstruction
@@ -43,7 +44,7 @@ private val BytecodePatchContext.likesWidgetImageFileMethod by gettingFirstMetho
 val likesWidgetPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // The cover files come from WidgetImages.find instead of ImageFileFinder.b(context, url): the finder object

@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.settings;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
@@ -10,6 +12,7 @@ import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.view.View;
 
+import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
@@ -42,7 +45,7 @@ public final class ThemePreviewView extends View {
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
         int width = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED
-                ? Math.round(280 * getResources().getDisplayMetrics().density) : MeasureSpec.getSize(widthSpec);
+                ? Dimens.dp(getContext(), 280) : MeasureSpec.getSize(widthSpec);
         setMeasuredDimension(width, Math.round(width * H / W));
     }
 
@@ -57,7 +60,8 @@ public final class ThemePreviewView extends View {
         int accent = theme.token(night, "accent"), onAccent = theme.token(night, "onAccent");
         int muted = theme.token(night, "muted"), tabbar = theme.token(night, "tabbar");
         int text = theme.color(night, "primary");
-        float radius = Math.min(theme.cardRadius(), 18);
+        // The corners follow the slider over its whole range; the shapes are small, so the renderer limits a radius to half a side.
+        float radius = theme.cardRadius();
 
         // The screen, rounded like a phone's.
         rect.set(0, 0, W, H);
@@ -100,7 +104,7 @@ public final class ThemePreviewView extends View {
         canvas.drawText(text("Вперемешку", "Shuffle"), 170, 189.5f, paint);
 
         // The mini player.
-        float miniRadius = Math.min(theme.cardRadius() + 6, 22);
+        float miniRadius = theme.cardRadius() + 6;
         fill(canvas, 10, 212, W - 10, 252, miniRadius, theme.token(night, "mini"));
         rect.set(10, 212, W - 10, 252);
         paint.setStyle(Paint.Style.STROKE);
@@ -108,7 +112,7 @@ public final class ThemePreviewView extends View {
         paint.setColor(theme.token(night, "miniBorder"));
         canvas.drawRoundRect(rect, miniRadius, miniRadius, paint);
         paint.setStyle(Paint.Style.FILL);
-        fill(canvas, 18, 218, 46, 246, Math.min(radius, 9), accent);
+        fill(canvas, 18, 218, 46, 246, radius, accent);
         paint.setTextSize(12.5f);
         paint.setColor(text);
         canvas.drawText(text("Ночная дорога", "Midnight drive"), 56, 229, paint);
@@ -132,15 +136,10 @@ public final class ThemePreviewView extends View {
         canvas.restore();
     }
 
-    /** Sample words of the drawing, in the app language. */
-    private static String text(String russian, String english) {
-        return "ru".equals(java.util.Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
     /** One track of the card: the cover, the title and the artist. */
     private void track(Canvas canvas, float top, int cover, float radius, int text, int muted, String title, String artist,
                        boolean gradient) {
-        float r = Math.min(radius, 12);
+        float r = radius;
         if (gradient) {
             rect.set(24, top, 64, top + 40);
             paint.setShader(new LinearGradient(24, top, 64, top + 40, cover, theme.token(night, "pink"), Shader.TileMode.CLAMP));

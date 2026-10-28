@@ -2,43 +2,16 @@ package app.revanced.extension.soundcloud.local;
 
 import android.app.Dialog;
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.LinearLayout;
-import android.widget.Toast;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.File;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 
 import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
-import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
-import app.revanced.extension.soundcloud.network.RegionGuard;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
@@ -49,77 +22,22 @@ import app.revanced.extension.soundcloud.shared.Rx;
  * sent to the server: edits of own playlists drop them before saving.
  * <p>
  * An entry is either a SoundCloud track ({@code soundcloud:tracks:123}) or an imported file
- * ({@code file:/data/.../imported/name.mp3}).
+ * ({@code file:/data/.../imported/name.mp3}), see {@link Entry}.
+ * <p>
+ * This class is the entry point for the patched app and for the rest of Arsound. The work is done by
+ * {@link AdditionsStore} (what is saved), {@link LocalFileTracks} (tracks of files in lists),
+ * {@link AdditionsMenus} (menu rows and pickers), {@link TrackTitles} and {@link PlaylistChanges}.
  */
 @SuppressWarnings("unused")
 public final class LocalAdditions {
-    private static final String PREFERENCES_NAME = "arsound_local_additions";
-    private static final String ADDITIONS = "additions";
-    private static final String RECENT_PLAYLISTS = "recent_playlists";
-    private static final int RECENT_LIMIT = 30;
-    private static final String FILE_PREFIX = "file:";
-    private static final String TRACK_ROW_TAG = "arsound_local_add_row";
-    private static final String PLAYLIST_ROW_TAG = "arsound_local_additions_row";
-    private static final String COVER_ROW_TAG = "arsound_cover_row";
-    private static final String REMOVE_COVER_ROW_TAG = "arsound_remove_cover_row";
-
-    /** Read each time: the app language can change while the app runs (the welcome switch). */
-    private static boolean russian() {
-        return "ru".equals(Locale.getDefault().getLanguage());
-    }
-
     private LocalAdditions() {
-    }
-
-    private static String text(String russian, String english) {
-        return russian() ? russian : english;
-    }
-
-    private static SharedPreferences preferences() {
-        Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
     }
 
     // region Storage
 
-    /** Playlist urn to its local entries, in order of addition. */
-    private static synchronized Map<String, List<String>> readAdditions() {
-        Map<String, List<String>> result = new LinkedHashMap<>();
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return result;
-        try {
-            JSONObject json = new JSONObject(preferences.getString(ADDITIONS, "{}"));
-            for (java.util.Iterator<String> keys = json.keys(); keys.hasNext(); ) {
-                String playlist = keys.next();
-                JSONArray entries = json.getJSONArray(playlist);
-                List<String> list = new ArrayList<>();
-                for (int i = 0; i < entries.length(); i++) list.add(entries.getString(i));
-                result.put(playlist, list);
-            }
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not read local additions", ex);
-        }
-        return result;
-    }
-
-    private static synchronized void writeAdditions(Map<String, List<String>> additions) {
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return;
-        try {
-            JSONObject json = new JSONObject();
-            for (Map.Entry<String, List<String>> entry : additions.entrySet()) {
-                if (!entry.getValue().isEmpty()) json.put(entry.getKey(), new JSONArray(entry.getValue()));
-            }
-            preferences.edit().putString(ADDITIONS, json.toString()).apply();
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not save local additions", ex);
-        }
-    }
-
     /** Entries added by the user to this playlist. */
     public static List<String> getEntries(String playlistUrn) {
-        List<String> entries = readAdditions().get(playlistUrn);
-        return entries == null ? new ArrayList<>() : entries;
+        return AdditionsStore.entries(playlistUrn);
     }
 
     /** Entries shown in the playlist: for the saved tracks playlist, all downloads and imported files. */
@@ -131,15 +49,9 @@ public final class LocalAdditions {
         return entries;
     }
 
-    /** @return False if the entry was already added. Read and write happen under one lock: two imports must not lose each other. */
-    public static synchronized boolean add(String playlistUrn, String entry) {
-        Map<String, List<String>> additions = readAdditions();
-        List<String> entries = additions.get(playlistUrn);
-        if (entries == null) additions.put(playlistUrn, entries = new ArrayList<>());
-        if (entries.contains(entry)) return false;
-        entries.add(entry);
-        writeAdditions(additions);
-        return true;
+    /** @return False if the entry was already added. */
+    public static boolean add(String playlistUrn, String entry) {
+        return AdditionsStore.add(playlistUrn, entry);
     }
 
     /**
@@ -147,69 +59,35 @@ public final class LocalAdditions {
      *
      * @return How many were new: the entries already in the playlist, and repeats, are left out.
      */
-    public static synchronized int addAll(String playlistUrn, Collection<String> newEntries) {
-        Map<String, List<String>> additions = readAdditions();
-        List<String> entries = additions.get(playlistUrn);
-        if (entries == null) additions.put(playlistUrn, entries = new ArrayList<>());
-        Set<String> known = new HashSet<>(entries);
-        int added = 0;
-        for (String entry : newEntries) {
-            if (!known.add(entry)) continue;
-            entries.add(entry);
-            added++;
-        }
-        if (added > 0) writeAdditions(additions);
-        return added;
+    public static int addAll(String playlistUrn, Collection<String> newEntries) {
+        return AdditionsStore.addAll(playlistUrn, newEntries);
     }
 
     /** Replaces the added entries of a playlist, keeping the given order. */
-    public static synchronized void setEntries(String playlistUrn, List<String> entries) {
-        Map<String, List<String>> additions = readAdditions();
-        additions.put(playlistUrn, new ArrayList<>(entries));
-        writeAdditions(additions);
+    public static void setEntries(String playlistUrn, List<String> entries) {
+        AdditionsStore.setEntries(playlistUrn, entries);
     }
 
-    public static synchronized void remove(String playlistUrn, String entry) {
-        Map<String, List<String>> additions = readAdditions();
-        List<String> entries = additions.get(playlistUrn);
-        if (entries != null && entries.remove(entry)) writeAdditions(additions);
+    public static void remove(String playlistUrn, String entry) {
+        AdditionsStore.remove(playlistUrn, entry);
     }
 
     /**
-     * Removes an entry from every playlist, once its file is deleted: the next file with the same name gets
-     * the same path and must not turn up in playlists it was never added to. One write for all playlists.
+     * Removes an entry from every playlist, once its file is deleted.
      *
      * @return The playlists that held the entry.
      */
-    public static synchronized List<String> forgetEntry(String entry) {
-        Map<String, List<String>> additions = readAdditions();
-        List<String> playlists = new ArrayList<>();
-        for (Map.Entry<String, List<String>> playlist : additions.entrySet()) {
-            if (playlist.getValue().removeIf(entry::equals)) playlists.add(playlist.getKey());
-        }
-        if (!playlists.isEmpty()) writeAdditions(additions);
-        return playlists;
+    public static List<String> forgetEntry(String entry) {
+        return AdditionsStore.forget(entry);
     }
 
     public static String fileEntry(File file) {
-        return FILE_PREFIX + file.getPath();
+        return Entry.ofFile(file).stored();
     }
 
-    /** Remembers opened playlists, so they can be picked as a target. Newest first: urn and title. */
-    static synchronized List<String[]> readRecentPlaylists() {
-        List<String[]> result = new ArrayList<>();
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return result;
-        try {
-            JSONArray json = new JSONArray(preferences.getString(RECENT_PLAYLISTS, "[]"));
-            for (int i = 0; i < json.length(); i++) {
-                JSONObject item = json.getJSONObject(i);
-                result.add(new String[]{item.getString("urn"), item.optString("title")});
-            }
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not read recent playlists", ex);
-        }
-        return result;
+    /** The opened playlists, newest first: urn and title. */
+    static List<String[]> readRecentPlaylists() {
+        return AdditionsStore.recentPlaylists();
     }
 
     // endregion
@@ -219,28 +97,11 @@ public final class LocalAdditions {
     /** Called when the playlist screen receives a playlist. */
     public static void onPlaylistOpened(Object playlistItem) {
         try {
-            String urn = String.valueOf(playlistItem.getClass().getMethod("getUrn").invoke(playlistItem));
+            String urn = Urns.textOf(playlistItem);
             String title = String.valueOf(playlistItem.getClass().getMethod("getTitle").invoke(playlistItem));
-            Utils.runOnBackgroundThread(() -> rememberPlaylist(urn, title));
+            Utils.runOnBackgroundThread(() -> AdditionsStore.rememberPlaylist(urn, title));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not remember playlist", ex);
-        }
-    }
-
-    private static synchronized void rememberPlaylist(String urn, String title) {
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return;
-        List<String[]> recent = readRecentPlaylists();
-        recent.removeIf(item -> item[0].equals(urn));
-        recent.add(0, new String[]{urn, title});
-        try {
-            JSONArray json = new JSONArray();
-            for (int i = 0; i < Math.min(recent.size(), RECENT_LIMIT); i++) {
-                json.put(new JSONObject().put("urn", recent.get(i)[0]).put("title", recent.get(i)[1]));
-            }
-            preferences.edit().putString(RECENT_PLAYLISTS, json.toString()).apply();
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not save recent playlists", ex);
         }
     }
 
@@ -294,542 +155,7 @@ public final class LocalAdditions {
     }
 
     static Object toUrn(ClassLoader loader, String entry) {
-        try {
-            if (entry.startsWith(FILE_PREFIX)) {
-                File file = new File(entry.substring(FILE_PREFIX.length()));
-                if (!file.isFile()) return null;
-                Class<?> localUrn = Class.forName("com.soundcloud.android.foundation.domain.LocalTrackUrn", false, loader);
-                Object companion = localUrn.getField("Companion").get(null);
-                return companion.getClass().getMethod("fromFile", File.class).invoke(companion, file);
-            }
-            String id = DownloadTrackPatch.parseTrackId(entry);
-            if (id == null) return null;
-            Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
-            return urnClass.getMethod("forTrack", String.class).invoke(null, id);
-        } catch (Exception ex) {
-            Logger.printException(() -> "Invalid local addition " + entry, ex);
-            return null;
-        }
-    }
-
-    /**
-     * SoundCloud's track repository drops urns of local files from track lists. Called at the start
-     * of {@code LocalFileAwareTrackRepository.tracks()}: if the list has local files, it requests
-     * the other tracks as usual and inserts the tracks of the files at their positions.
-     *
-     * @param repository The {@code LocalFileAwareTrackRepository}.
-     * @param urns       The requested {@code Iterable<TrackUrn>}.
-     * @param strategy   The {@code LoadStrategy}.
-     * @return The {@code Observable<ListResponse<Track>>}, or null to run the original method.
-     */
-    public static Object tracksWithLocalFiles(Object repository, Object urns, Object strategy) {
-        try {
-            List<Object> requested = new ArrayList<>();
-            List<Object> remote = new ArrayList<>();
-            for (Object urn : (Iterable<?>) urns) {
-                requested.add(urn);
-                if (!urn.getClass().getName().endsWith(".LocalTrackUrn")) remote.add(urn);
-            }
-            if (remote.size() == requested.size()) return null;
-            Logger.printInfo(() -> "Adding " + (requested.size() - remote.size()) + " local file tracks to a track list");
-
-            ClassLoader loader = repository.getClass().getClassLoader();
-            Class<?> trackUrnClass = Class.forName("com.soundcloud.android.foundation.domain.TrackUrn", false, loader);
-            Class<?> strategyClass = Class.forName("com.soundcloud.android.foundation.domain.repository.LoadStrategy", false, loader);
-            Method track = repository.getClass().getMethod("track", trackUrnClass, strategyClass);
-            Method tracks = repository.getClass().getMethod("tracks", Iterable.class, strategyClass);
-            Object response = tracks.invoke(repository, remote, strategy);
-
-            return Rx.mapObservable(response, value -> {
-                try {
-                    // Waiting here froze the app: this can run on the main thread, and every missing file
-                    // track waited up to 5 s in turn. Now: cached items, a short total budget off the main
-                    // thread only, and anything still missing is loaded in the background for the next update.
-                    boolean mainThread = android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
-                    long deadline = System.currentTimeMillis() + LOCAL_TRACK_BUDGET_MS;
-                    return mergeLocalTracks(loader, value, requested, urn -> {
-                        Object cached = LOCAL_TRACK_CACHE.get(String.valueOf(urn));
-                        if (cached != null) return cached;
-                        long left = deadline - System.currentTimeMillis();
-                        if (mainThread || left <= 0) {
-                            loadLocalTrackInBackground(repository, track, urn, strategy);
-                            return null;
-                        }
-                        Object item = loadLocalTrack(repository, track, urn, strategy, left);
-                        // Not ready within the budget, or another file is being read: it continues in the background.
-                        if (item == null) loadLocalTrackInBackground(repository, track, urn, strategy);
-                        return item;
-                    });
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Could not merge local file tracks", ex);
-                    return value;
-                }
-            });
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not add local file tracks", ex);
-            return null;
-        }
-    }
-
-    private static final long LOCAL_TRACK_BUDGET_MS = 1_500;
-    private static final Map<String, Object> LOCAL_TRACK_CACHE = new ConcurrentHashMap<>();
-    /** Files queued for or in a background load: a list refresh does not queue them again. */
-    private static final Set<String> LOADING = ConcurrentHashMap.newKeySet();
-    /** When a file last failed to load in the background, so a file that never loads is not retried at every refresh. */
-    private static final Map<String, Long> LOAD_FAILED_AT = new ConcurrentHashMap<>();
-    private static final long LOAD_RETRY_MS = 30_000;
-    /**
-     * SoundCloud reads the metadata of all files with one shared MediaMetadataRetriever, which breaks when
-     * loads overlap (wrong or garbled metadata, a native abort), so files load one at a time. Fair, so the
-     * list refresh waiting within its budget is not starved by the background loads.
-     */
-    private static final ReentrantLock LOAD_LOCK = new ReentrantLock(true);
-    /** Files loaded in the background since the playlists were last told to reload. */
-    private static final AtomicInteger LOADED_SINCE_REFRESH = new AtomicInteger();
-    private static final int REFRESH_EVERY = 100;
-    /** One thread of its own: Utils' background pool starts a new thread for every task over three. */
-    private static final ThreadPoolExecutor LOCAL_LOADER = createLoader();
-
-    private static ThreadPoolExecutor createLoader() {
-        ThreadPoolExecutor loader = new ThreadPoolExecutor(1, 1, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), task -> {
-            Thread thread = new Thread(task, "arsound-local-track");
-            thread.setDaemon(true);
-            return thread;
-        });
-        loader.allowCoreThreadTimeOut(true);
-        return loader;
-    }
-
-    private static Object loadLocalTrack(Object repository, Method track, Object urn, Object strategy, long timeoutMs) {
-        boolean locked = false;
-        try {
-            long started = System.nanoTime();
-            locked = LOAD_LOCK.tryLock(timeoutMs, TimeUnit.MILLISECONDS);
-            if (!locked) {
-                Logger.printInfo(() -> "Local file track not loaded, another file is loading: " + urn);
-                return null;
-            }
-            // The time spent waiting for the lock counts against the timeout.
-            long left = timeoutMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-            if (left <= 0) return null;
-            Object found = Rx.blockingFirst(track.invoke(repository, urn, strategy), left, TimeUnit.MILLISECONDS);
-            Object item = found == null ? null : found.getClass().getMethod("getItem").invoke(found);
-            if (item != null) LOCAL_TRACK_CACHE.put(String.valueOf(urn), item);
-            return item;
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            return null;
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Local file track unavailable: " + urn + " " + ex);
-            return null;
-        } finally {
-            if (locked) LOAD_LOCK.unlock();
-        }
-    }
-
-    /** Called when imported files change, so removed files are not shown from the cache. */
-    public static void clearLocalTrackCache() {
-        LOCAL_TRACK_CACHE.clear();
-        LOAD_FAILED_AT.clear();
-    }
-
-    private static void loadLocalTrackInBackground(Object repository, Method track, Object urn, Object strategy) {
-        String key = String.valueOf(urn);
-        if (LOCAL_TRACK_CACHE.containsKey(key)) return;
-        Long failedAt = LOAD_FAILED_AT.get(key);
-        if (failedAt != null && System.currentTimeMillis() - failedAt < LOAD_RETRY_MS) return;
-        if (!LOADING.add(key)) return;
-        try {
-            LOCAL_LOADER.execute(() -> loadQueuedLocalTrack(repository, track, urn, strategy, key));
-        } catch (RejectedExecutionException | OutOfMemoryError ex) {
-            // No thread could be started: the file is queued again by a later refresh.
-            LOADING.remove(key);
-            Logger.printInfo(() -> "Could not queue local file track " + key + ": " + ex);
-        }
-    }
-
-    /** Runs on the loader thread. */
-    private static void loadQueuedLocalTrack(Object repository, Method track, Object urn, Object strategy, String key) {
-        try {
-            // The list refresh may have loaded it within its budget while this one waited in the queue.
-            if (!LOCAL_TRACK_CACHE.containsKey(key)) {
-                if (loadLocalTrack(repository, track, urn, strategy, 5_000) != null) {
-                    LOAD_FAILED_AT.remove(key);
-                    LOADED_SINCE_REFRESH.incrementAndGet();
-                } else {
-                    LOAD_FAILED_AT.put(key, System.currentTimeMillis());
-                }
-            }
-        } catch (Throwable ex) {
-            // An error escaping a pool thread would reach the default handler and close the app.
-            Logger.printException(() -> "Could not load local file track " + key, ex);
-        } finally {
-            LOADING.remove(key);
-        }
-        refreshAfterBackgroundLoads();
-    }
-
-    /**
-     * Files missing at the first read of a list are loaded afterwards. Once a batch is done (or every
-     * {@link #REFRESH_EVERY} files of a long one), the playlists reload their tracks, so the loaded files
-     * show up without reopening the screen. Only loaded files trigger it, so files that never load cannot repeat it.
-     */
-    private static void refreshAfterBackgroundLoads() {
-        int loaded = LOADED_SINCE_REFRESH.get();
-        if (loaded == 0 || (loaded < REFRESH_EVERY && !LOADING.isEmpty())) return;
-        LOADED_SINCE_REFRESH.addAndGet(-loaded);
-        try {
-            Set<String> playlists = new java.util.LinkedHashSet<>(PlaylistTracks.playlistsWithImportedTracks());
-            String saved = SavedPlaylist.getUrn();
-            if (saved != null) playlists.add(saved);
-            Utils.runOnMainThread(() -> {
-                for (String playlist : playlists) notifyPlaylistChanged(playlist);
-            });
-        } catch (Throwable ex) {
-            // Runs on the loader thread, where an error would close the app.
-            Logger.printException(() -> "Could not refresh the playlists after loading local files", ex);
-        }
-    }
-
-    private static Object mergeLocalTracks(ClassLoader loader, Object response, List<Object> requested,
-                                           java.util.function.Function<Object, Object> loadLocal) throws Exception {
-        String prefix = "com.soundcloud.android.foundation.domain.repository.ListResponse$Success$";
-        Class<?> total = Class.forName(prefix + "Total", false, loader);
-        Class<?> partial = Class.forName(prefix + "Partial", false, loader);
-
-        List<?> found;
-        if (total.isInstance(response)) found = (List<?>) total.getMethod("getItems").invoke(response);
-        else if (partial.isInstance(response)) found = (List<?>) partial.getMethod("getFound").invoke(response);
-        else return response;
-
-        Map<Object, Object> byUrn = new java.util.HashMap<>();
-        for (Object item : found) byUrn.put(item.getClass().getMethod("getTrackUrn").invoke(item), item);
-
-        List<Object> merged = new ArrayList<>();
-        for (Object urn : requested) {
-            Object item = byUrn.get(urn);
-            if (item == null && urn.getClass().getName().endsWith(".LocalTrackUrn")) item = loadLocal.apply(urn);
-            if (item != null) merged.add(item);
-        }
-
-        if (total.isInstance(response)) return total.getConstructor(List.class).newInstance(merged);
-        Object missing = partial.getMethod("getMissing").invoke(response);
-        Object exception = partial.getMethod("getException").invoke(response);
-        return partial.getConstructors()[0].getParameterTypes().length == 3
-                ? partial.getConstructor(List.class, List.class,
-                        Class.forName("com.soundcloud.android.foundation.domain.repository.RepositoryException", false, loader))
-                .newInstance(merged, missing, exception)
-                : response;
-    }
-
-    /**
-     * Removes local additions from a track set before SoundCloud saves an edited playlist.
-     *
-     * @param playlistUrn The playlist {@code Urn}.
-     * @param tracks      The {@code Set<Urn>} to save.
-     */
-    public static Object withoutLocalAdditions(Object playlistUrn, Object tracks) {
-        String playlist = String.valueOf(playlistUrn);
-        java.util.Set<Object> result = new java.util.LinkedHashSet<>();
-        boolean addedLocally = false;
-        // The editors only see the server track list, so a SoundCloud urn here is a server track, even when
-        // the same track was also added locally: it stays, otherwise saving removes it from the server.
-        for (Object urn : (Iterable<?>) tracks) {
-            if (urn.getClass().getName().endsWith(".LocalTrackUrn")) {
-                // An imported file picked in the native "Add to playlist" screen.
-                String entry = entryOf(urn);
-                if (entry != null && add(playlist, entry)) addedLocally = true;
-                continue;
-            }
-            // A track deleted on SoundCloud, kept here greyed out: the server would not accept it.
-            if (RemovedTracks.isKept(playlist, String.valueOf(urn))) continue;
-            result.add(urn);
-        }
-        if (addedLocally) notifyPlaylistChanged(playlist);
-        return result;
-    }
-
-    // endregion
-
-    // region Menus
-
-    public static void addTrackMenuRow(Dialog dialog, Object trackUrn) {
-        try {
-            View menuItems = dialog.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "menuItems"));
-            if (menuItems == null || !(menuItems.getParent() instanceof LinearLayout)) return;
-            LinearLayout parent = (LinearLayout) menuItems.getParent();
-            View existing = parent.findViewWithTag(TRACK_ROW_TAG);
-            if (existing != null) parent.removeView(existing);
-
-            Context context = dialog.getContext();
-            String entry = String.valueOf(trackUrn);
-            ViewGroup row = DownloadTrackPatch.createMenuRow(context,
-                    text("Добавить в плейлист локально", "Add to playlist locally"),
-                    "ic_actions_playlist_add_to_playlist", v -> {
-                        Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
-                        dialog.dismiss();
-                        pickPlaylist(activity, entry);
-                    });
-            row.setTag(TRACK_ROW_TAG);
-            parent.addView(row, parent.indexOfChild(menuItems) + 1, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not add local playlist row", ex);
-        }
-    }
-
-    /**
-     * The menu gets an imported file as a plain urn, "sc-local:tracks:local_" and the path in Base64.
-     *
-     * @return The file of an imported track, or null for any other urn.
-     */
-    public static File importedFileOf(Object trackUrn) {
-        String urn = String.valueOf(trackUrn);
-        int start = urn.indexOf(":local_");
-        if (!urn.startsWith("sc-local:") || start < 0) return null;
-        try {
-            byte[] path = java.util.Base64.getUrlDecoder().decode(urn.substring(start + ":local_".length()));
-            return new File(new String(path, java.nio.charset.StandardCharsets.UTF_8));
-        } catch (IllegalArgumentException ex) {
-            Logger.printException(() -> "Not a local track urn: " + urn, ex);
-            return null;
-        }
-    }
-
-    /** "Set cover" in the menu of an imported file. */
-    public static void addTrackCoverRow(Dialog dialog, File audio) {
-        try {
-            View menuItems = dialog.findViewById(Utils.getResourceIdentifier(ResourceType.ID, "menuItems"));
-            if (menuItems == null || !(menuItems.getParent() instanceof LinearLayout)) return;
-            LinearLayout parent = (LinearLayout) menuItems.getParent();
-            View existing = parent.findViewWithTag(COVER_ROW_TAG);
-            if (existing != null) parent.removeView(existing);
-
-            Context context = dialog.getContext();
-            ViewGroup row = DownloadTrackPatch.createMenuRow(context, LocalCovers.hasUserCover(audio)
-                            ? text("Сменить обложку", "Change cover") : text("Задать обложку", "Set cover"),
-                    "ic_actions_image", v -> {
-                        Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
-                        dialog.dismiss();
-                        ImportActivity.pickTrackCover(activity, audio);
-                    });
-            row.setTag(COVER_ROW_TAG);
-            parent.addView(row, parent.indexOfChild(menuItems) + 1, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            View existingRemove = parent.findViewWithTag(REMOVE_COVER_ROW_TAG);
-            if (existingRemove != null) parent.removeView(existingRemove);
-            if (!LocalCovers.hasUserCover(audio)) return;
-            ViewGroup removeRow = DownloadTrackPatch.createMenuRow(context, text("Убрать свою обложку", "Remove own cover"),
-                    "ic_actions_delete", v -> {
-                        dialog.dismiss();
-                        Utils.runOnBackgroundThread(() -> {
-                            LocalCovers.removeUserCover(audio);
-                            Utils.runOnMainThread(() -> notifyTrackChanged(audio));
-                        });
-                    });
-            removeRow.setTag(REMOVE_COVER_ROW_TAG);
-            parent.addView(removeRow, parent.indexOfChild(row) + 1, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not add the cover row", ex);
-        }
-    }
-
-    /**
-     * "Set cover" in the menu of a playlist without SoundCloud tracks: its artwork would stay empty,
-     * so a picture from the gallery is shown instead, on this device only.
-     */
-    private static void addPlaylistCoverRows(Dialog dialog, LinearLayout menuItems, String playlistUrn) {
-        boolean hasCover = LocalCovers.hasPlaylistCover(playlistUrn);
-        if (!hasCover && !PlaylistTracks.hasOnlyImportedTracks(playlistUrn)) return;
-        Context context = dialog.getContext();
-        ViewGroup row = DownloadTrackPatch.createMenuRow(context,
-                hasCover ? text("Сменить обложку", "Change cover") : text("Задать обложку", "Set cover"),
-                "ic_actions_image", v -> {
-                    Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
-                    dialog.dismiss();
-                    ImportActivity.pickPlaylistCover(activity, playlistUrn);
-                });
-        menuItems.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        if (!hasCover) return;
-        ViewGroup removeRow = DownloadTrackPatch.createMenuRow(context, text("Убрать свою обложку", "Remove own cover"),
-                "ic_actions_delete", v -> {
-                    dialog.dismiss();
-                    Utils.runOnBackgroundThread(() -> {
-                        LocalCovers.setPlaylistCover(playlistUrn, null);
-                        Utils.runOnMainThread(() -> {
-                            notifyPlaylistChanged(playlistUrn);
-                            PlaylistHeader.redraw(playlistUrn);
-                        });
-                    });
-                });
-        menuItems.addView(removeRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-    }
-
-    public static void addPlaylistMenuRow(Dialog dialog, String playlistUrn) {
-        addPlaylistMenuRow(dialog, playlistUrn, null);
-    }
-
-    /** @param menuData The data SoundCloud built the menu from, to see whether the playlist can be edited. */
-    public static void addPlaylistMenuRow(Dialog dialog, String playlistUrn, Object menuData) {
-        try {
-            LinearLayout menuItems = dialog.findViewById(
-                    Utils.getResourceIdentifier(ResourceType.ID, "playlistBottomSheetMenuItems"));
-            if (menuItems == null || menuItems.findViewWithTag(PLAYLIST_ROW_TAG) != null) return;
-
-            Context context = dialog.getContext();
-            int count = getEntries(playlistUrn).size();
-            ViewGroup row = DownloadTrackPatch.createMenuRow(context,
-                    text("Локальные треки", "Local tracks") + (count > 0 ? " (" + count + ")" : ""),
-                    "ic_actions_playlist_add_to_playlist", v -> {
-                        Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
-                        dialog.dismiss();
-                        manageAdditions(activity, playlistUrn);
-                    });
-            row.setTag(PLAYLIST_ROW_TAG);
-            menuItems.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-            ViewGroup importRow = DownloadTrackPatch.createMenuRow(context,
-                    text("Импортировать музыку сюда", "Import music here"),
-                    "ic_actions_upload", v -> {
-                        Context activity = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
-                        dialog.dismiss();
-                        ImportActivity.start(activity, playlistUrn);
-                    });
-            menuItems.addView(importRow, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-            // The "Imported" playlist lists the files by itself: nothing is merged into it.
-            if (!SavedPlaylist.isSavedPlaylist(playlistUrn)) PlaylistMerge.addMenuRow(dialog, menuItems, playlistUrn, menuData);
-
-            addPlaylistCoverRows(dialog, menuItems, playlistUrn);
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not add local additions row", ex);
-        }
-    }
-
-    /** Lets the user pick a playlist: own playlists and recently opened playlists and albums. */
-    public static void pickPlaylist(Context context, String entry) {
-        List<String[]> targets = readRecentPlaylists();
-        String saved = SavedPlaylist.getUrn();
-        if (saved != null) targets.removeIf(item -> item[0].equals(saved));
-        if (targets.isEmpty()) {
-            Toast.makeText(context, text("Откройте нужный плейлист или альбом — он появится в списке.",
-                    "Open the playlist or album first, then it appears in the list."), Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        List<LocalSheet.Item> items = LocalSheet.items();
-        for (String[] target : targets) {
-            items.add(new LocalSheet.Item(target[1], "ic_actions_playlist_add_to_playlist", () -> {
-                boolean added = add(target[0], entry);
-                rememberTitle(entry);
-                notifyPlaylistChanged(target[0]);
-                Toast.makeText(context, added
-                                ? text("Добавлено в «" + target[1] + "» только на этом телефоне",
-                                "Added to \"" + target[1] + "\" on this phone only")
-                                : text("Уже в этом плейлисте", "Already in this playlist"),
-                        Toast.LENGTH_SHORT).show();
-            }));
-        }
-        LocalSheet.show(context, text("Добавить локально", "Add locally"),
-                text("Трек будет виден и играть только на этом телефоне", "The track is visible and plays only on this phone"),
-                items);
-    }
-
-    // region Titles
-
-    private static final String TITLES = "titles";
-
-    /** A readable name for an entry: the cached SoundCloud title. */
-    public static String getTitle(String entry) {
-        return entry.startsWith(FILE_PREFIX) ? null : readTitles().optString(entry, null);
-    }
-
-    /** Entries whose titles wait to be loaded, in the order they came. */
-    private static final Set<String> pendingTitles = new LinkedHashSet<>();
-    private static boolean titleWorkerRunning;
-
-    /** Loads and caches the title of a SoundCloud track entry, so local lists can show it offline. */
-    public static void rememberTitle(String entry) {
-        rememberTitles(Collections.singletonList(entry));
-    }
-
-    /**
-     * Loads and caches the titles of SoundCloud track entries that have none yet. One worker reads them one
-     * after another, so a merge of hundreds of tracks is not hundreds of threads and requests at once.
-     * Entries that already wait for their turn are not queued again.
-     */
-    public static void rememberTitles(Collection<String> entries) {
-        List<String> uncached = new ArrayList<>();
-        JSONObject titles = readTitles();
-        for (String entry : entries) {
-            if (entry.startsWith(FILE_PREFIX) || titles.has(entry) || DownloadTrackPatch.parseTrackId(entry) == null) continue;
-            uncached.add(entry);
-        }
-        if (uncached.isEmpty()) return;
-        boolean start;
-        synchronized (pendingTitles) {
-            pendingTitles.addAll(uncached);
-            start = !titleWorkerRunning;
-            titleWorkerRunning = true;
-        }
-        if (start) Utils.runOnBackgroundThread(LocalAdditions::loadPendingTitles);
-    }
-
-    private static void loadPendingTitles() {
-        while (true) {
-            String entry;
-            synchronized (pendingTitles) {
-                Iterator<String> next = pendingTitles.iterator();
-                if (!next.hasNext()) {
-                    titleWorkerRunning = false;
-                    return;
-                }
-                entry = next.next();
-                next.remove();
-            }
-            try {
-                loadTitle(entry);
-            } catch (RegionGuard.BlockedException ex) {
-                // No request leaves the phone from this IP: the rest waits for the next time the list is opened.
-                synchronized (pendingTitles) {
-                    pendingTitles.clear();
-                }
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Could not load track title for " + entry + ": " + ex);
-            }
-        }
-    }
-
-    private static void loadTitle(String entry) throws Exception {
-        String id = DownloadTrackPatch.parseTrackId(entry);
-        if (id == null) return;
-        String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id);
-        if (response[1] == null) return;
-        JSONObject track = new JSONObject(response[1]);
-        JSONObject user = track.optJSONObject("user");
-        String title = track.optString("title") + (user == null ? "" : " — " + user.optString("username"));
-        synchronized (LocalAdditions.class) {
-            SharedPreferences preferences = preferences();
-            if (preferences == null) return;
-            JSONObject titles = new JSONObject(preferences.getString(TITLES, "{}"));
-            titles.put(entry, title);
-            preferences.edit().putString(TITLES, titles.toString()).apply();
-        }
-    }
-
-    private static synchronized JSONObject readTitles() {
-        SharedPreferences preferences = preferences();
-        if (preferences == null) return new JSONObject();
-        try {
-            return new JSONObject(preferences.getString(TITLES, "{}"));
-        } catch (Exception ex) {
-            return new JSONObject();
-        }
+        return Entry.parse(entry).toUrn(loader);
     }
 
     /** Converts entries to urns for playback. Missing files are skipped. */
@@ -842,116 +168,41 @@ public final class LocalAdditions {
         return urns;
     }
 
-    // endregion
-
-    /** "Local tracks" of a playlist: what was added on this phone, with removal and adding own files. */
-    private static void manageAdditions(Context context, String playlistUrn) {
-        Utils.runOnBackgroundThread(() -> {
-            List<String> entries = getEntries(playlistUrn);
-            List<LocalMusic.Track> imported = LocalMusic.getTracks(context);
-            rememberTitles(entries);
-            // The names are read from the cached titles once for the whole list: reading them again for every entry
-            // would parse the whole map each time, which freezes the screen when a merge brought hundreds of tracks.
-            JSONObject titles = readTitles();
-            List<String> labels = new ArrayList<>(entries.size());
-            for (String entry : entries) labels.add(describe(entry, imported, titles));
-            Utils.runOnMainThread(() -> {
-                List<LocalSheet.Item> items = LocalSheet.items();
-                items.add(new LocalSheet.Item(text("Добавить свой файл", "Add my file"), "ic_actions_playlist_add_to_playlist",
-                        () -> pickImportedFile(context, playlistUrn, imported)));
-                for (int i = 0; i < entries.size(); i++) {
-                    String entry = entries.get(i);
-                    String label = labels.get(i);
-                    items.add(new LocalSheet.Item(label, "ic_actions_playlist_remove_from_playlist", () -> {
-                        remove(playlistUrn, entry);
-                        notifyPlaylistChanged(playlistUrn);
-                        Toast.makeText(context, text("Убрано: " + label, "Removed: " + label), Toast.LENGTH_SHORT).show();
-                    }));
-                }
-                LocalSheet.show(context, text("Локальные треки", "Local tracks"),
-                        entries.isEmpty()
-                                ? text("Здесь пока нет треков, добавленных на этом телефоне. Трек SoundCloud добавляется "
-                                        + "из его меню: «Добавить в плейлист локально».",
-                                "No tracks added on this phone yet. Add a SoundCloud track from its menu.")
-                                : text("Нажмите на трек, чтобы убрать его из плейлиста", "Tap a track to remove it"),
-                        items);
-            });
-        });
+    /**
+     * SoundCloud's track repository drops urns of local files from track lists. Called at the start
+     * of {@code LocalFileAwareTrackRepository.tracks()}.
+     *
+     * @return The {@code Observable<ListResponse<Track>>}, or null to run the original method.
+     */
+    public static Object tracksWithLocalFiles(Object repository, Object urns, Object strategy) {
+        return LocalFileTracks.withLocalFiles(repository, urns, strategy);
     }
-
-    private static void pickImportedFile(Context context, String playlistUrn, List<LocalMusic.Track> imported) {
-        if (imported.isEmpty()) {
-            Toast.makeText(context, text("Сначала импортируйте файлы: Arsound → Импортированные файлы",
-                    "Import files first: Arsound → Imported files"), Toast.LENGTH_LONG).show();
-            return;
-        }
-        List<LocalSheet.Item> items = LocalSheet.items();
-        for (LocalMusic.Track track : imported) {
-            items.add(new LocalSheet.Item(track.title, "ic_actions_playlist_add_to_playlist", () -> {
-                add(playlistUrn, fileEntry(track.file));
-                notifyPlaylistChanged(playlistUrn);
-                Toast.makeText(context, text("Добавлено: " + track.title, "Added: " + track.title), Toast.LENGTH_SHORT).show();
-            }));
-        }
-        LocalSheet.show(context, text("Импортированные файлы", "Imported files"), null, items);
-    }
-
-    public static String describe(String entry, List<LocalMusic.Track> imported) {
-        return describe(entry, imported, null);
-    }
-
-    /** @param titles The cached titles, read once for a whole list; null reads them for this entry alone. */
-    private static String describe(String entry, List<LocalMusic.Track> imported, JSONObject titles) {
-        if (entry.startsWith(FILE_PREFIX)) {
-            String path = entry.substring(FILE_PREFIX.length());
-            for (LocalMusic.Track track : imported) if (track.file.getPath().equals(path)) return track.title;
-            return new File(path).getName();
-        }
-        String title = titles != null ? titles.optString(entry, null) : getTitle(entry);
-        return title != null ? title : text("Трек SoundCloud ", "SoundCloud track ") + DownloadTrackPatch.parseTrackId(entry);
-    }
-
-    // endregion
-
-    // region Native playlist actions
 
     /**
-     * Tells open playlist screens to reload their track list, and the library to show the new number
-     * of tracks. SoundCloud's library list does not draw its cells again for a change that only the
-     * local additions know about, so the numbers are read and drawn here.
+     * Removes local additions from a track set before SoundCloud saves an edited playlist.
+     *
+     * @param playlistUrn The playlist {@code Urn}.
+     * @param tracks      The {@code Set<Urn>} to save.
      */
-    public static void notifyPlaylistChanged(String playlistUrn) {
-        PlaylistTracks.refreshLater(playlistUrn);
-        LocalCovers.onPlaylistChanged(playlistUrn);
-        Object operations = SavedPlaylist.playlistOperations();
-        if (operations == null) return;
-        try {
-            ClassLoader loader = operations.getClass().getClassLoader();
-            Object urn = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader)
-                    .getMethod("forPlaylist", String.class)
-                    .invoke(null, playlistUrn.substring(playlistUrn.lastIndexOf(':') + 1));
-            operations.getClass().getMethod("notifyPlaylistsUpdated", java.util.Set.class, java.util.Set.class)
-                    .invoke(operations, Collections.singleton(urn), Collections.emptySet());
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not refresh playlist " + playlistUrn, ex);
-        }
-    }
-
-    /** Tells the open playlists that show an imported file to load its track again, with a new cover. */
-    public static void notifyTrackChanged(File audio) {
-        for (String playlist : PlaylistTracks.playlistsWithImportedTracks()) notifyPlaylistChanged(playlist);
-    }
-
-    /** The entry of a track urn: the file entry of an imported file, the urn text of a SoundCloud track. */
-    static String entryOf(Object trackUrn) {
-        if (trackUrn.getClass().getName().endsWith(".LocalTrackUrn")) {
-            try {
-                return fileEntry((File) trackUrn.getClass().getMethod("getFile").invoke(trackUrn));
-            } catch (Exception ex) {
-                return null;
+    public static Object withoutLocalAdditions(Object playlistUrn, Object tracks) {
+        String playlist = String.valueOf(playlistUrn);
+        Set<Object> result = new LinkedHashSet<>();
+        boolean addedLocally = false;
+        // The editors only see the server track list, so a SoundCloud urn here is a server track, even when
+        // the same track was also added locally: it stays, otherwise saving removes it from the server.
+        for (Object urn : (Iterable<?>) tracks) {
+            if (Urns.isLocalFile(urn)) {
+                // An imported file picked in the native "Add to playlist" screen.
+                String entry = entryOf(urn);
+                if (entry != null && add(playlist, entry)) addedLocally = true;
+                continue;
             }
+            // A track deleted on SoundCloud, kept here greyed out: the server would not accept it.
+            if (RemovedTracks.isKept(playlist, String.valueOf(urn))) continue;
+            result.add(urn);
         }
-        return String.valueOf(trackUrn);
+        if (addedLocally) notifyPlaylistChanged(playlist);
+        return result;
     }
 
     /**
@@ -984,6 +235,79 @@ public final class LocalAdditions {
             Logger.printException(() -> "Could not remove local track", ex);
             return false;
         }
+    }
+
+    /** The entry of a track urn: the file entry of an imported file, the urn text of a SoundCloud track. */
+    static String entryOf(Object trackUrn) {
+        if (Urns.isLocalFile(trackUrn)) {
+            try {
+                return fileEntry(Urns.fileOf(trackUrn));
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+        return String.valueOf(trackUrn);
+    }
+
+    // endregion
+
+    // region Menus
+
+    public static void addTrackMenuRow(Dialog dialog, Object trackUrn) {
+        AdditionsMenus.addTrackMenuRow(dialog, trackUrn);
+    }
+
+    /** @return The file of an imported track, or null for any other urn. */
+    public static File importedFileOf(Object trackUrn) {
+        return Urns.menuFileOf(trackUrn);
+    }
+
+    /** "Set cover" in the menu of an imported file. */
+    public static void addTrackCoverRow(Dialog dialog, File audio) {
+        AdditionsMenus.addTrackCoverRow(dialog, audio);
+    }
+
+    /** @param menuData The data SoundCloud built the menu from, to see whether the playlist can be edited. */
+    public static void addPlaylistMenuRow(Dialog dialog, String playlistUrn, Object menuData) {
+        AdditionsMenus.addPlaylistMenuRows(dialog, playlistUrn, menuData);
+    }
+
+    /** Lets the user pick a playlist: own playlists and recently opened playlists and albums. */
+    public static void pickPlaylist(Context context, String entry) {
+        AdditionsMenus.pickPlaylist(context, entry);
+    }
+
+    // endregion
+
+    // region Titles
+
+    /** A readable name for an entry: the cached SoundCloud title. */
+    public static String getTitle(String entry) {
+        return TrackTitles.get(entry);
+    }
+
+    /** Loads and caches the title of a SoundCloud track entry, so local lists can show it offline. */
+    public static void rememberTitle(String entry) {
+        TrackTitles.remember(entry);
+    }
+
+    /** Loads and caches the titles of SoundCloud track entries that have none yet. */
+    public static void rememberTitles(Collection<String> entries) {
+        TrackTitles.rememberAll(entries);
+    }
+
+    // endregion
+
+    // region Native playlist actions
+
+    /** Tells open playlist screens to reload their track list, and the library to show the new number of tracks. */
+    public static void notifyPlaylistChanged(String playlistUrn) {
+        PlaylistChanges.playlistChanged(playlistUrn);
+    }
+
+    /** Tells the open playlists that show an imported file to load its track again, with a new cover. */
+    public static void notifyTrackChanged(File audio) {
+        PlaylistChanges.trackChanged(audio);
     }
 
     // endregion

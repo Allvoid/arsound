@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -29,6 +30,7 @@ import app.revanced.extension.shared.Utils;
  */
 public final class DownloadProgress {
     private static final long POLL_MS = 1_500;
+    private static final long REDRAW_DELAY_MS = 250;
     private static final Handler handler = new Handler(Looper.getMainLooper());
 
     /** Guards the replacement of {@link #downloading} and {@link #assembling}: they are changed by several threads. */
@@ -40,6 +42,8 @@ public final class DownloadProgress {
     private static volatile Set<String> assembling = Collections.emptySet();
     /** Playlist id to the track ids started from its "Check track downloads" dialog. */
     private static final Map<String, Set<String>> playlistTracks = new HashMap<>();
+    /** Set while a redraw waits for the rest of a playlist that is being queued. */
+    private static final AtomicBoolean redrawQueued = new AtomicBoolean();
 
     private static WeakReference<Activity> resumed = new WeakReference<>(null);
     private static boolean polling;
@@ -47,6 +51,20 @@ public final class DownloadProgress {
     private static volatile boolean settledOnce;
 
     private DownloadProgress() {
+    }
+
+    /** A copy of the set with the track in it: the sets are replaced as a whole, never changed. */
+    private static Set<String> with(Set<String> set, String trackId) {
+        Set<String> updated = new HashSet<>(set);
+        updated.add(trackId);
+        return updated;
+    }
+
+    /** A copy of the set without the track. */
+    private static Set<String> without(Set<String> set, String trackId) {
+        Set<String> updated = new HashSet<>(set);
+        updated.remove(trackId);
+        return updated;
     }
 
     public static boolean isDownloading(String trackId) {
@@ -79,9 +97,7 @@ public final class DownloadProgress {
     static boolean tryBeginAssembly(String trackId, String playlistId) {
         synchronized (SETS) {
             if (assembling.contains(trackId)) return false;
-            Set<String> updated = new HashSet<>(assembling);
-            updated.add(trackId);
-            assembling = updated;
+            assembling = with(assembling, trackId);
         }
         onStarted(trackId, playlistId);
         return true;
@@ -90,13 +106,8 @@ public final class DownloadProgress {
     /** Called when an HLS track is packed, or when packing failed. */
     static void onAssemblyFinished(String trackId) {
         synchronized (SETS) {
-            Set<String> updated = new HashSet<>(assembling);
-            updated.remove(trackId);
-            assembling = updated;
-
-            Set<String> stillDownloading = new HashSet<>(downloading);
-            stillDownloading.remove(trackId);
-            downloading = stillDownloading;
+            assembling = without(assembling, trackId);
+            downloading = without(downloading, trackId);
         }
         ProgressPill.onDownloadsChanged();
         recountAndRedraw();
@@ -105,9 +116,7 @@ public final class DownloadProgress {
     /** Called when a download is queued. */
     static void onStarted(String trackId, String playlistId) {
         synchronized (SETS) {
-            Set<String> updated = new HashSet<>(downloading);
-            updated.add(trackId);
-            downloading = updated;
+            downloading = with(downloading, trackId);
         }
         if (playlistId != null) {
             synchronized (playlistTracks) {
@@ -124,10 +133,6 @@ public final class DownloadProgress {
             startPolling();
         }, REDRAW_DELAY_MS);
     }
-
-    private static final long REDRAW_DELAY_MS = 250;
-    private static final java.util.concurrent.atomic.AtomicBoolean redrawQueued =
-            new java.util.concurrent.atomic.AtomicBoolean();
 
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
     static void onDownloadsDeleted() {

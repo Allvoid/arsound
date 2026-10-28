@@ -1,5 +1,8 @@
 package app.revanced.extension.soundcloud.player;
 
+import static app.revanced.extension.soundcloud.shared.Colors.blend;
+import static app.revanced.extension.soundcloud.shared.Colors.withAlpha;
+
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -11,6 +14,7 @@ import android.graphics.Shader;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.Reflect;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
@@ -60,13 +64,8 @@ public final class NotificationArtwork {
     public static void remember(Object trackAndBitmap) {
         cover.remove();
         try {
-            for (java.lang.reflect.Field field : trackAndBitmap.getClass().getDeclaredFields()) {
-                if (field.getType() == Bitmap.class) {
-                    field.setAccessible(true);
-                    cover.set((Bitmap) field.get(trackAndBitmap));
-                    return;
-                }
-            }
+            java.lang.reflect.Field field = Reflect.field(trackAndBitmap.getClass(), Reflect.typeIs(Bitmap.class));
+            if (field != null) cover.set((Bitmap) field.get(trackAndBitmap));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not read the notification cover", ex);
         }
@@ -119,26 +118,19 @@ public final class NotificationArtwork {
             android.graphics.Rect source = new android.graphics.Rect((w - side) / 2, (h - side) / 2, (w + side) / 2, (h + side) / 2);
             canvas.drawBitmap(trackCover, source, new android.graphics.Rect(0, 0, SIZE, SIZE), paint);
             // The theme over it: its background on the left, fading out to the right; an accent veil on everything.
-            paint.setShader(new LinearGradient(0, 0, SIZE, 0, (surface & 0x00FFFFFF) | 0x99000000,
-                    (surface & 0x00FFFFFF) | 0x26000000, Shader.TileMode.CLAMP));
+            paint.setShader(new LinearGradient(0, 0, SIZE, 0, withAlpha(surface, 0x99),
+                    withAlpha(surface, 0x26), Shader.TileMode.CLAMP));
             canvas.drawRect(0, 0, SIZE, SIZE, paint);
             paint.setShader(null);
-            paint.setColor((accent & 0x00FFFFFF) | 0x2E000000);
+            paint.setColor(withAlpha(accent, 0x2E));
             canvas.drawRect(0, 0, SIZE, SIZE, paint);
         } else {
             paint.setShader(new LinearGradient(0, 0, SIZE, SIZE, surface, blend(surface, accent, .28f), Shader.TileMode.CLAMP));
             canvas.drawRect(0, 0, SIZE, SIZE, paint);
         }
         paint.setShader(new RadialGradient(SIZE * .78f, SIZE * .7f, SIZE * .62f,
-                (accent & 0x00FFFFFF) | (withCover ? 0x4D000000 : 0x66000000), accent & 0x00FFFFFF, Shader.TileMode.CLAMP));
+                withAlpha(accent, withCover ? 0x4D : 0x66), withAlpha(accent, 0), Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, SIZE, SIZE, paint);
         return bitmap;
-    }
-
-    private static int blend(int from, int to, float amount) {
-        int r = Math.round(((from >> 16) & 0xFF) + (((to >> 16) & 0xFF) - ((from >> 16) & 0xFF)) * amount);
-        int g = Math.round(((from >> 8) & 0xFF) + (((to >> 8) & 0xFF) - ((from >> 8) & 0xFF)) * amount);
-        int b = Math.round((from & 0xFF) + ((to & 0xFF) - (from & 0xFF)) * amount);
-        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 }

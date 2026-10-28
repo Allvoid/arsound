@@ -1,66 +1,75 @@
 package app.revanced.extension.soundcloud.wallpaper;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Outline;
-import android.graphics.Typeface;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
-import android.util.LruCache;
-import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewOutlineProvider;
 import android.widget.BaseAdapter;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.TextView;
+import android.widget.GridView;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
-import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
- * The thumbnails of the Wallhaven browser for a {@link android.widget.GridView}: the cells, the thumbnails loaded on
- * a few threads, and a cache of the ones in memory.
+ * The results of the Wallhaven browser for a {@link android.widget.GridView}: the list of pictures and a
+ * {@link WallhavenCell} for each. The pictures are loaded and kept by a {@link ThumbnailLoader}: thumbnails first, and
+ * once scrolling has settled {@link #sharpenVisible} asks for the sharp version of the cells in view.
  * <p>
- * A thumbnail is 300 pixels on its long side, so it is kept as a 16-bit bitmap in a cache of a fixed size and its
- * cell asks again when it comes back into view; cells that were scrolled past before their turn do not load at all.
+ * The screen tells the grid how many columns it has and how big a cell is in pixels ({@link #setLayout}); the sharp
+ * pictures are made at exactly that size.
  */
 public final class WallhavenGrid extends BaseAdapter {
-    private static final int PLACEHOLDERS = 4;
+    /** Rows of skeleton cells shown while the next page is on its way. */
+    private static final int PLACEHOLDER_ROWS = 2;
 
     private final Context context;
     private final List<Wallhaven.Item> items = new ArrayList<>();
-    private final Thumbnails thumbnails = new Thumbnails();
+    private final ThumbnailLoader thumbnails;
     private final int placeholderColor;
     /** Height of a cell as a part of its width. */
-    private float ratio = 4f / 3f;
+    private float ratio = 16f / 9f;
+    private int columns = 3;
+    /** The size of a cell in pixels, 0 until the screen has laid the grid out. */
+    private int cellWidth, cellHeight;
     private boolean loadingMore;
 
     public WallhavenGrid(Context context) {
         this.context = context;
+        thumbnails = new ThumbnailLoader(context);
         placeholderColor = ArsoundTheme.palette(context, "highlight");
     }
 
     public void setRatio(float heightPerWidth) {
         ratio = heightPerWidth;
+        cellHeight = Math.round(cellWidth * ratio);
         notifyDataSetChanged();
+    }
+
+    /**
+     * Tells the grid how it is laid out.
+     *
+     * @param columns The number of columns.
+     * @param width   The width of a cell in pixels.
+     */
+    public void setLayout(int columns, int width) {
+        int height = Math.round(width * ratio);
+        if (this.columns == columns && cellWidth == width && cellHeight == height) return;
+        this.columns = Math.max(1, columns);
+        cellWidth = width;
+        cellHeight = height;
+        notifyDataSetChanged();
+    }
+
+    /** Asks for the sharp picture of every cell in view. Call it when scrolling has been still for a moment. */
+    public void sharpenVisible(GridView view) {
+        for (int i = 0; i < view.getChildCount(); i++) {
+            View child = view.getChildAt(i);
+            if (child instanceof WallhavenCell) ((WallhavenCell) child).sharpen(thumbnails);
+        }
     }
 
     public void clear() {
@@ -105,7 +114,7 @@ public final class WallhavenGrid extends BaseAdapter {
 
     @Override
     public int getCount() {
-        return items.size() + (loadingMore ? PLACEHOLDERS : 0);
+        return items.size() + (loadingMore ? columns * PLACEHOLDER_ROWS : 0);
     }
 
     @Override
@@ -125,167 +134,10 @@ public final class WallhavenGrid extends BaseAdapter {
 
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
-        Cell cell = convertView instanceof Cell ? (Cell) convertView : new Cell(context, placeholderColor);
+        WallhavenCell cell = convertView instanceof WallhavenCell
+                ? (WallhavenCell) convertView : new WallhavenCell(context, placeholderColor);
         cell.ratio = ratio;
-        cell.show(item(position), thumbnails);
+        cell.show(item(position), thumbnails, cellWidth, cellHeight);
         return cell;
-    }
-
-    /** One cell: the thumbnail over a placeholder colour, with a small mark on pictures that are not safe. */
-    private static final class Cell extends FrameLayout {
-        float ratio = 4f / 3f;
-        private final ImageView picture;
-        private final TextView mark;
-
-        Cell(Context context, int placeholderColor) {
-            super(context);
-            GradientDrawable base = new GradientDrawable();
-            base.setColor(placeholderColor);
-            setBackground(base);
-            float radius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 14, getResources().getDisplayMetrics());
-            setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
-                }
-            });
-            setClipToOutline(true);
-            setForeground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), null, new ColorDrawable(0xFFFFFFFF)));
-
-            picture = new ImageView(context);
-            picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            addView(picture, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-            mark = new TextView(context);
-            mark.setText("18+");
-            mark.setTextColor(0xFFFFFFFF);
-            mark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            mark.setTypeface(Typeface.DEFAULT_BOLD);
-            GradientDrawable pill = new GradientDrawable();
-            pill.setColor(0xB3000000);
-            pill.setCornerRadius(radius);
-            mark.setBackground(pill);
-            int pad = Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6, getResources().getDisplayMetrics()));
-            mark.setPadding(pad, pad / 3, pad, pad / 3);
-            LayoutParams markParams = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.TOP | Gravity.END);
-            markParams.setMargins(pad, pad, pad, pad);
-            addView(mark, markParams);
-        }
-
-        /** @param item The picture, or null for an empty cell. */
-        void show(Wallhaven.Item item, Thumbnails thumbnails) {
-            if (item == null) {
-                picture.setTag(null);
-                picture.setImageDrawable(null);
-                mark.setVisibility(GONE);
-                setContentDescription(null);
-                return;
-            }
-            mark.setVisibility(item.isSafe() ? GONE : VISIBLE);
-            setContentDescription(item.resolution);
-            Bitmap cached = thumbnails.cached(item.thumbnail);
-            picture.setTag(item.thumbnail);
-            picture.animate().cancel();
-            picture.setAlpha(1f);
-            if (cached != null) {
-                picture.setImageBitmap(cached);
-            } else {
-                picture.setImageDrawable(null);
-                thumbnails.load(item.thumbnail, picture);
-            }
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            int width = MeasureSpec.getSize(widthSpec);
-            super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(Math.round(width * ratio), MeasureSpec.EXACTLY));
-        }
-    }
-
-    /**
-     * Loads thumbnails on three threads and keeps the newest ones in a cache of bounded size. The threads end after a
-     * while without work and with {@link #close}, so a closed screen leaves none of them behind.
-     */
-    private static final class Thumbnails {
-        private static final long THREAD_IDLE_SECONDS = 20;
-
-        private final LruCache<String, Bitmap> cache;
-        private final ThreadPoolExecutor pool;
-        private volatile boolean closed;
-        /** Thumbnails that could not be read, so scrolling does not ask for them over and over. */
-        private final Set<String> failed = Collections.synchronizedSet(new HashSet<>());
-
-        Thumbnails() {
-            int bytes = (int) Math.min(24L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 16);
-            cache = new LruCache<String, Bitmap>(bytes) {
-                @Override
-                protected int sizeOf(String key, Bitmap value) {
-                    return value.getByteCount();
-                }
-            };
-            ThreadFactory factory = task -> {
-                Thread thread = new Thread(task, "arsound-wallhaven-thumbnail");
-                thread.setDaemon(true);
-                thread.setPriority(Thread.NORM_PRIORITY - 1);
-                return thread;
-            };
-            pool = new ThreadPoolExecutor(3, 3, THREAD_IDLE_SECONDS, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), factory);
-            pool.allowCoreThreadTimeOut(true);
-        }
-
-        /** The screen is gone: the thumbnails still waiting for their turn are dropped and the threads end. */
-        void close() {
-            closed = true;
-            pool.shutdownNow();
-            failed.clear();
-        }
-
-        Bitmap cached(String url) {
-            return cache.get(url);
-        }
-
-        void forgetFailures() {
-            failed.clear();
-        }
-
-        /** Loads the thumbnail into the view, if the view still wants it when its turn comes and when it is there. */
-        void load(String url, ImageView view) {
-            if (closed || failed.contains(url)) return;
-            try {
-                pool.execute(() -> loadNow(url, view));
-            } catch (RejectedExecutionException ex) {
-                // Closed between the check and here.
-            }
-        }
-
-        private void loadNow(String url, ImageView view) {
-            // The screen was closed, or the cell was reused for another picture, while this one waited.
-            if (closed || !url.equals(view.getTag())) return;
-            Bitmap bitmap = cache.get(url);
-            if (bitmap == null) {
-                try {
-                    byte[] bytes = Wallhaven.readThumbnail(url);
-                    BitmapFactory.Options options = new BitmapFactory.Options();
-                    options.inPreferredConfig = Bitmap.Config.RGB_565;
-                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                } catch (Exception | OutOfMemoryError ex) {
-                    Logger.printInfo(() -> "Wallhaven: a thumbnail did not load: " + ex.getClass().getSimpleName());
-                }
-                if (bitmap == null) {
-                    if (!closed) failed.add(url);
-                    return;
-                }
-                cache.put(url, bitmap);
-            }
-            Bitmap ready = bitmap;
-            Utils.runOnMainThread(() -> {
-                if (closed || !url.equals(view.getTag())) return;
-                view.setImageBitmap(ready);
-                view.setAlpha(0f);
-                view.animate().alpha(1f).setDuration(160).start();
-            });
-        }
     }
 }

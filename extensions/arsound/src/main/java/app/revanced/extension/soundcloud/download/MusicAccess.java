@@ -1,15 +1,18 @@
 package app.revanced.extension.soundcloud.download;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
-import java.util.Locale;
-
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
+import app.revanced.extension.soundcloud.shared.ArsoundDialog;
+import app.revanced.extension.soundcloud.shared.Screens;
 
 /**
  * Asks for access to music files, so downloaded tracks stay playable after the app is reinstalled.
@@ -29,10 +32,6 @@ public final class MusicAccess {
     private MusicAccess() {
     }
 
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
     public static String permission() {
         if (Build.VERSION.SDK_INT >= 33) return "android.permission.READ_MEDIA_AUDIO";
         // Before Android 10 a file is written into Music by its path, which needs the permission to write; the
@@ -47,9 +46,9 @@ public final class MusicAccess {
 
     /** Called when an activity comes to the screen. Asks on the main screen, once per launch at most. */
     public static void onActivityResumed(Activity activity) {
-        if (shownThisLaunch || !activity.getClass().getName().endsWith(".MainActivity")) return;
+        if (shownThisLaunch || !Screens.isMainActivity(activity)) return;
         // The greeting already asks for this permission.
-        if (app.revanced.extension.soundcloud.permissions.WelcomePermissions.isShownThisLaunch()) return;
+        if (WelcomePermissions.isShownThisLaunch()) return;
         if (isGranted(activity) || DownloadTrackPatch.getDownloadedTrackIds().isEmpty()) return;
 
         SharedPreferences preferences = activity.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
@@ -86,7 +85,7 @@ public final class MusicAccess {
         shownThisLaunch = true;
 
         try {
-            new app.revanced.extension.soundcloud.shared.ArsoundDialog(activity)
+            new ArsoundDialog(activity)
                     .setTitle(text("Доступ к скачанной музыке", "Access to downloaded music"))
                     .setMessage(text("Разрешите доступ к музыке, чтобы скачанные треки играли из файлов без интернета. "
                                     + "Без него треки, скачанные до переустановки Arsound, играют только из сети.",

@@ -3,7 +3,6 @@ package app.revanced.extension.soundcloud.download;
 import android.app.DownloadManager;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.database.Cursor;
 import android.net.Uri;
@@ -21,16 +20,13 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * Any folder of the phone or of its SD card that the user picked with the system's folder picker.
@@ -59,18 +55,6 @@ final class TreeFolder extends DownloadLocation {
     /** How long the answer of {@link #isAvailable} stays good: a playlist asks for every track it starts. */
     private static final long AVAILABLE_CHECK_MS = 5_000;
 
-    /** A file that is still arriving has a hidden name of this shape; it gets its real name once it is whole. */
-    private static final String PART_PREFIX = ".arsound-";
-    private static final String PART_SUFFIX = ".part";
-    /** A type no provider takes an extension from, so the hidden name is kept as it is. */
-    private static final String PART_MIME = "application/octet-stream";
-    private static final AtomicLong partCounter = new AtomicLong();
-    /** The files that are arriving now, written down on the disk so that a killed process can clean up after itself. */
-    private static final String PARTS_PREFERENCES = "revanced_soundcloud_download_parts";
-    private static final String PARTS = "parts";
-    private static final Object PARTS_LOCK = new Object();
-    /** The unfinished files of this run of the app: the sweep after a death of the process must leave them alone. */
-    private static final Set<String> activeParts = ConcurrentHashMap.newKeySet();
     private static final Map<String, String> LABELS = new ConcurrentHashMap<>();
 
     /** The last answer of {@link #isAvailable}, kept as one value so that a reader never sees half of a newer one. */
@@ -116,6 +100,11 @@ final class TreeFolder extends DownloadLocation {
         return tree;
     }
 
+    @Override
+    Uri pickerStart() {
+        return tree;
+    }
+
     /** Whether this is the same folder of the phone's storage as a folder of the shared storage. */
     boolean isSameFolderAs(PublicFolder folder) {
         return rootDocumentId.equalsIgnoreCase("primary:" + folder.path());
@@ -145,15 +134,15 @@ final class TreeFolder extends DownloadLocation {
         // The default folder is shown with "Музыка"; the same folder picked by hand is shown the same way.
         String music = Environment.DIRECTORY_MUSIC;
         if (path.equals(music) || path.startsWith(music + "/")) {
-            path = DownloadTrackPatch.text("Музыка", "Music") + path.substring(music.length());
+            path = Lang.text("Музыка", "Music") + path.substring(music.length());
         }
         if ("primary".equals(volume)) {
-            label = path.isEmpty() ? DownloadTrackPatch.text("Память телефона", "Phone storage") : path;
+            label = path.isEmpty() ? Lang.text("Память телефона", "Phone storage") : path;
             LABELS.put(key, label);
             return label;
         }
         String storage = storageName(volume);
-        label = (storage != null ? storage : DownloadTrackPatch.text("SD-карта", "SD card") + " " + volume)
+        label = (storage != null ? storage : Lang.text("SD-карта", "SD card") + " " + volume)
                 + (path.isEmpty() ? "" : "/" + path);
         // A card the system does not name now (it is out) is named by its id; the real name is looked for again later.
         if (storage != null) LABELS.put(key, label);
@@ -279,7 +268,7 @@ final class TreeFolder extends DownloadLocation {
         // would ever remove it. So the file is written under a hidden name and is named only when it is whole.
         Uri part = null;
         try {
-            part = DocumentsContract.createDocument(resolver, rootDocument(), PART_MIME, newPartName());
+            part = DocumentsContract.createDocument(resolver, rootDocument(), UnfinishedParts.MIME, UnfinishedParts.newName());
         } catch (Exception ex) {
             Logger.printInfo(() -> "Could not create a hidden file in " + label() + ", writing under the final name: " + ex);
         }
@@ -300,14 +289,6 @@ final class TreeFolder extends DownloadLocation {
         return new TreeFile(resolver, created, fileName, false);
     }
 
-    private static String newPartName() {
-        return PART_PREFIX + System.currentTimeMillis() + "-" + partCounter.incrementAndGet() + PART_SUFFIX;
-    }
-
-    private static boolean isPartName(String name) {
-        return name.startsWith(PART_PREFIX) && name.endsWith(PART_SUFFIX);
-    }
-
     /** Whether the provider can give the document another name. */
     private static boolean supportsRename(ContentResolver resolver, Uri document) {
         try (Cursor cursor = resolver.query(document, new String[]{Document.COLUMN_FLAGS}, null, null, null)) {
@@ -326,99 +307,13 @@ final class TreeFolder extends DownloadLocation {
         }
     }
 
-    private static SharedPreferences partsPreferences() {
-        Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PARTS_PREFERENCES, Context.MODE_PRIVATE);
-    }
-
-    /** Writes down a hidden file that starts to arrive, before its first byte. */
-    private static void notePart(Uri document) {
-        String key = document.toString();
-        synchronized (PARTS_LOCK) {
-            activeParts.add(key);
-            SharedPreferences preferences = partsPreferences();
-            if (preferences == null) return;
-            Set<String> parts = new HashSet<>(preferences.getStringSet(PARTS, Collections.emptySet()));
-            parts.add(key);
-            // To the disk now, not later: the process may be killed in the next second.
-            preferences.edit().putStringSet(PARTS, parts).commit();
-        }
-    }
-
-    /** Strikes a hidden file off: it was named, or removed. */
-    private static void dropPart(Uri document) {
-        String key = document.toString();
-        synchronized (PARTS_LOCK) {
-            activeParts.remove(key);
-            SharedPreferences preferences = partsPreferences();
-            if (preferences == null) return;
-            Set<String> parts = new HashSet<>(preferences.getStringSet(PARTS, Collections.emptySet()));
-            if (parts.remove(key)) preferences.edit().putStringSet(PARTS, parts).apply();
-        }
-    }
-
     /**
      * Removes the hidden files that earlier runs of the app left behind when the process was killed in the middle of a
      * download. Run at the start of the app and when the folder changes. Those of downloads that run now are left alone.
      * Call off the main thread.
      */
     static void sweepUnfinished(Context context) {
-        SharedPreferences preferences = partsPreferences();
-        if (preferences == null) return;
-        List<String> left = new ArrayList<>();
-        synchronized (PARTS_LOCK) {
-            for (String key : preferences.getStringSet(PARTS, Collections.emptySet())) {
-                if (!activeParts.contains(key)) left.add(key);
-            }
-        }
-        if (left.isEmpty()) return;
-
-        List<String> done = new ArrayList<>();
-        for (String key : left) {
-            if (removeUnfinished(context, Uri.parse(key))) done.add(key);
-        }
-        if (done.isEmpty()) return;
-        synchronized (PARTS_LOCK) {
-            Set<String> parts = new HashSet<>(preferences.getStringSet(PARTS, Collections.emptySet()));
-            if (parts.removeAll(done)) preferences.edit().putStringSet(PARTS, parts).apply();
-        }
-    }
-
-    /** @return True if the file is dealt with and can leave the list; false if it has to be tried again later. */
-    private static boolean removeUnfinished(Context context, Uri document) {
-        ContentResolver resolver = context.getContentResolver();
-        boolean seen = false;
-        String name = null;
-        try (Cursor cursor = resolver.query(document, new String[]{Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                seen = true;
-                name = cursor.getString(0);
-            }
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Could not look for the unfinished " + document + ": " + ex);
-            return false;
-        }
-        if (!seen) {
-            // No such file: already removed, or its card is out. Only the first lets it go off the list.
-            try {
-                Uri tree = DocumentsContract.buildTreeDocumentUri(document.getAuthority(),
-                        DocumentsContract.getTreeDocumentId(document));
-                return new TreeFolder(tree).canWrite(context);
-            } catch (Exception ex) {
-                return true;
-            }
-        }
-        // It carries a name of its own: the download was finished after all, this is a track and not a leftover.
-        if (name == null || !isPartName(name)) return true;
-        String leftover = name;
-        try {
-            DocumentsContract.deleteDocument(resolver, document);
-            Logger.printInfo(() -> "Removed the unfinished " + leftover + " of a download that was cut off");
-            return true;
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Could not remove the unfinished " + document + ": " + ex);
-            return false;
-        }
+        UnfinishedParts.sweep(context);
     }
 
     /** A file of the folder that is being written. */
@@ -436,7 +331,7 @@ final class TreeFolder extends DownloadLocation {
             this.document = document;
             this.requestedName = requestedName;
             this.hidden = hidden;
-            if (hidden) notePart(document);
+            if (hidden) UnfinishedParts.note(document);
             try {
                 output = open("w");
             } catch (IOException | RuntimeException ex) {
@@ -489,7 +384,7 @@ final class TreeFolder extends DownloadLocation {
                     throw new IOException("The file could not be named in " + label() + ": " + ex, ex);
                 }
                 if (named == null) throw new IOException("The file could not be named in " + label());
-                dropPart(document);
+                UnfinishedParts.drop(document);
                 document = named;
                 hidden = false;
             }
@@ -509,7 +404,7 @@ final class TreeFolder extends DownloadLocation {
             } catch (Exception ex) {
                 Logger.printInfo(() -> "Could not remove the unfinished " + document + ": " + ex);
             }
-            if (hidden) dropPart(document);
+            if (hidden) UnfinishedParts.drop(document);
         }
 
         private void closeQuietly() {

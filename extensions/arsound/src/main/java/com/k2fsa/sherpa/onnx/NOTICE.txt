@@ -1,0 +1,10 @@
+These sources are the Java API of sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx), tag v1.13.8, licensed under the
+Apache License 2.0 (LICENSE.txt in this folder). Only the classes needed to create an OfflineRecognizer are included.
+They are kept under the original package name because the native library finds them by name.
+
+Changes: LibraryLoader.java no longer loads anything (Arsound loads the downloaded library itself), and LibraryUtils.java
+is not included. Every other file only has a comment line added at the top.
+
+The native library is not part of the app. It is downloaded on request from the official sherpa-onnx release
+(it contains ONNX Runtime, MIT License). The speech models are OpenAI Whisper (MIT License), converted by the
+sherpa-onnx authors.

@@ -8,6 +8,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.shared.Reflect;
 
 /**
  * Where the playing track is, for following the lyrics.
@@ -23,6 +24,10 @@ public final class LyricsClock {
     private static final String SESSION = "android.support.v4.media.session.MediaSessionCompat";
     private static final String CONTROLLER = "android.support.v4.media.session.MediaControllerCompat";
     private static final String TRANSPORT = "android.support.v4.media.session.MediaControllerCompat$TransportControls";
+    // States of PlaybackStateCompat.
+    private static final int NONE = 0;
+    private static final int STOPPED = 1;
+    private static final int PAUSED = 2;
     private static final int PLAYING = 3;
     private static final int BUFFERING = 6;
     /** A state older than this is not counted forward: the player stopped telling and the position is a guess. */
@@ -31,6 +36,8 @@ public final class LyricsClock {
     private static final long OVERRIDE_MS = 1_500;
     /** The state the session already holds is looked for no more often than this, while none has come through. */
     private static final long ADOPT_RETRY_MS = 1_000;
+    /** A position further than this from where the last state was heading is a seek, not the clock's drift. */
+    private static final long SEEK_JUMP_MS = 1_200;
 
     private static final class Snapshot {
         final String urn;
@@ -86,7 +93,7 @@ public final class LyricsClock {
             boolean changed = previous == null || previous.state != next.state
                     || !equal(previous.urn, next.urn)
                     // A position that is not where the last state was heading: a seek, from anywhere.
-                    || Math.abs(previous.positionNow() - next.position) > 1_200;
+                    || Math.abs(previous.positionNow() - next.position) > SEEK_JUMP_MS;
             if (changed) LyricsManager.onClockChanged();
         } catch (Throwable ex) {
             Logger.printException(() -> "Lyrics: could not read the playback state", ex);
@@ -125,7 +132,7 @@ public final class LyricsClock {
         Bundle extras = (Bundle) getExtras.invoke(state);
         // A state without a track (an ad, a stop) says nothing about the lyrics' track.
         String urn = extras == null ? null : extras.getString("urnKey");
-        if (urn == null && previous != null && code != 1 && code != 0) urn = previous.urn;
+        if (urn == null && previous != null && code != STOPPED && code != NONE) urn = previous.urn;
         long stamp = updated > 0 ? updated : SystemClock.elapsedRealtime();
         return new Snapshot(urn, code, Math.max(0, position), stamp, speed <= 0 ? 1f : speed);
     }
@@ -167,14 +174,7 @@ public final class LyricsClock {
     private static Object sessionOf(Object mediaService) throws Exception {
         if (sessionField == null) {
             Class<?> sessionType = Class.forName(SESSION);
-            Field found = null;
-            for (Field field : mediaService.getClass().getDeclaredFields()) {
-                if (field.getType() == sessionType) {
-                    field.setAccessible(true);
-                    found = field;
-                    break;
-                }
-            }
+            Field found = Reflect.field(mediaService.getClass(), Reflect.typeIs(sessionType));
             if (found == null) return null;
             sessionController = sessionType.getMethod("getController");
             Class<?> controllerType = Class.forName(CONTROLLER);
@@ -228,7 +228,7 @@ public final class LyricsClock {
             Object transport = controllerTransport.invoke(sessionController.invoke(session));
             transportSeek.invoke(transport, positionMs);
             boolean playing = current != null && current.state == PLAYING;
-            jump = new Snapshot(urn, playing ? PLAYING : 2, positionMs, SystemClock.elapsedRealtime(),
+            jump = new Snapshot(urn, playing ? PLAYING : PAUSED, positionMs, SystemClock.elapsedRealtime(),
                     current == null ? 1f : current.speed);
             return true;
         } catch (Throwable ex) {

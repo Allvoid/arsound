@@ -1,0 +1,39 @@
+/**
+ * Everything around playback: equalizer, sleep timer, play mode button, listening statistics, stream cache, mixing with
+ * other apps, notification cover, smooth player sheet and the vivo control-centre player.
+ *
+ * <p>User view: an equalizer with presets and preamp; a sleep timer in the player's menu ("in 30 minutes" or "at 23:30");
+ * a repeat/shuffle button in the media notification; listening statistics kept on the phone; a stream cache with a size
+ * chosen by the user; "mix with other apps" (play without audio focus); the right cover in the notification; a player
+ * sheet that does not stutter when pulled down; Arsound in the music card of vivo OriginOS.
+ *
+ * <p>Entry points (Kotlin: {@code player/*Patch.kt}; {@code SleepTimer} is hooked from {@code download/DownloadTrackPatch.kt}):
+ * <ul>
+ * <li>{@code AudioEqualizer.onAudioSession(int)}; {@code ListeningStats.onPlaybackItem/onPlayerState};
+ * {@code MixWithOtherApps.skipAudioFocus(Object)}; {@code StreamCache.beforeOpen/customSize/hasCustomSize}.</li>
+ * <li>{@code PlayModeButton.build/onCustomAction/remember/setNotificationManager/setQueueManager}; the manifest receivers
+ * {@code PlayModeReceiver} and {@code VivoMusicCardReceiver} (names written by the patches).</li>
+ * <li>{@code NotificationArtwork.imageProviderPackage/style/remember}; {@code SleepTimer.onTrackMenu/setMenuConsumer};
+ * {@code PlayerSheet.onSheetState}; {@code PlayerArtworkLayers.created/round/skipSlide/square}.</li>
+ * <li>Screen hook (no patch): {@code VivoMusicCard.onActivityResumed}.</li>
+ * </ul>
+ *
+ * <p>Main classes: sound - {@code AudioEqualizer}, {@code PreampEffect}, {@code GraphicCurve}, {@code UserPresetStore},
+ * {@code EqualizerChoice}; timer - {@code SleepTimer}, {@code SleepTimerScheduler}, {@code SleepTimerDialog} and the
+ * {@code TimerMode} implementations {@code InTimeMode}/{@code AtClockMode}; queue - {@code PlayQueueApi} (the one place
+ * that knows the obfuscated queue methods), {@code PlayMode}; stats - {@code ListeningStats}, {@code ListenSession},
+ * {@code ListenRecord}, {@code HistoryFile}, {@code TrackTitleResolver}; focus - {@code MixWithOtherApps},
+ * {@code CallWatcher}; vivo - {@code VivoMusicCard}, {@code VivoPlayerList}, {@code VivoHintScheduler}/{@code VivoHintScreen}.
+ *
+ * <p>Settings: keys live next to the feature - {@code equalizer_enabled/preset/levels/preamp/choice/user_presets}
+ * ({@code AudioEqualizer}), {@code listening_stats} ({@code ListeningStats}), {@code arsound_player_track_colors}
+ * ({@code NotificationArtwork}), and in {@code settings.Settings}: {@code mix_with_other_apps}, {@code stream_cache_size},
+ * {@code stream_cache_days}, {@code smooth_player_collapse}. Own preference files: {@code arsound_listening_stats},
+ * {@code arsound_sleep_timer}, {@code arsound_vivo_music_card}.
+ *
+ * <p>Gotchas: SoundCloud's queue manager and player classes are reached by reflection under their short obfuscated
+ * names, so a SoundCloud update can break {@code PlayQueueApi}; fix it there only. With "mix with other apps" on,
+ * {@code CallWatcher} must pause the music for phone calls. {@code VivoMusicCard} needs WRITE_SECURE_SETTINGS (granted
+ * once over adb) and only touches the vivo player's own whitelist.
+ */
+package app.revanced.extension.soundcloud.player;

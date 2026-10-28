@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.player
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
@@ -23,7 +24,7 @@ private const val SESSION_RUNNABLE = "Landroidx/media3/exoplayer/i;"
 val equalizerPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         firstClassDef(SESSION_RUNNABLE).methods.first { it.name == "run" }.apply {

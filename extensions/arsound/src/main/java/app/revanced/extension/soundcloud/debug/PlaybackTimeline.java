@@ -8,13 +8,13 @@ import android.os.SystemClock;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.shared.debug.PlaybackLog;
+import app.revanced.extension.soundcloud.shared.Reflect;
 import timber.log.Timber;
 
 /**
@@ -74,24 +74,19 @@ public final class PlaybackTimeline extends Timber.Tree {
         PlaybackLog.enabled = true;
         try {
             Class<?> timber = Class.forName("timber.log.Timber");
-            Object forest = null;
-            for (Field field : timber.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers()) && field.getType().getName().equals("timber.log.Timber$Forest")) {
-                    field.setAccessible(true);
-                    forest = field.get(null);
-                    break;
-                }
-            }
+            Field forestField = Reflect.field(timber,
+                    field -> Reflect.isStatic(field) && field.getType().getName().equals("timber.log.Timber$Forest"));
+            Object forest = forestField == null ? null : forestField.get(null);
             if (forest == null) throw new IllegalStateException("No Timber.Forest");
 
-            for (Method method : forest.getClass().getDeclaredMethods()) {
+            Method plant = Reflect.method(forest.getClass(), method -> {
                 Class<?>[] parameters = method.getParameterTypes();
-                if (parameters.length == 1 && parameters[0] == Timber.Tree.class) {
-                    method.setAccessible(true);
-                    method.invoke(forest, new PlaybackTimeline());
-                    PlaybackLog.append("timeline", "---- app started, playback log on ----");
-                    return;
-                }
+                return parameters.length == 1 && parameters[0] == Timber.Tree.class;
+            });
+            if (plant != null) {
+                plant.invoke(forest, new PlaybackTimeline());
+                PlaybackLog.append("timeline", "---- app started, playback log on ----");
+                return;
             }
             throw new IllegalStateException("No Timber.Forest.plant");
         } catch (Exception ex) {

@@ -35,6 +35,8 @@ public final class Wallhaven {
     /** 45 calls a minute are allowed; a call every 1.4 seconds stays under that. */
     private static final long REQUEST_GAP_MS = 1_400;
     private static final int MAX_DOWNLOAD_BYTES = 80 * 1024 * 1024;
+    /** An answer of the API (a page of results) is never bigger than this. */
+    private static final int MAX_JSON_BYTES = 2 * 1024 * 1024;
     private static final int MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 
     public static final String TOPLIST = "toplist";
@@ -47,6 +49,7 @@ public final class Wallhaven {
     public static final String[] SORTINGS = {TOPLIST, DATE_ADDED, VIEWS, FAVORITES, RELEVANCE, RANDOM};
     /** The periods of the top list. */
     public static final String[] RANGES = {"1d", "3d", "1w", "1M", "3M", "6M", "1y"};
+    private static final String DEFAULT_RANGE = "1M";
 
     /** The category and purity masks, as the API writes them: three digits, the first one is the highest bit. */
     public static final int GENERAL = 4, ANIME = 2, PEOPLE = 1;
@@ -116,7 +119,7 @@ public final class Wallhaven {
     public static final class Query {
         public String text = "";
         public String sorting = TOPLIST;
-        public String range = "1M";
+        public String range = DEFAULT_RANGE;
         public int categories = GENERAL | ANIME | PEOPLE;
         /** Only tall pictures, which fit a phone held upright. */
         public boolean portrait = true;
@@ -158,7 +161,7 @@ public final class Wallhaven {
                 query.text = object.optString("q", "");
                 String sorting = object.optString("sorting", TOPLIST);
                 for (String known : SORTINGS) if (known.equals(sorting)) query.sorting = sorting;
-                String range = object.optString("range", "1M");
+                String range = object.optString("range", DEFAULT_RANGE);
                 for (String known : RANGES) if (known.equals(range)) query.range = range;
                 int categories = object.optInt("categories", GENERAL | ANIME | PEOPLE) & 7;
                 if (categories != 0) query.categories = categories;
@@ -284,11 +287,20 @@ public final class Wallhaven {
                 throw new ApiException(code, wait);
             }
             try (InputStream input = connection.getInputStream()) {
-                return new String(readAll(input, MAX_THUMBNAIL_BYTES), "UTF-8");
+                return new String(readAll(input, MAX_JSON_BYTES), "UTF-8");
             }
         } finally {
             connection.disconnect();
         }
+    }
+
+    /** A connection to an address with the timeouts and the name the service sees; the caller reads it and disconnects. */
+    private static HttpURLConnection connect(String address, int connectMs, int readMs) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        connection.setConnectTimeout(connectMs);
+        connection.setReadTimeout(readMs);
+        connection.setRequestProperty("User-Agent", "Arsound");
+        return connection;
     }
 
     /** Opens a call to the API after the pause that keeps it under the limit. */
@@ -306,10 +318,7 @@ public final class Wallhaven {
             }
             lastCall = System.currentTimeMillis();
         }
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(10_000);
-        connection.setReadTimeout(15_000);
-        connection.setRequestProperty("User-Agent", "Arsound");
+        HttpURLConnection connection = connect(address, 10_000, 15_000);
         if (key != null && !key.isEmpty()) connection.setRequestProperty("X-API-Key", key);
         return connection;
     }
@@ -331,16 +340,22 @@ public final class Wallhaven {
 
     /** Reads a small picture (a thumbnail). Not counted against the API limit, so not spaced out. Blocks. */
     static byte[] readThumbnail(String address) throws IOException {
+        return readPicture(address, MAX_THUMBNAIL_BYTES);
+    }
+
+    /**
+     * Reads a picture of Wallhaven into memory, up to {@code limit} bytes: a bigger one is refused, from its announced
+     * size or when it grows over the limit. Not counted against the API limit, so not spaced out. Blocks.
+     */
+    static byte[] readPicture(String address, int limit) throws IOException {
         if (!isWallhavenHost(address)) throw new IOException("Not a Wallhaven address");
         RegionGuard.throwIfBlockedAnyHost();
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(10_000);
-        connection.setReadTimeout(15_000);
-        connection.setRequestProperty("User-Agent", "Arsound");
+        HttpURLConnection connection = connect(address, 10_000, 15_000);
         try {
             if (connection.getResponseCode() != 200) throw new IOException("HTTP " + connection.getResponseCode());
+            if (connection.getContentLength() > limit) throw new IOException("The picture is too big");
             try (InputStream input = connection.getInputStream()) {
-                return readAll(input, MAX_THUMBNAIL_BYTES);
+                return readAll(input, limit);
             }
         } finally {
             connection.disconnect();
@@ -360,10 +375,7 @@ public final class Wallhaven {
     public static void download(String address, File target, Progress progress, AtomicBoolean cancelled) throws IOException {
         if (!isWallhavenHost(address)) throw new IOException("Not a Wallhaven address");
         RegionGuard.throwIfBlockedAnyHost();
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
-        connection.setRequestProperty("User-Agent", "Arsound");
+        HttpURLConnection connection = connect(address, 15_000, 30_000);
         boolean done = false;
         try {
             if (connection.getResponseCode() != 200) throw new IOException("HTTP " + connection.getResponseCode());

@@ -14,6 +14,7 @@ import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.LocalMusic;
 import app.revanced.extension.soundcloud.local.RemovedTracks;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.Urns;
 
 /**
  * Deletes the files of downloaded tracks nobody listened to for a while (Settings → Arsound → Storage), off by
@@ -38,17 +39,57 @@ public final class UnplayedDownloads {
     private static final String FILE_PREFIX = "file:";
     private static final long DAY_MS = 24L * 60 * 60 * 1000;
 
-    /** A track that would be deleted: a download (its track id) or an imported track. */
-    public static final class Unplayed {
-        public final String trackId;
-        public final LocalMusic.Track imported;
+    /** A track that would be deleted: a download or an imported track. */
+    public abstract static class Unplayed {
         /** The size of its file in bytes. */
         public final long size;
 
-        Unplayed(String trackId, LocalMusic.Track imported, long size) {
-            this.trackId = trackId;
-            this.imported = imported;
+        Unplayed(long size) {
             this.size = size;
+        }
+
+        /** True for a track imported from the phone, false for a download. */
+        abstract boolean isImported();
+
+        /** Deletes the file. @return True if it was deleted. */
+        abstract boolean delete(Context context);
+    }
+
+    private static final class UnplayedDownload extends Unplayed {
+        private final String trackId;
+
+        UnplayedDownload(String trackId, long size) {
+            super(size);
+            this.trackId = trackId;
+        }
+
+        @Override
+        boolean isImported() {
+            return false;
+        }
+
+        @Override
+        boolean delete(Context context) {
+            return DownloadTrackPatch.deleteDownload(context, trackId);
+        }
+    }
+
+    private static final class UnplayedImport extends Unplayed {
+        private final LocalMusic.Track track;
+
+        UnplayedImport(LocalMusic.Track track, long size) {
+            super(size);
+            this.track = track;
+        }
+
+        @Override
+        boolean isImported() {
+            return true;
+        }
+
+        @Override
+        boolean delete(Context context) {
+            return LocalMusic.delete(track);
         }
     }
 
@@ -94,10 +135,9 @@ public final class UnplayedDownloads {
             // Without a known file there is nothing to delete, and its age is unknown.
             DownloadIndex.Entry file = DownloadIndex.known(trackId);
             if (file == null) continue;
-            long last = Math.max(file.modifiedMs(), preferences == null ? 0 : preferences.getLong(trackId, 0));
-            Long listened = listens.get("soundcloud:tracks:" + trackId);
-            if (listened != null) last = Math.max(last, listened);
-            if (last < cutoff) result.add(new Unplayed(trackId, null, file.size()));
+            long last = lastUse(file.modifiedMs(), preferences == null ? 0 : preferences.getLong(trackId, 0),
+                    listens.get(Urns.track(trackId)));
+            if (last < cutoff) result.add(new UnplayedDownload(trackId, file.size()));
         }
 
         Context context = Utils.getContext();
@@ -112,14 +152,23 @@ public final class UnplayedDownloads {
                 if (RemovedTracks.isConvertedCopy(track.file)) continue;
                 String path = track.file.getPath();
                 // The copy is written at import, so its time is the import time.
-                long last = Math.max(track.file.lastModified(),
-                        preferences == null ? 0 : preferences.getLong(FILE_PREFIX + path, 0));
-                Long listened = importedListens.get(path);
-                if (listened != null) last = Math.max(last, listened);
-                if (last < cutoff) result.add(new Unplayed(null, track, track.file.length()));
+                long last = lastUse(track.file.lastModified(),
+                        preferences == null ? 0 : preferences.getLong(FILE_PREFIX + path, 0), importedListens.get(path));
+                if (last < cutoff) result.add(new UnplayedImport(track, track.file.length()));
             }
         }
         return result;
+    }
+
+    /**
+     * When the track was last used, in milliseconds: the latest of the time of its file, the time it started playing
+     * here, and the time the listening statistics know.
+     *
+     * @param listenedAt The last listen from the statistics; null if there is none.
+     */
+    static long lastUse(long fileModified, long startedHere, Long listenedAt) {
+        long last = Math.max(fileModified, startedHere);
+        return listenedAt != null ? Math.max(last, listenedAt) : last;
     }
 
     /** Injection point: once per app start, on a background thread. */
@@ -130,11 +179,9 @@ public final class UnplayedDownloads {
             if (context == null) return;
             int downloads = 0, imported = 0;
             for (Unplayed track : unplayed()) {
-                if (track.imported != null) {
-                    if (LocalMusic.delete(track.imported)) imported++;
-                } else if (DownloadTrackPatch.deleteDownload(context, track.trackId)) {
-                    downloads++;
-                }
+                if (!track.delete(context)) continue;
+                if (track.isImported()) imported++;
+                else downloads++;
             }
             int downloadCount = downloads, importedCount = imported;
             Logger.printInfo(() -> "Unplayed downloads: deleted " + downloadCount + " downloaded and " + importedCount

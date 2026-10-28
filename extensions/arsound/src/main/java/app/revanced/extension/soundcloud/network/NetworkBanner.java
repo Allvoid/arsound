@@ -1,16 +1,10 @@
 package app.revanced.extension.soundcloud.network;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.Context;
-import android.graphics.Canvas;
-import android.graphics.ColorFilter;
-import android.graphics.Paint;
-import android.graphics.PixelFormat;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -31,11 +25,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
-import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.AboveBottomBar;
+import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
@@ -61,10 +55,6 @@ public final class NetworkBanner {
     private static boolean checking;
 
     private NetworkBanner() {
-    }
-
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
     }
 
     /** Called when an activity comes to the screen. Only the main screen gets the icon. */
@@ -137,7 +127,7 @@ public final class NetworkBanner {
     /** The country of the blocked address in words: "российский IP", "Ukrainian IP". */
     private static String blockedIp(boolean russian) {
         String country = RegionGuard.lastCountry();
-        return country == null ? "IP" : RegionGuard.describeIp(country, russian);
+        return country == null ? "IP" : IpCountry.describe(country, russian);
     }
 
     private static String capitalize(String value) {
@@ -375,78 +365,7 @@ public final class NetworkBanner {
         }
 
         private int dp(float value) {
-            return Math.round(value * context.getResources().getDisplayMetrics().density);
-        }
-    }
-
-    /** A line globe: the outline, a meridian and the equator, crossed out by a slash with a gap around it. */
-    private static final class GlobeDrawable extends Drawable {
-        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint gap = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float crossed;
-        private ValueAnimator slash;
-
-        GlobeDrawable(float stroke) {
-            line.setStyle(Paint.Style.STROKE);
-            line.setStrokeWidth(stroke);
-            line.setStrokeCap(Paint.Cap.ROUND);
-            gap.setStyle(Paint.Style.STROKE);
-            gap.setStrokeWidth(stroke * 3);
-            gap.setStrokeCap(Paint.Cap.ROUND);
-            gap.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        }
-
-        /** The slash draws itself in or out. */
-        void set(boolean crossedOut, int color) {
-            line.setColor(color);
-            float target = crossedOut ? 1 : 0;
-            if (slash != null) slash.cancel();
-            if (crossed == target) {
-                invalidateSelf();
-                return;
-            }
-            slash = ValueAnimator.ofFloat(crossed, target);
-            slash.setDuration(300);
-            slash.addUpdateListener(a -> {
-                crossed = (float) a.getAnimatedValue();
-                invalidateSelf();
-            });
-            slash.start();
-        }
-
-        @Override
-        public void draw(Canvas canvas) {
-            Rect b = getBounds();
-            float inset = line.getStrokeWidth();
-            float cx = b.exactCenterX(), cy = b.exactCenterY();
-            float r = Math.min(b.width(), b.height()) / 2f - inset;
-            // A separate layer, so the gap around the slash cuts the globe and not what is under the icon.
-            int save = canvas.saveLayer(b.left, b.top, b.right, b.bottom, null);
-            canvas.drawCircle(cx, cy, r, line);
-            canvas.drawOval(cx - r * .42f, cy - r, cx + r * .42f, cy + r, line);
-            canvas.drawLine(cx - r, cy, cx + r, cy, line);
-            if (crossed > 0) {
-                float x0 = cx - r * 1.05f, y0 = cy - r * 1.05f;
-                float x1 = x0 + (r * 2.1f) * crossed, y1 = y0 + (r * 2.1f) * crossed;
-                canvas.drawLine(x0, y0, x1, y1, gap);
-                canvas.drawLine(x0, y0, x1, y1, line);
-            }
-            canvas.restoreToCount(save);
-        }
-
-        @Override
-        public void setAlpha(int alpha) {
-            line.setAlpha(alpha);
-        }
-
-        @Override
-        public void setColorFilter(ColorFilter colorFilter) {
-            line.setColorFilter(colorFilter);
-        }
-
-        @Override
-        public int getOpacity() {
-            return PixelFormat.TRANSLUCENT;
+            return Dimens.dp(context, value);
         }
     }
 

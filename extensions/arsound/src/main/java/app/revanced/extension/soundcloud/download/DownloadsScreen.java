@@ -4,10 +4,15 @@ import android.content.Context;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.CallSlot;
+import app.revanced.extension.soundcloud.shared.Reflect;
+import app.revanced.extension.soundcloud.shared.Urns;
 
 /**
  * The Downloads screen of the library shows the tracks and playlists downloaded by Arsound.
@@ -39,12 +44,12 @@ public final class DownloadsScreen {
             List<Object> items = new ArrayList<>((List<?>) field.get(prepared));
 
             ClassLoader loader = prepared.getClass().getClassLoader();
-            Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
-            Class<?> trackClass = Class.forName("com.soundcloud.android.offline.data.db.SelectiveSyncTrack", false, loader);
+            Class<?> urnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.Urn");
+            Class<?> trackClass = Reflect.type(loader, "com.soundcloud.android.offline.data.db.SelectiveSyncTrack");
             java.lang.reflect.Constructor<?> constructor = trackClass.getConstructor(urnClass, Date.class);
             java.lang.reflect.Method forTrack = urnClass.getMethod("forTrack", String.class);
 
-            List<String> present = new ArrayList<>();
+            Set<String> present = new HashSet<>();
             for (Object item : items) present.add(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)));
             int added = 0;
             for (String id : DownloadTrackPatch.getDownloadedTracks()) {
@@ -92,12 +97,10 @@ public final class DownloadsScreen {
         if (provider == null) return;
         try {
             Object latest = provider.getClass().getMethod("latest").invoke(provider);
-            for (java.lang.reflect.Field field : provider.getClass().getDeclaredFields()) {
-                if (!field.getType().getName().endsWith(".BehaviorSubject")) continue;
-                field.setAccessible(true);
+            java.lang.reflect.Field field = Reflect.field(provider.getClass(), Reflect.typeNameEndsWith(".BehaviorSubject"));
+            if (field != null) {
                 Object subject = field.get(provider);
                 subject.getClass().getMethod("onNext", Object.class).invoke(subject, latest);
-                return;
             }
         } catch (Exception ex) {
             Logger.printException(() -> "Could not refresh the Downloads screen", ex);
@@ -105,20 +108,20 @@ public final class DownloadsScreen {
     }
 
     private static boolean isDownloadedByArsound(String urn) {
-        if (urn.startsWith("soundcloud:playlists:")) {
-            return DownloadPlaylistPatch.isPlaylistDownloaded(urn.substring("soundcloud:playlists:".length()));
+        if (urn.startsWith(Urns.PLAYLIST_PREFIX)) {
+            return DownloadPlaylistPatch.isPlaylistDownloaded(urn.substring(Urns.PLAYLIST_PREFIX.length()));
         }
         Context context = Utils.getContext();
-        return context != null && urn.startsWith("soundcloud:tracks:") && DownloadTrackPatch.getDownloadState(context,
-                urn.substring("soundcloud:tracks:".length())) == DownloadTrackPatch.DownloadState.DOWNLOADED;
+        return context != null && urn.startsWith(Urns.TRACK_PREFIX) && DownloadTrackPatch.getDownloadState(context,
+                urn.substring(Urns.TRACK_PREFIX.length())) == DownloadTrackPatch.DownloadState.DOWNLOADED;
     }
 
     /** The urn whose state is being asked: its register gets the state, so it is kept before the call. */
-    private static final ThreadLocal<Object> askedUrn = new ThreadLocal<>();
+    private static final CallSlot<Object> askedUrn = new CallSlot<>();
 
     /** Injection point: right before {@code OfflineProperties.toOfflineState(urn)} on the screen. */
     public static void beforeState(Object urn) {
-        askedUrn.set(urn);
+        askedUrn.put(urn);
     }
 
     /**
@@ -127,8 +130,7 @@ public final class DownloadsScreen {
      * @return DOWNLOADED for a track or playlist downloaded by Arsound, otherwise the state SoundCloud gave.
      */
     public static Object stateOnScreen(Object state) {
-        Object urn = askedUrn.get();
-        askedUrn.remove();
+        Object urn = askedUrn.take();
         try {
             if (!isDownloadedByArsound(String.valueOf(urn))) return state;
             Class<?> stateClass = state.getClass().isEnum() ? state.getClass() : state.getClass().getSuperclass();

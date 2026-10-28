@@ -12,13 +12,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.theme.ArsoundTheme.Theme;
 
 /**
  * Themes whose colours are made on the phone: "Monet" (the palette of Material You, from the wallpaper) and the
  * "Custom theme" (the user's accent and backgrounds, see {@link CustomTheme}).
  * <p>
  * themes.json holds only a seed of each, with the name, the description and a neutral palette that gives the build
- * its start screen and resource names. At run time a seed becomes a {@link ArsoundTheme.Theme} of the same shape as
+ * its start screen and resource names. At run time a seed becomes a {@link Theme} of the same shape as
  * a shipped one, made by {@link PaletteEngine}, so everything that reads a theme (the settings, dialogs, the resource
  * table) works with it as it is. A theme is made again only when its colours change, and the result is kept by its key.
  */
@@ -26,15 +27,65 @@ public final class RuntimeThemes {
     public static final String MONET = "monet";
     public static final String CUSTOM = "custom";
 
-    /** The latest theme of each kind; the key tells whether its colours are still the ones asked for. */
-    private static final Map<String, ArsoundTheme.Theme> LATEST = new HashMap<>();
+    /** A kind of theme whose colours are made on the phone, with what it takes to make one. */
+    private enum Kind {
+        /** The palette of Material You, read from the system: Android 12 and later. */
+        MONET(RuntimeThemes.MONET) {
+            @Override
+            boolean isAvailable() {
+                return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
+            }
 
-    private RuntimeThemes() {
+            @Override
+            Theme make(Resources resources, Theme seed) {
+                return monet(resources, seed);
+            }
+        },
+        /** The user's own accent and backgrounds. */
+        CUSTOM(RuntimeThemes.CUSTOM) {
+            @Override
+            Theme make(Resources resources, Theme seed) {
+                return custom(seed, CustomTheme.load());
+            }
+        };
+
+        /** The "runtime" value of the seed in themes.json. */
+        final String id;
+
+        Kind(String id) {
+            this.id = id;
+        }
+
+        /** Whether the phone can make this kind of theme. */
+        boolean isAvailable() {
+            return true;
+        }
+
+        /** The theme in its present colours (kept, while they stay the same). */
+        abstract Theme make(Resources resources, Theme seed);
+
+        /** The kind of this "runtime" value, null for one that is not known. */
+        static Kind of(String id) {
+            for (Kind kind : values()) if (kind.id.equals(id)) return kind;
+            return null;
+        }
     }
 
-    /** Whether the phone can make this kind of theme: Monet reads the system palette of Android 12. */
-    public static boolean isAvailable(String runtime) {
-        return !MONET.equals(runtime) || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
+    /** The latest theme made for a seed and the key of the colours it was made for. */
+    private static final class Made {
+        final String key;
+        final Theme theme;
+
+        Made(String key, Theme theme) {
+            this.key = key;
+            this.theme = theme;
+        }
+    }
+
+    /** The latest theme of each seed (by the seed's id); the key tells whether its colours are still the ones asked for. */
+    private static final Map<String, Made> LATEST = new HashMap<>();
+
+    private RuntimeThemes() {
     }
 
     /**
@@ -43,17 +94,12 @@ public final class RuntimeThemes {
      * @param resources Where the system palette is read: the newest ones the caller has, since the palette changes
      *                  with the wallpaper.
      */
-    static ArsoundTheme.Theme resolve(Resources resources, ArsoundTheme.Theme seed) {
-        if (!isAvailable(seed.runtime)) return null;
+    static Theme resolve(Resources resources, Theme seed) {
+        Kind kind = Kind.of(seed.runtime);
+        if (kind == null) return seed;
+        if (!kind.isAvailable()) return null;
         try {
-            switch (seed.runtime) {
-                case MONET:
-                    return monet(resources, seed);
-                case CUSTOM:
-                    return custom(seed, CustomTheme.load());
-                default:
-                    return seed;
-            }
+            return kind.make(resources, seed);
         } catch (Throwable ex) {
             Logger.printException(() -> "Runtime theme: could not make " + seed.id + ", using its seed", ex);
             return seed;
@@ -62,27 +108,27 @@ public final class RuntimeThemes {
 
     /** The accent of the system palette as #RRGGBB, or null where there is none (before Android 12). */
     public static String systemAccent(Resources resources) {
-        return isAvailable(MONET) ? systemTones(resources).get("accent1_200") : null;
+        return Kind.MONET.isAvailable() ? systemTones(resources).get("accent1_200") : null;
     }
 
     /** The custom theme in these colours, for the preview of the editor; nothing is kept. */
-    public static ArsoundTheme.Theme custom(Context context, CustomTheme settings) {
+    public static Theme custom(Context context, CustomTheme settings) {
         return makeCustom(ArsoundTheme.seed(context, CUSTOM), settings);
     }
 
-    private static synchronized ArsoundTheme.Theme custom(ArsoundTheme.Theme seed, CustomTheme settings) {
+    private static synchronized Theme custom(Theme seed, CustomTheme settings) {
         String key = CUSTOM + "/" + settings.toJson();
-        ArsoundTheme.Theme kept = LATEST.get(seed.id + "/" + key);
+        Theme kept = kept(seed.id, key);
         if (kept != null) return kept;
-        ArsoundTheme.Theme made = makeCustom(seed, settings);
+        Theme made = makeCustom(seed, settings);
         keep(seed.id, key, made);
         return made;
     }
 
-    private static ArsoundTheme.Theme makeCustom(ArsoundTheme.Theme seed, CustomTheme settings) {
+    private static Theme makeCustom(Theme seed, CustomTheme settings) {
         Map<String, String> dark = PaletteEngine.darkFrom(settings.darkBg, settings.accent, null, null);
         Map<String, String> light = PaletteEngine.lightFrom(settings.lightBg, settings.accent, null, null);
-        ArsoundTheme.Theme made = make(seed, CUSTOM + "/" + settings.toJson(), dark, light,
+        Theme made = make(seed, CUSTOM + "/" + settings.toJson(), dark, light,
                 CustomTheme.MODE_DARK.equals(settings.mode), CustomTheme.MODE_LIGHT.equals(settings.mode));
         try {
             made.json.put("radii", new JSONObject().put("card", settings.radius).put("miniPlayer", settings.radius + 6));
@@ -93,28 +139,30 @@ public final class RuntimeThemes {
         return made;
     }
 
-    private static synchronized ArsoundTheme.Theme monet(Resources resources, ArsoundTheme.Theme seed) {
+    private static synchronized Theme monet(Resources resources, Theme seed) {
         Map<String, String> tones = systemTones(resources);
         String key = MONET + "/" + tones.values();
-        ArsoundTheme.Theme kept = LATEST.get(seed.id + "/" + key);
+        Theme kept = kept(seed.id, key);
         if (kept != null) return kept;
-        ArsoundTheme.Theme made = make(seed, key, PaletteEngine.monetDark(tones), PaletteEngine.monetLight(tones), false, false);
+        Theme made = make(seed, key, PaletteEngine.monetDark(tones), PaletteEngine.monetLight(tones), false, false);
         keep(seed.id, key, made);
         return made;
     }
 
-    /** Only the newest theme of a kind is kept: an older palette is never asked for again. */
-    private static void keep(String id, String key, ArsoundTheme.Theme theme) {
-        LATEST.remove(id + "/" + key);
-        for (java.util.Iterator<String> it = LATEST.keySet().iterator(); it.hasNext(); ) {
-            if (it.next().startsWith(id + "/")) it.remove();
-        }
-        LATEST.put(id + "/" + key, theme);
+    /** The theme made for this seed in these colours, or null if the latest one was made for other colours. */
+    private static Theme kept(String id, String key) {
+        Made latest = LATEST.get(id);
+        return latest != null && latest.key.equals(key) ? latest.theme : null;
+    }
+
+    /** Only the newest theme of a seed is kept: an older palette is never asked for again. */
+    private static void keep(String id, String key, Theme theme) {
+        LATEST.put(id, new Made(key, theme));
     }
 
     /** The seed with the palettes and everything derived from them put in. */
-    private static ArsoundTheme.Theme make(ArsoundTheme.Theme seed, String key, Map<String, String> dark,
-                                           Map<String, String> light, boolean darkOnly, boolean lightOnly) {
+    private static Theme make(Theme seed, String key, Map<String, String> dark,
+                             Map<String, String> light, boolean darkOnly, boolean lightOnly) {
         try {
             JSONObject json = new JSONObject(seed.json.toString());
             for (Map.Entry<String, Object> part : PaletteEngine.theme(dark, light).entrySet()) {
@@ -122,7 +170,7 @@ public final class RuntimeThemes {
             }
             json.put("darkOnly", darkOnly);
             json.put("lightOnly", lightOnly);
-            return new ArsoundTheme.Theme(json, key);
+            return new Theme(json, key);
         } catch (Exception ex) {
             throw new IllegalStateException(ex);
         }

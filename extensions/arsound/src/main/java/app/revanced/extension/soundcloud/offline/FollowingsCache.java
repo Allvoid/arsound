@@ -9,6 +9,8 @@ import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.CallSlot;
+import app.revanced.extension.soundcloud.shared.Reflect;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
@@ -24,7 +26,7 @@ public final class FollowingsCache {
     private static final String PREFERENCES_NAME = "arsound_followings";
 
     /** The arguments of the call being built: {@code UserProfileOperations}, user urn, next page link. */
-    private static final ThreadLocal<Object[]> call = new ThreadLocal<>();
+    private static final CallSlot<Object[]> call = new CallSlot<>();
 
     private FollowingsCache() {
     }
@@ -36,7 +38,7 @@ public final class FollowingsCache {
 
     /** Injection point: the start of {@code UserProfileOperations.hotPagedFollowings(user, nextPageLink)}. */
     public static void begin(Object operations, Object user, Object nextPageLink) {
-        call.set(new Object[]{operations, user, nextPageLink});
+        call.put(new Object[]{operations, user, nextPageLink});
     }
 
     /**
@@ -46,8 +48,7 @@ public final class FollowingsCache {
      * @return The stored first page followed by the server answer, or the server answer remembered.
      */
     public static Object wrap(Object remote) {
-        Object[] args = call.get();
-        call.remove();
+        Object[] args = call.take();
         if (args == null || !OfflineFirstPatch.isEnabled()) return remote;
         try {
             String key = String.valueOf(args[1]);
@@ -69,11 +70,11 @@ public final class FollowingsCache {
     }
 
     /** The {@code FollowingStateProvider} of the call being built. */
-    private static final ThreadLocal<Object> statusProvider = new ThreadLocal<>();
+    private static final CallSlot<Object> statusProvider = new CallSlot<>();
 
     /** Injection point: the start of {@code FollowingStateProvider.followingStatuses()}. */
     public static void beginStatuses(Object provider) {
-        statusProvider.set(provider);
+        statusProvider.put(provider);
     }
 
     /**
@@ -82,8 +83,7 @@ public final class FollowingsCache {
      * on the device are given right away; the result after the sync follows when it comes.
      */
     public static Object wrapStatuses(Object synced) {
-        Object provider = statusProvider.get();
-        statusProvider.remove();
+        Object provider = statusProvider.take();
         if (provider == null || !OfflineFirstPatch.isEnabled()) return synced;
         try {
             java.lang.reflect.Field field = provider.getClass().getDeclaredField("statuses");
@@ -123,7 +123,7 @@ public final class FollowingsCache {
     /** {@code liveEntities.liveUsers(urns)} as a single page without a next page. */
     private static Object storedPage(Object operations, List<String> stored) throws Exception {
         ClassLoader loader = operations.getClass().getClassLoader();
-        Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
+        Class<?> urnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.Urn");
         Method forUser = urnClass.getMethod("forUser", String.class);
         List<Object> urns = new ArrayList<>();
         for (String urn : stored) urns.add(forUser.invoke(null, urn.substring(urn.lastIndexOf(':') + 1)));
@@ -131,10 +131,10 @@ public final class FollowingsCache {
         java.lang.reflect.Field field = operations.getClass().getDeclaredField("liveEntities");
         field.setAccessible(true);
         Object liveEntities = field.get(operations);
-        Class<?> liveClass = Class.forName("com.soundcloud.android.foundation.domain.LiveEntities", false, loader);
+        Class<?> liveClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.LiveEntities");
         Object users = liveClass.getMethod("liveUsers", List.class).invoke(liveEntities, urns);
 
-        Class<?> collectionClass = Class.forName("com.soundcloud.android.foundation.api.ApiCollection", false, loader);
+        Class<?> collectionClass = Reflect.type(loader, "com.soundcloud.android.foundation.api.ApiCollection");
         java.lang.reflect.Constructor<?> constructor = collectionClass.getConstructor(List.class, String.class);
         return Rx.mapObservable(users, list -> {
             try {

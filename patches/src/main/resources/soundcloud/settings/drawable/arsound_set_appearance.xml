@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings icon "appearance": A palette with four paints. Drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the row tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,3.25C7.17,3.25 3.25,7.17 3.25,12c0,4.83 3.92,8.75 8.75,8.75c1.1,0 1.9,-0.85 1.9,-1.9c0,-0.5 -0.2,-0.95 -0.5,-1.3c-0.3,-0.35 -0.5,-0.8 -0.5,-1.3c0,-1.05 0.85,-1.9 1.9,-1.9h2.3c2.45,0 4.4,-1.95 4.4,-4.35C20.75,6.6 16.8,3.25 12,3.25z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M7.75,11.5h0.01 M10.25,7.75h0.01 M14.5,7.75h0.01 M17,11.25h0.01"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

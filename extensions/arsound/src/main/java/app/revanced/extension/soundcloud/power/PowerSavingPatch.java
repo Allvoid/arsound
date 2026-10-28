@@ -1,6 +1,7 @@
 package app.revanced.extension.soundcloud.power;
 
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.PlaybackStreams;
 
 /**
  * Reduces background work that wakes the radio without a visible benefit.
@@ -42,7 +43,7 @@ public final class PowerSavingPatch {
                 }
             }
             Object result = stream == null ? null : stream.invoke(player, item);
-            playingFile = result != null && result.getClass().getName().endsWith("Stream$FileStream");
+            playingFile = PlaybackStreams.isFileStream(result);
         } catch (Exception ex) {
             playingFile = false;
         }

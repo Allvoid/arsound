@@ -2,25 +2,26 @@ package app.revanced.extension.soundcloud.local;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.net.Uri;
+import android.os.SystemClock;
 import android.util.LruCache;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
-import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.AtomicFiles;
 
 /**
  * Covers of imported tracks and of playlists on this device, kept apart from the audio files.
@@ -37,10 +38,8 @@ public final class LocalCovers {
     /** Most bytes of covers kept in memory: the rest is read from the files again. */
     private static final int MEMORY_LIMIT_BYTES = 6 * 1024 * 1024;
     /** Longest side of a stored cover in pixels: the cells and the player show it far smaller. */
-    private static final int MAX_SIDE = 1280;
-    /** A picture that cannot be decoded is stored as it is only up to this size. */
-    private static final int MAX_UNREADABLE_BYTES = 1024 * 1024;
-    /** Marks a file whose cover the user picked: it replaces the picture embedded in the file. */
+        /** A picture that cannot be decoded is stored as it is only up to this size. */
+        /** Marks a file whose cover the user picked: it replaces the picture embedded in the file. */
     private static final String USER_PREFIX = "user:";
     /** The cover a file had before the user picked one, given back when the picked one is removed. */
     private static final String PREVIOUS_PREFIX = "previous:";
@@ -61,8 +60,7 @@ public final class LocalCovers {
     }
 
     private static SharedPreferences preferences() {
-        Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+        return LocalPrefs.open(PREFERENCES_NAME);
     }
 
     private static File directory() {
@@ -113,12 +111,12 @@ public final class LocalCovers {
             File directory = directory();
             String hash = preferences == null || directory == null ? null : preferences.getString(audio.getName(), null);
             if (hash == null) return;
-            File cover = new File(directory, hash + ".jpg");
+            File cover = CoverImages.coverFile(directory, hash);
             if (!cover.isFile()) return;
-            java.lang.reflect.Field field = track.getClass().getDeclaredField("imageUrlTemplate");
+            Field field = track.getClass().getDeclaredField("imageUrlTemplate");
             field.setAccessible(true);
             if (field.get(track) == null || isUserCover(preferences, audio)) {
-                field.set(track, android.net.Uri.fromFile(cover).toString());
+                field.set(track, Uri.fromFile(cover).toString());
             }
         } catch (Exception ex) {
             Logger.printException(() -> "Could not set the cover address", ex);
@@ -130,26 +128,11 @@ public final class LocalCovers {
         if (bytes != null) return bytes;
         File directory = directory();
         if (directory == null) return null;
-        File file = new File(directory, hash + ".jpg");
+        File file = CoverImages.coverFile(directory, hash);
         if (!file.isFile()) return null;
         bytes = Files.readAllBytes(file.toPath());
         memory.put(hash, bytes);
         return bytes;
-    }
-
-    /** Downloads a picture. Blocks. */
-    private static byte[] download(String imageUrl) throws Exception {
-        app.revanced.extension.soundcloud.network.RegionGuard.throwIfBlocked(new URL(imageUrl).getHost());
-        HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
-        try (InputStream input = connection.getInputStream()) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[16 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            return output.toByteArray();
-        }
     }
 
     /** The size SoundCloud's artwork links are asked for in small lists: 100 by 100 pixels. */
@@ -163,21 +146,14 @@ public final class LocalCovers {
      * @param side    About how many pixels wide the picture is shown.
      * @return The picture, or null if there is none or it cannot be loaded (for example without a network).
      */
-    static android.graphics.Bitmap thumbnail(String address, int side) {
+    static Bitmap thumbnail(String address, int side) {
         if (address == null || address.isEmpty()) return null;
         try {
             byte[] bytes = address.startsWith("file:")
-                    ? Files.readAllBytes(new File(android.net.Uri.parse(address).getPath()).toPath())
-                    : download(address.replace("{size}", THUMBNAIL_SIZE));
-            android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-            int sample = 1;
-            while (Math.min(bounds.outWidth, bounds.outHeight) / (sample * 2) >= side) sample *= 2;
-            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
-            options.inSampleSize = sample;
-            return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-        } catch (java.io.IOException ex) {
+                    ? Files.readAllBytes(new File(Uri.parse(address).getPath()).toPath())
+                    : CoverImages.download(address.replace("{size}", THUMBNAIL_SIZE));
+            return CoverImages.decodeThumbnail(bytes, side);
+        } catch (IOException ex) {
             // No network or SoundCloud is switched off: the list keeps its placeholder.
             Logger.printInfo(() -> "No thumbnail for " + address + ": " + ex);
             return null;
@@ -191,7 +167,7 @@ public final class LocalCovers {
     public static void save(File audio, String imageUrl) {
         if (audio == null || imageUrl == null || imageUrl.isEmpty()) return;
         try {
-            byte[] bytes = square(download(imageUrl));
+            byte[] bytes = CoverImages.square(CoverImages.download(imageUrl));
             String hash = storeAndRecord(bytes, (preferences, stored) -> {
                 // A cover picked by the user stays; the found one is given back if the user removes it.
                 String key = isUserCover(preferences, audio) ? PREVIOUS_PREFIX + audio.getName() : audio.getName();
@@ -199,7 +175,7 @@ public final class LocalCovers {
             });
             if (hash == null) return;
             Logger.printInfo(() -> "Cover saved for " + audio.getName() + ": " + hash + ", " + bytes.length + " bytes");
-            LocalAdditions.clearLocalTrackCache();
+            LocalTrackLoader.forget(audio);
         } catch (Exception | OutOfMemoryError ex) {
             Logger.printException(() -> "Could not save the cover of " + audio, ex);
         }
@@ -211,7 +187,7 @@ public final class LocalCovers {
      */
     public static boolean setUserCover(File audio, byte[] image) {
         try {
-            String hash = storeAndRecord(square(image), (preferences, stored) -> {
+            String hash = storeAndRecord(CoverImages.square(image), (preferences, stored) -> {
                 SharedPreferences.Editor editor = preferences.edit();
                 String previous = preferences.getString(audio.getName(), null);
                 if (previous != null && !isUserCover(preferences, audio)) editor.putString(PREVIOUS_PREFIX + audio.getName(), previous);
@@ -219,7 +195,7 @@ public final class LocalCovers {
             });
             if (hash == null) return false;
             removeUnused();
-            LocalAdditions.clearLocalTrackCache();
+            LocalTrackLoader.forget(audio);
             Logger.printInfo(() -> "User cover set for " + audio.getName() + ": " + hash);
             return true;
         } catch (Exception | OutOfMemoryError ex) {
@@ -248,7 +224,7 @@ public final class LocalCovers {
         }
         editor.commit();
         removeUnused();
-        LocalAdditions.clearLocalTrackCache();
+        LocalTrackLoader.forget(audio);
         Logger.printInfo(() -> "User cover removed for " + audio.getName());
     }
 
@@ -277,28 +253,15 @@ public final class LocalCovers {
      * @return The hash, or null without a context.
      */
     private static String store(byte[] bytes) throws Exception {
-        String hash = hash(bytes);
+        String hash = CoverImages.hash(bytes);
         File directory = directory();
         if (directory == null) return null;
-        File file = new File(directory, hash + ".jpg");
+        File file = CoverImages.coverFile(directory, hash);
         // The same cover of another track of the album is already there, unless it was cut short.
         if (file.isFile() && file.length() == bytes.length) return hash;
         // Written aside and moved, so a file under the final name is never half written. A part file
         // left by a killed process is removed with the unused covers.
-        File part = new File(directory, hash + ".tmp");
-        boolean moved = false;
-        try {
-            try (FileOutputStream output = new FileOutputStream(part)) {
-                output.write(bytes);
-            }
-            moved = part.renameTo(file);
-            if (!moved) throw new java.io.IOException("Could not move the cover to " + file);
-        } finally {
-            if (!moved) {
-                //noinspection ResultOfMethodCallIgnored
-                part.delete();
-            }
-        }
+        AtomicFiles.write(new File(directory, hash + ".tmp"), file, bytes);
         return hash;
     }
 
@@ -310,23 +273,23 @@ public final class LocalCovers {
     private static Map<String, String> playlistCovers() {
         Map<String, String> covers = playlistCovers;
         if (covers != null) return covers;
-        covers = new java.util.concurrent.ConcurrentHashMap<>();
+        covers = new ConcurrentHashMap<>();
         SharedPreferences preferences = preferences();
         File directory = directory();
         if (preferences == null || directory == null) return covers;
         for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
             if (!entry.getKey().startsWith(PLAYLIST_PREFIX)) continue;
-            File file = new File(directory, entry.getValue() + ".jpg");
+            File file = CoverImages.coverFile(directory, String.valueOf(entry.getValue()));
             if (file.isFile()) {
-                covers.put(entry.getKey().substring(PLAYLIST_PREFIX.length()), android.net.Uri.fromFile(file).toString());
+                covers.put(entry.getKey().substring(PLAYLIST_PREFIX.length()), Uri.fromFile(file).toString());
             }
         }
         playlistCovers = covers;
         return covers;
     }
 
-    private static java.lang.reflect.Field artworkField;
-    private static java.lang.reflect.Field urnField;
+    private static Field artworkField;
+    private static Field urnField;
 
     /**
      * Injection point: replaces {@code Playlist.getArtworkImageUrl()}, which has no spare register
@@ -352,10 +315,10 @@ public final class LocalCovers {
 
     private static String playlistUrn(Object playlist) throws Exception {
         if (artworkField == null) {
-            java.lang.reflect.Field urn = playlist.getClass().getDeclaredField("urn");
+            Field urn = playlist.getClass().getDeclaredField("urn");
             urn.setAccessible(true);
             urnField = urn;
-            java.lang.reflect.Field artwork = playlist.getClass().getDeclaredField("artworkImageUrl");
+            Field artwork = playlist.getClass().getDeclaredField("artworkImageUrl");
             artwork.setAccessible(true);
             artworkField = artwork;
         }
@@ -370,13 +333,13 @@ public final class LocalCovers {
 
     /** Marks the cover of a playlist taken from its first track added on the phone: entry, then address. */
     private static final String FIRST_TRACK_PREFIX = "first:";
-    private static final Set<String> firstTrackRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Set<String> firstTrackRequests = ConcurrentHashMap.newKeySet();
     /** Playlists whose first track is being compared with the remembered one in the background. */
-    private static final Set<String> firstTrackChecks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Set<String> firstTrackChecks = ConcurrentHashMap.newKeySet();
     /** Playlists asked for again while their check runs: it may have read the list before a change. */
-    private static final Set<String> firstTrackRechecks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Set<String> firstTrackRechecks = ConcurrentHashMap.newKeySet();
     /** When the first track of each playlist was last compared, on the elapsed-time clock. */
-    private static final Map<String, Long> firstTrackCheckedAt = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Long> firstTrackCheckedAt = new ConcurrentHashMap<>();
     private static final long FIRST_TRACK_CHECK_MS = 3_000;
 
     /**
@@ -404,7 +367,7 @@ public final class LocalCovers {
         String address = separator > 0 ? saved.substring(separator + 1) : null;
         // A cover file of an imported track goes away with its album.
         boolean present = address != null && (!address.startsWith("file:")
-                || new File(android.net.Uri.parse(address).getPath()).isFile());
+                || new File(Uri.parse(address).getPath()).isFile());
         return present ? address : null;
     }
 
@@ -412,7 +375,7 @@ public final class LocalCovers {
     private static void checkFirstTrack(SharedPreferences preferences, String playlistUrn) {
         // Every bind of a cell asks, many times a second while a list scrolls: a fresh check is enough.
         // A change of the tracks drops the freshness, see onPlaylistChanged.
-        long now = android.os.SystemClock.elapsedRealtime();
+        long now = SystemClock.elapsedRealtime();
         Long checkedAt = firstTrackCheckedAt.get(playlistUrn);
         if (checkedAt != null && now - checkedAt < FIRST_TRACK_CHECK_MS) return;
         if (!firstTrackChecks.add(playlistUrn)) return;
@@ -440,7 +403,7 @@ public final class LocalCovers {
     }
 
     private static void updateFirstTrackCover(SharedPreferences preferences, String playlistUrn) {
-        java.util.List<String> entries = LocalAdditions.getShownEntries(playlistUrn);
+        List<String> entries = LocalAdditions.getShownEntries(playlistUrn);
         String key = FIRST_TRACK_PREFIX + playlistUrn;
         String saved = preferences.getString(key, null);
         if (entries.isEmpty()) {
@@ -463,8 +426,8 @@ public final class LocalCovers {
             if (entry.startsWith("file:")) {
                 String hash = preferences.getString(new File(entry.substring(5)).getName(), null);
                 File directory = directory();
-                if (hash != null && directory != null && new File(directory, hash + ".jpg").isFile()) {
-                    address = android.net.Uri.fromFile(new File(directory, hash + ".jpg")).toString();
+                if (hash != null && directory != null && CoverImages.coverFile(directory, hash).isFile()) {
+                    address = CoverImages.fileAddress(directory, hash);
                 }
             } else {
                 String id = app.revanced.extension.soundcloud.download.DownloadTrackPatch.parseTrackId(entry);
@@ -489,7 +452,7 @@ public final class LocalCovers {
             preferences.edit().putString(FIRST_TRACK_PREFIX + playlistUrn, entry + '\n' + address).apply();
             Logger.printInfo(() -> "Playlist " + playlistUrn + " takes the cover of its first track: " + found);
             Utils.runOnMainThread(() -> LocalAdditions.notifyPlaylistChanged(playlistUrn));
-        } catch (java.io.IOException ex) {
+        } catch (IOException ex) {
             // Without a network the cover is looked for again at the next start.
             Logger.printInfo(() -> "No first track cover of " + playlistUrn + " without a network: " + ex);
         } catch (Exception ex) {
@@ -499,11 +462,6 @@ public final class LocalCovers {
 
     public static boolean hasPlaylistCover(String playlistUrn) {
         return playlistCovers().containsKey(playlistUrn);
-    }
-
-    /** @return The address of the playlist cover set on this device, or null. */
-    public static String playlistCoverUrl(String playlistUrn) {
-        return playlistCovers().get(playlistUrn);
     }
 
     /** Sets the cover of a playlist on this device, or removes it for a null image. Blocks. */
@@ -516,10 +474,10 @@ public final class LocalCovers {
                 preferences.edit().remove(PLAYLIST_PREFIX + playlistUrn).commit();
                 playlistCovers().remove(playlistUrn);
             } else {
-                String hash = storeAndRecord(square(image), (prefs, stored) ->
+                String hash = storeAndRecord(CoverImages.square(image), (prefs, stored) ->
                         prefs.edit().putString(PLAYLIST_PREFIX + playlistUrn, stored).commit());
                 if (hash == null) return false;
-                playlistCovers().put(playlistUrn, android.net.Uri.fromFile(new File(directory, hash + ".jpg")).toString());
+                playlistCovers().put(playlistUrn, CoverImages.fileAddress(directory, hash));
             }
             removeUnused();
             Logger.printInfo(() -> "Playlist cover " + (image == null ? "removed" : "set") + " for " + playlistUrn);
@@ -556,22 +514,22 @@ public final class LocalCovers {
      * the network of an app in the background, so the copies missed at the start are made when the
      * library is on screen.
      */
-    private static final Map<String, Long> offlineAttempts = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Long> offlineAttempts = new ConcurrentHashMap<>();
 
     private static Map<String, String[]> offlineCopies() {
         Map<String, String[]> copies = offlineCopies;
         if (copies != null) return copies;
-        copies = new java.util.concurrent.ConcurrentHashMap<>();
+        copies = new ConcurrentHashMap<>();
         SharedPreferences preferences = preferences();
         File directory = directory();
         if (preferences == null || directory == null) return copies;
         for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
             if (!entry.getKey().startsWith(OFFLINE_PREFIX)) continue;
             String urn = entry.getKey().substring(OFFLINE_PREFIX.length());
-            File file = new File(directory, entry.getValue() + ".jpg");
+            File file = CoverImages.coverFile(directory, String.valueOf(entry.getValue()));
             String source = preferences.getString(OFFLINE_SOURCE_PREFIX + urn, null);
             if (file.isFile() && source != null) {
-                copies.put(urn, new String[]{source, android.net.Uri.fromFile(file).toString()});
+                copies.put(urn, new String[]{source, Uri.fromFile(file).toString()});
             }
         }
         offlineCopies = copies;
@@ -610,16 +568,16 @@ public final class LocalCovers {
     /** Downloads the cover of a playlist and keeps it as its copy. Blocks. @return True if saved. */
     private static boolean saveOfflineCopy(String urn, String remote) {
         try {
-            String hash = storeAndRecord(download(remote.replace("{size}", OFFLINE_SIZE)), (preferences, stored) ->
+            String hash = storeAndRecord(CoverImages.download(remote.replace("{size}", OFFLINE_SIZE)), (preferences, stored) ->
                     preferences.edit()
                             .putString(OFFLINE_PREFIX + urn, stored)
                             .putString(OFFLINE_SOURCE_PREFIX + urn, remote)
                             .commit());
             File directory = directory();
             if (hash == null || directory == null) return false;
-            offlineCopies().put(urn, new String[]{remote, android.net.Uri.fromFile(new File(directory, hash + ".jpg")).toString()});
+            offlineCopies().put(urn, new String[]{remote, CoverImages.fileAddress(directory, hash)});
             return true;
-        } catch (java.io.IOException ex) {
+        } catch (IOException ex) {
             // No network or SoundCloud is switched off: tried again later.
             Logger.printInfo(() -> "No copy of the cover of " + urn + " yet: " + ex);
             return false;
@@ -635,7 +593,7 @@ public final class LocalCovers {
      *
      * @param playlists The {@code Playlist}s of the library.
      */
-    public static void keepOfflineCopies(java.util.List<Object> playlists) {
+    public static void keepOfflineCopies(List<Object> playlists) {
         if (playlists.isEmpty()) return;
         Map<String, String> wanted = new LinkedHashMap<>();
         Set<String> library = new HashSet<>();
@@ -717,13 +675,13 @@ public final class LocalCovers {
         if (covers != null) {
             for (File cover : covers) {
                 // A part file of a killed process is not a cover.
-                if (!cover.getName().endsWith(".jpg")) continue;
+                if (!CoverImages.isCoverFile(cover)) continue;
                 try {
                     byte[] image = Files.readAllBytes(cover.toPath());
-                    byte[] bytes = square(image);
+                    byte[] bytes = CoverImages.square(image);
                     if (bytes == image) continue;
                     String hash = store(bytes);
-                    if (hash != null) replaced.put(cover.getName().replace(".jpg", ""), hash);
+                    if (hash != null) replaced.put(CoverImages.hashOf(cover), hash);
                 } catch (Exception | OutOfMemoryError ex) {
                     Logger.printException(() -> "Could not cut the cover " + cover, ex);
                 }
@@ -740,70 +698,10 @@ public final class LocalCovers {
         offlineCopies = null;
         removeUnused();
         Logger.printInfo(() -> "Stored covers cut to a square: " + replaced.size());
-        if (!replaced.isEmpty()) LocalAdditions.clearLocalTrackCache();
+        if (!replaced.isEmpty()) LocalTrackLoader.clearCache();
     }
 
     // endregion
-
-    /**
-     * Covers are shown in square cells. A video thumbnail is a 16:9 frame with the art in the middle
-     * and black bars around it, so it is cut to the centre square. A big picture, like a photo from
-     * the gallery, is made smaller while it is decoded: it never takes its full size in memory.
-     *
-     * @return The same array if the picture is square and small already, or cannot be read and is small.
-     * @throws java.io.IOException If the picture cannot be read and is big.
-     */
-    private static byte[] square(byte[] image) throws java.io.IOException {
-        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        android.graphics.BitmapFactory.decodeByteArray(image, 0, image.length, bounds);
-        int width = bounds.outWidth, height = bounds.outHeight;
-        if (width > 0 && width == height && width <= MAX_SIDE) return image;
-        byte[] cut = width > 0 && height > 0 ? cutSquare(image, width, height) : null;
-        if (cut != null) return cut;
-        if (image.length > MAX_UNREADABLE_BYTES) throw new java.io.IOException("The picture cannot be read: " + image.length + " bytes");
-        return image;
-    }
-
-    /** @return The centre square of the picture, at most {@link #MAX_SIDE} wide, or null if it cannot be decoded. */
-    private static byte[] cutSquare(byte[] image, int width, int height) {
-        android.graphics.Bitmap bitmap = null;
-        try {
-            // Decoded in steps of two that keep the short side (the square) at or above the wanted size; the rest
-            // is scaled below.
-            int sample = 1;
-            while (Math.min(width, height) / (sample * 2) >= MAX_SIDE) sample *= 2;
-            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
-            options.inSampleSize = sample;
-            bitmap = android.graphics.BitmapFactory.decodeByteArray(image, 0, image.length, options);
-            if (bitmap == null) return null;
-            int side = Math.min(bitmap.getWidth(), bitmap.getHeight());
-            android.graphics.Bitmap centre = android.graphics.Bitmap.createBitmap(bitmap,
-                    (bitmap.getWidth() - side) / 2, (bitmap.getHeight() - side) / 2, side, side);
-            if (centre != bitmap) {
-                bitmap.recycle();
-                bitmap = centre;
-            }
-            if (side > MAX_SIDE) {
-                android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, MAX_SIDE, MAX_SIDE, true);
-                if (scaled != bitmap) {
-                    bitmap.recycle();
-                    bitmap = scaled;
-                }
-            }
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            // A transparent picture would get black corners as a JPEG.
-            boolean done = bitmap.hasAlpha()
-                    ? bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
-                    : bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, output);
-            return done ? output.toByteArray() : null;
-        } catch (OutOfMemoryError error) {
-            Logger.printException(() -> "Not enough memory to cut a picture of " + width + "x" + height, error);
-            return null;
-        } finally {
-            if (bitmap != null) bitmap.recycle();
-        }
-    }
 
     public static boolean hasCover(File audio) {
         SharedPreferences preferences = preferences();
@@ -830,17 +728,11 @@ public final class LocalCovers {
         File[] covers = directory.listFiles();
         if (covers == null) return;
         for (File cover : covers) {
-            String hash = cover.getName().replace(".jpg", "");
+            String hash = CoverImages.hashOf(cover);
             if (used.contains(hash)) continue;
             memory.remove(hash);
             //noinspection ResultOfMethodCallIgnored
             cover.delete();
         }
-    }
-
-    private static String hash(byte[] bytes) throws Exception {
-        StringBuilder hex = new StringBuilder();
-        for (byte b : MessageDigest.getInstance("SHA-1").digest(bytes)) hex.append(String.format(Locale.ROOT, "%02x", b));
-        return hex.toString();
     }
 }

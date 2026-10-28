@@ -16,12 +16,24 @@ import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Locale;
+import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.debug.CrashLog;
+import app.revanced.extension.soundcloud.download.DownloadIndex;
+import app.revanced.extension.soundcloud.download.DownloadProgress;
+import app.revanced.extension.soundcloud.download.MusicAccess;
+import app.revanced.extension.soundcloud.download.ProgressPill;
 import app.revanced.extension.soundcloud.local.LocalSheet;
+import app.revanced.extension.soundcloud.local.WatchFolder;
+import app.revanced.extension.soundcloud.login.LoginLogsButton;
+import app.revanced.extension.soundcloud.network.NetworkBanner;
+import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
+import app.revanced.extension.soundcloud.player.VivoMusicCard;
+import app.revanced.extension.soundcloud.search.SearchSourceSwitch;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * Checks the GitHub releases of Arsound for a newer version. Nothing is downloaded or installed by the app:
@@ -60,12 +72,22 @@ public final class UpdateChecker {
     private UpdateChecker() {
     }
 
-    private static void guarded(String what, Runnable action) {
-        try {
-            action.run();
-        } catch (Exception ex) {
-            Logger.printException(() -> "Resume hook failed: " + what, ex);
-        }
+    /** The features that follow the screens, in the order they run on each screen. */
+    private static ScreenHooks screenHooks() {
+        return new ScreenHooks()
+                // The network of an app that is not on screen yet is blocked, so the check starts here.
+                .add("update check", activity -> startCheckOnce())
+                .add("update sheet", activity -> showPendingRelease())
+                .add("network banner", NetworkBanner::onActivityResumed, NetworkBanner::onActivityPaused)
+                .add("permissions", WelcomePermissions::onActivityResumed)
+                .add("music access", MusicAccess::onActivityResumed)
+                .add("download index", DownloadIndex::onActivityResumed)
+                .add("vivo card", VivoMusicCard::onActivityResumed)
+                .add("download progress", DownloadProgress::onActivityResumed, DownloadProgress::onActivityPaused)
+                .add("progress pill", ProgressPill::onActivityResumed)
+                .add("search switch", SearchSourceSwitch::onActivityResumed, SearchSourceSwitch::onActivityPaused)
+                .add("watch folder", WatchFolder::onActivityResumed)
+                .add("login logs", LoginLogsButton::onActivityResumed);
     }
 
     /**
@@ -74,32 +96,19 @@ public final class UpdateChecker {
      */
     public static void onApplicationCreate(Application application) {
         // First, so a crash anywhere after this is written down.
-        app.revanced.extension.soundcloud.debug.CrashLog.install(application);
+        CrashLog.install(application);
+        ScreenHooks hooks = screenHooks();
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(Activity activity) {
                 resumedActivity = new WeakReference<>(activity);
-                // The network of an app that is not on screen yet is blocked, so the check starts here.
-                // One failing part must not crash the screen or stop the parts after it.
-                guarded("update check", UpdateChecker::startCheckOnce);
-                guarded("update sheet", UpdateChecker::showPendingRelease);
-                guarded("network banner", () -> app.revanced.extension.soundcloud.network.NetworkBanner.onActivityResumed(activity));
-                guarded("permissions", () -> app.revanced.extension.soundcloud.permissions.WelcomePermissions.onActivityResumed(activity));
-                guarded("music access", () -> app.revanced.extension.soundcloud.download.MusicAccess.onActivityResumed(activity));
-                guarded("download index", () -> app.revanced.extension.soundcloud.download.DownloadIndex.onActivityResumed(activity));
-                guarded("vivo card", () -> app.revanced.extension.soundcloud.player.VivoMusicCard.onActivityResumed(activity));
-                guarded("download progress", () -> app.revanced.extension.soundcloud.download.DownloadProgress.onActivityResumed(activity));
-                guarded("progress pill", () -> app.revanced.extension.soundcloud.download.ProgressPill.onActivityResumed(activity));
-                guarded("search switch", () -> app.revanced.extension.soundcloud.search.SearchSourceSwitch.onActivityResumed(activity));
-                guarded("watch folder", () -> app.revanced.extension.soundcloud.local.WatchFolder.onActivityResumed(activity));
+                hooks.resumed(activity);
             }
 
             @Override
             public void onActivityPaused(Activity activity) {
                 if (resumedActivity.get() == activity) resumedActivity = new WeakReference<>(null);
-                app.revanced.extension.soundcloud.network.NetworkBanner.onActivityPaused(activity);
-                app.revanced.extension.soundcloud.download.DownloadProgress.onActivityPaused(activity);
-                app.revanced.extension.soundcloud.search.SearchSourceSwitch.onActivityPaused(activity);
+                hooks.paused(activity);
             }
 
             @Override
@@ -209,8 +218,8 @@ public final class UpdateChecker {
     }
 
     public static void showUpdateSheet(Context context, Release release) {
-        boolean russian = Locale.getDefault().getLanguage().equals("ru");
-        java.util.List<LocalSheet.Item> items =LocalSheet.items();
+        boolean russian = Lang.russian();
+        List<LocalSheet.Item> items = LocalSheet.items();
         // Nothing is downloaded by the app: the user picks where to get the new version.
         items.add(new LocalSheet.Item(russian ? "Скачать APK в Telegram" : "Download the APK on Telegram",
                 "ic_actions_download", () -> openUrl(context, TELEGRAM_URL)));

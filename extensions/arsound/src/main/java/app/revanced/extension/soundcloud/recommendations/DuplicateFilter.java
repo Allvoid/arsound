@@ -1,13 +1,8 @@
 package app.revanced.extension.soundcloud.recommendations;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.regex.Pattern;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.Settings;
@@ -16,139 +11,28 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * Hides re-uploads of the same song in recommendations.
  * <p>
  * Two tracks are the same song when their normalized titles match and their durations differ
- * by at most two seconds. The first copy SoundCloud ranked highest is kept. Remixes, slowed and
- * sped up versions keep their marker in the title, so they stay separate unless the user chose
- * to merge them. Likes, playlists and profiles are not filtered.
+ * by at most two seconds ({@link SongKeys}, {@link SongFingerprint}). The first copy SoundCloud ranked highest is
+ * kept. Remixes, slowed and sped up versions keep their marker in the title, so they stay separate unless the user
+ * chose to merge them. Likes, playlists and profiles are not filtered.
+ * <p>
+ * This class holds the injection points; each list is walked by a {@link DuplicatePass}.
  */
 @SuppressWarnings("unused")
 public final class DuplicateFilter {
-    private static final long DURATION_TOLERANCE_MS = 2_000;
-    private static final int AUTOPLAY_MEMORY = 300;
-
-    private static final Pattern BRACKETS = Pattern.compile("[\\(\\[\\{][^\\)\\]\\}]*[\\)\\]\\}]");
-    private static final Pattern FEATURING = Pattern.compile("\\b(feat|ft|prod|featuring)\\b\\.?.*$");
-    private static final Pattern NOISE = Pattern.compile("\\b(free download|free dl|official audio|official video|lyrics|audio|hq|hd|clean|explicit)\\b");
-    private static final Pattern EDIT_MARKERS = Pattern.compile("\\b(slowed|slow|reverb|sped up|speed up|speed|nightcore|remix|edit|cover|live|instrumental|acapella|bass boosted|pitched|8d)\\b");
-    /** A playback speed written as a number: "0.9x", "x1.25", "1,1 speed". */
-    private static final Pattern SPEED = Pattern.compile("(\\b\\d(?:[.,]\\d+)?\\s*x\\b|\\bx\\s*\\d(?:[.,]\\d+)?\\b|\\b\\d(?:[.,]\\d+)?\\s*(?=speed\\b))");
-    private static final Pattern NON_WORD = Pattern.compile("[^\\p{L}\\p{N}]+");
-
-    /** Songs recently queued by autoplay, so a later refill does not bring back another copy. */
-    private static final Map<String, Long> autoplayMemory = new LinkedHashMap<String, Long>(16, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
-            return size() > AUTOPLAY_MEMORY;
-        }
-    };
-
-    /** Track urn to its song key and duration, learned from filtered lists. */
-    private static final Map<String, Object[]> knownTracks = new LinkedHashMap<String, Object[]>(16, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Object[]> eldest) {
-            return size() > 2000;
-        }
-    };
+    private static final String SYSTEM_PLAYLIST_MARK = ":system-playlists:";
 
     private DuplicateFilter() {
     }
 
-    static String songKey(String title) {
-        return songKey(title, Settings.isMergeEditedVersions());
+    /** Whether any filter has something to do: duplicates are hidden, or tracks are disliked. */
+    private static boolean isActive(boolean duplicates) {
+        return duplicates || TrackDislikes.isActive();
     }
 
-    /** @param mergeEdited Slowed, sped up and remixed versions get the key of the original. */
-    static String songKey(String title, boolean mergeEdited) {
-        if (title == null) return "";
-        String value = title.toLowerCase(Locale.ROOT);
-        // Markers of a different version are kept apart from the brackets they are usually written in.
-        StringBuilder markers = new StringBuilder();
-        if (!mergeEdited) {
-            java.util.regex.Matcher matcher = EDIT_MARKERS.matcher(value);
-            while (matcher.find()) markers.append(' ').append(matcher.group(1));
-            if (SPEED.matcher(value).find()) markers.append(" speed");
-        }
-        value = SPEED.matcher(value).replaceAll(" ");
-        value = BRACKETS.matcher(value).replaceAll(" ");
-        value = FEATURING.matcher(value).replaceAll(" ");
-        value = NOISE.matcher(value).replaceAll(" ");
-        if (!mergeEdited) value = EDIT_MARKERS.matcher(value).replaceAll(" ");
-        // "Artist - Title" uploads: the part after the dash is the title in most re-uploads.
-        int dash = value.lastIndexOf(" - ");
-        if (dash > 0 && dash < value.length() - 3) value = value.substring(dash + 3);
-        value = NON_WORD.matcher(value).replaceAll(" ").trim();
-        return value + markers;
-    }
-
-    private static final class Song {
-        final String key;
-        final long duration;
-        /** Slowed, sped up, remixed and similar: another speed changes the duration. */
-        final boolean edited;
-        /** Keyed with edited versions merged into the original. */
-        final boolean mergeEdited;
-
-        Song(String key, long duration, boolean edited, boolean mergeEdited) {
-            this.key = key;
-            this.duration = duration;
-            this.edited = edited;
-            this.mergeEdited = mergeEdited;
-        }
-
-        boolean sameAs(Song other) {
-            if (key.isEmpty() || !key.equals(other.key)) return false;
-            // Merged versions have the same key; their durations differ with the speed.
-            if ((edited || other.edited) && mergeEdited && other.mergeEdited) return true;
-            return Math.abs(duration - other.duration) <= DURATION_TOLERANCE_MS;
-        }
-    }
-
-    /**
-     * The same song under two titles and lengths, whatever the user chose for the lists: a remix or another speed is
-     * another song here. For the "For you" playlist.
-     */
-    static boolean sameSong(String titleA, long durationA, String titleB, long durationB) {
-        return song(titleA, durationA, false).sameAs(song(titleB, durationB, false));
-    }
-
-    static boolean isEdited(String title) {
-        String value = title == null ? "" : title.toLowerCase(Locale.ROOT);
-        return EDIT_MARKERS.matcher(value).find() || SPEED.matcher(value).find();
-    }
-
-    private static Song song(String title, long duration) {
-        return song(title, duration, Settings.isMergeEditedVersions());
-    }
-
-    private static Song song(String title, long duration, boolean mergeEdited) {
-        return new Song(songKey(title, mergeEdited), duration, isEdited(title), mergeEdited);
-    }
-
-    private static Object urnOf(Object track) {
-        try {
-            return track.getClass().getMethod("getUrn").invoke(track);
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-
-    private static Song songOf(Object track) {
-        try {
-            String title = (String) track.getClass().getMethod("getTitle").invoke(track);
-            long duration = (long) track.getClass().getMethod("getFullDuration").invoke(track);
-            Song song = song(title, duration);
-            Object urn = track.getClass().getMethod("getUrn").invoke(track);
-            synchronized (knownTracks) {
-                knownTracks.put(String.valueOf(urn), new Object[]{title, song.duration});
-            }
-            return song;
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-
-    private static boolean containsSame(List<Song> songs, Song song) {
-        for (Song kept : songs) if (kept.sameAs(song)) return true;
-        return false;
+    /** The song of a track item, compared the way the user chose for the lists. */
+    private static SongFingerprint fingerprintOf(Object track) {
+        SongRef song = TrackItems.songOf(track);
+        return song == null ? null : song.fingerprint(Settings.isMergeEditedVersions());
     }
 
     /**
@@ -158,27 +42,18 @@ public final class DuplicateFilter {
      */
     public static List<?> filterSectionEntities(List<?> entities) {
         boolean duplicates = Settings.isDuplicateFilterEnabled();
-        if (!duplicates && !TrackDislikes.isActive() || entities == null) return entities;
+        if (entities == null || !isActive(duplicates)) return entities;
         try {
             List<Object> result = new ArrayList<>(entities.size());
-            List<Song> kept = new ArrayList<>();
-            int removed = 0;
+            DuplicatePass pass = new DuplicatePass();
             for (Object entity : entities) {
-                Object track = trackItemOf(entity);
-                if (track != null && TrackDislikes.isDisliked(urnOf(track))) {
-                    removed++;
-                    continue;
-                }
-                Song song = track == null || !duplicates ? null : songOf(track);
-                if (song != null && containsSame(kept, song)) {
-                    removed++;
-                    continue;
-                }
-                if (song != null) kept.add(song);
-                result.add(entity);
+                Object track = TrackItems.trackItemOf(entity);
+                if (track != null && pass.dislikes(TrackItems.urnOf(track))) continue;
+                SongFingerprint song = track == null || !duplicates ? null : fingerprintOf(track);
+                if (pass.keeps(song)) result.add(entity);
             }
-            int count = removed, total = entities.size();
-            Logger.printInfo(() -> "Home section checked: " + total + " items, hidden: " + count);
+            int removed = pass.removed(), total = entities.size();
+            Logger.printInfo(() -> "Home section checked: " + total + " items, hidden: " + removed);
             return result;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not filter section duplicates", ex);
@@ -190,31 +65,12 @@ public final class DuplicateFilter {
      * Injection point. Items of a server-driven home screen block ({@code ArrayList<SDUIView>}),
      * called from the constructors of carousel, gallery and suggestion views. Filters the list in place.
      */
-    public static void filterHomeViews(java.util.ArrayList<Object> views) {
-        if (!Settings.isDuplicateFilterEnabled() && !TrackDislikes.isActive() || views == null) return;
+    public static void filterHomeViews(ArrayList<Object> views) {
+        if (views == null) return;
         List<?> filtered = filterSectionEntities(views);
         if (filtered.size() == views.size()) return;
         views.clear();
         views.addAll(filtered);
-    }
-
-    private static Object trackItemOf(Object entity) throws IllegalAccessException {
-        if (entity == null) return null;
-        String name = entity.getClass().getName();
-        if (!name.endsWith("SectionTrackEntity") && !name.endsWith("SDUIView$Track") && !name.endsWith("SDUIView$Repost$Track")) return null;
-        for (Field field : entity.getClass().getDeclaredFields()) {
-            String type = field.getType().getName();
-            if (type.endsWith(".TrackItem")) {
-                field.setAccessible(true);
-                return field.get(entity);
-            }
-            // A repost holds the reposted track view.
-            if (type.endsWith("SDUIView$Track")) {
-                field.setAccessible(true);
-                return trackItemOf(field.get(entity));
-            }
-        }
-        return null;
     }
 
     /**
@@ -225,54 +81,25 @@ public final class DuplicateFilter {
      */
     public static Iterator<?> filterAutoplay(Iterable<?> apiTracks, Object seedUrn) {
         boolean duplicates = Settings.isDuplicateFilterEnabled();
-        if (!duplicates && !TrackDislikes.isActive()) return apiTracks.iterator();
+        if (!isActive(duplicates)) return apiTracks.iterator();
         List<Object> result = new ArrayList<>();
         try {
-            List<Song> kept = new ArrayList<>();
-            Object[] seed;
-            synchronized (knownTracks) {
-                seed = knownTracks.get(String.valueOf(seedUrn).replace("soundcloud:sounds:", "soundcloud:tracks:"));
-            }
-            if (seed != null) kept.add(song((String) seed[0], (long) seed[1]));
+            DuplicatePass pass = new DuplicatePass.Autoplay();
+            SongRef seed = KnownTracks.get(TrackUrn.normalize(seedUrn));
+            if (seed != null) pass.keep(seed.fingerprint(Settings.isMergeEditedVersions()));
 
-            int removed = 0;
             for (Object track : apiTracks) {
-                if (TrackDislikes.isDisliked(urnOf(track))) {
-                    removed++;
-                    continue;
-                }
-                Song song = duplicates ? songOf(track) : null;
-                boolean duplicate = song != null && (containsSame(kept, song) || recentlyQueued(song));
-                if (duplicate) {
-                    removed++;
-                    continue;
-                }
-                if (song != null) {
-                    kept.add(song);
-                    rememberQueued(song);
-                }
-                result.add(track);
+                if (pass.dislikes(TrackItems.urnOf(track))) continue;
+                SongFingerprint song = duplicates ? fingerprintOf(track) : null;
+                if (pass.keeps(song)) result.add(track);
             }
-            int count = removed;
-            Logger.printInfo(() -> "Autoplay checked, hidden: " + count);
+            int removed = pass.removed();
+            Logger.printInfo(() -> "Autoplay checked, hidden: " + removed);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not filter autoplay duplicates", ex);
             return apiTracks.iterator();
         }
         return result.iterator();
-    }
-
-    private static boolean recentlyQueued(Song song) {
-        synchronized (autoplayMemory) {
-            Long duration = autoplayMemory.get(song.key);
-            return duration != null && !song.key.isEmpty() && Math.abs(duration - song.duration) <= DURATION_TOLERANCE_MS;
-        }
-    }
-
-    private static void rememberQueued(Song song) {
-        synchronized (autoplayMemory) {
-            autoplayMemory.put(song.key, song.duration);
-        }
     }
 
     /**
@@ -284,70 +111,25 @@ public final class DuplicateFilter {
      */
     public static void filterSystemPlaylist(String playlistUrn, List<Object> urns) {
         boolean duplicates = Settings.isDuplicateFilterEnabled();
-        if (!playlistUrn.contains(":system-playlists:") || !duplicates && !TrackDislikes.isActive()) return;
+        if (!playlistUrn.contains(SYSTEM_PLAYLIST_MARK) || !isActive(duplicates)) return;
         try {
-            if (duplicates) learnTitles(urns);
-            List<Song> kept = new ArrayList<>();
+            if (duplicates) SystemPlaylistTitles.learn(urns);
+            DuplicatePass pass = new DuplicatePass();
             int before = urns.size();
-            for (java.util.Iterator<Object> iterator = urns.iterator(); iterator.hasNext(); ) {
+            for (Iterator<Object> iterator = urns.iterator(); iterator.hasNext(); ) {
                 String urn = String.valueOf(iterator.next());
-                if (TrackDislikes.isDisliked(urn)) {
+                if (pass.dislikes(urn)) {
                     iterator.remove();
                     continue;
                 }
-                if (!duplicates) continue;
-                Object[] known;
-                synchronized (knownTracks) {
-                    known = knownTracks.get(urn);
-                }
-                if (known == null) continue;
-                Song song = song((String) known[0], (long) known[1]);
-                if (containsSame(kept, song)) {
-                    iterator.remove();
-                } else {
-                    kept.add(song);
-                }
+                SongRef known = duplicates ? KnownTracks.get(urn) : null;
+                SongFingerprint song = known == null ? null : known.fingerprint(Settings.isMergeEditedVersions());
+                if (!pass.keeps(song)) iterator.remove();
             }
             int removed = before - urns.size();
             Logger.printInfo(() -> "System playlist " + playlistUrn + " checked: " + before + " tracks, hidden: " + removed);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not filter system playlist " + playlistUrn, ex);
         }
-    }
-
-    private static void learnTitles(List<Object> urns) {
-        List<String> missing = new ArrayList<>();
-        synchronized (knownTracks) {
-            for (Object urn : urns) {
-                String value = String.valueOf(urn);
-                if (!knownTracks.containsKey(value) && value.startsWith("soundcloud:tracks:")) {
-                    missing.add(value.substring("soundcloud:tracks:".length()));
-                }
-            }
-        }
-        for (int start = 0; start < missing.size(); start += 50) {
-            try {
-                String[] response = app.revanced.extension.soundcloud.download.DownloadTrackPatch.apiGet(
-                        "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", missing.subList(start, Math.min(missing.size(), start + 50))));
-                if (response[1] == null) return;
-                org.json.JSONArray array = new org.json.JSONArray(response[1]);
-                synchronized (knownTracks) {
-                    for (int i = 0; i < array.length(); i++) {
-                        org.json.JSONObject track = array.getJSONObject(i);
-                        knownTracks.put("soundcloud:tracks:" + track.getLong("id"),
-                                new Object[]{track.optString("title"), track.optLong("full_duration", track.optLong("duration"))});
-                    }
-                }
-            } catch (Exception ex) {
-                // Offline: the playlist is shown as it is.
-                Logger.printInfo(() -> "No titles for the system playlist check: " + ex);
-                return;
-            }
-        }
-    }
-
-    /** Remembers the song of a track item the user plays or sees, so autoplay can skip its copies. */
-    public static void learn(Object trackItem) {
-        if (trackItem != null && Settings.isDuplicateFilterEnabled()) songOf(trackItem);
     }
 }

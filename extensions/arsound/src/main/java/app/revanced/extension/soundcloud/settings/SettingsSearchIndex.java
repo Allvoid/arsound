@@ -40,10 +40,6 @@ final class SettingsSearchIndex {
         entries.add(entry);
     }
 
-    boolean isEmpty() {
-        return entries.isEmpty();
-    }
-
     /** Rows that contain every word of the query, the best matches first. */
     List<Entry> search(String query, int limit) {
         List<String> words = words(query);

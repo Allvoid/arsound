@@ -1,8 +1,10 @@
 package app.revanced.extension.soundcloud.upsell;
 
+import static app.revanced.extension.soundcloud.shared.Dimens.dp;
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.TypedArray;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
@@ -14,12 +16,12 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.util.Locale;
-
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.AppResources;
+import app.revanced.extension.soundcloud.shared.Colors;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
@@ -34,10 +36,6 @@ public final class UpgradeTabPage {
     private static final String TAG = "arsound_upgrade_tab";
 
     private UpgradeTabPage() {
-    }
-
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
     }
 
     /**
@@ -68,10 +66,8 @@ public final class UpgradeTabPage {
         ScrollView scroll = new ScrollView(context);
         scroll.setTag(TAG);
         scroll.setFillViewport(true);
-        // The page is Arsound's own, so it shows the wallpaper like the settings do.
-        android.graphics.drawable.Drawable wallpaper = WallpaperStore.background(context);
-        if (wallpaper != null) scroll.setBackground(wallpaper);
-        else scroll.setBackgroundColor(surface);
+        // The wallpaper is the window's: the page leaves it uncovered, like every main screen.
+        scroll.setBackgroundColor(WallpaperStore.isActive() ? android.graphics.Color.TRANSPARENT : surface);
 
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -98,7 +94,7 @@ public final class UpgradeTabPage {
                 "You can hide the tab: Settings → Arsound → Ads and subscription → \"Hide Upgrade tab\"."),
                 secondary, 12));
 
-        TextView hide = label(context, text("Скрыть вкладку", "Hide the tab"), 16, contrastOn(accent));
+        TextView hide = label(context, text("Скрыть вкладку", "Hide the tab"), 16, Colors.ink(accent, 0.6, 0xFF000000, 0xFFFFFFFF));
         hide.setTypeface(Typeface.DEFAULT_BOLD);
         hide.setGravity(Gravity.CENTER);
         int vertical = dp(context, 14);
@@ -149,24 +145,10 @@ public final class UpgradeTabPage {
         return view;
     }
 
-    /** Black or white, whichever reads better on the colour. */
-    private static int contrastOn(int color) {
-        double luminance = (0.299 * ((color >> 16) & 0xff) + 0.587 * ((color >> 8) & 0xff) + 0.114 * (color & 0xff)) / 255;
-        return luminance > 0.6 ? 0xff000000 : 0xffffffff;
-    }
-
-    private static int dp(Context context, int value) {
-        return Math.round(value * context.getResources().getDisplayMetrics().density);
-    }
-
+    /** A colour of the app theme by the name of its attribute, or the fallback if the app has no such attribute. */
     private static int themeColor(Context context, String attribute, int fallback) {
         int id = Utils.getResourceIdentifier(ResourceType.ATTR, attribute);
         if (id == 0) return fallback;
-        TypedArray array = context.obtainStyledAttributes(new int[]{id});
-        try {
-            return array.getColor(0, fallback);
-        } finally {
-            array.recycle();
-        }
+        return AppResources.themeColor(context, id, fallback);
     }
 }

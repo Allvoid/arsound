@@ -16,6 +16,8 @@ import android.view.animation.DecelerateInterpolator;
 
 import java.util.Locale;
 
+import app.revanced.extension.soundcloud.shared.Lang;
+
 /**
  * The equalizer as a curve: a smooth line through the band levels with a soft fill under it, a handle on every
  * band. A handle is dragged up and down to change its band; a new preset morphs the curve into its shape.
@@ -56,7 +58,7 @@ final class EqualizerGraph extends View {
         faint = (text & 0x00FFFFFF) | 0x26000000;
         shown = new float[centerFrequenciesHz.length];
         labels = new String[centerFrequenciesHz.length];
-        boolean russian = "ru".equals(Locale.getDefault().getLanguage());
+        boolean russian = Lang.russian();
         for (int i = 0; i < labels.length; i++) {
             int hz = centerFrequenciesHz[i];
             labels[i] = hz >= 1000

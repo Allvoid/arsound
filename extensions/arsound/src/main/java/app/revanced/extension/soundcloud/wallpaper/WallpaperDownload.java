@@ -129,6 +129,8 @@ public final class WallpaperDownload {
             return WallpaperStore.install(context, source, id);
         } finally {
             discard();
+            // The file is gone, so the download is not a good one any more: a retry makes a new download.
+            saved = false;
         }
     }
 

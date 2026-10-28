@@ -1,11 +1,12 @@
 package app.arsound.patches.soundcloud.player
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.FiresOn
+import app.arsound.patches.soundcloud.misc.hooks.GuardExit
+import app.arsound.patches.soundcloud.misc.hooks.insertGuard
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.revanced.patcher.definingClass
-import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructions
-import app.revanced.patcher.extensions.addInstructionsWithLabels
-import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.instructions
 import app.revanced.patcher.method
@@ -19,7 +20,6 @@ private const val SHEET_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/p
 private const val LAYERS_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/player/PlayerArtworkLayers;"
 
 private const val ARTWORK_VIEW = "Lcom/soundcloud/android/artwork/PlayerTrackArtworkView;"
-private const val TRACK_PAGE_PRESENTER = "Lcom/soundcloud/android/playback/ui/TrackPagePresenter;"
 private const val SHAPEABLE_IMAGE_VIEW = "Lcom/google/android/material/imageview/ShapeableImageView;"
 
 /**
@@ -35,17 +35,6 @@ private val BytecodePatchContext.sheetStateMethod by gettingFirstMethodDeclarati
     name("c")
     returnType("V")
     parameterTypes("I", "Landroid/view/View;")
-}
-
-/** Moves one player page to the offset of the sheet's slide: 0 collapsed, 1 open. It creates the mini player's corner views, which is how it is told apart. */
-private val BytecodePatchContext.slidePageMethod by gettingFirstMethodDeclaratively {
-    definingClass(TRACK_PAGE_PRESENTER)
-    name("l")
-    returnType("V")
-    parameterTypes("Landroid/view/View;", "F")
-    instructions(
-        method { definingClass == "Lcom/soundcloud/android/playback/ui/ArtworkView;" && name == "<init>" },
-    )
 }
 
 /** Gives the page's artwork its rounded corners, with the mini player's radius. */
@@ -89,7 +78,7 @@ private val BytecodePatchContext.setImageViewMethod by gettingFirstMethodDeclara
 val smoothSheetPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // The range form everywhere: the methods have dozens of registers, and a plain invoke-static only reaches
@@ -100,44 +89,22 @@ val smoothSheetPatch = bytecodePatch {
         )
 
         // A page beside the visible one leaves the slide at once; v0 is free before the first instruction.
-        slidePageMethod.apply {
-            addInstructionsWithLabels(
-                0,
-                """
-                    invoke-static/range { p1 .. p2 }, $LAYERS_CLASS_DESCRIPTOR->skipSlide(Landroid/view/View;F)Z
-                    move-result v0
-                    if-eqz v0, :slide
-                    return-void
-                """,
-                ExternalLabel("slide", getInstruction(0)),
-            )
-        }
+        slidePlayerPageMethod.insertGuard(
+            "invoke-static/range { p1 .. p2 }, $LAYERS_CLASS_DESCRIPTOR->skipSlide(Landroid/view/View;F)Z",
+            GuardExit.ReturnVoid,
+        )
 
-        roundArtworkMethod.apply {
-            addInstructionsWithLabels(
-                0,
-                """
-                    invoke-static/range { p0 .. p1 }, $LAYERS_CLASS_DESCRIPTOR->round(Landroid/view/View;I)Z
-                    move-result v0
-                    if-nez v0, :round
-                    return-void
-                """,
-                ExternalLabel("round", getInstruction(0)),
-            )
-        }
+        roundArtworkMethod.insertGuard(
+            "invoke-static/range { p0 .. p1 }, $LAYERS_CLASS_DESCRIPTOR->round(Landroid/view/View;I)Z",
+            GuardExit.ReturnVoid,
+            FiresOn.FALSE,
+        )
 
-        squareArtworkMethod.apply {
-            addInstructionsWithLabels(
-                0,
-                """
-                    invoke-static/range { p0 .. p0 }, $LAYERS_CLASS_DESCRIPTOR->square(Landroid/view/View;)Z
-                    move-result v0
-                    if-nez v0, :square
-                    return-void
-                """,
-                ExternalLabel("square", getInstruction(0)),
-            )
-        }
+        squareArtworkMethod.insertGuard(
+            "invoke-static/range { p0 .. p0 }, $LAYERS_CLASS_DESCRIPTOR->square(Landroid/view/View;)Z",
+            GuardExit.ReturnVoid,
+            FiresOn.FALSE,
+        )
 
         setImageViewMethod.addInstructions(
             0,

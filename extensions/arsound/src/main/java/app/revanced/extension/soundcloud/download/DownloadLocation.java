@@ -24,6 +24,7 @@ import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * A place where downloaded files are kept. Every track remembers the location its file was saved to
@@ -131,7 +132,7 @@ abstract class DownloadLocation {
         long now = SystemClock.elapsedRealtime();
         if (lostToldAt == 0 || now - lostToldAt >= 60_000) {
             lostToldAt = now;
-            DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
+            DownloadTrackPatch.showToast(context, Lang.text(
                     "Папка «" + chosen.label() + "» недоступна: карта извлечена, папка удалена или доступ отозван. "
                             + "Треки сохраняются в «" + DEFAULT.label() + "». Выберите папку заново в настройках, в разделе «Память».",
                     "The folder " + chosen.label() + " is not available: the card is out, the folder is gone or its access "
@@ -200,6 +201,11 @@ abstract class DownloadLocation {
      */
     Writing startFile(Context context, String fileName, String mimeType) throws IOException {
         throw new UnsupportedOperationException(id() + " is written by the download manager");
+    }
+
+    /** The folder the system's folder picker opens at when this location is the chosen one: Music for any but a picked folder. */
+    Uri pickerStart() {
+        return DocumentsContract.buildDocumentUri(TreeFolder.LOCAL_AUTHORITY, "primary:Music");
     }
 
     /**
@@ -285,6 +291,10 @@ abstract class DownloadLocation {
      * since Android 10 is the only way for an app to put a file there.
      */
     static final class PublicFolder extends DownloadLocation {
+        /** The media store's name for a row in this folder: the folder with or without the slash at the end. */
+        private static final String IN_FOLDER = "(" + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " = ?)";
+
         private final String directory;
         private final String subFolder;
 
@@ -310,12 +320,12 @@ abstract class DownloadLocation {
         /** The path inside the storage, with the slash the media store keeps: "Music/Arsound/". */
         @Override
         String id() {
-            return directory + "/" + subFolder + "/";
+            return path() + "/";
         }
 
         @Override
         String label() {
-            String name = Environment.DIRECTORY_MUSIC.equals(directory) ? DownloadTrackPatch.text("Музыка", "Music") : directory;
+            String name = Environment.DIRECTORY_MUSIC.equals(directory) ? Lang.text("Музыка", "Music") : directory;
             return name + "/" + subFolder;
         }
 
@@ -351,26 +361,32 @@ abstract class DownloadLocation {
         @Override
         Saved save(Context context, File source, String fileName, String mimeType, String title, String artist)
                 throws IOException {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                // Before Android 10 a file is written by path, which needs the permission to write to the storage.
-                if (context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                    throw new IOException("No permission to write to " + label());
-                }
-                File target = file(fileName);
-                File folder = target.getParentFile();
-                if (target.exists() && !target.delete()) Logger.printInfo(() -> "Could not replace " + target);
-                if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException(label() + " could not be created");
-                copy(source, new FileOutputStream(target));
-                return new Saved(fileName, null);
-            }
+            return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                    ? saveByPath(context, source, fileName)
+                    : saveToMediaStore(context, source, fileName, mimeType);
+        }
 
+        /** Before Android 10 a file is written by path, which needs the permission to write to the storage. */
+        private Saved saveByPath(Context context, File source, String fileName) throws IOException {
+            if (context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                throw new IOException("No permission to write to " + label());
+            }
+            File target = file(fileName);
+            File folder = target.getParentFile();
+            if (target.exists() && !target.delete()) Logger.printInfo(() -> "Could not replace " + target);
+            if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException(label() + " could not be created");
+            copy(source, new FileOutputStream(target));
+            return new Saved(fileName, null);
+        }
+
+        private Saved saveToMediaStore(Context context, File source, String fileName, String mimeType) throws IOException {
             // No look at the file first: since Android 10 an app sees but cannot remove files it did not just
             // create itself, and the name is made free by the caller. A name taken after all gets a "(1)".
             ContentValues values = new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
             values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, directory + "/" + subFolder);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, path());
             values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
             Uri uri = context.getContentResolver().insert(collection(), values);
@@ -429,9 +445,8 @@ abstract class DownloadLocation {
             // Before Android 10 there is no folder column, and the files are found by their path instead.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return rows;
             // The media store keeps the folder with a trailing slash; both forms are asked to be safe.
-            String selection = "(" + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR "
-                    + MediaStore.MediaColumns.RELATIVE_PATH + " = ?) AND " + MediaStore.MediaColumns.IS_PENDING + " = 0";
-            String[] arguments = {id(), directory + "/" + subFolder};
+            String selection = IN_FOLDER + " AND " + MediaStore.MediaColumns.IS_PENDING + " = 0";
+            String[] arguments = {id(), path()};
             try (Cursor cursor = context.getContentResolver().query(collection(), columns(), selection, arguments, null)) {
                 // No cursor: the media store could not be asked.
                 if (cursor == null) return null;
@@ -463,10 +478,9 @@ abstract class DownloadLocation {
             String selection;
             String[] arguments;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND ("
-                        + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR " + MediaStore.MediaColumns.RELATIVE_PATH + " = ?)"
+                selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND " + IN_FOLDER
                         + (finished ? " AND " + MediaStore.MediaColumns.IS_PENDING + " = 0" : "");
-                arguments = new String[]{fileName, id(), directory + "/" + subFolder};
+                arguments = new String[]{fileName, id(), path()};
             } else {
                 selection = MediaStore.MediaColumns.DATA + " = ?";
                 arguments = new String[]{file(fileName).getPath()};

@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.network;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.app.Activity;
 import android.app.Application;
 import android.app.Dialog;
@@ -8,7 +10,6 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
@@ -24,10 +25,6 @@ import app.revanced.extension.soundcloud.update.UpdateChecker;
 @SuppressWarnings("unused")
 public final class DataDomePrompt {
     private DataDomePrompt() {
-    }
-
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
     }
 
     /** Injection point. Replaces {@code context.startActivity(challengeIntent)} in the DataDome SDK. */

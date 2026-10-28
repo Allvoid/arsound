@@ -29,12 +29,6 @@ import java.util.Map;
  * once the row is dropped.
  */
 public final class ReorderColumn extends LinearLayout {
-    /** Called once a row was dropped at another place. */
-    public interface OrderListener {
-        /** @param keys The keys of the rows from top to bottom. */
-        void onOrderChanged(List<Object> keys);
-    }
-
     private static final long LIFT_MS = 120;
     private static final long SHIFT_MS = 140;
     private static final long DROP_MS = 160;
@@ -46,7 +40,6 @@ public final class ReorderColumn extends LinearLayout {
     private final Map<View, Object> keys = new IdentityHashMap<>();
     private final int liftColor;
     private final float density;
-    private OrderListener listener;
 
     // State of a drag; valid while "dragged" is not null.
     private View dragged;
@@ -74,10 +67,6 @@ public final class ReorderColumn extends LinearLayout {
         // The shadow of the lifted row reaches over the others.
         setClipChildren(false);
         setClipToPadding(false);
-    }
-
-    public void setOrderListener(OrderListener listener) {
-        this.listener = listener;
     }
 
     /**
@@ -272,7 +261,6 @@ public final class ReorderColumn extends LinearLayout {
         if (moved == origin) return;
         removeViewAt(origin);
         addView(row, moved);
-        if (listener != null) listener.onOrderChanged(keys());
     }
 
     private void resetDrag() {

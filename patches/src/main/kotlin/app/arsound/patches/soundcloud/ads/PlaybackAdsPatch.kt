@@ -1,15 +1,15 @@
 package app.arsound.patches.soundcloud.ads
 
 import app.revanced.patcher.definingClass
-import app.revanced.patcher.extensions.ExternalLabel
-import app.revanced.patcher.extensions.addInstructionsWithLabels
-import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.GuardExit
+import app.arsound.patches.soundcloud.misc.hooks.insertGuard
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
@@ -63,77 +63,78 @@ private val BytecodePatchContext.shouldInsertQueueStartAdMethod by gettingFirstM
     returnType("Ljava/lang/Object;")
 }
 
-private const val BANNER_CONDITIONS_CLASS =
-    "Lcom/soundcloud/android/ads/display/ui/banner/main/BannerAdFetchConditionsImpl;"
-
-// Banner conditions: a - player, b - profile, c - library, d - playlist, e - home and feed.
 /** Shows the full screen ad when the main screen opens (a suspend function). */
 private val BytecodePatchContext.interstitialAdShowMethod by gettingFirstMethodDeclaratively {
     name("a")
     definingClass("Lcom/soundcloud/android/ads/display/ui/interstitial/DefaultInterstitialAdController;")
 }
 
-private val BytecodePatchContext.bannerPlayerMethod by gettingFirstMethodDeclaratively { name("a"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
-private val BytecodePatchContext.bannerProfileMethod by gettingFirstMethodDeclaratively { name("b"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
-private val BytecodePatchContext.bannerLibraryMethod by gettingFirstMethodDeclaratively { name("c"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
-private val BytecodePatchContext.bannerPlaylistMethod by gettingFirstMethodDeclaratively { name("d"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
-private val BytecodePatchContext.bannerSectionsMethod by gettingFirstMethodDeclaratively { name("e"); definingClass(BANNER_CONDITIONS_CLASS); returnType("Z") }
+private const val BANNER_CONDITIONS_DESCRIPTOR =
+    "Lcom/soundcloud/android/ads/display/ui/banner/main/BannerAdFetchConditionsImpl;"
+
+// The conditions that decide whether a banner is shown, one per screen. Each answers a boolean.
+
+/** The banner of the player. */
+private val BytecodePatchContext.bannerPlayerMethod by gettingFirstMethodDeclaratively {
+    name("a")
+    definingClass(BANNER_CONDITIONS_DESCRIPTOR)
+    returnType("Z")
+}
+
+/** The banner of a profile. */
+private val BytecodePatchContext.bannerProfileMethod by gettingFirstMethodDeclaratively {
+    name("b")
+    definingClass(BANNER_CONDITIONS_DESCRIPTOR)
+    returnType("Z")
+}
+
+/** The banner of the library. */
+private val BytecodePatchContext.bannerLibraryMethod by gettingFirstMethodDeclaratively {
+    name("c")
+    definingClass(BANNER_CONDITIONS_DESCRIPTOR)
+    returnType("Z")
+}
+
+/** The banner of a playlist. */
+private val BytecodePatchContext.bannerPlaylistMethod by gettingFirstMethodDeclaratively {
+    name("d")
+    definingClass(BANNER_CONDITIONS_DESCRIPTOR)
+    returnType("Z")
+}
+
+/** The banner of the home screen and the feed. */
+private val BytecodePatchContext.bannerSectionsMethod by gettingFirstMethodDeclaratively {
+    name("e")
+    definingClass(BANNER_CONDITIONS_DESCRIPTOR)
+    returnType("Z")
+}
 
 /** Control playback advertisements: Adds an option to prevent SoundCloud from requesting audio, video and banner advertisements. Part of the "Arsound" patch, not shown on its own. */
 val playbackAdsPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
+        val isAdsBlocked = "invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->isAdsBlocked()Z"
+
         // Full screen ad on app start: the call returns right away, as if no ad was available.
-        interstitialAdShowMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->isAdsBlocked()Z
-                move-result v0
-                if-eqz v0, :show
-                sget-object v0, Lkotlin/Unit;->INSTANCE:Lkotlin/Unit;
-                return-object v0
-            """,
-            ExternalLabel("show", interstitialAdShowMethod.getInstruction(0)),
-        )
+        interstitialAdShowMethod.insertGuard(isAdsBlocked, GuardExit.ReturnUnit)
 
         // Queue start ads: from 24.10.2026 SoundCloud began inserting them into queues of accounts whose mid-queue
         // ads were already stopped above. The ad stream never loaded, so playback stopped on a full screen ad page.
-        shouldInsertQueueStartAdMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->isAdsBlocked()Z
-                move-result v0
-                if-eqz v0, :decide
-                sget-object v0, Ljava/lang/Boolean;->FALSE:Ljava/lang/Boolean;
-                return-object v0
-            """,
-            ExternalLabel("decide", shouldInsertQueueStartAdMethod.getInstruction(0)),
-        )
+        shouldInsertQueueStartAdMethod.insertGuard(isAdsBlocked, GuardExit.ReturnBoxedFalse)
+
         // Any ad that is fetched anyway is not inserted: the track replaces itself. The method has many registers,
         // so the track is passed with a range call.
-        adQueueItemsMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static/range { p1 .. p1 }, $EXTENSION_CLASS_DESCRIPTOR->trackWithoutAds(Ljava/lang/Object;)Ljava/util/List;
-                move-result-object v0
-                if-eqz v0, :build
-                return-object v0
-            """,
-            ExternalLabel("build", adQueueItemsMethod.getInstruction(0)),
+        adQueueItemsMethod.insertGuard(
+            "invoke-static/range { p1 .. p1 }, $EXTENSION_CLASS_DESCRIPTOR->trackWithoutAds(Ljava/lang/Object;)Ljava/util/List;",
+            GuardExit.ReturnAnswer(),
         )
 
-        playbackAdRequestMethod.addInstructionsWithLabels(
-            0,
-            """
-                invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->blockAdRequest()Z
-                move-result v0
-                if-eqz v0, :request
-                return-void
-            """,
-            ExternalLabel("request", playbackAdRequestMethod.getInstruction(0)),
+        playbackAdRequestMethod.insertGuard(
+            "invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->blockAdRequest()Z",
+            GuardExit.ReturnVoid,
         )
 
         // Returning false from these methods is what SoundCloud does for accounts without ads,
@@ -145,18 +146,6 @@ val playbackAdsPatch = bytecodePatch {
             bannerLibraryMethod,
             bannerPlaylistMethod,
             bannerSectionsMethod,
-        ).forEach { method ->
-            method.addInstructionsWithLabels(
-                0,
-                """
-                    invoke-static { }, $EXTENSION_CLASS_DESCRIPTOR->isAdsBlocked()Z
-                    move-result v0
-                    if-eqz v0, :original
-                    const/4 v0, 0x0
-                    return v0
-                """,
-                ExternalLabel("original", method.getInstruction(0)),
-            )
-        }
+        ).forEach { method -> method.insertGuard(isAdsBlocked, GuardExit.ReturnFalse) }
     }
 }

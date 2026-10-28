@@ -20,3 +20,7 @@
 -dontwarn java.beans.**
 -dontwarn javax.script.**
 -dontwarn jdk.dynalink.**
+# sherpa-onnx (lyrics recognition): its native library finds these Java classes, their fields and methods by name.
+-keep class com.k2fsa.sherpa.onnx.** {
+  *;
+}

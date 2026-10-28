@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.download;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -26,10 +28,6 @@ public final class DownloadFolder {
     private DownloadFolder() {
     }
 
-    private static String text(String russian, String english) {
-        return DownloadTrackPatch.text(russian, english);
-    }
-
     /** The folder new tracks go to when nothing else is chosen, for the user. */
     public static String defaultLabel() {
         return DownloadLocation.DEFAULT.label();
@@ -53,11 +51,7 @@ public final class DownloadFolder {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
                 .addFlags(GRANT | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            DownloadLocation current = DownloadLocation.current();
-            Uri start = current instanceof TreeFolder
-                    ? ((TreeFolder) current).tree()
-                    : DocumentsContract.buildDocumentUri(TreeFolder.LOCAL_AUTHORITY, "primary:Music");
-            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, start);
+            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, DownloadLocation.current().pickerStart());
         }
         return intent;
     }

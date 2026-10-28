@@ -1,18 +1,12 @@
 package app.revanced.extension.soundcloud.local;
 
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.view.View;
 import android.view.ViewGroup;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
@@ -27,38 +21,17 @@ import app.revanced.extension.soundcloud.settings.Settings;
  */
 @SuppressWarnings("unused")
 public final class PlaylistOrder {
-    private static final String PREFERENCES_NAME = "arsound_local_additions";
-    private static final String ORDER = "playlist_order";
+    private static final String ORDER_KEY = "playlist_order";
     private static final String PLAYLIST_ITEM_CLASS =
             "com.soundcloud.android.features.library.playlists.PlaylistCollectionItem$Playlist";
+    /** New playlists come first, so the user sees them. */
+    private static final ManualOrder ORDER = new ManualOrder(ORDER_KEY, ManualOrder.Unknown.FIRST);
 
     private PlaylistOrder() {
     }
 
-    private static SharedPreferences preferences() {
-        Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
-    }
-
-    private static List<String> savedOrder() {
-        SharedPreferences preferences = preferences();
-        String value = preferences == null ? "" : preferences.getString(ORDER, "");
-        List<String> order = new ArrayList<>();
-        for (String urn : value.split("\n")) if (!urn.isEmpty()) order.add(urn);
-        return order;
-    }
-
     public static void reset() {
-        SharedPreferences preferences = preferences();
-        if (preferences != null) preferences.edit().remove(ORDER).apply();
-    }
-
-    private static String urnOf(Object item) {
-        try {
-            return String.valueOf(item.getClass().getMethod("getUrn").invoke(item));
-        } catch (Exception ex) {
-            return null;
-        }
+        ORDER.clear();
     }
 
     /**
@@ -68,16 +41,11 @@ public final class PlaylistOrder {
      */
     public static List<?> applyOrder(List<?> playlists) {
         if (playlists == null || !Settings.isPlaylistOrderEnabled()) return playlists;
-        List<String> order = savedOrder();
+        List<String> order = ORDER.read();
         if (order.isEmpty()) return playlists;
         try {
-            Map<String, Integer> positions = new HashMap<>();
-            for (int i = 0; i < order.size(); i++) positions.put(order.get(i), i);
-            List<Object> result = new ArrayList<>(playlists);
             // Stable sort keeps SoundCloud's order among new playlists.
-            Collections.sort(result, (first, second) -> Integer.compare(
-                    positions.getOrDefault(urnOf(first), -1), positions.getOrDefault(urnOf(second), -1)));
-            return result;
+            return ORDER.sort(playlists, order, Urns::textOrNull);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not apply the playlist order", ex);
             return playlists;
@@ -91,7 +59,7 @@ public final class PlaylistOrder {
      */
     public static List<?> orderScreenItems(List<?> rows) {
         if (rows == null || !Settings.isPlaylistOrderEnabled()) return rows;
-        List<String> order = savedOrder();
+        List<String> order = ORDER.read();
         if (order.isEmpty()) return rows;
         try {
             List<Integer> slots = new ArrayList<>();
@@ -150,13 +118,12 @@ public final class PlaylistOrder {
     }
 
     private static void save(List<Object> rows) {
-        StringBuilder order = new StringBuilder();
+        List<String> urns = new ArrayList<>();
         for (Object item : rows) {
             if (!isPlaylistRow(item)) continue;
-            String urn = urnOf(item);
-            if (urn != null) order.append(urn).append('\n');
+            String urn = Urns.textOrNull(item);
+            if (urn != null) urns.add(urn);
         }
-        SharedPreferences preferences = preferences();
-        if (preferences != null) preferences.edit().putString(ORDER, order.toString()).apply();
+        ORDER.save(urns);
     }
 }

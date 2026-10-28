@@ -22,7 +22,7 @@ public final class Rx {
     }
 
     private static Class<?> type(ClassLoader loader, String name) throws ClassNotFoundException {
-        return Class.forName(name, false, loader);
+        return Reflect.type(loader, name);
     }
 
     /** Implements a single-method RxJava functional interface with a Java lambda. */
@@ -89,6 +89,16 @@ public final class Rx {
         ClassLoader loader = second.getClass().getClassLoader();
         return mergeMethod(loader, type(loader, CORE + "Observable"), type(loader, CORE + "ObservableSource"))
                 .invoke(null, first, second);
+    }
+
+    /** A new {@code PublishRelay}: an Observable that emits whatever is passed to {@link #relayAccept}. */
+    public static Object newRelay(ClassLoader loader) throws Exception {
+        return type(loader, "com.jakewharton.rxrelay3.PublishRelay").getConstructor().newInstance();
+    }
+
+    /** Pushes a value into a relay made by {@link #newRelay}, or into SoundCloud's own relay. */
+    public static void relayAccept(Object relay, Object value) throws Exception {
+        relay.getClass().getMethod("accept", Object.class).invoke(relay, value);
     }
 
     private static volatile Method merge;

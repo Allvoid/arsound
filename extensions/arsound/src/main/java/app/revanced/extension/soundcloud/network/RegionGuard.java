@@ -1,15 +1,6 @@
 package app.revanced.extension.soundcloud.network;
 
-import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.widget.Toast;
-
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -21,29 +12,61 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * Stops all requests to SoundCloud while the app goes online from an IP address of a country the user chose
  * (Russia by default; Ukraine, Belarus, Kazakhstan and any other country code can be added).
  * <p>
- * The country is checked through a neutral service (Cloudflare trace), over the same route the
+ * The country is checked through a neutral service (Cloudflare trace, {@link CountryTrace}), over the same route the
  * app uses, including a VPN. Until the check finishes, requests wait for it instead of leaking the
- * address. The result is kept until the network changes.
+ * address. The result is kept until the network changes ({@link RegionState}, {@link NetworkWatcher}).
  */
 public final class RegionGuard {
-    private static final int CHECK_TIMEOUT_MS = 6_000;
+    /**
+     * A failed country check is not repeated for this long, so a dead network does not cause a check per request.
+     * Short: right after launch Android blocks the network of an app that is not yet on screen, and a long pause
+     * made SoundCloud show "No internet connection" on start.
+     */
+    private static final long FAILED_CHECK_BACKOFF_MS = 3_000;
+    /** Blocked requests are answered after this pause, so SoundCloud's retry loops cannot spin the radio and CPU. */
+    private static final long BLOCKED_RESPONSE_DELAY_MS = 1_500;
+    /** The known answer is re-checked in the background this often, so a new IP on the same network is noticed. */
+    private static final long BLOCKED_RECHECK_MS = 30_000;
 
-    private static volatile String country;
-    private static volatile boolean listening;
-    /** The default network last reported, to tell the first report of the current one from a real change. */
-    private static volatile Network lastNetwork;
-    private static volatile boolean toastShown;
+    private static final RegionState state = new RegionState();
+    private static final NetworkWatcher watcher = new NetworkWatcher(new NetworkWatcher.Listener() {
+        @Override
+        public void onNetworkReplaced() {
+            // Turned off by the user: the known country stays until a check by hand.
+            if (!Settings.isRegionRecheckOnChangeEnabled()) return;
+            state.networkChanged(true);
+        }
+
+        @Override
+        public void onLinkChanged() {
+            if (!Settings.isRegionRecheckOnChangeEnabled()) return;
+            // A new local address or DNS on the same network may mean a new public IP. This event is
+            // frequent, so requests keep the known answer while it is checked again in the background.
+            state.setCheckedAt(0);
+            recheckIfStaleNow();
+        }
+
+        @Override
+        public void onNetworkLost() {
+            if (!Settings.isRegionRecheckOnChangeEnabled()) return;
+            state.networkChanged(false);
+        }
+    });
+
+    private static volatile boolean recheckRunning;
+    /** Only one background check waits in the pool for a connectivity query; see {@link #isConnected}. */
+    private static final AtomicBoolean checkQueued = new AtomicBoolean();
 
     private RegionGuard() {
     }
 
     public static String lastCountry() {
-        return country;
+        return state.country();
     }
 
     /** True while requests are blocked because the last known country is one of the chosen ones. */
     public static boolean blocksLastCountry() {
-        String current = country;
+        String current = state.country();
         return current != null && active() && Settings.getRegionGuardCountries().contains(current);
     }
 
@@ -55,31 +78,6 @@ public final class RegionGuard {
     private static boolean isBlockedCountry(String code) {
         return Settings.getRegionGuardCountries().contains(code);
     }
-
-    /**
-     * A failed country check is not repeated for this long, so a dead network does not cause a check per request.
-     * Short: right after launch Android blocks the network of an app that is not yet on screen, and a long pause
-     * made SoundCloud show "No internet connection" on start.
-     */
-    private static final long FAILED_CHECK_BACKOFF_MS = 3_000;
-    /** Blocked requests are answered after this pause, so SoundCloud's retry loops cannot spin the radio and CPU. */
-    private static final long BLOCKED_RESPONSE_DELAY_MS = 1_500;
-
-    private static volatile long lastFailedCheck;
-    /** The known answer is re-checked in the background this often, so a new IP on the same network is noticed. */
-    private static final long BLOCKED_RECHECK_MS = 30_000;
-    private static volatile long checkedAt;
-    private static volatile boolean recheckRunning;
-    /** Only one background check waits in the pool for a connectivity query; see {@link #isConnected}. */
-    private static final AtomicBoolean checkQueued = new AtomicBoolean();
-
-    /**
-     * Guards {@link #generation} and the writes of a check's answer. Not the class monitor: {@link #check()} holds
-     * that for the whole request, and the network callback must not wait for it.
-     */
-    private static final Object STATE = new Object();
-    /** Counts network changes. An answer of a check that started before a change belongs to the old network. */
-    private static int generation;
 
     /** @return True if the request to this host must not be sent. Called on network threads. */
     public static boolean shouldBlock(String host) {
@@ -103,16 +101,16 @@ public final class RegionGuard {
     }
 
     private static boolean isBlockedNow() {
-        listenForNetworkChanges();
-        String current = country;
-        if (current == null && System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS) {
+        watcher.start();
+        String current = state.country();
+        if (current == null && System.currentTimeMillis() - state.lastFailedCheck() > FAILED_CHECK_BACKOFF_MS) {
             current = check();
         }
         boolean blocked = current == null || isBlockedCountry(current);
         // An allowed answer is checked again too: a VPN that loses its tunnel on a bad network can send
         // requests directly without the network changing, and the old answer would let them through.
         recheckIfStale();
-        if (blocked) showBlockedToast(current);
+        if (blocked && state.claimNotice()) BlockNotice.show(current);
         return blocked;
     }
 
@@ -134,7 +132,7 @@ public final class RegionGuard {
      */
     public static boolean isConnected(boolean connected) {
         if (!connected || !active()) return connected;
-        String current = country;
+        String current = state.country();
         if (current != null) {
             if (!isBlockedCountry(current)) return true;
             recheckIfStale();
@@ -143,7 +141,7 @@ public final class RegionGuard {
         // Unknown yet: report the network as connected, the requests themselves wait for the check.
         // This is asked for every list row and playback event, so one queued check is enough: the others would
         // only park on its lock, each in a thread of its own. A failed check is not repeated inside the backoff.
-        if (System.currentTimeMillis() - lastFailedCheck > FAILED_CHECK_BACKOFF_MS && checkQueued.compareAndSet(false, true)) {
+        if (System.currentTimeMillis() - state.lastFailedCheck() > FAILED_CHECK_BACKOFF_MS && checkQueued.compareAndSet(false, true)) {
             try {
                 Utils.runOnBackgroundThread(() -> {
                     try {
@@ -173,8 +171,7 @@ public final class RegionGuard {
      */
     public static void recheck(Runnable onDone) {
         Utils.runOnBackgroundThread(() -> {
-            lastFailedCheck = 0;
-            toastShown = false;
+            state.forgetFailure();
             fetchAndPublish();
             if (onDone != null) Utils.runOnMainThread(onDone);
         });
@@ -187,28 +184,14 @@ public final class RegionGuard {
     }
 
     private static void recheckIfStaleNow() {
-        if (recheckRunning || System.currentTimeMillis() - checkedAt < BLOCKED_RECHECK_MS) return;
+        if (recheckRunning || System.currentTimeMillis() - state.checkedAt() < BLOCKED_RECHECK_MS) return;
         recheckRunning = true;
         Utils.runOnBackgroundThread(() -> {
             try {
-                int started = currentGeneration();
-                String previous = country;
+                int started = state.generation();
+                String previous = state.country();
                 String fresh = fetchCountry();
-                synchronized (STATE) {
-                    // The network changed during the check: its answer belongs to the old one and must not replace
-                    // the state of the new one. The unknown country makes the next request check again.
-                    if (started != generation) return;
-                    if (fresh != null) {
-                        country = fresh;
-                        if (!fresh.equals(previous)) toastShown = false;
-                    } else if (previous != null && !isBlockedCountry(previous)) {
-                        // A failed check on an allowed network means the route is unstable, and a VPN may be
-                        // reconnecting. Requests wait for a successful check instead of trusting the old answer.
-                        country = null;
-                        lastFailedCheck = System.currentTimeMillis();
-                        toastShown = false;
-                    }
-                }
+                state.publishBackgroundCheck(started, previous, fresh, RegionGuard::isBlockedCountry);
             } finally {
                 recheckRunning = false;
             }
@@ -217,29 +200,13 @@ public final class RegionGuard {
 
     /** Checks the country once for all waiting requests. Null means the check failed. */
     private static synchronized String check() {
-        if (country != null) return country;
+        String known = state.country();
+        if (known != null) return known;
         // Threads that queued on this lock while one check failed take its answer instead of each running a check
         // of 6 s connect and 6 s read of their own.
-        if (lastFailedCheck != 0 && System.currentTimeMillis() - lastFailedCheck <= FAILED_CHECK_BACKOFF_MS) return null;
+        long failedAt = state.lastFailedCheck();
+        if (failedAt != 0 && System.currentTimeMillis() - failedAt <= FAILED_CHECK_BACKOFF_MS) return null;
         return fetchAndPublish();
-    }
-
-    private static int currentGeneration() {
-        synchronized (STATE) {
-            return generation;
-        }
-    }
-
-    /** The network changed: forgets the known country, and answers of checks that are still running are dropped. */
-    private static void networkChanged(boolean resetFailedCheck) {
-        synchronized (STATE) {
-            generation++;
-            country = null;
-            if (resetFailedCheck) {
-                lastFailedCheck = 0;
-                toastShown = false;
-            }
-        }
     }
 
     /**
@@ -248,131 +215,21 @@ public final class RegionGuard {
      */
     private static String fetchAndPublish() {
         for (int attempt = 0; attempt < 2; attempt++) {
-            int started = currentGeneration();
+            int started = state.generation();
             String fresh = fetchCountry();
-            synchronized (STATE) {
-                if (started == generation) {
-                    if (fresh != null) country = fresh;
-                    else lastFailedCheck = System.currentTimeMillis();
-                    return fresh;
-                }
-            }
+            if (state.publishCheck(started, fresh)) return fresh;
         }
         return null;
     }
 
-    /** Asks Cloudflare for the country of the current public IP. Null means the check failed. */
     private static String fetchCountry() {
-        waitUntilForeground();
-        checkedAt = System.currentTimeMillis();
-        try {
-            HttpURLConnection connection = (HttpURLConnection)
-                    new URL("https://www.cloudflare.com/cdn-cgi/trace").openConnection();
-            connection.setConnectTimeout(CHECK_TIMEOUT_MS);
-            connection.setReadTimeout(CHECK_TIMEOUT_MS);
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.startsWith("loc=")) {
-                        String found = line.substring(4).trim().toUpperCase(Locale.US);
-                        Logger.printInfo(() -> "Region guard: country " + found);
-                        return found;
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Region guard: country check failed: " + ex);
-        }
-        return null;
-    }
-
-    /**
-     * Right after launch Android blocks the network of an app that is not on screen yet, and the failed
-     * DNS answer stays cached for several seconds, so a check started then failed and SoundCloud showed
-     * "No internet connection". Waits up to 3 seconds for the app to come to the foreground.
-     */
-    private static void waitUntilForeground() {
-        long deadline = System.currentTimeMillis() + 3_000;
-        android.app.ActivityManager.RunningAppProcessInfo info = new android.app.ActivityManager.RunningAppProcessInfo();
-        while (System.currentTimeMillis() < deadline) {
-            android.app.ActivityManager.getMyMemoryState(info);
-            if (info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE) return;
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-        }
-    }
-
-    private static void listenForNetworkChanges() {
-        if (listening) return;
-        Context context = Utils.getContext();
-        if (context == null) return;
-        try {
-            ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-            manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
-                @Override
-                public void onAvailable(Network network) {
-                    // Right after registering, Android reports the network already in use: not a change, and
-                    // treating it as one would throw away the check that is running for it.
-                    Network previous = lastNetwork;
-                    lastNetwork = network;
-                    if (previous == null || previous.equals(network)) return;
-                    // Turned off by the user: the known country stays until a check by hand.
-                    if (!Settings.isRegionRecheckOnChangeEnabled()) return;
-                    networkChanged(true);
-                }
-
-                @Override
-                public void onLinkPropertiesChanged(Network network, android.net.LinkProperties properties) {
-                    if (!Settings.isRegionRecheckOnChangeEnabled()) return;
-                    // A new local address or DNS on the same network may mean a new public IP. This event is
-                    // frequent, so requests keep the known answer while it is checked again in the background.
-                    checkedAt = 0;
-                    recheckIfStaleNow();
-                }
-
-                @Override
-                public void onLost(Network network) {
-                    if (!Settings.isRegionRecheckOnChangeEnabled()) return;
-                    networkChanged(false);
-                }
-            });
-            listening = true;
-        } catch (Exception ex) {
-            Logger.printException(() -> "Region guard: could not watch network changes", ex);
-        }
-    }
-
-    private static void showBlockedToast(String current) {
-        if (toastShown) return;
-        toastShown = true;
-        Context context = Utils.getContext();
-        if (context == null) return;
-        boolean russian = "ru".equals(Locale.getDefault().getLanguage());
-        String message = current == null
-                ? (russian ? "Arsound: не удалось проверить страну IP — SoundCloud отключён, играют скачанные треки"
-                : "Arsound: could not check the IP country, SoundCloud is off, downloaded tracks still play")
-                : (russian ? "Arsound: " + describeIp(current, true) + " — SoundCloud отключён, играют скачанные треки"
-                : "Arsound: " + describeIp(current, false) + ", SoundCloud is off, downloaded tracks still play");
-        Utils.runOnMainThread(() -> Toast.makeText(context, message, Toast.LENGTH_LONG).show());
+        CountryTrace.waitUntilForeground();
+        state.setCheckedAt(System.currentTimeMillis());
+        return CountryTrace.request();
     }
 
     /** "российский IP", "Ukrainian IP", "IP страны DE": the country of the address in words. */
     public static String describeIp(String code, boolean russian) {
-        switch (code) {
-            case "RU":
-                return russian ? "российский IP" : "Russian IP";
-            case "UA":
-                return russian ? "украинский IP" : "Ukrainian IP";
-            case "BY":
-                return russian ? "белорусский IP" : "Belarusian IP";
-            case "KZ":
-                return russian ? "казахстанский IP" : "Kazakh IP";
-            default:
-                return russian ? "IP страны " + code : "IP from " + code;
-        }
+        return IpCountry.describe(code, russian);
     }
 }

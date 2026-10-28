@@ -1,20 +1,21 @@
 package app.arsound.patches.soundcloud.network
 
-import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.wrapEveryReturn
+import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.indexOfFirstInstructionOrThrow
-import app.revanced.patcher.extensions.methodReference
-import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.getInstruction
-import app.revanced.patcher.returnType
-import com.android.tools.smali.dexlib2.Opcode
-import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
-import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+import app.revanced.patcher.returnType
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/network/NetworkPatch;"
@@ -45,7 +46,7 @@ private val BytecodePatchContext.dataDomeChallengeStartMethod by gettingFirstMet
 val networkPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // Ask before the bot protection check screen opens over the app.
@@ -66,22 +67,10 @@ val networkPatch = bytecodePatch {
             "invoke-static { p0 }, $EXTENSION_CLASS_DESCRIPTOR->onBuild(Ljava/lang/Object;)V",
         )
 
-        networkConnectedMethod.apply {
-            // Every "return pN" of the method passes the result through the region guard first.
-            implementation!!.instructions.withIndex()
-                .filter { it.value.opcode == Opcode.RETURN }
-                .map { it.index }
-                .reversed()
-                .forEach { index ->
-                    val register = getInstruction<OneRegisterInstruction>(index).registerA
-                    addInstructions(
-                        index,
-                        """
-                            invoke-static { v$register }, Lapp/revanced/extension/soundcloud/network/RegionGuard;->isConnected(Z)Z
-                            move-result v$register
-                        """,
-                    )
-                }
-        }
+        // Every "return pN" of the method passes the result through the region guard first.
+        networkConnectedMethod.wrapEveryReturn(
+            Opcode.RETURN,
+            "Lapp/revanced/extension/soundcloud/network/RegionGuard;->isConnected(Z)Z",
+        )
     }
 }

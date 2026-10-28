@@ -9,11 +9,11 @@ import com.soundcloud.android.ui.components.compose.listviews.CellIcon;
 import com.soundcloud.android.ui.components.compose.listviews.track.CellSmallTrackEndContentRowScope;
 
 import java.lang.reflect.Field;
-import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Lang;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function0;
 
@@ -31,15 +31,10 @@ public final class TrackCellMarks {
     private static final int GROUP_KEY = 0x41727331;
     private static final float DELETED_ALPHA = 0.4f;
 
-    /** Read each time: the app language can change while the app runs (the welcome switch). */
-    private static boolean russian() {
-        return "ru".equals(Locale.getDefault().getLanguage());
-    }
-
     private static volatile CellIcon importedIcon;
 
     private static final Function0<Unit> IMPORTED_TAP = () -> {
-        Toast.makeText(Utils.getContext(), russian()
+        Toast.makeText(Utils.getContext(), Lang.russian()
                 ? "Импортированный трек: играет из файла на этом телефоне"
                 : "Imported track: plays from a file on this phone", Toast.LENGTH_SHORT).show();
         return Unit.INSTANCE;
@@ -48,18 +43,9 @@ public final class TrackCellMarks {
     private TrackCellMarks() {
     }
 
-    private static String urnOf(Object trackItem) {
-        try {
-            return String.valueOf(trackItem.getClass().getMethod("getUrn").invoke(trackItem));
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-
     private static boolean isImported(Object trackItem) {
         try {
-            Object urn = trackItem.getClass().getMethod("getUrn").invoke(trackItem);
-            return urn != null && urn.getClass().getName().endsWith(".LocalTrackUrn");
+            return Urns.isLocalFile(Urns.of(trackItem));
         } catch (Exception ex) {
             return false;
         }
@@ -101,7 +87,7 @@ public final class TrackCellMarks {
      */
     public static Object cellModifier(Object modifier, Object trackItem) {
         try {
-            String urn = urnOf(trackItem);
+            String urn = Urns.textOrNull(trackItem);
             if (urn == null) return modifier;
             RemovedTracks.rememberTitle(urn, (String) trackItem.getClass().getMethod("getTitle").invoke(trackItem),
                     (String) trackItem.getClass().getMethod("getCreatorName").invoke(trackItem));
@@ -136,10 +122,10 @@ public final class TrackCellMarks {
                     trackItem = field.get(item);
                 }
             }
-            String urn = trackItem == null ? null : urnOf(trackItem);
+            String urn = trackItem == null ? null : Urns.textOrNull(trackItem);
             if (urn == null || !RemovedTracks.isDeleted(urn)) return false;
 
-            Toast.makeText(Utils.getContext(), russian()
+            Toast.makeText(Utils.getContext(), Lang.russian()
                     ? "Трек удалён из SoundCloud. Скачан он не был, поэтому послушать его нельзя — "
                     + "он остался в плейлисте как запись о том, что здесь был"
                     : "This track was deleted from SoundCloud and was not downloaded, so it cannot be played. "

@@ -7,6 +7,7 @@ import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Reflect;
 
 /**
  * The header of the playlist and album screen.
@@ -89,12 +90,9 @@ public final class PlaylistHeader {
     }
 
     private static String playlistUrnOf(Object metadata) throws Exception {
-        for (java.lang.reflect.Field field : metadata.getClass().getDeclaredFields()) {
-            if (!field.getType().getName().endsWith(".PlaylistItem")) continue;
-            field.setAccessible(true);
-            Object item = field.get(metadata);
-            return item == null ? null : String.valueOf(item.getClass().getMethod("getUrn").invoke(item));
-        }
-        return null;
+        java.lang.reflect.Field field = Reflect.field(metadata.getClass(), Reflect.typeNameEndsWith(".PlaylistItem"));
+        if (field == null) return null;
+        Object item = field.get(metadata);
+        return item == null ? null : Urns.textOf(item);
     }
 }

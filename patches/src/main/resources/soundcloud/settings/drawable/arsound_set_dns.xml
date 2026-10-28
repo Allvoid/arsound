@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings icon "dns": Two stacked servers. Drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the row tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M5,4.75h14a0.75,0.75 0 0 1 0.75,0.75v4a0.75,0.75 0 0 1 -0.75,0.75H5a0.75,0.75 0 0 1 -0.75,-0.75v-4A0.75,0.75 0 0 1 5,4.75z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M5,13.75h14a0.75,0.75 0 0 1 0.75,0.75v4a0.75,0.75 0 0 1 -0.75,0.75H5a0.75,0.75 0 0 1 -0.75,-0.75v-4A0.75,0.75 0 0 1 5,13.75z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M7.75,7.5h0.01 M7.75,16.5h0.01"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

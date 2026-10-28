@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.settings;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.app.Activity;
 import android.app.Dialog;
 import android.graphics.Color;
@@ -23,12 +25,13 @@ import java.util.function.Consumer;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
+import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.theme.CustomTheme;
 
 /**
  * The dialog that picks one colour of the custom theme: a small drawing of the app in the theme with the candidate in
- * place, which follows the finger, the {@link ColorPickerView}, a field for the hex code and a row of ready colours.
+ * place, which follows the finger, the {@link HsvColorPicker}, a field for the hex code and a row of ready colours.
  */
 public final class ColorPickerDialog {
     /** What the dialog draws for a candidate colour. */
@@ -47,7 +50,7 @@ public final class ColorPickerDialog {
     private final Preview preview;
     private final String[] presets;
     private final ThemePreviewView previewView;
-    private final ColorPickerView picker;
+    private final HsvColorPicker picker;
     private final EditText field;
     private final TextView note;
     private final LinearLayout swatches;
@@ -60,7 +63,7 @@ public final class ColorPickerDialog {
         this.presets = presets;
         this.current = initial;
         previewView = new ThemePreviewView(activity);
-        picker = new ColorPickerView(activity);
+        picker = new HsvColorPicker(activity);
         picker.setContentDescription(text("Выбор цвета", "Colour picker"));
         field = new EditText(activity);
         note = styled("Body.Secondary", "");
@@ -231,11 +234,7 @@ public final class ColorPickerDialog {
         return view;
     }
 
-    private static String text(String russian, String english) {
-        return "ru".equals(java.util.Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
     private int dp(float value) {
-        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, activity.getResources().getDisplayMetrics()));
+        return Dimens.dp(activity, value);
     }
 }

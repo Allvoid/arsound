@@ -2,36 +2,23 @@ package app.revanced.extension.soundcloud.player;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
-import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
-import app.revanced.extension.soundcloud.local.LocalAdditions;
-import app.revanced.extension.soundcloud.local.LocalMusic;
+import app.revanced.extension.soundcloud.download.UnplayedDownloads;
 import app.revanced.extension.soundcloud.recommendations.ForYou;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
  * Listening statistics, kept only on this phone. The player reports the start of every track and
  * every switch between playing and not playing; the time a track really played is written to a
- * file, one line per listen: start time, track urn, milliseconds played.
+ * file ({@link HistoryFile}), one {@link ListenRecord} per listen: start time, track urn, milliseconds played.
  * <p>
  * A listen counts as a play from {@link #PLAY_THRESHOLD_MS} on, shorter ones only add time.
  */
@@ -42,24 +29,17 @@ public final class ListeningStats {
     private static final String PREFERENCES_NAME = "arsound_listening_stats";
     /** The listen in progress, saved on every pause so it survives the app being closed. */
     private static final String PENDING = "pending";
-    private static final String TITLES = "titles";
-    /**
-     * Tracks the server did not return when their titles were asked for (deleted, private, blocked in
-     * the region), by track id, with the time of the answer.
-     */
-    private static final String NOT_FOUND = "not_found";
-    private static final long NOT_FOUND_RETRY_MS = 3L * 24 * 60 * 60 * 1000;
+    /** A listen shorter than this is not worth a line in the history. */
+    private static final long MIN_LISTEN_MS = 1000;
+    /** The ExoPlayer states: ready to play, and the end of the track. */
+    private static final int STATE_READY = 3;
+    private static final int STATE_ENDED = 4;
 
     /**
-     * Guards the history file. The listen in progress is guarded by the class itself instead: the
-     * player calls the hooks below on its own thread and must not wait for a file to be read.
+     * The listen in progress. Guarded by the class itself ({@code synchronized} methods): the player calls the hooks
+     * below on its own thread and must not wait for a file to be read.
      */
-    private static final Object FILE_LOCK = new Object();
-
-    private static String currentUrn;
-    private static long currentStart;
-    private static long playedMs;
-    private static long playingSince;
+    private static final ListenSession SESSION = new ListenSession();
 
     private ListeningStats() {
     }
@@ -71,11 +51,6 @@ public final class ListeningStats {
     private static SharedPreferences preferences() {
         Context context = Utils.getContext();
         return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
-    }
-
-    private static File file() {
-        Context context = Utils.getContext();
-        return context == null ? null : new File(context.getFilesDir(), "arsound/listening.tsv");
     }
 
     // region Recording
@@ -90,14 +65,13 @@ public final class ListeningStats {
             Object urn = item.getClass().getMethod("h").invoke(item);
             String value = String.valueOf(urn);
             // Kept even with the statistics off: unplayed downloads are counted from it.
-            app.revanced.extension.soundcloud.download.UnplayedDownloads.onTrackStarted(value);
+            UnplayedDownloads.onTrackStarted(value);
             if (isResume(item, value)) return;
             finishListen();
             if (!isEnabled()) return;
             // Ads and other items that are not tracks are not counted.
             if (!value.contains(":tracks:")) return;
-            currentUrn = value;
-            currentStart = System.currentTimeMillis();
+            SESSION.begin(value, System.currentTimeMillis());
         } catch (Exception ex) {
             Logger.printException(() -> "Listening stats: could not read the playback item", ex);
         }
@@ -119,26 +93,19 @@ public final class ListeningStats {
         }
         // From the start it is a new listen, also of the same track.
         if (position <= 0) return false;
-        if (urn.equals(currentUrn)) return true;
-        if (currentUrn != null || !isEnabled()) return false;
+        if (SESSION.isOf(urn)) return true;
+        if (SESSION.isActive() || !isEnabled()) return false;
         SharedPreferences preferences = preferences();
         String pending = preferences == null ? null : preferences.getString(PENDING, null);
         String[] parts = pending == null ? new String[0] : pending.split("\t");
         if (parts.length != 3 || !parts[1].equals(urn)) return false;
-        long start;
-        long played;
-        try {
-            start = Long.parseLong(parts[0]);
-            played = Long.parseLong(parts[2]);
-        } catch (NumberFormatException ex) {
+        ListenRecord saved = ListenRecord.parse(pending);
+        if (saved == null) {
             // A damaged mark of an earlier listen: forgotten, or it would be read again at every track.
             if (preferences != null) preferences.edit().remove(PENDING).apply();
             return false;
         }
-        currentUrn = urn;
-        currentStart = start;
-        playedMs = played;
-        playingSince = 0;
+        SESSION.resume(saved);
         Logger.printInfo(() -> "Listening stats: the listen saved at the pause goes on: " + urn);
         return true;
     }
@@ -150,41 +117,28 @@ public final class ListeningStats {
      * @param state         The ExoPlayer state; 3 is ready.
      */
     public static synchronized void onPlayerState(boolean playWhenReady, int state) {
-        if (currentUrn == null) return;
-        long now = System.currentTimeMillis();
-        boolean playing = playWhenReady && state == 3;
-        if (playing && playingSince == 0) {
-            playingSince = now;
-        } else if (!playing && playingSince != 0) {
-            playedMs += now - playingSince;
-            playingSince = 0;
-            savePending();
-        }
+        if (!SESSION.isActive()) return;
+        boolean playing = playWhenReady && state == STATE_READY;
+        if (SESSION.onPlayingChanged(playing, System.currentTimeMillis())) savePending();
         // The track ended by itself.
-        if (state == 4) finishListen();
+        if (state == STATE_ENDED) finishListen();
     }
 
     private static void finishListen() {
-        if (currentUrn == null) {
+        if (!SESSION.isActive()) {
             flushPending();
             return;
         }
-        if (playingSince != 0) playedMs += System.currentTimeMillis() - playingSince;
-        String urn = currentUrn;
-        long start = currentStart;
-        long played = playedMs;
-        currentUrn = null;
-        playedMs = 0;
-        playingSince = 0;
+        ListenRecord ended = SESSION.end(System.currentTimeMillis());
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().remove(PENDING).apply();
-        if (played >= 1000) append(start, urn, played);
+        if (ended.playedMs >= MIN_LISTEN_MS) append(ended);
     }
 
     private static void savePending() {
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
-        preferences.edit().putString(PENDING, currentStart + "\t" + currentUrn + "\t" + playedMs).apply();
+        preferences.edit().putString(PENDING, SESSION.pendingMark().format()).apply();
     }
 
     /** A listen the app was closed in the middle of. */
@@ -193,33 +147,17 @@ public final class ListeningStats {
         String pending = preferences == null ? null : preferences.getString(PENDING, null);
         if (pending == null) return;
         preferences.edit().remove(PENDING).apply();
-        String[] parts = pending.split("\t");
-        if (parts.length == 3) append(Long.parseLong(parts[0]), parts[1], Long.parseLong(parts[2]));
+        ListenRecord saved = ListenRecord.parse(pending);
+        if (saved != null) append(saved);
     }
 
-    private static void append(long start, String urn, long played) {
-        Logger.printInfo(() -> "Listening stats: " + urn + " played " + played / 1000 + " s");
-        Utils.runOnBackgroundThread(() -> {
-            synchronized (FILE_LOCK) {
-                File file = file();
-                if (file == null) return;
-                //noinspection ResultOfMethodCallIgnored
-                file.getParentFile().mkdirs();
-                try (FileWriter writer = new FileWriter(file, true)) {
-                    writer.write(start + "\t" + urn + "\t" + played + "\n");
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Listening stats: could not write", ex);
-                }
-            }
-        });
+    private static void append(ListenRecord record) {
+        Logger.printInfo(() -> "Listening stats: " + record.urn + " played " + record.playedMs / 1000 + " s");
+        HistoryFile.append(record);
     }
 
     public static synchronized void clear() {
-        File file = file();
-        // Not under FILE_LOCK: this is called on the main thread, which must not wait for a reader. A reader
-        // that has the file open finishes the old history, and a listen written just now is lost with it.
-        //noinspection ResultOfMethodCallIgnored
-        if (file != null) file.delete();
+        HistoryFile.delete();
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().remove(PENDING).apply();
     }
@@ -228,6 +166,7 @@ public final class ListeningStats {
 
     // region Reading
 
+    /** A track or an artist in the statistics, with what was played of it. */
     public static final class Entry {
         public final String key;
         public String title;
@@ -238,6 +177,12 @@ public final class ListeningStats {
         Entry(String key) {
             this.key = key;
         }
+
+        /** Adds a listen: the time always, a play only if it was long enough. */
+        void addListen(long played) {
+            playedMs += played;
+            if (played >= PLAY_THRESHOLD_MS) plays++;
+        }
     }
 
     public static final class Summary {
@@ -246,6 +191,26 @@ public final class ListeningStats {
         public int tracks;
         public final List<Entry> topTracks = new ArrayList<>();
         public final List<Entry> topArtists = new ArrayList<>();
+
+        /** Adds a listen of the track to the totals and to its entry. */
+        void addListen(Entry track, long played) {
+            track.addListen(played);
+            playedMs += played;
+            if (played >= PLAY_THRESHOLD_MS) plays++;
+        }
+    }
+
+    /** The start of the last listen of each track in the statistics, by its urn. */
+    public static Map<String, Long> lastListens() {
+        Map<String, Long> result = new HashMap<>();
+        HistoryFile.forEachLine(line -> {
+            // One damaged line must not hide the rest of the history: the tracks after it would count as unplayed.
+            ListenRecord record = ListenRecord.parseStartAndUrn(line);
+            if (record == null) return;
+            Long known = result.get(record.urn);
+            if (known == null || known < record.start) result.put(record.urn, record.start);
+        });
+        return result;
     }
 
     /**
@@ -253,88 +218,48 @@ public final class ListeningStats {
      *
      * @param since Epoch milliseconds, 0 for all time.
      */
-    /** The start of the last listen of each track in the statistics, by its urn. */
-    public static Map<String, Long> lastListens() {
-        Map<String, Long> result = new HashMap<>();
-        File file = file();
-        if (file == null || !file.isFile()) return result;
-        synchronized (FILE_LOCK) {
-            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String[] parts = line.split("\t");
-                    if (parts.length != 3) continue;
-                    long start;
-                    try {
-                        start = Long.parseLong(parts[0]);
-                    } catch (NumberFormatException ex) {
-                        // One damaged line must not hide the rest of the history: the tracks after it would count as unplayed.
-                        continue;
-                    }
-                    Long known = result.get(parts[1]);
-                    if (known == null || known < start) result.put(parts[1], start);
-                }
-            } catch (Exception ex) {
-                Logger.printException(() -> "Listening stats: could not read", ex);
-            }
-        }
-        return result;
-    }
-
     public static Summary summarize(long since, int limit) {
         Summary summary = new Summary();
         Map<String, Entry> tracks = new HashMap<>();
-        File file = file();
-        if (file != null && file.isFile()) {
-            synchronized (FILE_LOCK) {
-                try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        String[] parts = line.split("\t");
-                        long started;
-                        long played;
-                        try {
-                            if (parts.length != 3) continue;
-                            started = Long.parseLong(parts[0]);
-                            played = Long.parseLong(parts[2]);
-                        } catch (NumberFormatException ex) {
-                            // One damaged line must not hide the rest of the history.
-                            continue;
-                        }
-                        if (started < since) continue;
-                        Entry entry = tracks.get(parts[1]);
-                        if (entry == null) tracks.put(parts[1], entry = new Entry(parts[1]));
-                        entry.playedMs += played;
-                        summary.playedMs += played;
-                        if (played >= PLAY_THRESHOLD_MS) {
-                            entry.plays++;
-                            summary.plays++;
-                        }
-                    }
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Listening stats: could not read", ex);
-                }
-            }
-        }
+        HistoryFile.forEachLine(line -> {
+            // One damaged line must not hide the rest of the history.
+            ListenRecord record = ListenRecord.parse(line);
+            if (record == null || record.start < since) return;
+            summary.addListen(entry(tracks, record.urn), record.playedMs);
+        });
         addCurrent(summary, tracks, since);
         summary.tracks = tracks.size();
 
         List<Entry> sorted = new ArrayList<>(tracks.values());
         sorted.sort((a, b) -> a.plays != b.plays ? Integer.compare(b.plays, a.plays) : Long.compare(b.playedMs, a.playedMs));
         // Artists need the titles of all tracks, not only the top ones.
-        resolveTitles(sorted);
+        TrackTitleResolver.resolve(sorted, preferences());
         for (int i = 0; i < Math.min(limit, sorted.size()); i++) summary.topTracks.add(sorted.get(i));
 
-        // One artist is written in different ways ("CUPSIZE", "Cupsize", "Cupsize & ..."): counted
-        // together and named as written on the tracks played the longest.
+        List<Entry> artistList = groupByArtist(sorted);
+        artistList.sort((a, b) -> Long.compare(b.playedMs, a.playedMs));
+        for (int i = 0; i < Math.min(limit, artistList.size()); i++) summary.topArtists.add(artistList.get(i));
+        return summary;
+    }
+
+    private static Entry entry(Map<String, Entry> entries, String key) {
+        Entry entry = entries.get(key);
+        if (entry == null) entries.put(key, entry = new Entry(key));
+        return entry;
+    }
+
+    /**
+     * One artist is written in different ways ("CUPSIZE", "Cupsize", "Cupsize & ..."): counted together and named
+     * as written on the tracks played the longest.
+     */
+    private static List<Entry> groupByArtist(List<Entry> tracks) {
         Map<String, Entry> artists = new HashMap<>();
         Map<String, Map<String, Long>> spellings = new HashMap<>();
-        for (Entry track : sorted) {
+        for (Entry track : tracks) {
             if (track.artist == null || track.artist.trim().isEmpty()) continue;
             String key = ForYou.artistKey(track.artist);
             if (key.isEmpty()) key = track.artist.trim().toLowerCase(Locale.ROOT);
-            Entry artist = artists.get(key);
-            if (artist == null) artists.put(key, artist = new Entry(key));
+            Entry artist = entry(artists, key);
             artist.plays += track.plays;
             artist.playedMs += track.playedMs;
             Map<String, Long> names = spellings.get(key);
@@ -350,175 +275,23 @@ public final class ListeningStats {
                 }
             }
         }
-        List<Entry> artistList = new ArrayList<>(artists.values());
-        artistList.sort((a, b) -> Long.compare(b.playedMs, a.playedMs));
-        for (int i = 0; i < Math.min(limit, artistList.size()); i++) summary.topArtists.add(artistList.get(i));
-        return summary;
+        return new ArrayList<>(artists.values());
     }
 
     /** The listen still going on or paused: it is written only when the next track starts. */
     private static void addCurrent(Summary summary, Map<String, Entry> tracks, long since) {
-        String urn;
-        long start;
-        long played;
+        ListenRecord current;
         synchronized (ListeningStats.class) {
-            urn = currentUrn;
-            start = currentStart;
-            played = playedMs + (playingSince != 0 ? System.currentTimeMillis() - playingSince : 0);
+            current = SESSION.progress(System.currentTimeMillis());
         }
-        if (urn == null) {
+        if (current == null) {
             SharedPreferences preferences = preferences();
             String pending = preferences == null ? null : preferences.getString(PENDING, null);
-            String[] parts = pending == null ? new String[0] : pending.split("\t");
-            if (parts.length != 3) return;
-            start = Long.parseLong(parts[0]);
-            urn = parts[1];
-            played = Long.parseLong(parts[2]);
+            current = pending == null ? null : ListenRecord.parse(pending);
+            if (current == null) return;
         }
-        if (start < since || played < 1000) return;
-        Entry entry = tracks.get(urn);
-        if (entry == null) tracks.put(urn, entry = new Entry(urn));
-        entry.playedMs += played;
-        summary.playedMs += played;
-        if (played >= PLAY_THRESHOLD_MS) {
-            entry.plays++;
-            summary.plays++;
-        }
-    }
-
-    /**
-     * Titles of SoundCloud tracks are looked up once and kept: in SoundCloud's own database first, which
-     * works without a network, then on the server. Imported files give their tags.
-     * <p>
-     * Uploads by others are often titled "Artist - Title" under the uploader's name: the artist is
-     * taken from the title then, the same way as for the "For you" playlist.
-     */
-    private static void resolveTitles(List<Entry> entries) {
-        SharedPreferences preferences = preferences();
-        JSONObject titles = storedObject(preferences, TITLES);
-        JSONObject notFound = storedObject(preferences, NOT_FOUND);
-        long now = System.currentTimeMillis();
-        List<String> missing = new ArrayList<>();
-        for (Entry entry : entries) {
-            File local = LocalAdditions.importedFileOf(entry.key);
-            if (local != null) {
-                LocalMusic.Track track = local.isFile() ? LocalMusic.readTrack(local) : null;
-                if (track != null && !track.artist.isEmpty()) {
-                    entry.title = track.title;
-                    entry.artist = track.artist;
-                } else {
-                    name(entry, track != null ? track.title : local.getName(), "");
-                }
-            } else if (!titles.has(entry.key)) {
-                missing.add(entry.key);
-            }
-        }
-
-        boolean changed = false;
-        if (!missing.isEmpty()) {
-            for (Map.Entry<String, String[]> stored : storedTitles(missing).entrySet()) {
-                putTitle(titles, stored.getKey(), stored.getValue()[0], stored.getValue()[1]);
-                missing.remove(stored.getKey());
-                changed = true;
-            }
-        }
-        List<String> ids = new ArrayList<>();
-        for (String urn : missing) {
-            String id = DownloadTrackPatch.parseTrackId(urn);
-            // A track the server did not return a short while ago is not asked for again at once.
-            if (id != null && now - notFound.optLong(id, 0) > NOT_FOUND_RETRY_MS) ids.add(id);
-        }
-        for (int start = 0; start < ids.size(); start += 50) {
-            try {
-                List<String> batch = ids.subList(start, Math.min(ids.size(), start + 50));
-                String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks?ids="
-                        + String.join(",", batch));
-                if (response[1] == null) break;
-                JSONArray array = new JSONArray(response[1]);
-                Set<String> returned = new HashSet<>();
-                for (int i = 0; i < array.length(); i++) {
-                    JSONObject track = array.getJSONObject(i);
-                    JSONObject user = track.optJSONObject("user");
-                    putTitle(titles, "soundcloud:tracks:" + track.getLong("id"), track.optString("title"),
-                            user == null ? "" : user.optString("username"));
-                    returned.add(String.valueOf(track.getLong("id")));
-                    changed = true;
-                }
-                // The answer was read to the end, so an id missing from it is not available to this user.
-                // Not marked after a failure: a dropped connection must not look like a deleted track.
-                for (String id : batch) {
-                    if (returned.contains(id)) continue;
-                    notFound.put(id, now);
-                    changed = true;
-                }
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Listening stats: no track titles: " + ex);
-                break;
-            }
-        }
-        if (changed && preferences != null) {
-            preferences.edit().putString(TITLES, titles.toString()).putString(NOT_FOUND, notFound.toString()).apply();
-        }
-
-        for (Entry entry : entries) {
-            if (entry.title != null) continue;
-            JSONArray known = titles.optJSONArray(entry.key);
-            if (known != null) {
-                name(entry, known.optString(0), known.optString(1));
-            } else {
-                entry.title = entry.key;
-                entry.artist = "";
-            }
-        }
-    }
-
-    private static JSONObject storedObject(SharedPreferences preferences, String key) {
-        try {
-            return new JSONObject(preferences == null ? "{}" : preferences.getString(key, "{}"));
-        } catch (Exception ex) {
-            return new JSONObject();
-        }
-    }
-
-    /** Kept as SoundCloud gives them: the title and the uploader. */
-    private static void putTitle(JSONObject titles, String urn, String title, String uploader) {
-        try {
-            titles.put(urn, new JSONArray().put(title).put(uploader == null ? "" : uploader));
-        } catch (Exception ignored) {
-            // Only a null key throws.
-        }
-    }
-
-    private static void name(Entry entry, String title, String uploader) {
-        String[] names = ForYou.artistAndTitle(title, uploader);
-        entry.artist = names != null ? names[0] : "";
-        entry.title = names != null ? names[1] : title;
-    }
-
-    /** Titles and uploaders of tracks from SoundCloud's own database, without the network. */
-    private static Map<String, String[]> storedTitles(List<String> urns) {
-        Map<String, String[]> found = new HashMap<>();
-        Context context = Utils.getContext();
-        File path = context == null ? null : context.getDatabasePath("core.db");
-        if (path == null || !path.isFile()) return found;
-        try (SQLiteDatabase core = SQLiteDatabase.openDatabase(path.getPath(), null, SQLiteDatabase.OPEN_READONLY)) {
-            // SQLite takes at most 999 values in one query.
-            for (int start = 0; start < urns.size(); start += 400) {
-                List<String> part = urns.subList(start, Math.min(urns.size(), start + 400));
-                String query = "SELECT t.urn, t.title, u.username FROM Tracks t "
-                        + "LEFT JOIN TrackUserJoin j ON j.trackUrn = t.urn LEFT JOIN Users u ON u.urn = j.userUrn "
-                        + "WHERE t.urn IN (" + String.join(",", java.util.Collections.nCopies(part.size(), "?")) + ")";
-                try (Cursor cursor = core.rawQuery(query, part.toArray(new String[0]))) {
-                    while (cursor.moveToNext()) {
-                        if (cursor.getString(1) == null) continue;
-                        found.put(cursor.getString(0), new String[]{cursor.getString(1), cursor.getString(2)});
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            Logger.printInfo(() -> "Listening stats: could not read stored track titles: " + ex);
-        }
-        return found;
+        if (current.start < since || current.playedMs < MIN_LISTEN_MS) return;
+        summary.addListen(entry(tracks, current.urn), current.playedMs);
     }
 
     // endregion

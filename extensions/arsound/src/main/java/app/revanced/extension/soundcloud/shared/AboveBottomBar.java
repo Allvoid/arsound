@@ -10,6 +10,7 @@ import android.view.animation.DecelerateInterpolator;
 import java.lang.ref.WeakReference;
 
 import app.revanced.extension.soundcloud.player.PlayerSheet;
+import app.revanced.extension.soundcloud.shared.Dimens;
 
 /**
  * Keeps a small element of Arsound above the lowest bar of the main screen: the collapsed player, the bottom
@@ -121,7 +122,7 @@ public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener 
     }
 
     private int dp(int value) {
-        return Math.round(value * context.getResources().getDisplayMetrics().density);
+        return Dimens.dp(context, value);
     }
 
     /** A view of the window found by its id, and kept while it stays in the window. */

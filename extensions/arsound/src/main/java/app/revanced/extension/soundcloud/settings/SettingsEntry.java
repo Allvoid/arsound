@@ -21,6 +21,7 @@ import java.lang.reflect.Method;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 @SuppressWarnings("unused")
 public final class SettingsEntry {
@@ -65,7 +66,7 @@ public final class SettingsEntry {
      */
     public static void addImportEntry(Composer composer) {
         ActionListItemKt.a(
-                "ru".equals(java.util.Locale.getDefault().getLanguage())
+                Lang.russian()
                         ? "Импорт файлов с телефона" : "Import files from this phone",
                 IMPORT_FILES,
                 null,

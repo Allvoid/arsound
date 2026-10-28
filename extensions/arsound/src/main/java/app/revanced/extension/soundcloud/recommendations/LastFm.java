@@ -1,16 +1,18 @@
 package app.revanced.extension.soundcloud.recommendations;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+
+import app.revanced.extension.soundcloud.network.StreamText;
 
 /**
  * Last.fm: which songs and artists people listen to together. Only names are sent, no account.
@@ -31,6 +33,17 @@ final class LastFm {
         Song(String artist, String title, double match) {
             this.artist = artist;
             this.title = title;
+            this.match = match;
+        }
+    }
+
+    static final class SimilarArtist {
+        final String name;
+        /** How close it is to the artist asked about, 0..1. */
+        final double match;
+
+        SimilarArtist(String name, double match) {
+            this.name = name;
             this.match = match;
         }
     }
@@ -59,15 +72,15 @@ final class LastFm {
     }
 
     /** Artists people listen to together with this one, closest first. */
-    static List<Song> similarArtists(String artist, int limit) throws Exception {
+    static List<SimilarArtist> similarArtists(String artist, int limit) throws Exception {
         JSONObject response = call("artist.getsimilar", "artist", artist, "autocorrect", "1",
                 "limit", String.valueOf(limit));
-        List<Song> artists = new ArrayList<>();
+        List<SimilarArtist> artists = new ArrayList<>();
         JSONObject similar = response.optJSONObject("similarartists");
         JSONArray list = similar == null ? null : similar.optJSONArray("artist");
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject item = list.getJSONObject(i);
-            artists.add(new Song(item.optString("name"), null, item.optDouble("match", 0)));
+            artists.add(new SimilarArtist(item.optString("name"), item.optDouble("match", 0)));
         }
         return artists;
     }
@@ -102,29 +115,24 @@ final class LastFm {
         connection.setRequestProperty("User-Agent", "Arsound");
         int code = connection.getResponseCode();
         InputStream stream = code / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
-        String body = stream == null ? "" : read(stream);
+        String body = "";
+        if (stream != null) {
+            try (InputStream input = stream) {
+                body = StreamText.readUtf8(input);
+            }
+        }
         JSONObject json;
         try {
             json = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-        } catch (org.json.JSONException ex) {
+        } catch (JSONException ex) {
             // A page from a proxy or a captive portal instead of an answer: one lost request, not a lost run.
-            throw new java.io.IOException("Last.fm sent a reply that is not JSON, HTTP " + code);
+            throw new IOException("Last.fm sent a reply that is not JSON, HTTP " + code);
         }
         // Unknown songs come back as error 6 ("not found"): no similar songs, not a failure.
         if (json.has("error") && json.optInt("error") != 6) {
-            throw new java.io.IOException("Last.fm error " + json.optInt("error") + ": " + json.optString("message"));
+            throw new IOException("Last.fm error " + json.optInt("error") + ": " + json.optString("message"));
         }
-        if (code / 100 != 2 && !json.has("error")) throw new java.io.IOException("Last.fm HTTP " + code);
+        if (code / 100 != 2 && !json.has("error")) throw new IOException("Last.fm HTTP " + code);
         return json;
-    }
-
-    private static String read(InputStream stream) throws Exception {
-        try (InputStream input = stream) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
-            return output.toString(StandardCharsets.UTF_8.name());
-        }
     }
 }

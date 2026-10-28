@@ -1,10 +1,11 @@
 package app.revanced.extension.soundcloud.lyrics;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
-import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -22,11 +23,8 @@ import android.widget.ImageButton;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
-import java.util.Locale;
-
 import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.ResourceType;
-import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
@@ -40,7 +38,7 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * {@link #bind} what the page shows now. It works only for the page of the playing track, only while the player is
  * open and the lyrics are on; otherwise it does nothing at all: no lookup, no frame callbacks.
  */
-final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
+final class LyricsLayer extends FrameLayout implements LyricsListView.Host, LyricsAi.Host {
     /** What the page shows. */
     private enum Phase {
         /** Nothing: another track's page, or the lyrics are off. */
@@ -73,32 +71,6 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
 
     private static final PathInterpolator EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
 
-    /** Ids of the views of a player page and of the button, found once. */
-    private static final class Ids {
-        static boolean loaded;
-        static int page, artwork, overlay, header, holder, corner, waveform, title, toggle, iconOff, iconOn;
-
-        static void load() {
-            if (loaded) return;
-            page = id("player_track_page");
-            artwork = id("track_page_artwork");
-            overlay = id("artwork_overlay_dark");
-            header = id("track_page_header");
-            holder = id("timestamp_holder");
-            corner = id("track_page_top_left_corner");
-            waveform = id("waveform_container");
-            title = id("track_page_title");
-            toggle = id("arsound_lyrics_toggle");
-            iconOff = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_lyrics");
-            iconOn = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_lyrics_on");
-            loaded = true;
-        }
-
-        private static int id(String name) {
-            return Utils.getResourceIdentifier(ResourceType.ID, name);
-        }
-    }
-
     private final ViewGroup page;
     private final View artwork;
     private final View overlay;
@@ -112,6 +84,8 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     private final FrameLayout content;
     private final LyricsListView list;
     private final TextView status;
+    /** The offer to recognise a song without lyrics with the neural network, and the progress of it. */
+    private final LyricsAi ai;
     private final LyricsShimmer shimmer;
 
     private TrackInfo info;
@@ -196,35 +170,39 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
 
     // region Creating
 
-    private static String text(String russian, String english) {
-        return "ru".equals(Locale.getDefault().getLanguage()) ? russian : english;
-    }
-
     /** The page of the player, whatever the view the player hands over wraps it in. */
     static View pageOf(View view) {
-        Ids.load();
-        return Ids.page == 0 ? null : view.findViewById(Ids.page);
+        PageIds.load();
+        return PageIds.page == 0 ? null : view.findViewById(PageIds.page);
     }
 
     /** The layer of a page if it has one; never makes one. */
     static LyricsLayer existing(View page) {
-        Ids.load();
-        Object tag = Ids.toggle == 0 ? null : page.getTag(Ids.toggle);
+        PageIds.load();
+        Object tag = PageIds.toggle == 0 ? null : page.getTag(PageIds.toggle);
         return tag instanceof LyricsLayer ? (LyricsLayer) tag : null;
     }
 
     /** Takes the lyrics button off a page that has no layer: the lyrics are switched off. */
     static void hideButton(View page) {
-        Ids.load();
-        View button = Ids.toggle == 0 ? null : page.findViewById(Ids.toggle);
+        PageIds.load();
+        View button = PageIds.toggle == 0 ? null : page.findViewById(PageIds.toggle);
         if (button != null && button.getVisibility() != GONE) button.setVisibility(GONE);
+    }
+
+    /**
+     * The layer a page gets from the player's hooks. Switched off in the settings: a page that has no layer yet gets
+     * none (and no button), but one that has a layer keeps being told.
+     */
+    static LyricsLayer forPage(View page) {
+        return LyricsManager.isEnabled() ? of(page) : existing(page);
     }
 
     /** The layer of a page, made on first use; null if the page has no room for one. */
     static LyricsLayer of(View page) {
-        Ids.load();
-        if (Ids.toggle == 0) return null;
-        Object tag = page.getTag(Ids.toggle);
+        PageIds.load();
+        if (PageIds.toggle == 0) return null;
+        Object tag = page.getTag(PageIds.toggle);
         if (tag instanceof LyricsLayer) return (LyricsLayer) tag;
         if (tag == UNSUPPORTED) return null;
         LyricsLayer layer = null;
@@ -235,20 +213,20 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         }
         if (layer == null) {
             // A page without the button or the views to stand on: no lyrics there, and no dead button either.
-            View button = page.findViewById(Ids.toggle);
+            View button = page.findViewById(PageIds.toggle);
             if (button != null) button.setVisibility(GONE);
         }
-        page.setTag(Ids.toggle, layer == null ? UNSUPPORTED : layer);
+        page.setTag(PageIds.toggle, layer == null ? UNSUPPORTED : layer);
         return layer;
     }
 
     private static LyricsLayer create(View page) {
         if (!(page instanceof RelativeLayout)) return null;
         RelativeLayout parent = (RelativeLayout) page;
-        View artwork = page.findViewById(Ids.artwork);
-        View button = page.findViewById(Ids.toggle);
-        View anchor = page.findViewById(Ids.corner);
-        if (anchor == null) anchor = page.findViewById(Ids.waveform);
+        View artwork = page.findViewById(PageIds.artwork);
+        View button = page.findViewById(PageIds.toggle);
+        View anchor = page.findViewById(PageIds.corner);
+        if (anchor == null) anchor = page.findViewById(PageIds.waveform);
         if (artwork == null || !(button instanceof ImageButton) || anchor == null) return null;
         int index = parent.indexOfChild(anchor);
         if (index < 0 || artwork.getParent() != parent) return null;
@@ -269,10 +247,10 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         this.page = page;
         this.artwork = artwork;
         this.toggle = toggle;
-        this.overlay = page.findViewById(Ids.overlay);
-        this.header = page.findViewById(Ids.header);
-        this.holder = page.findViewById(Ids.holder);
-        this.title = page.findViewById(Ids.title);
+        this.overlay = page.findViewById(PageIds.overlay);
+        this.header = page.findViewById(PageIds.header);
+        this.holder = page.findViewById(PageIds.holder);
+        this.title = page.findViewById(PageIds.title);
         ColorStateList tint = toggle.getImageTintList();
         offTint = tint != null ? tint
                 : ColorStateList.valueOf(ArsoundTheme.isPlayerSkinEnabled() ? 0xFFFFFFFF : 0xFF000000);
@@ -299,6 +277,10 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         status.setPadding(Math.round(dp(32)), Math.round(dp(16)), Math.round(dp(32)), Math.round(dp(16)));
         status.setVisibility(GONE);
         content.addView(status, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+
+        // Only as big as its text and button, so the rest of the page still passes taps to the cover.
+        ai = new LyricsAi(context, LyricsManager.accent(context), this);
+        content.addView(ai.view(), new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
         shimmer = new LyricsShimmer(context);
         shimmer.setVisibility(GONE);
@@ -327,7 +309,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     }
 
     private float dp(float value) {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+        return Dimens.dpExact(getContext(), value);
     }
 
     // endregion
@@ -500,6 +482,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
 
     /** Drops the words of the track this page had, so the next track starts clean. */
     private void forgetWords() {
+        ai.release();
         loadedSignature = null;
         lyrics = null;
         removeCallbacks(showShimmer);
@@ -524,7 +507,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         boolean on = LyricsManager.isVisible();
         if (buttonOn != null && buttonOn == on) return;
         buttonOn = on;
-        int icon = on ? Ids.iconOn : Ids.iconOff;
+        int icon = on ? PageIds.iconOn : PageIds.iconOff;
         if (icon != 0) toggle.setImageResource(icon);
         toggle.setImageTintList(on ? ColorStateList.valueOf(LyricsManager.accent(getContext())) : offTint);
         toggle.setSelected(on);
@@ -637,7 +620,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     private void show(View target) {
         displayed = target;
         if (target != list && list.getVisibility() == VISIBLE) fadeOutUntil = SystemClock.uptimeMillis() + 150;
-        View[] pages = {list, status, shimmer};
+        View[] pages = {list, status, shimmer, ai.view()};
         for (View view : pages) {
             if (view == target) continue;
             if (view.getVisibility() == GONE) continue;
@@ -678,24 +661,24 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
                 || !info.query().signature.equals(loadedSignature)) {
             return;
         }
-        switch (result.status) {
-            case FOUND:
-                showWords(result.lyrics);
-                break;
-            case INSTRUMENTAL:
-                showMessage(text("Инструментальный трек", "Instrumental track"), false);
-                break;
-            case MISSING:
-                showMessage(text("Текст не найден", "No lyrics found"), false);
-                break;
-            case OFFLINE:
-                showMessage(text("Нет подключения.\nНажмите, чтобы повторить", "No connection.\nTap to try again"), true);
-                break;
-            default:
-                showMessage(text("Не удалось загрузить текст.\nНажмите, чтобы повторить",
-                        "Could not load the lyrics.\nTap to try again"), true);
-                break;
-        }
+        if (result.status == LyricsResult.Status.FOUND) showWords(result.lyrics);
+        else if (result.status == LyricsResult.Status.MISSING && ai.offerFor(info)) return;
+        else showMessage(result.status.message(), result.status.retryable);
+    }
+
+    @Override
+    public void showAiPanel() {
+        lyrics = null;
+        phase = Phase.STATUS;
+        removeCallbacks(showShimmer);
+        status.setClickable(false);
+        show(ai.view());
+        updateLoop();
+    }
+
+    @Override
+    public void showAiWords(Lyrics words) {
+        applyWords(words);
     }
 
     private void showWords(final Lyrics words) {
@@ -719,7 +702,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
         phase = Phase.LIST;
         removeCallbacks(showShimmer);
         Typeface face = title instanceof TextView ? ((TextView) title).getTypeface() : null;
-        list.setLyrics(words, face, text("Тексты: LRCLIB", "Lyrics: LRCLIB"));
+        list.setLyrics(words, face, words.source.caption());
         status.setClickable(false);
         // Put at the singing line before it is seen, then faded in.
         tick(false);
@@ -831,29 +814,23 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host {
     // region Taps on the words
 
     @Override
-    public void onLineTapped(int index) {
+    public void onTap() {
+        passToCover();
+    }
+
+    @Override
+    public void onLineDoubleTapped(int index) {
+        // The first tap of the pair paused or played; the second gives that back, so the jump leaves the music as it was.
+        passToCover();
         if (lyrics == null || info == null || index < 0 || index >= lyrics.lines.length) return;
-        // The words of the page before or after the playing one stay for a swipe: a tap on them is the cover's, it must
-        // not move the track that really plays.
-        if (!current) {
-            onBlankTap();
-            return;
-        }
+        // The words of the page before or after the playing one stay for a swipe: they must not move the track that
+        // really plays.
+        if (!current) return;
         if (!LyricsClock.seekTo(info.urn, lyrics.times[index])) return;
         boolean changed = list.activeLine() != index;
         list.clearHold();
         if (changed) list.setActive(index, true);
         else list.recentre();
-    }
-
-    @Override
-    public void onBlankTap() {
-        passToCover();
-    }
-
-    @Override
-    public void onDoubleTap() {
-        passToCover();
     }
 
     /** A tap the words do not use is the cover's: SoundCloud pauses and plays on it. */

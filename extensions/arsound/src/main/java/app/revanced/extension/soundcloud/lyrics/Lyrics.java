@@ -1,19 +1,46 @@
 package app.revanced.extension.soundcloud.lyrics;
 
-import java.util.Arrays;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * The text of one song. With timings every line starts at a moment of the track; without them it is plain text.
  * An empty line is a pause: an instrumental part with timings, a gap between verses without.
  */
 final class Lyrics {
+    /** Who the words come from; each knows the line of credit the page shows under them. */
+    enum Source {
+        /** Written by people, found on LRCLIB. */
+        LRCLIB("Тексты: LRCLIB", "Lyrics: LRCLIB"),
+        /** Heard by the neural network on the phone, so it may be wrong. */
+        NEURAL("Распознано нейросетью · возможны ошибки", "Recognised by a neural network · may contain errors");
+
+        private final String russian;
+        private final String english;
+
+        Source(String russian, String english) {
+            this.russian = russian;
+            this.english = english;
+        }
+
+        String caption() {
+            return Lang.text(russian, english);
+        }
+    }
+
     final String[] lines;
     /** Start of each line in milliseconds, ascending; null when the text has no timings to follow. */
     final long[] times;
+    final Source source;
 
+    /** Words from LRCLIB. */
     Lyrics(String[] lines, long[] times) {
+        this(lines, times, Source.LRCLIB);
+    }
+
+    Lyrics(String[] lines, long[] times, Source source) {
         this.lines = lines;
         this.times = times;
+        this.source = source;
     }
 
     boolean isTimed() {
@@ -47,12 +74,16 @@ final class Lyrics {
         return times == null || times.length == 0 ? 0 : times[times.length - 1];
     }
 
-    /** The same words as plain text: for a record whose timings do not fit the track that plays. */
-    Lyrics withoutTimes() {
-        return times == null ? this : new Lyrics(lines, null);
+    /** The same words with every timing multiplied: for a slowed or sped up copy of the song (see {@link TempoMatch}). */
+    Lyrics stretched(double factor) {
+        if (times == null || factor == 1) return this;
+        long[] scaled = new long[times.length];
+        for (int i = 0; i < times.length; i++) scaled[i] = Math.round(times[i] * factor);
+        return new Lyrics(lines, scaled, source);
     }
 
-    boolean sameAs(Lyrics other) {
-        return other != null && Arrays.equals(lines, other.lines) && Arrays.equals(times, other.times);
+    /** The same words as plain text: for a record whose timings do not fit the track that plays. */
+    Lyrics withoutTimes() {
+        return times == null ? this : new Lyrics(lines, null, source);
     }
 }

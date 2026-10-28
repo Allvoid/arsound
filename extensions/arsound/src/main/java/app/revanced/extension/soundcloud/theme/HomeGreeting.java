@@ -4,9 +4,7 @@ import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.animation.ValueAnimator;
 import android.content.Context;
-import android.content.res.TypedArray;
 import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.TypedValue;
@@ -22,35 +20,25 @@ import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.player.PlayerSheet;
-import app.revanced.extension.soundcloud.wallpaper.WallpaperDrawable;
-import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
+import app.revanced.extension.soundcloud.shared.AppResources;
+import app.revanced.extension.soundcloud.shared.Dimens;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
- * The greeting at the top of the home screen ("ПРИВЕТ, ALLVOID / Что послушаем?") of a theme that puts it
+ * The greeting at the top of the home screen ("ПРИВЕТ, &lt;имя&gt; / Что послушаем?") of a theme that puts it
  * there: the theme's copy of the home layout names this class. It folds away while the list below is scrolled
  * and comes back at the top of the list.
  * <p>
- * It also carries the wallpaper to the home screen: SoundCloud's list below is opaque, so the picture is a band behind
- * the bar and the greeting that fades into the surface where the list begins.
+ * With a wallpaper the home screen is not painted by this class: the picture is the window's, and the screen's
+ * surface fill is taken away like on every main screen (wallpaper/WallpaperSurfaces).
  */
 @SuppressWarnings("unused")
-public final class HomeGreeting extends LinearLayout implements WallpaperStore.Listener {
-    /** Read each time: the app language can change while the app runs (the welcome switch). */
-    private static boolean russian() {
-        return "ru".equals(Locale.getDefault().getLanguage());
-    }
+public final class HomeGreeting extends LinearLayout {
     private static final long FOLD_MS = 220;
     /** The shortest time between two looks at the list. */
     private static final long CHECK_EVERY_MS = 100;
 
-    /** The band of the wallpaper is at least this high until the greeting is laid out and tells how high it should be. */
-    private static final int MIN_BAND_DP = 240;
-
     private int fullHeight = -1;
-    /** The home screen's own background, put back when the wallpaper goes. */
-    private Drawable ownBackground;
-    private WallpaperDrawable wallpaper;
-    private int bandHeight;
     private boolean folded;
     private ValueAnimator animator;
     private boolean checkPosted;
@@ -84,7 +72,7 @@ public final class HomeGreeting extends LinearLayout implements WallpaperStore.L
 
         TextView hello = new TextView(context);
         String name = accountName(context);
-        String helloText = (russian() ? "Привет" : "Hello") + (name.isEmpty() ? "" : ", " + name);
+        String helloText = Lang.text("Привет", "Hello") + (name.isEmpty() ? "" : ", " + name);
         hello.setText(helloText.toUpperCase(Locale.getDefault()));
         hello.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         hello.setLetterSpacing(0.08f);
@@ -93,7 +81,7 @@ public final class HomeGreeting extends LinearLayout implements WallpaperStore.L
         addView(hello);
 
         TextView title = new TextView(context);
-        title.setText(russian() ? "Что послушаем?" : "What shall we play?");
+        title.setText(Lang.text("Что послушаем?", "What shall we play?"));
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 32);
         title.setTypeface(font(context, "soehne_extrafett_900"));
         title.setTextColor(themeColor(context, "themeColorPrimary"));
@@ -131,8 +119,7 @@ public final class HomeGreeting extends LinearLayout implements WallpaperStore.L
 
     private static Typeface font(Context context, String name) {
         try {
-            int id = context.getResources().getIdentifier(name, "font", context.getPackageName());
-            if (id == 0) id = context.getResources().getIdentifier(name, "font", "com.soundcloud.android");
+            int id = AppResources.identifier(context, name, "font");
             if (id != 0 && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 return context.getResources().getFont(id);
             }
@@ -143,27 +130,19 @@ public final class HomeGreeting extends LinearLayout implements WallpaperStore.L
     }
 
     private static int themeColor(Context context, String attribute) {
-        int id = context.getResources().getIdentifier(attribute, "attr", context.getPackageName());
-        if (id == 0) id = context.getResources().getIdentifier(attribute, "attr", "com.soundcloud.android");
-        TypedArray array = context.obtainStyledAttributes(new int[]{id});
-        try {
-            return array.getColor(0, 0xFFFFFFFF);
-        } finally {
-            array.recycle();
-        }
+        return AppResources.themeColor(context, AppResources.identifier(context, attribute, "attr"), 0xFFFFFFFF);
     }
 
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return Dimens.dp(getContext(), value);
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         getViewTreeObserver().addOnDrawListener(drawListener);
-        WallpaperStore.listen(this);
-        applyWallpaper();
-        // The screen's glow (its background) shows through the bar above: SoundCloud paints the bar's toolbar.
+        // The screen's glow (its background) and the wallpaper show through the bar above: SoundCloud paints the bar's
+        // toolbar.
         if (getParent() instanceof ViewGroup) {
             ViewGroup parent = (ViewGroup) getParent();
             int index = parent.indexOfChild(this);
@@ -188,45 +167,8 @@ public final class HomeGreeting extends LinearLayout implements WallpaperStore.L
     @Override
     protected void onDetachedFromWindow() {
         getViewTreeObserver().removeOnDrawListener(drawListener);
-        WallpaperStore.unlisten(this);
         if (animator != null) animator.cancel();
         super.onDetachedFromWindow();
-    }
-
-    @Override
-    public void onWallpaperChanged() {
-        applyWallpaper();
-    }
-
-    /** Puts the wallpaper band behind the home screen, or the screen's own background back when there is none to show. */
-    private void applyWallpaper() {
-        if (!(getParent() instanceof ViewGroup)) return;
-        ViewGroup home = (ViewGroup) getParent();
-        try {
-            if (wallpaper == null && home.getBackground() != null) ownBackground = home.getBackground();
-            bandHeight = Math.max(bandHeight, dp(MIN_BAND_DP));
-            WallpaperDrawable next = WallpaperStore.hero(getContext(), bandHeight);
-            if (next != null) {
-                wallpaper = next;
-                home.setBackground(next);
-            } else if (wallpaper != null) {
-                wallpaper = null;
-                home.setBackground(ownBackground);
-            }
-        } catch (Exception ex) {
-            Logger.printException(() -> "HomeGreeting: could not set the wallpaper", ex);
-        }
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        // The band reaches the list below and fades into it; the greeting folding away does not shorten it.
-        int wanted = bottom + dp(16);
-        if (wallpaper != null && wanted > bandHeight) {
-            bandHeight = wanted;
-            wallpaper.setBandHeight(bandHeight);
-        }
     }
 
     /** Folds the greeting once the list below has left its top, unfolds it back at the top. */

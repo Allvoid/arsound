@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.recommendations
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.extensions.addInstructions
@@ -9,6 +10,7 @@ import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+import app.arsound.util.findInstructionIndicesReversed
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
@@ -18,7 +20,7 @@ import app.revanced.patcher.extensions.getInstruction
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/recommendations/DuplicateFilter;"
 
-private const val AUTOPLAY_CLASS =
+private const val AUTOPLAY_DESCRIPTOR =
     "Lcom/soundcloud/android/features/playqueue/extender/PlayQueueExtenderOperations\$loadRelatedForRemoteTrack\$1;"
 
 /**
@@ -34,7 +36,7 @@ private val BytecodePatchContext.sectionItemsMethod by gettingFirstMethodDeclara
 /** Turns related tracks of the finished track into play queue items for autoplay. */
 private val BytecodePatchContext.autoplayItemsMethod by gettingFirstMethodDeclaratively {
     name("apply")
-    definingClass(AUTOPLAY_CLASS)
+    definingClass(AUTOPLAY_DESCRIPTOR)
 }
 
 /** Server-driven home screen views that hold lists of items. */
@@ -46,7 +48,7 @@ private val HOME_LIST_VIEWS = listOf(
 val duplicateFilterPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // Home screen (server-driven UI): every item list is filtered in place before the view object keeps it.
@@ -68,15 +70,14 @@ val duplicateFilterPatch = bytecodePatch {
             }
         }
 
+        // Every read of a section's entity list is filtered in place, from the end so earlier indexes stay valid.
         sectionItemsMethod.apply {
-            val listReads = implementation!!.instructions.withIndex().filter { (_, instruction) ->
-                instruction.opcode == Opcode.IGET_OBJECT &&
-                    (instruction as ReferenceInstruction).reference.toString().let {
+            findInstructionIndicesReversed {
+                opcode == Opcode.IGET_OBJECT &&
+                    (this as ReferenceInstruction).reference.toString().let {
                         it.startsWith("Lcom/soundcloud/android/sections/domain/Section$") && it.endsWith(":Ljava/util/List;")
                     }
-            }.map { it.index }
-            // From the end, so earlier indexes stay valid.
-            listReads.reversed().forEach { index ->
+            }.forEach { index ->
                 val register = getInstruction<TwoRegisterInstruction>(index).registerA
                 addInstructions(
                     index + 1,
@@ -97,7 +98,7 @@ val duplicateFilterPatch = bytecodePatch {
             addInstructions(
                 iteratorIndex + 2,
                 """
-                    iget-object v4, v0, $AUTOPLAY_CLASS->a:Lcom/soundcloud/android/foundation/domain/Urn;
+                    iget-object v4, v0, $AUTOPLAY_DESCRIPTOR->a:Lcom/soundcloud/android/foundation/domain/Urn;
                     invoke-static { v1, v4 }, $EXTENSION_CLASS_DESCRIPTOR->filterAutoplay(Ljava/lang/Iterable;Ljava/lang/Object;)Ljava/util/Iterator;
                     move-result-object v17
                 """,

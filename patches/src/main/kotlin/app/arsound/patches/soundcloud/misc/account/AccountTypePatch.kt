@@ -2,8 +2,8 @@ package app.arsound.patches.soundcloud.misc.account
 
 import app.revanced.patcher.patch.resourcePatch
 import app.arsound.patches.all.misc.packagename.setOrGetFallbackPackageName
-import app.arsound.util.asSequence
-import org.w3c.dom.Element
+import app.arsound.patches.soundcloud.misc.resources.findString
+import app.arsound.patches.soundcloud.misc.resources.findStringOrNull
 
 private const val ORIGINAL_ACCOUNT_TYPE = "com.soundcloud.android.account"
 private const val ORIGINAL_AUTHORITY = "com.soundcloud.android.provider.ScContentProvider"
@@ -21,21 +21,15 @@ val accountTypePatch = resourcePatch {
 
         // The authenticator, the sync adapter and the app code all read the account type from this string.
         document("res/values/strings.xml").use { document ->
-            document.getElementsByTagName("string").asSequence()
-                .map { it as Element }
-                .first { it.getAttribute("name") == "account_type" }
-                .apply {
-                    if (textContent == ORIGINAL_ACCOUNT_TYPE) textContent = accountType
-                }
+            document.findString("account_type").apply {
+                if (textContent == ORIGINAL_ACCOUNT_TYPE) textContent = accountType
+            }
 
             // The sync adapter reads its content authority from this string. "Change package name" renames the
             // provider authority in the manifest, so without this the periodic account sync never finds its provider.
-            document.getElementsByTagName("string").asSequence()
-                .map { it as Element }
-                .firstOrNull { it.getAttribute("name") == "account_authority" }
-                ?.apply {
-                    if (textContent == ORIGINAL_AUTHORITY) textContent = authority
-                }
+            document.findStringOrNull("account_authority")?.apply {
+                if (textContent == ORIGINAL_AUTHORITY) textContent = authority
+            }
         }
     }
 }

@@ -13,7 +13,9 @@ import app.revanced.patcher.method
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+import app.arsound.patches.soundcloud.player.playerPlayMethod
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
@@ -28,19 +30,11 @@ private val BytecodePatchContext.inboxPollingMethod by gettingFirstMethodDeclara
     definingClass("Lcom/soundcloud/android/messages/inbox/titlebar/TitleBarInboxController\$attach\$1;")
 }
 
-/** Starts a playback item: {@code BaseExoPlayer.f(PlaybackItem)}. */
-internal val BytecodePatchContext.playerPlayMethod by gettingFirstMethodDeclaratively {
-    name("f")
-    definingClass("Lcom/soundcloud/android/exoplayer/BaseExoPlayer;")
-    returnType("V")
-    parameterTypes("Lcom/soundcloud/android/playback/core/PlaybackItem;")
-}
-
 /**
  * Updates the wake and Wi-Fi locks from the playback state: {@code ExoPlayerImpl.R()}. The only method
  * without parameters that calls the Wi-Fi lock; its obfuscated name changes between versions.
  */
-internal val BytecodePatchContext.updateWakeAndWifiLockMethod by gettingFirstMethodDeclaratively {
+private val BytecodePatchContext.updateWakeAndWifiLockMethod by gettingFirstMethodDeclaratively {
     definingClass("Landroidx/media3/exoplayer/ExoPlayerImpl;")
     returnType("V")
     parameterTypes()
@@ -53,7 +47,7 @@ internal val BytecodePatchContext.updateWakeAndWifiLockMethod by gettingFirstMet
 val powerSavingPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         playerPlayMethod.addInstruction(

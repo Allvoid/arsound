@@ -1,15 +1,11 @@
 package app.revanced.extension.soundcloud.settings;
 
-import android.app.Dialog;
-import android.content.DialogInterface;
-import android.content.Intent;
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.content.res.ColorStateList;
-import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.Outline;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -17,7 +13,6 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewOutlineProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AbsListView;
@@ -30,43 +25,49 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
-import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.network.RegionGuard;
-import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenGrid;
-import app.revanced.extension.soundcloud.wallpaper.WallpaperDownload;
-import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
+import app.revanced.extension.soundcloud.wallpaper.WallhavenRules;
 
 /**
- * The Wallhaven browser: a search field, the sortings as chips, a filter dialog, and an endless grid of thumbnails.
- * A tap opens a preview with "Set as background", which downloads the full picture and makes it the app's wallpaper.
+ * The Wallhaven browser: a search field, a row of chips for the sorting, a filter sheet, and an endless grid of pictures.
+ * A tap opens the full-screen preview ({@link WallpaperPreviewScreen}) with "Set as background".
+ * <p>
+ * The grid has three columns on a phone and cells in the shape of the pictures. The row of chips slides away when the
+ * list is scrolled down and returns when it is scrolled up. Once scrolling has been still for a moment the cells in view
+ * are made sharp ({@link WallhavenGrid#sharpenVisible}).
  * <p>
  * Nothing here touches the network while the screen is built (the settings search builds every screen off screen);
  * the first page is asked for when the screen is shown.
  */
-final class WallhavenScreen {
-    /** The page is asked for when this many cells are left below the visible ones. */
-    private static final int PRELOAD_CELLS = 6;
-    private static final int DEFAULT_WAIT_SECONDS = 20;
+final class WallhavenScreen extends SettingsScreen {
+    static final String ID = "wallhaven";
 
-    private final ReVancedSettingsActivity activity;
+    /** The next page is asked for when this many rows are left below the visible ones. */
+    private static final int PRELOAD_ROWS = 3;
+    private static final int DEFAULT_WAIT_SECONDS = 20;
+    /** Scrolling must be still this long before the cells in view are made sharp. */
+    private static final long SETTLE_MS = 400;
+    /** The row of chips: a chip and the space around it. */
+    private static final int HEADER_DP = WallpaperChip.HEIGHT_DP + 10;
+    private static final int GRID_GAP_DP = 8, GRID_SIDE_DP = 12;
+
     private final Wallhaven.Query query;
     private final WallhavenGrid grid;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int accent, primary, secondary, card;
 
     private GridView gridView;
+    private View header;
+    private TextView filterBadge;
     private LinearLayout state;
     private TextView stateText;
     private ProgressBar spinner;
@@ -75,10 +76,13 @@ final class WallhavenScreen {
     private String stateActionLabel;
     private Runnable stateTarget;
     private TextView banner;
-    private View rangeRow;
     private EditText field;
     private final List<TextView> sortChips = new ArrayList<>();
-    private final List<TextView> rangeChips = new ArrayList<>();
+    private int columns = 3;
+    private boolean headerShown = true;
+    private int lastScrollPosition;
+    /** The preview that is open, so closing the screen can give up its download. */
+    private WallpaperPreviewScreen preview;
 
     /** Answers of an older search are dropped: the screen counts its searches. */
     private int generation;
@@ -89,12 +93,15 @@ final class WallhavenScreen {
     private boolean paused;
     /** The user chose to search without the key the service refused. */
     private boolean guest;
+    /** The key that was refused when {@link #guest} was chosen; a different key ends the guest search. */
+    private String guestKey = "";
     /** The user picked a sorting by hand, so a search text does not switch it to relevance. */
     private boolean sortChosen;
     private Runnable countdown;
+    private final Runnable settle = this::sharpenVisible;
 
-    WallhavenScreen(ReVancedSettingsActivity activity) {
-        this.activity = activity;
+    WallhavenScreen(SettingsUi ui) {
+        super(ui);
         query = Wallhaven.Query.fromJson(Settings.getString(Settings.WALLHAVEN_LAST, ""));
         grid = new WallhavenGrid(activity);
         accent = ArsoundTheme.palette(activity, "special");
@@ -103,19 +110,14 @@ final class WallhavenScreen {
         card = ArsoundTheme.palette(activity, "highlight");
     }
 
-    private static String text(String russian, String english) {
-        return ReVancedSettingsActivity.text(russian, english);
-    }
-
     private int dp(int value) {
-        return activity.dp(value);
+        return ui.dp(value);
     }
 
+    @Override
     View create() {
-        LinearLayout root = activity.createRoot();
+        LinearLayout root = ui.createRoot();
         root.addView(createTopBar());
-        root.addView(createChips(), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         FrameLayout content = new FrameLayout(activity);
         gridView = createGrid();
@@ -123,6 +125,10 @@ final class WallhavenScreen {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         content.addView(createState(), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // After the message, so that the chips can still be tapped while the message is shown.
+        header = createHeader();
+        content.addView(header, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(HEADER_DP), Gravity.TOP));
         banner = createBanner();
         FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
@@ -132,6 +138,7 @@ final class WallhavenScreen {
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         applyShape();
+        updateFilterBadge();
         // The keyboard stays down until the search field is tapped.
         activity.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
                 | android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -146,20 +153,43 @@ final class WallhavenScreen {
 
     /** The back button of the settings screens, with the search field and the filter button after it. */
     private View createTopBar() {
-        LinearLayout bar = (LinearLayout) activity.createToolbar();
+        LinearLayout bar = (LinearLayout) ui.createToolbar();
         bar.addView(createSearchField(), new LinearLayout.LayoutParams(0, dp(48), 1f));
-        ImageButton filters = new ImageButton(activity);
-        filters.setImageDrawable(activity.lineIcon(new float[]{.18f, .24f, .82f, .24f, .56f, .54f, .56f, .8f, .44f, .72f,
+
+        FrameLayout filters = new FrameLayout(activity);
+        ImageButton button = new ImageButton(activity);
+        button.setImageDrawable(ui.lineIcon(new float[]{.18f, .24f, .82f, .24f, .56f, .54f, .56f, .8f, .44f, .72f,
                 .44f, .54f, .18f, .24f}, primary));
-        filters.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        filters.setPadding(dp(11), dp(11), dp(11), dp(11));
-        filters.setBackgroundResource(activity.themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
-        filters.setContentDescription(text("Фильтры", "Filters"));
-        filters.setOnClickListener(v -> showFilters());
+        button.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        button.setPadding(dp(11), dp(11), dp(11), dp(11));
+        button.setBackgroundResource(ui.themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
+        button.setContentDescription(text("Фильтры", "Filters"));
+        button.setOnClickListener(v -> showFilters());
+        filters.addView(button, new FrameLayout.LayoutParams(dp(48), dp(48)));
+
+        // The number of filters that differ from the usual, on the corner of the button.
+        filterBadge = ui.createText("Body.Secondary", "");
+        filterBadge.setGravity(Gravity.CENTER);
+        filterBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        filterBadge.setTextColor(app.revanced.extension.soundcloud.shared.Colors.contrast(accent));
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(accent);
+        filterBadge.setBackground(dot);
+        filterBadge.setVisibility(View.GONE);
+        filters.addView(filterBadge, new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.TOP | Gravity.END));
+        ((FrameLayout.LayoutParams) filterBadge.getLayoutParams()).setMargins(0, dp(6), dp(6), 0);
+
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(dp(48), dp(48));
         filterParams.leftMargin = dp(4);
         bar.addView(filters, filterParams);
         return bar;
+    }
+
+    private void updateFilterBadge() {
+        int count = WallhavenRules.activeFilters(query.categories, query.portrait, Wallhaven.adultAllowed());
+        filterBadge.setText(String.valueOf(count));
+        filterBadge.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
     }
 
     /** Styled like the field of the settings search: a pill in the card colour with a thin accent edge. */
@@ -201,7 +231,7 @@ final class WallhavenScreen {
         clear.setImageDrawable(new SearchGlyph(SearchGlyph.CROSS, primary));
         clear.setScaleType(ImageView.ScaleType.FIT_CENTER);
         clear.setPadding(dp(10), dp(10), dp(10), dp(10));
-        clear.setBackgroundResource(activity.themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
+        clear.setBackgroundResource(ui.themeAttribute(android.R.attr.selectableItemBackgroundBorderless));
         clear.setContentDescription(text("Очистить", "Clear"));
         clear.setOnClickListener(v -> {
             boolean had = !field.getText().toString().trim().isEmpty() || !query.text.isEmpty();
@@ -212,122 +242,192 @@ final class WallhavenScreen {
         return pill;
     }
 
-    /** The sortings as chips; the periods of the top list in a row of their own below, only while the top list is chosen. */
-    private View createChips() {
-        LinearLayout column = new LinearLayout(activity);
-        column.setOrientation(LinearLayout.VERTICAL);
+    /**
+     * One row of sorting chips over the grid, on a fade of the screen colour so the pictures under it do not fight the
+     * words. The top list's chip says its period and opens the choice of it when tapped again.
+     */
+    private View createHeader() {
+        HorizontalScrollView scroll = new HorizontalScrollView(activity);
+        scroll.setHorizontalScrollBarEnabled(false);
+        int surface = ArsoundTheme.palette(activity, "surface") | 0xFF000000;
+        scroll.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{(surface & 0x00FFFFFF) | 0xF2000000, (surface & 0x00FFFFFF) | 0xCC000000, surface & 0x00FFFFFF}));
 
         String[] sortLabels = {text("Топ", "Top"), text("Новые", "Latest"), text("Просмотры", "Most viewed"),
                 text("Избранное", "Favorites"), text("Релевантные", "Relevance"), text("Случайные", "Random")};
-        LinearLayout sorts = chipRow();
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(GRID_SIDE_DP), dp(4), dp(GRID_SIDE_DP), dp(6));
         for (int i = 0; i < Wallhaven.SORTINGS.length; i++) {
             String sorting = Wallhaven.SORTINGS[i];
-            TextView chip = chip(sortLabels[i], sorting.equals(query.sorting), v -> {
+            TextView chip = WallpaperChip.create(ui, sortLabels[i], sorting.equals(query.sorting), v -> {
+                if (Wallhaven.TOPLIST.equals(sorting) && Wallhaven.TOPLIST.equals(query.sorting)) {
+                    showRanges();
+                    return;
+                }
                 sortChosen = true;
                 chooseSorting(sorting);
                 reload();
             });
             sortChips.add(chip);
-            sorts.addView(chip, chipParams());
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.rightMargin = dp(8);
+            row.addView(chip, params);
         }
-        column.addView(scrolling(sorts));
-
-        String[] rangeLabels = {text("День", "Day"), text("3 дня", "3 days"), text("Неделя", "Week"), text("Месяц", "Month"),
-                text("3 месяца", "3 months"), text("Полгода", "6 months"), text("Год", "Year")};
-        LinearLayout ranges = chipRow();
-        for (int i = 0; i < Wallhaven.RANGES.length; i++) {
-            String range = Wallhaven.RANGES[i];
-            TextView chip = chip(rangeLabels[i], range.equals(query.range), v -> {
-                query.range = range;
-                styleChips(rangeChips, Wallhaven.RANGES, range);
-                reload();
-            });
-            rangeChips.add(chip);
-            ranges.addView(chip, chipParams());
-        }
-        rangeRow = scrolling(ranges);
-        column.addView(rangeRow);
-        return column;
-    }
-
-    private LinearLayout chipRow() {
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(dp(12), dp(4), dp(12), dp(4));
-        return row;
-    }
-
-    private View scrolling(View row) {
-        HorizontalScrollView scroll = new HorizontalScrollView(activity);
-        scroll.setHorizontalScrollBarEnabled(false);
         scroll.addView(row);
+        updateTopLabel();
         return scroll;
     }
 
-    private LinearLayout.LayoutParams chipParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.rightMargin = dp(8);
-        return params;
+    /** The top list's chip carries the period and an arrow while the top list is chosen. */
+    private void updateTopLabel() {
+        TextView chip = sortChips.get(0);
+        boolean top = Wallhaven.TOPLIST.equals(query.sorting);
+        chip.setText(top ? text("Топ · ", "Top · ") + rangeLabel(query.range) + " ▾" : text("Топ", "Top"));
     }
 
-    private TextView chip(String label, boolean selected, View.OnClickListener listener) {
-        TextView chip = activity.createText("H4.Primary", label);
-        chip.setGravity(Gravity.CENTER);
-        chip.setSingleLine(true);
-        chip.setPadding(dp(14), dp(7), dp(14), dp(7));
-        chip.setOnClickListener(listener);
-        styleChip(chip, selected);
-        return chip;
+    private static String rangeLabel(String range) {
+        switch (range) {
+            case "1d":
+                return text("день", "day");
+            case "3d":
+                return text("3 дня", "3 days");
+            case "1w":
+                return text("неделя", "week");
+            case "3M":
+                return text("3 месяца", "3 months");
+            case "6M":
+                return text("полгода", "6 months");
+            case "1y":
+                return text("год", "year");
+            default:
+                return text("месяц", "month");
+        }
     }
 
-    private void styleChip(TextView chip, boolean selected) {
-        GradientDrawable pill = new GradientDrawable();
-        pill.setCornerRadius(dp(100));
-        pill.setColor(selected ? accent : card);
-        chip.setBackground(new RippleDrawable(ColorStateList.valueOf((accent & 0x00FFFFFF) | 0x33000000), pill, null));
-        chip.setTextColor(selected ? ArsoundDialog.contrast(accent) : primary);
+    /** The periods of the top list as chips in a small sheet. */
+    private void showRanges() {
+        String[] labels = {text("День", "Day"), text("3 дня", "3 days"), text("Неделя", "Week"), text("Месяц", "Month"),
+                text("3 месяца", "3 months"), text("Полгода", "6 months"), text("Год", "Year")};
+        LinearLayout content = ui.createColumn();
+        content.setPadding(dp(20), 0, dp(20), dp(12));
+        ThemeSheet[] sheet = new ThemeSheet[1];
+        LinearLayout row = null;
+        for (int i = 0; i < Wallhaven.RANGES.length; i++) {
+            if (i % 4 == 0) {
+                row = new LinearLayout(activity);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rowParams.topMargin = i == 0 ? 0 : dp(8);
+                content.addView(row, rowParams);
+            }
+            String range = Wallhaven.RANGES[i];
+            TextView chip = WallpaperChip.create(ui, labels[i], range.equals(query.range), v -> {
+                sheet[0].dismiss();
+                if (range.equals(query.range)) return;
+                query.range = range;
+                updateTopLabel();
+                reload();
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            params.leftMargin = i % 4 == 0 ? 0 : dp(8);
+            row.addView(chip, params);
+        }
+        sheet[0] = new ThemeSheet(activity).setTitle(text("Период топа", "Period of the top list"))
+                .setContent(content).setDim(.35f);
+        sheet[0].show();
     }
 
     private void styleChips(List<TextView> chips, String[] values, String selected) {
-        for (int i = 0; i < chips.size(); i++) styleChip(chips.get(i), values[i].equals(selected));
+        for (int i = 0; i < chips.size(); i++) WallpaperChip.style(ui, chips.get(i), values[i].equals(selected));
     }
 
     private void chooseSorting(String sorting) {
         query.sorting = sorting;
         styleChips(sortChips, Wallhaven.SORTINGS, sorting);
-        rangeRow.setVisibility(Wallhaven.TOPLIST.equals(sorting) ? View.VISIBLE : View.GONE);
+        updateTopLabel();
     }
 
     private GridView createGrid() {
         GridView view = new GridView(activity);
-        view.setNumColumns(2);
+        view.setNumColumns(columns);
         view.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
-        view.setHorizontalSpacing(dp(10));
-        view.setVerticalSpacing(dp(10));
-        view.setPadding(dp(12), dp(6), dp(12), dp(12));
+        view.setHorizontalSpacing(dp(GRID_GAP_DP));
+        view.setVerticalSpacing(dp(GRID_GAP_DP));
+        // The top padding keeps the first row below the chips.
+        view.setPadding(dp(GRID_SIDE_DP), dp(HEADER_DP) + dp(2), dp(GRID_SIDE_DP), dp(12));
         view.setClipToPadding(false);
         view.setSelector(new ColorDrawable(Color.TRANSPARENT));
         view.setCacheColorHint(Color.TRANSPARENT);
         view.setVerticalScrollBarEnabled(false);
         view.setAdapter(grid);
+        view.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            // Posted: the grid changes its own columns, which must not happen inside its layout pass.
+            if (right - left != oldRight - oldLeft) v.post(this::applyColumns);
+        });
         view.setOnItemClickListener((parent, cell, position, id) -> {
             Wallhaven.Item item = grid.item(position);
-            if (item != null) preview(item);
+            if (item != null) openPreview(item);
         });
         view.setOnScrollListener(new AbsListView.OnScrollListener() {
             @Override
             public void onScrollStateChanged(AbsListView list, int scrollState) {
                 if (scrollState == SCROLL_STATE_TOUCH_SCROLL) hideKeyboard();
+                if (scrollState == SCROLL_STATE_IDLE) scheduleSettle();
+                else handler.removeCallbacks(settle);
             }
 
             @Override
             public void onScroll(AbsListView list, int first, int visible, int total) {
+                followScroll(list, first);
                 if (loading || paused || grid.size() == 0 || page >= lastPage) return;
-                if (first + visible >= total - PRELOAD_CELLS) loadPage(page + 1);
+                if (first + visible >= total - PRELOAD_ROWS * columns) loadPage(page + 1);
             }
         });
         return view;
+    }
+
+    /** Works out how many columns fit and how wide a cell is, and tells the grid, which makes its sharp pictures at that size. */
+    private void applyColumns() {
+        int width = gridView.getWidth();
+        if (width <= 0) return;
+        float density = activity.getResources().getDisplayMetrics().density;
+        columns = WallhavenRules.columns(Math.round(width / density), query.portrait);
+        if (gridView.getNumColumns() != columns) gridView.setNumColumns(columns);
+        int available = width - gridView.getPaddingLeft() - gridView.getPaddingRight();
+        int cell = (available - (columns - 1) * dp(GRID_GAP_DP)) / columns;
+        grid.setLayout(columns, cell);
+        scheduleSettle();
+    }
+
+    private void sharpenVisible() {
+        if (!isGone() && gridView != null) grid.sharpenVisible(gridView);
+    }
+
+    private void scheduleSettle() {
+        handler.removeCallbacks(settle);
+        handler.postDelayed(settle, SETTLE_MS);
+    }
+
+    /** The chips slide away when the list moves down and come back when it moves up or reaches the top. */
+    private void followScroll(AbsListView list, int first) {
+        View top = list.getChildAt(0);
+        if (top == null) return;
+        int rowHeight = top.getHeight() + dp(GRID_GAP_DP);
+        int position = (first / Math.max(1, columns)) * rowHeight - top.getTop();
+        int delta = position - lastScrollPosition;
+        lastScrollPosition = position;
+        if (position <= dp(8) || delta < -dp(6)) showHeader(true);
+        else if (delta > dp(6)) showHeader(false);
+    }
+
+    private void showHeader(boolean shown) {
+        if (headerShown == shown) return;
+        headerShown = shown;
+        header.animate().translationY(shown ? 0 : -dp(HEADER_DP)).alpha(shown ? 1f : 0f).setDuration(180).start();
     }
 
     /** The message in the middle of the screen, with a button when there is something to do about it. */
@@ -345,7 +445,7 @@ final class WallhavenScreen {
         spinner.setIndeterminateTintList(ColorStateList.valueOf(accent));
         state.addView(spinner, new LinearLayout.LayoutParams(dp(36), dp(36)));
 
-        stateText = activity.createText("Body.Secondary", "");
+        stateText = ui.createText("Body.Secondary", "");
         stateText.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -363,7 +463,7 @@ final class WallhavenScreen {
 
     /** A pill at the bottom for trouble with a later page, so the pictures already there stay in view. */
     private TextView createBanner() {
-        TextView view = activity.createText("H4.Primary", "");
+        TextView view = ui.createText("H4.Primary", "");
         view.setGravity(Gravity.CENTER);
         view.setPadding(dp(18), dp(10), dp(18), dp(10));
         GradientDrawable shape = new GradientDrawable();
@@ -378,8 +478,8 @@ final class WallhavenScreen {
 
     /** The cells follow the shape of the pictures asked for: tall ones for a phone, wide ones otherwise. */
     private void applyShape() {
-        grid.setRatio(query.portrait ? 4f / 3f : .75f);
-        rangeRow.setVisibility(Wallhaven.TOPLIST.equals(query.sorting) ? View.VISIBLE : View.GONE);
+        grid.setRatio(WallhavenRules.cellRatio(query.portrait));
+        if (gridView != null) applyColumns();
     }
 
     private void hideKeyboard() {
@@ -414,6 +514,9 @@ final class WallhavenScreen {
         Settings.putString(Settings.WALLHAVEN_LAST, query.toJson());
         grid.clear();
         applyShape();
+        updateFilterBadge();
+        lastScrollPosition = 0;
+        showHeader(true);
         hideProblems();
         showLoading();
         grid.setLoadingMore(true);
@@ -425,6 +528,8 @@ final class WallhavenScreen {
         loading = true;
         int mine = generation;
         Wallhaven.Query asked = query.copy();
+        // The key was changed in the filters since it was refused: it is tried again.
+        if (guest && !Wallhaven.key().equals(guestKey)) guest = false;
         String key = guest ? "" : Wallhaven.key();
         if (number > 1) grid.setLoadingMore(true);
         Utils.runOnBackgroundThread(() -> {
@@ -462,9 +567,10 @@ final class WallhavenScreen {
             return;
         }
         hideState();
+        scheduleSettle();
         // A page of pictures that were all seen before leaves the grid short: ask for the next one.
         gridView.post(() -> {
-            if (!loading && !paused && page < lastPage && gridView.getLastVisiblePosition() >= grid.getCount() - PRELOAD_CELLS) {
+            if (!loading && !paused && page < lastPage && gridView.getLastVisiblePosition() >= grid.getCount() - PRELOAD_ROWS * columns) {
                 loadPage(page + 1);
             }
         });
@@ -486,10 +592,11 @@ final class WallhavenScreen {
             int code = ((Wallhaven.ApiException) error).code;
             if (code == 401) {
                 // A key the service does not know is never sent again behind the user's back: the user decides.
-                message = text("Wallhaven не принял API-ключ (ошибка 401). Исправьте ключ в «Оформление → Обои» или ищите без него.",
-                        "Wallhaven did not accept the API key (error 401). Fix the key in Appearance > Wallpaper, or search without it.");
+                message = text("Wallhaven не принял API-ключ (ошибка 401). Исправьте ключ в фильтрах каталога или ищите без него.",
+                        "Wallhaven did not accept the API key (error 401). Fix the key in the catalogue Filters, or search without it.");
                 problem(number, message, text("Искать без ключа", "Search without the key"), () -> {
                     guest = true;
+                    guestKey = Wallhaven.key();
                     reload();
                 });
                 return;
@@ -577,7 +684,7 @@ final class WallhavenScreen {
         } else {
             if (!actionLabel.equals(stateActionLabel)) {
                 stateAction.removeAllViews();
-                stateAction.addView(activity.createPillButton(actionLabel, true, v -> {
+                stateAction.addView(ui.createPillButton(actionLabel, true, v -> {
                     if (stateTarget != null) stateTarget.run();
                 }));
                 stateActionLabel = actionLabel;
@@ -602,296 +709,25 @@ final class WallhavenScreen {
 
     // endregion
 
-    // region Filters
+    // region Filters and preview
 
     private void showFilters() {
-        int[] categories = {query.categories};
-        boolean[] portrait = {query.portrait};
-        int[] adult = {query.adultPurity};
-
-        LinearLayout form = new LinearLayout(activity);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setTag(ArsoundDialog.KEEP_COLORS);
-        form.addView(heading(text("Категории", "Categories")));
-        String[] names = {text("Общие", "General"), text("Аниме", "Anime"), text("Люди", "People")};
-        int[] bits = {Wallhaven.GENERAL, Wallhaven.ANIME, Wallhaven.PEOPLE};
-        for (int i = 0; i < bits.length; i++) {
-            int bit = bits[i];
-            form.addView(activity.createCheckRow(names[i], (categories[0] & bit) != 0, (button, checked) -> {
-                int next = checked ? categories[0] | bit : categories[0] & ~bit;
-                // At least one category stays on: the service answers nothing otherwise.
-                if (next == 0) {
-                    button.setChecked(true);
-                    return;
-                }
-                categories[0] = next;
-            }));
-        }
-        form.addView(heading(text("Размер", "Size")));
-        form.addView(activity.createCheckRow(text("Только вертикальные, от 1080×1920", "Tall pictures only, at least 1080×1920"),
-                portrait[0], (button, checked) -> portrait[0] = checked));
-        if (Wallhaven.adultAllowed()) {
-            form.addView(heading("18+"));
-            form.addView(activity.createCheckRow("Sketchy", (adult[0] & Wallhaven.SKETCHY) != 0,
-                    (button, checked) -> adult[0] = checked ? adult[0] | Wallhaven.SKETCHY : adult[0] & ~Wallhaven.SKETCHY));
-            form.addView(activity.createCheckRow("NSFW", (adult[0] & Wallhaven.NSFW) != 0,
-                    (button, checked) -> adult[0] = checked ? adult[0] | Wallhaven.NSFW : adult[0] & ~Wallhaven.NSFW));
-        }
-        new ArsoundDialog(activity)
-                .setTitle(text("Фильтры", "Filters"))
-                .setView(form)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(text("Применить", "Apply"), (dialog, which) -> {
-                    boolean changed = query.categories != categories[0] || query.portrait != portrait[0] || query.adultPurity != adult[0];
-                    query.categories = categories[0];
-                    query.portrait = portrait[0];
-                    query.adultPurity = adult[0];
-                    if (changed) reload();
-                })
-                .show();
+        WallhavenFilterSheet.show(ui, query, this::reload, this::updateFilterBadge);
     }
 
-    private TextView heading(String label) {
-        TextView heading = activity.createText("H4.Secondary", label);
-        heading.setPadding(activity.dimen("spacing_m"), dp(12), activity.dimen("spacing_m"), dp(2));
-        heading.setTextColor(secondary);
-        return heading;
+    /** Opens the full-screen look at a picture; the grid stays as it is under it. */
+    private void openPreview(Wallhaven.Item item) {
+        if (preview != null) preview.release();
+        preview = WallpaperPreviewScreen.show(ui, item, grid.thumbnail(item), activity::finish);
     }
-
-    // endregion
-
-    // region Preview and download
-
-    /** A picture bigger than this is not downloaded by the preview on its own, only when it is chosen. */
-    private static final long PREVIEW_MAX_BYTES = 25L * 1024 * 1024;
-
-    /** The download the open preview or progress window works with, so closing the screen can give it up. */
-    private WallpaperDownload current;
-    /** The picture is being made the wallpaper: giving up the download now would take the file from under it. */
-    private boolean installing;
 
     /** Gives up what is still downloading and stops loading thumbnails: the screen is closed. */
-    void close() {
+    @Override
+    void onDestroy() {
         cancelCountdown();
-        if (current != null && !installing) current.cancel();
+        handler.removeCallbacks(settle);
+        if (preview != null) preview.release();
         grid.close();
-    }
-
-    /**
-     * A look at the picture the way it will lie behind the screens (a frame in the shape of this phone's screen, the
-     * picture cut to it), with its facts, the link to its page and the button that makes it the wallpaper. The
-     * thumbnail is only 300 pixels, so the full picture downloads while the preview is open; "Set as background"
-     * then takes that same file instead of downloading again.
-     */
-    private void preview(Wallhaven.Item item) {
-        WallpaperDownload download = new WallpaperDownload(activity, item.fullUrl);
-        current = download;
-        boolean[] open = {true};
-        boolean[] used = {false};
-
-        LinearLayout body = new LinearLayout(activity);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(24), 0, dp(24), 0);
-        body.setTag(ArsoundDialog.KEEP_COLORS);
-
-        android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
-        int frameHeight = Math.min(dp(400), Math.round(metrics.heightPixels * .46f));
-        int frameWidth = Math.round(frameHeight * (float) Math.min(metrics.widthPixels, metrics.heightPixels)
-                / Math.max(metrics.widthPixels, metrics.heightPixels));
-        FrameLayout frame = new FrameLayout(activity);
-        GradientDrawable base = new GradientDrawable();
-        base.setColor(card);
-        frame.setBackground(base);
-        float radius = dp(16);
-        frame.setOutlineProvider(new ViewOutlineProvider() {
-            @Override
-            public void getOutline(View view, Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
-            }
-        });
-        frame.setClipToOutline(true);
-        ImageView picture = new ImageView(activity);
-        picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        frame.addView(picture, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        ProgressBar spinner = new ProgressBar(activity);
-        spinner.setIndeterminate(true);
-        spinner.setIndeterminateTintList(ColorStateList.valueOf(accent));
-        frame.addView(spinner, new FrameLayout.LayoutParams(dp(32), dp(32), Gravity.CENTER));
-        ProgressBar bar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(1000);
-        bar.setIndeterminate(true);
-        bar.setProgressTintList(ColorStateList.valueOf(accent));
-        bar.setIndeterminateTintList(ColorStateList.valueOf(accent));
-        frame.addView(bar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4), Gravity.BOTTOM));
-        LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(frameWidth, frameHeight);
-        frameParams.gravity = Gravity.CENTER_HORIZONTAL;
-        body.addView(frame, frameParams);
-
-        // Until the full picture is there the thumbnail stands in; without one the frame shows a spinner.
-        boolean[] hasPicture = {false};
-        Bitmap thumbnail = grid.thumbnail(item);
-        if (thumbnail != null) {
-            picture.setImageBitmap(thumbnail);
-            hasPicture[0] = true;
-        }
-        boolean fetch = item.fileSize <= 0 || item.fileSize <= PREVIEW_MAX_BYTES;
-        Runnable showBusy = () -> {
-            boolean running = download.isRunning();
-            bar.setVisibility(running ? View.VISIBLE : View.GONE);
-            spinner.setVisibility(running && !hasPicture[0] ? View.VISIBLE : View.GONE);
-        };
-
-        TextView facts = activity.createText("Body.Secondary", item.resolution + "  ·  "
-                + String.format(Locale.US, "%.1f", item.fileSize / 1048576f) + " MB  ·  "
-                + text(item.views + " просмотров, " + item.favorites + " в избранном",
-                item.views + " views, " + item.favorites + " favorites"));
-        facts.setTextColor(secondary);
-        facts.setPadding(0, dp(12), 0, 0);
-        body.addView(facts);
-
-        TextView source = activity.createText("Body.Secondary", text("Источник и автор: ", "Source and author: ")
-                + Wallhaven.pageUrl(item.id).replace("https://", ""));
-        source.setTextColor(accent);
-        source.setPadding(0, dp(4), 0, dp(4));
-        source.setOnClickListener(v -> {
-            try {
-                activity.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(Wallhaven.pageUrl(item.id))));
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Wallhaven: no app to open the link");
-            }
-        });
-        body.addView(source);
-
-        download.setListener(new WallpaperDownload.Listener() {
-            @Override
-            public void onProgress(long done, long total) {
-                if (total > 0) {
-                    bar.setIndeterminate(false);
-                    bar.setProgress((int) (done * 1000 / total));
-                }
-            }
-
-            @Override
-            public void onFinished(boolean saved) {
-                showBusy.run();
-                if (!saved) return;
-                // Decoded to the size of the frame, so the picture is sharp and the memory it takes is small.
-                Utils.runOnBackgroundThread(() -> {
-                    File file = download.file();
-                    Bitmap full = null;
-                    if (file != null) {
-                        try {
-                            full = WallpaperStore.decodeCovering(file, frameWidth, frameHeight);
-                        } catch (Exception | OutOfMemoryError ex) {
-                            Logger.printInfo(() -> "Wallhaven: the preview could not be read: " + ex.getClass().getSimpleName());
-                        }
-                    }
-                    Bitmap ready = full;
-                    Utils.runOnMainThread(() -> {
-                        if (ready == null || !open[0]) return;
-                        hasPicture[0] = true;
-                        picture.setImageBitmap(ready);
-                        picture.setAlpha(0f);
-                        picture.animate().alpha(1f).setDuration(200).start();
-                    });
-                });
-            }
-        });
-
-        new ArsoundDialog(activity)
-                .setView(body)
-                .setNegativeButton(text("Закрыть", "Close"), null)
-                .setPositiveButton(text("Сделать фоном", "Set as background"), (dialog, which) -> {
-                    used[0] = true;
-                    setAsBackground(item, download);
-                })
-                .setOnDismissListener(dialog -> {
-                    open[0] = false;
-                    // Closed without choosing the picture: the downloaded part is of no use.
-                    if (!used[0]) {
-                        download.cancel();
-                        if (current == download) current = null;
-                    }
-                })
-                .show();
-        if (fetch) download.start();
-        showBusy.run();
-    }
-
-    /**
-     * Shows how the picture downloads (it may be under way since the preview), keeps it as the wallpaper and leaves
-     * the browser.
-     */
-    private void setAsBackground(Wallhaven.Item item, WallpaperDownload preview) {
-        // A download that failed stays failed (it does not start again), so when the preview's own one did, this tap
-        // makes a new one instead of reporting the old failure at once.
-        WallpaperDownload download = preview.isFailed() ? new WallpaperDownload(activity, item.fullUrl) : preview;
-        current = download;
-        LinearLayout box = new LinearLayout(activity);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(24), dp(8), dp(24), 0);
-        box.setTag(ArsoundDialog.KEEP_COLORS);
-        TextView label = activity.createText("Body.Secondary", item.resolution);
-        label.setTextColor(secondary);
-        box.addView(label);
-        ProgressBar bar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(1000);
-        bar.setIndeterminate(true);
-        bar.setProgressTintList(ColorStateList.valueOf(accent));
-        bar.setIndeterminateTintList(ColorStateList.valueOf(accent));
-        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
-        barParams.topMargin = dp(12);
-        box.addView(bar, barParams);
-
-        Dialog dialog = new ArsoundDialog(activity)
-                .setTitle(text("Скачиваю обои…", "Downloading the wallpaper…"))
-                .setView(box)
-                .setCancelable(false)
-                .setNegativeButton(android.R.string.cancel, (d, which) -> download.cancel())
-                .show();
-
-        download.setListener(new WallpaperDownload.Listener() {
-            @Override
-            public void onProgress(long done, long total) {
-                if (total > 0) {
-                    bar.setIndeterminate(false);
-                    bar.setProgress((int) (done * 1000 / total));
-                }
-            }
-
-            @Override
-            public void onFinished(boolean saved) {
-                if (!saved) {
-                    finishDownload(dialog, false);
-                    return;
-                }
-                // From here the picture is being kept; giving up would take the file from under it.
-                installing = true;
-                label.setText(text("Готовлю обои…", "Preparing the wallpaper…"));
-                bar.setIndeterminate(true);
-                TextView cancel = ArsoundDialog.getButton(dialog, DialogInterface.BUTTON_NEGATIVE);
-                if (cancel != null) {
-                    cancel.setEnabled(false);
-                    cancel.setAlpha(.4f);
-                }
-                Utils.runOnBackgroundThread(() -> {
-                    boolean ok = download.install(activity.getApplicationContext(), item.id);
-                    Utils.runOnMainThread(() -> finishDownload(dialog, ok));
-                });
-            }
-        });
-        // Starts it unless the preview did already.
-        download.start();
-    }
-
-    private void finishDownload(Dialog dialog, boolean ok) {
-        installing = false;
-        current = null;
-        if (dialog.isShowing()) dialog.dismiss();
-        if (isGone()) return;
-        Toast.makeText(activity, ok ? text("Обои установлены", "Wallpaper set")
-                : text("Не удалось скачать обои", "Could not download the wallpaper"), Toast.LENGTH_SHORT).show();
-        if (ok) activity.finish();
     }
 
     // endregion

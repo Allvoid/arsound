@@ -3,8 +3,8 @@ package app.arsound.patches.soundcloud.player
 import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.patch.bytecodePatch
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
-import app.arsound.patches.soundcloud.power.playerPlayMethod
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/player/ListeningStats;"
@@ -13,7 +13,7 @@ private const val EXTENSION_CLASS_DESCRIPTOR =
 val listeningStatsPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         playerPlayMethod.addInstruction(0, "invoke-static { p1 }, $EXTENSION_CLASS_DESCRIPTOR->onPlaybackItem(Ljava/lang/Object;)V")

@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.util.Locale;
 import java.util.function.BooleanSupplier;
 
 import app.revanced.extension.shared.Logger;
@@ -167,7 +166,7 @@ final class ProgressiveDownloader {
      * @return How many bytes of tag were written.
      */
     private static long writeTag(InputStream input, OutputStream output, String fileName, TrackSource track) throws IOException {
-        if (!fileName.toLowerCase(Locale.ROOT).endsWith(".mp3")) return 0;
+        if (AudioFormat.ofNameIgnoringCase(fileName) != AudioFormat.MP3) return 0;
         byte[] header = FileTags.id3Header(track.title, track.artist);
         if (header == null) return 0;
         // A tag the uploader wrote is theirs: it stays.

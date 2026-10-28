@@ -359,10 +359,20 @@ public final class PaletteEngine {
         palette.put("highlight", highlight);
         palette.put("special", ensureContrast(accent, dialog, 3.0));
         palette.put("error", "#FF8A80");
-        palette.put("overlay", mix(surface, "#000000", .5) + "B3");
-        palette.put("imageBorders", primary + "29");
+        putImageOverlays(palette, true, surface, primary);
         palette.put("dialog", dialog);
         return palette;
+    }
+
+    /**
+     * The veil over pictures ("overlay") and the thin line round them ("imageBorders"): in the dark look the surface
+     * darkened and the text colour faint, in the light look the text colour alone.
+     *
+     * @param ink The colour of the text ("primary").
+     */
+    private static void putImageOverlays(Map<String, String> palette, boolean dark, String surface, String ink) {
+        palette.put("overlay", dark ? mix(surface, "#000000", .5) + "B3" : ink + "66");
+        palette.put("imageBorders", ink + (dark ? "29" : "21"));
     }
 
     /** The colour of this hue and saturation, its lightness lowered from {@code level} until it is no brighter than the limit. */
@@ -399,8 +409,7 @@ public final class PaletteEngine {
         palette.put("highlight", highlight);
         palette.put("special", ensureContrast(accent, surface, 4.5));
         palette.put("error", "#C62E3A");
-        palette.put("overlay", ink + "66");
-        palette.put("imageBorders", ink + "21");
+        putImageOverlays(palette, false, surface, ink);
         palette.put("dialog", card != null ? card : "#FFFFFF");
         return palette;
     }
@@ -422,8 +431,7 @@ public final class PaletteEngine {
         palette.put("highlight", tones.get("neutral2_800"));
         palette.put("special", ensureContrast(tones.get("accent1_200"), dialog, 3.0));
         palette.put("error", "#F2B8B5");
-        palette.put("overlay", mix(surface, "#000000", .5) + "B3");
-        palette.put("imageBorders", tones.get("neutral1_100") + "29");
+        putImageOverlays(palette, true, surface, tones.get("neutral1_100"));
         palette.put("dialog", dialog);
         return palette;
     }
@@ -438,8 +446,7 @@ public final class PaletteEngine {
         palette.put("highlight", tones.get("neutral2_100"));
         palette.put("special", ensureContrast(tones.get("accent1_600"), surface, 4.5));
         palette.put("error", "#B3261E");
-        palette.put("overlay", tones.get("neutral1_900") + "66");
-        palette.put("imageBorders", tones.get("neutral1_900") + "21");
+        putImageOverlays(palette, false, surface, tones.get("neutral1_900"));
         palette.put("dialog", tones.get("neutral1_0"));
         return palette;
     }
