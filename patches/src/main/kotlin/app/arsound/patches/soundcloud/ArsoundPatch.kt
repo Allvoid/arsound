@@ -26,6 +26,7 @@ import app.arsound.patches.soundcloud.network.networkPatch
 import app.arsound.patches.soundcloud.offline.downloadedPlaybackPatch
 import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
+import app.arsound.patches.soundcloud.player.currentPlayStatePatch
 import app.arsound.patches.soundcloud.player.equalizerPatch
 import app.arsound.patches.soundcloud.player.listeningStatsPatch
 import app.arsound.patches.soundcloud.player.lyricsPatch
@@ -87,6 +88,7 @@ val arsoundBaseGroup = arsoundGroup(
     playbackTimelinePatch,
     notificationArtworkPatch,
     playModePatch,
+    currentPlayStatePatch,
     vivoMusicCardPatch,
     likesWidgetPatch,
     playerWidgetHeartPatch,
