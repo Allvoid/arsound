@@ -2,7 +2,11 @@ package app.revanced.extension.soundcloud.lyrics;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.SystemClock;
 import android.text.BidiFormatter;
 import android.util.TypedValue;
@@ -20,6 +24,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import app.revanced.extension.soundcloud.shared.Dimens;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * The lyrics as a column of lines you can scroll.
@@ -63,6 +68,8 @@ final class LyricsListView extends ScrollView {
     private final View topSpacer;
     private final View bottomSpacer;
     private final TextView credit;
+    /** The button under the credit of words a network heard: hear them again in another language. */
+    private final TextView again;
     private final DecelerateInterpolator ease = new DecelerateInterpolator(1.5f);
 
     private LineView[] lines = new LineView[0];
@@ -115,6 +122,22 @@ final class LyricsListView extends ScrollView {
         credit.setTextColor(0x66FFFFFF);
         credit.setAlpha(0.7f);
         credit.setPadding(dp(16), dp(18), dp(20), dp(8));
+        again = againButton(context);
+    }
+
+    /** A small glass pill in the white of the words, like the rest of the page over the blurred cover. */
+    private TextView againButton(Context context) {
+        TextView button = new TextView(context);
+        button.setText(Lang.text("↻  Не тот язык? Распознать заново", "↻  Wrong language? Recognise again"));
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        button.setTextColor(0xE6FFFFFF);
+        button.setPadding(dp(14), dp(8), dp(16), dp(8));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(dp(18));
+        shape.setColor(0x1FFFFFFF);
+        shape.setStroke(dp(1), 0x40FFFFFF);
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), shape, null));
+        return button;
     }
 
     private int dp(float value) {
@@ -145,8 +168,9 @@ final class LyricsListView extends ScrollView {
      *
      * @param face       The font of the player's title, so the words look like the rest of the screen.
      * @param creditText The line of thanks under the words.
+     * @param onAgain    What the "recognise again" button under the credit does; null for no button.
      */
-    void setLyrics(Lyrics next, Typeface face, String creditText) {
+    void setLyrics(Lyrics next, Typeface face, String creditText, Runnable onAgain) {
         stopGlide();
         column.removeAllViews();
         lyrics = next;
@@ -187,6 +211,15 @@ final class LyricsListView extends ScrollView {
         credit.setText(creditText);
         column.addView(credit, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
+        if (onAgain != null) {
+            again.setOnClickListener(v -> onAgain.run());
+            LinearLayout.LayoutParams againParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            againParams.leftMargin = dp(12);
+            againParams.topMargin = dp(4);
+            againParams.bottomMargin = dp(12);
+            column.addView(again, againParams);
+        }
         column.addView(bottomSpacer, new LinearLayout.LayoutParams(1, Math.round(getHeight() * (1 - FOCUS))));
 
         programmatic = true;
@@ -472,6 +505,8 @@ final class LyricsListView extends ScrollView {
     }
 
     private void tapped(float x, float y, long time) {
+        // The button answers its own tap: it is not the cover's (pause and play).
+        if (isOn(again, x, y)) return;
         int line = lineAt(Math.round(y) + getScrollY());
         boolean seekable = line >= 0 && isTimed() && !lyrics.lines[line].isEmpty();
         if (!seekable) {
@@ -483,6 +518,15 @@ final class LyricsListView extends ScrollView {
         // jumps to the line.
         if (taps.next(time) == TapSequence.Kind.DOUBLE) host.onLineDoubleTapped(line);
         else host.onTap();
+    }
+
+    /** Whether a point of this view falls on a child of the column that is shown. */
+    private boolean isOn(View child, float x, float y) {
+        if (child.getParent() != column) return false;
+        Rect bounds = new Rect();
+        child.getDrawingRect(bounds);
+        offsetDescendantRectToMyCoords(child, bounds);
+        return bounds.contains(Math.round(x) + getScrollX(), Math.round(y) + getScrollY());
     }
 
     private int lineAt(int contentY) {

@@ -15,7 +15,8 @@ import java.io.IOException;
 /**
  * One loaded GigaAM v3 (Sber's Russian speech model, CTC head, in sherpa-onnx's NeMo form). It knows only Russian and
  * does not loop like Whisper, so the language is not looked for. On the voice of Russian songs it made the fewest
- * mistakes of all the models we tried (29.10): about four words in ten wrong against six and more for Whisper.
+ * mistakes of all the models we tried (29.10): about four words in ten wrong against six and more for Whisper. It
+ * also tells when each letter was sung, so its lines are timed by the words ({@link HeardWord}).
  * <p>
  * Created by {@link TranscriptionJob} for {@link AsrModel#GIGAAM}; the library must be loaded first ({@link NativeLibs}).
  */
@@ -48,8 +49,9 @@ final class GigaAmRunner implements Recognizer {
             stream.acceptWaveform(samples, Chunker.RATE);
             recognizer.decode(stream);
             OfflineRecognizerResult result = recognizer.getResult(stream);
-            String text = result == null || result.getText() == null ? "" : result.getText().trim();
-            return new Heard(text, "ru");
+            if (result == null || result.getText() == null) return new Heard("", "ru");
+            return new Heard(result.getText().trim(), "ru",
+                    HeardWord.fromTokens(result.getTokens(), result.getTimestamps()));
         } finally {
             stream.release();
         }

@@ -17,8 +17,9 @@ import app.revanced.extension.soundcloud.lyrics.transcribe.TranscriptionManager;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 
 /**
- * The rows of "Recognition of lyrics by a neural network": the switch, the model (which one, download, delete, size),
- * the language, and clearing the recognised texts. Nothing is added on a phone that cannot run the
+ * The rows of "Recognition of lyrics by a neural network": the switch, the models (download ahead, delete, size),
+ * the voice separation, and clearing the recognised texts. There is no model or language to choose for all songs: the
+ * lyrics page asks the language of each song, and that decides the model. Nothing is added on a phone that cannot run the
  * model (anything but 64-bit ARM).
  * <p>
  * Used by {@code PlaybackScreen} in the lyrics section: {@code new LyricsAiRows(ui).addTo(list)}. The work behind the rows is
@@ -59,23 +60,24 @@ final class LyricsAiRows {
         list.addView(ui.createToggleRow(
                 text("Отделять голос от музыки", "Take the voice out of the music"),
                 text("Перед распознаванием отдельная нейросеть убирает музыку и оставляет голос: ошибок становится "
-                                + "намного меньше (в нашей проверке с GigaAM — четыре слова из десяти вместо шести). Но это "
-                                + "в несколько раз дольше: трек в три минуты обрабатывается несколько минут. Ещё около "
-                                + "95 МБ загрузки.",
+                                + "намного меньше (в нашей проверке с GigaAM — четыре слова из десяти вместо шести). На "
+                                + "Snapdragon 8 Gen 2, 8 Gen 3 и 8 Elite это делает нейропроцессор за секунды, на других "
+                                + "телефонах — ядра, и трек в три минуты обрабатывается несколько минут. Ещё около 75 МБ "
+                                + "загрузки (на таком Snapdragon — около 120 МБ).",
                         "Before the recognition a separate network removes the music and keeps the voice: there are far "
-                                + "fewer mistakes (in our test with GigaAM four wrong words in ten instead of six). But it "
-                                + "takes several times longer: a three-minute track takes several minutes. About 95 MB more "
-                                + "to download."),
+                                + "fewer mistakes (in our test with GigaAM four wrong words in ten instead of six). On a "
+                                + "Snapdragon 8 Gen 2, 8 Gen 3 or 8 Elite the neural processor does it in seconds, on other "
+                                + "phones the cores do, and a three-minute track takes several minutes. About 75 MB more to "
+                                + "download (about 120 MB on such a Snapdragon)."),
                 BoolSettings.LYRICS_AI_SEPARATE,
                 (button, checked) -> refreshModelStatus()).icon("ai"));
-        addLanguageRow(list);
         addClearRow(list);
     }
 
-    // region The model
+    // region The models
 
     private void addModelRow(LinearLayout list) {
-        ActionRow row = ui.createActionRow(text("Модель нейросети", "Neural network model"), "", v -> onModelRowTapped());
+        ActionRow row = ui.createActionRow(text("Модели нейросети", "Neural network models"), "", v -> onModelRowTapped());
         row.icon("storage");
         modelStatus = row.description();
         modelStatus.setText(text("Считаю…", "Counting…"));
@@ -86,10 +88,7 @@ final class LyricsAiRows {
         row.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View view) {
-                if (TranscriptionManager.attachInstall(installListener)) {
-                    modelStatus.setText(TranscriptionManager.chosenModel().label() + " · "
-                            + text("загрузка…", "downloading…"));
-                }
+                if (TranscriptionManager.attachInstall(installListener)) showDownloading(null);
             }
 
             @Override
@@ -99,24 +98,41 @@ final class LyricsAiRows {
         });
     }
 
-    /** Shows whether the chosen model is on the phone, how much space it takes, and what a tap does. */
+    /** Which models are on the phone and how much space they take, then what the row is for. */
     private void refreshModelStatus() {
-        final AsrModel model = TranscriptionManager.chosenModel();
-        final boolean installed = TranscriptionManager.isInstalled(model);
-        final String name = model.label();
-        final String hint = "\n" + modelHint(model);
-        modelStatus.setText(name + " · " + (installed ? text("готова", "ready") : text("не загружена", "not downloaded"))
-                + hint);
+        final AsrModel[] models = AsrModel.values();
+        final boolean[] installed = new boolean[models.length];
+        for (int i = 0; i < models.length; i++) installed[i] = TranscriptionManager.isInstalled(models[i]);
+        modelStatus.setText(modelSummary(models, installed, null));
         ui.fillInBackground(() -> {
-            final long bytes = installed ? TranscriptionManager.modelBytes(model) : TranscriptionManager.missingBytes(model);
+            final long[] bytes = new long[models.length];
+            for (int i = 0; i < models.length; i++) {
+                bytes[i] = installed[i] ? TranscriptionManager.modelBytes(models[i]) : TranscriptionManager.missingBytes(models[i]);
+            }
             Utils.runOnMainThread(() -> {
-                if (TranscriptionManager.isInstalling() || TranscriptionManager.chosenModel() != model) return;
-                modelStatus.setText(name + " · " + (installed
-                        ? text("готова, занимает " + Sizes.format(bytes) + ".", "ready, takes " + Sizes.format(bytes) + ".")
-                        : text("не загружена, нужно скачать " + Sizes.format(bytes) + ".",
-                        "not downloaded, " + Sizes.format(bytes) + " to download.")) + hint);
+                if (!TranscriptionManager.isInstalling()) modelStatus.setText(modelSummary(models, installed, bytes));
             });
         });
+    }
+
+    /** A line per model ("ready, 290 MB" or "not downloaded"), then how the model of a song is chosen. */
+    private static String modelSummary(AsrModel[] models, boolean[] installed, long[] bytes) {
+        StringBuilder summary = new StringBuilder();
+        for (int i = 0; i < models.length; i++) {
+            summary.append(models[i].label()).append(" · ");
+            if (installed[i]) {
+                summary.append(bytes == null ? text("скачана", "downloaded")
+                        : text("скачана, " + Sizes.format(bytes[i]), "downloaded, " + Sizes.format(bytes[i])));
+            } else {
+                summary.append(text("не скачана", "not downloaded"));
+            }
+            summary.append('\n');
+        }
+        return summary.append(text("Перед распознаванием спрашивается язык песни: русский слушает GigaAM, другие — "
+                        + "Whisper. Недостающая модель скачивается тогда же. Нажмите, чтобы скачать заранее или удалить.",
+                "The language of the song is asked before the recognition: Russian is heard by GigaAM, other languages "
+                        + "by Whisper. A missing model is downloaded then. Tap to download one ahead or delete it."))
+                .toString();
     }
 
     private void onModelRowTapped() {
@@ -136,27 +152,26 @@ final class LyricsAiRows {
             labels[i] = models[i].label() + " · " + Sizes.format(models[i].totalBytes())
                     + (TranscriptionManager.isInstalled(models[i]) ? text(" · скачана", " · downloaded") : "");
         }
-        final AsrModel chosen = TranscriptionManager.chosenModel();
+        new ArsoundDialog(ui.activity)
+                .setTitle(text("Модели нейросети", "Neural network models"))
+                .setItems(labels, (d, which) -> showModel(models[which]))
+                .setNegativeButton(text("Закрыть", "Close"), null)
+                .show();
+    }
+
+    /** One model: what it is good at, and its download or its deletion. */
+    private void showModel(AsrModel model) {
+        boolean installed = TranscriptionManager.isInstalled(model);
         ArsoundDialog dialog = new ArsoundDialog(ui.activity)
-                .setTitle(text("Модель нейросети", "Neural network model"))
-                .setSingleChoiceItems(labels, chosen.ordinal(), (d, which) -> {
-                    d.dismiss();
-                    AsrModel model = models[which];
-                    TranscriptionManager.setChosenModel(model);
-                    refreshModelStatus();
-                    // A model that is not on the phone is of no use until it is: offer the download at once.
-                    if (!TranscriptionManager.isInstalled(model)) {
-                        HeavyNotice.showThen(ui.activity, TranscriptionManager.missingBytes(model),
-                                () -> offerDownload(model));
-                    }
-                })
+                .setTitle(model.label())
+                .setMessage(modelHint(model))
                 .setNegativeButton(text("Закрыть", "Close"), null);
-        if (TranscriptionManager.isInstalled(chosen)) {
-            dialog.setNeutralButton(text("Удалить", "Delete"), (d, w) -> confirmDelete(chosen));
+        if (installed) {
+            dialog.setNeutralButton(text("Удалить", "Delete"), (d, w) -> confirmDelete(model));
         } else {
             dialog.setPositiveButton(text("Скачать", "Download"),
-                    (d, w) -> HeavyNotice.showThen(ui.activity, TranscriptionManager.missingBytes(chosen),
-                            () -> offerDownload(chosen)));
+                    (d, w) -> HeavyNotice.showThen(ui.activity, TranscriptionManager.missingBytes(model),
+                            () -> offerDownload(model)));
         }
         dialog.show();
     }
@@ -165,9 +180,9 @@ final class LyricsAiRows {
         new ArsoundDialog(ui.activity)
                 .setTitle(text("Удалить модель?", "Delete the model?"))
                 .setMessage(text("Файлы модели «" + model.label() + "» будут удалены с телефона. Уже распознанные тексты "
-                                + "останутся. Чтобы распознавать дальше, модель придётся скачать снова.",
+                                + "останутся. Понадобится снова — скачается перед распознаванием.",
                         "The files of the model \"" + model.label() + "\" will be removed from the phone. Texts already "
-                                + "recognised stay. To recognise more, the model has to be downloaded again."))
+                                + "recognised stay. When it is needed again, it is downloaded before the recognition."))
                 .setPositiveButton(text("Удалить", "Delete"), (d, w) -> {
                     if (!TranscriptionManager.deleteModel(model)) {
                         Utils.showToastLong(text("Сейчас идёт распознавание: подождите или остановите его.",
@@ -181,7 +196,7 @@ final class LyricsAiRows {
 
     /** Downloads the model, asking first on a mobile or limited network. */
     private void offerDownload(AsrModel model) {
-        final Advice advice = TranscriptionManager.advise();
+        final Advice advice = TranscriptionManager.advise(model);
         if (advice.metered) {
             new ArsoundDialog(ui.activity)
                     .setTitle(text("Скачать по мобильной сети?", "Download over mobile data?"))
@@ -197,17 +212,23 @@ final class LyricsAiRows {
     }
 
     private void startDownload(AsrModel model) {
-        modelStatus.setText(model.label() + " · " + text("загрузка… нажмите, чтобы остановить", "downloading… tap to stop"));
         TranscriptionManager.startInstall(model, installListener);
+        showDownloading(null);
+    }
+
+    /** The row while a model downloads: its name, how far it is, how to stop it. */
+    private void showDownloading(Integer percent) {
+        AsrModel model = TranscriptionManager.installingModel();
+        String name = model == null ? "" : model.label() + " · ";
+        modelStatus.setText(name + (percent == null
+                ? text("загрузка… Нажмите, чтобы остановить.", "downloading… Tap to stop.")
+                : text("загрузка " + percent + "%. Нажмите, чтобы остановить.", "downloading " + percent + "%. Tap to stop.")));
     }
 
     private final TranscriptionManager.InstallListener installListener = new TranscriptionManager.InstallListener() {
         @Override
         public void onProgress(int percent) {
-            if (gone()) return;
-            modelStatus.setText(TranscriptionManager.chosenModel().label() + " · "
-                    + text("загрузка " + percent + "%. Нажмите, чтобы остановить.",
-                    "downloading " + percent + "%. Tap to stop."));
+            if (!gone()) showDownloading(percent);
         }
 
         @Override
@@ -241,65 +262,23 @@ final class LyricsAiRows {
         return ui.activity.isFinishing() || ui.activity.isDestroyed();
     }
 
-    // endregion
-
-    // region Choices
-
-    /** What the model is good and bad at, under its name. */
+    /** What the model is good and bad at. */
     private static String modelHint(AsrModel model) {
         if (model == AsrModel.GIGAAM) {
-            return text("Рекомендуется для русских песен: точнее и быстрее Whisper, около 0,7 ГБ памяти. Слышит только "
-                            + "русский: английская песня выйдет русскими буквами. Нажмите, чтобы сменить, скачать или удалить.",
-                    "Recommended for Russian songs: more accurate and faster than Whisper, about 0.7 GB of memory. Hears "
-                            + "only Russian: an English song comes out in Russian letters. Tap to change, download or delete it.");
+            return text("Слушает песни, для которых вы выбрали русский язык: точнее и быстрее Whisper, около 0,7 ГБ "
+                            + "памяти. Другие языки не слышит.",
+                    "Listens to the songs you said are in Russian: more accurate and faster than Whisper, about 0.7 GB of "
+                            + "memory. Hears no other language.");
         }
         return model == AsrModel.SMALL
-                ? text("Для песен на других языках. На русских песнях в нашей проверке верна примерно треть слов "
-                        + "(половина, если отделять голос). Нужно около 1,5 ГБ свободной памяти и больше времени. "
-                        + "Нажмите, чтобы сменить, скачать или удалить.",
-                "For songs in other languages. On Russian songs in our test about a third of the words came out right "
-                        + "(half with the voice taken out). Needs about 1.5 GB of free memory and more time. Tap to change, "
-                        + "download or delete it.")
-                : text("Вдвое быстрее и легче, но на русских песнях ошибок больше, чем слов: годится для английской речи "
-                        + "и слабых телефонов. Нажмите, чтобы сменить, скачать или удалить.",
-                "Twice as fast and light, but on Russian songs it makes more mistakes than there are words: fit for "
-                        + "English speech and weak phones. Tap to change, download or delete it.");
-    }
-
-    private void addLanguageRow(LinearLayout list) {
-        final String[] codes = {"auto", "ru", "en"};
-        final CharSequence[] labels = {text("Определять самой (русский или английский)", "Detect automatically (Russian or English)"),
-                text("Русский", "Russian"), "English"};
-        final TextView[] description = new TextView[1];
-        ActionRow row = ui.createActionRow(text("Язык песен", "Language of the songs"), "", v ->
-                new ArsoundDialog(ui.activity)
-                        .setTitle(text("Язык песен", "Language of the songs"))
-                        .setSingleChoiceItems(labels, indexOf(codes, TranscriptionManager.language()), (dialog, which) -> {
-                            TranscriptionManager.setLanguage(codes[which]);
-                            description[0].setText(languageText(labels, codes));
-                            dialog.dismiss();
-                        })
-                        .show());
-        row.icon("language");
-        description[0] = row.description();
-        description[0].setText(languageText(labels, codes));
-        list.addView(row);
-    }
-
-    private static String languageText(CharSequence[] labels, String[] codes) {
-        return labels[indexOf(codes, TranscriptionManager.language())] + "\n"
-                + text("Если все песни на одном языке, укажите его: так слова слышатся точнее. «Определять самой» верит "
-                        + "только русскому, английскому и языку телефона; по умолчанию в русском приложении стоит русский.",
-                "If all your songs are in one language, name it: the words are heard more accurately. \"Detect "
-                        + "automatically\" believes only Russian, English and the language of the phone; in a Russian app "
-                        + "Russian is the default.");
-    }
-
-    private static int indexOf(String[] codes, String code) {
-        for (int i = 0; i < codes.length; i++) {
-            if (codes[i].equals(code)) return i;
-        }
-        return 0;
+                ? text("Слушает песни на английском и других языках. Нужно около 1,5 ГБ свободной памяти и больше времени, "
+                        + "чем русской модели.",
+                "Listens to the songs in English and other languages. Needs about 1.5 GB of free memory and more time "
+                        + "than the Russian model.")
+                : text("Вдвое быстрее и легче Whisper small, но ошибается чаще. Предлагается, когда для обычной модели "
+                        + "не хватает памяти.",
+                "Twice as fast and light as Whisper small, but makes more mistakes. Offered when there is not enough "
+                        + "memory for the usual model.");
     }
 
     // endregion

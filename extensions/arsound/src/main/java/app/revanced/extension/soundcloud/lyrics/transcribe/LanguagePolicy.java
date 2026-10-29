@@ -13,16 +13,13 @@ import java.util.Set;
  * the language of the song. No Android classes here: the rules are tested on the JVM.
  * <p>
  * Used by {@link SongListener} (what to fix), {@link TextCleaner} (which letters pass) and
- * {@link TranscriptionManager} (the default of the language setting).
+ * {@link TranscriptionManager} (whether a title is in Russian letters).
  */
 final class LanguagePolicy {
     /** The writing systems told apart: enough to see a Japanese window in a Russian song. */
     enum Script {
         CYRILLIC, LATIN, OTHER
     }
-
-    /** The setting that lets Whisper find the language of the song itself. */
-    static final String AUTO = "auto";
 
     private static final Set<String> CYRILLIC_LANGUAGES = words("ru uk be bg sr mk kk ky mn tg tt ba");
     private static final Set<String> OTHER_LANGUAGES = words("ja zh ko ar fa he yi hi bn ta te th lo my km el ka hy ur "
@@ -33,11 +30,6 @@ final class LanguagePolicy {
 
     private static Set<String> words(String list) {
         return Collections.unmodifiableSet(new HashSet<>(Arrays.asList(list.split(" "))));
-    }
-
-    /** The language setting before the user chooses: Russian in a Russian app, where the songs are mostly Russian. */
-    static String defaultSetting(boolean russianApp) {
-        return russianApp ? "ru" : AUTO;
     }
 
     /** Whether the language is one the recognition believes: Russian, English or the language of the phone. */

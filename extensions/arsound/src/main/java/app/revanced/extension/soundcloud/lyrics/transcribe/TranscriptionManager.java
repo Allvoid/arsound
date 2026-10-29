@@ -1,6 +1,7 @@
 package app.revanced.extension.soundcloud.lyrics.transcribe;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Process;
 
 import java.io.File;
@@ -14,7 +15,6 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.BoolSettings;
 import app.revanced.extension.soundcloud.settings.Settings;
-import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * The way in to the recognition of lyrics by a neural network: what the lyrics page and the settings screen ask and
@@ -25,6 +25,9 @@ import app.revanced.extension.soundcloud.shared.Lang;
  * of one track ({@link #start}) or only the download of a model ({@link #startInstall}). Answers are passed on to the
  * listener on the main thread; a page that is rebuilt while the work goes on takes the listener over with
  * {@link #attach} and is told where the work has got to.
+ * <p>
+ * There is no model chosen for all songs: the user says the language of each song ({@link SongLanguage}), and that
+ * decides the model. The answer is remembered for the artist, so the next song of the same artist offers it first.
  */
 public final class TranscriptionManager {
     /** What a recognition tells the page. All calls are on the main thread. */
@@ -140,40 +143,80 @@ public final class TranscriptionManager {
         if (!enabled) cancel();
     }
 
-    /** The model the settings choose; the Russian one ({@link AsrModel#GIGAAM}) by default. */
-    public static AsrModel chosenModel() {
-        return AsrModel.fromSetting(Settings.getString(Settings.LYRICS_AI_MODEL, AsrModel.GIGAAM.id));
-    }
-
     /** Whether the voice is taken out of the music before the network listens. */
     public static boolean separatesVoice() {
         return BoolSettings.LYRICS_AI_SEPARATE.get();
     }
 
-    public static void setChosenModel(AsrModel model) {
-        Settings.putString(Settings.LYRICS_AI_MODEL, model.id);
-    }
+    // region The language of a song
+
+    private static final String LANGUAGES = "arsound_song_languages";
+    /** Artists remembered at most; the oldest answers go first. */
+    private static final int MAX_ARTISTS = 300;
 
     /**
-     * "auto", "ru" or "en". Until the user chooses: Russian in a Russian app, "auto" otherwise (in "auto" Whisper
-     * finds the language, but only Russian, English and the phone's language are believed, see {@link LanguagePolicy}).
+     * The answer to offer first for a song: the one given for the same artist before, else Russian when the title or
+     * the artist is written in Russian letters; null when nothing suggests one.
      */
-    public static String language() {
-        String value = Settings.getString(Settings.LYRICS_AI_LANGUAGE, LanguagePolicy.defaultSetting(Lang.russian()));
-        return "ru".equals(value) || "en".equals(value) ? value : LanguagePolicy.AUTO;
+    public static SongLanguage suggestedLanguage(String artist, String title) {
+        SharedPreferences remembered = languages();
+        String key = artistKey(artist);
+        if (remembered != null && key != null) {
+            String value = remembered.getString(key, null);
+            SongLanguage language = value == null ? null : SongLanguage.named(value.substring(value.indexOf('|') + 1));
+            if (language != null) return language;
+        }
+        return hasCyrillic(artist) || hasCyrillic(title) ? SongLanguage.RUSSIAN : null;
     }
 
-    /**
-     * Whether the page should suggest the accurate model: the light one is chosen, and it hears Russian songs so badly
-     * that its text is rarely worth reading.
-     */
-    public static boolean suggestsAccurateModel() {
-        return chosenModel() == AsrModel.BASE;
+    /** Remembers the answer for the artist of the song. */
+    public static void rememberLanguage(String artist, SongLanguage language) {
+        SharedPreferences remembered = languages();
+        String key = artistKey(artist);
+        if (remembered == null || key == null) return;
+        SharedPreferences.Editor editor = remembered.edit().putString(key, System.currentTimeMillis() + "|" + language.name());
+        java.util.Map<String, ?> all = remembered.getAll();
+        if (all.size() >= MAX_ARTISTS) {
+            String oldest = null;
+            long oldestAt = Long.MAX_VALUE;
+            for (java.util.Map.Entry<String, ?> entry : all.entrySet()) {
+                String value = String.valueOf(entry.getValue());
+                long at;
+                try {
+                    at = Long.parseLong(value.substring(0, Math.max(0, value.indexOf('|'))));
+                } catch (NumberFormatException ex) {
+                    at = 0;
+                }
+                if (at < oldestAt && !entry.getKey().equals(key)) {
+                    oldestAt = at;
+                    oldest = entry.getKey();
+                }
+            }
+            if (oldest != null) editor.remove(oldest);
+        }
+        editor.apply();
     }
 
-    public static void setLanguage(String language) {
-        Settings.putString(Settings.LYRICS_AI_LANGUAGE, language);
+    private static SharedPreferences languages() {
+        Context context = Utils.getContext();
+        return context == null ? null : context.getSharedPreferences(LANGUAGES, Context.MODE_PRIVATE);
     }
+
+    private static String artistKey(String artist) {
+        if (artist == null) return null;
+        String key = artist.trim().toLowerCase(java.util.Locale.ROOT);
+        return key.isEmpty() ? null : key.length() > 100 ? key.substring(0, 100) : key;
+    }
+
+    private static boolean hasCyrillic(String text) {
+        if (text == null) return false;
+        for (int i = 0; i < text.length(); i++) {
+            if (LanguagePolicy.scriptOf(text.charAt(i)) == LanguagePolicy.Script.CYRILLIC) return true;
+        }
+        return false;
+    }
+
+    // endregion
 
     /**
      * Whether the page may offer to recognise this track: this phone can do it, and the track is a song of a
@@ -191,18 +234,13 @@ public final class TranscriptionManager {
      */
     public static Transcript stored(String urn, long durationMs) {
         if (!isEnabled()) return null;
-        return store().best(urn, chosenModel().id, durationMs);
+        return store().latest(urn, durationMs);
     }
 
-    /** Whether an earlier recognition of the track with the chosen model heard nothing, so it is not tried again unasked. */
+    /** Whether the last recognition of the track heard nothing, so it is not tried again unasked. Reads files. */
     public static boolean failedBefore(String urn) {
-        Transcript earlier = store().read(urn, chosenModel().id);
-        return earlier != null && earlier.state == Transcript.State.FAILED;
-    }
-
-    /** Forgets the "heard nothing" mark of a track, before it is tried again. */
-    public static void forgetFailure(String urn) {
-        if (failedBefore(urn)) store().delete(urn, chosenModel().id);
+        Transcript last = store().latestTry(urn);
+        return last != null && last.state == Transcript.State.FAILED;
     }
 
     public static boolean isInstalled(AsrModel model) {
@@ -228,10 +266,9 @@ public final class TranscriptionManager {
         return context == null ? 0 : AsrInstaller.modelBytes(context, model);
     }
 
-    /** How the phone stands for a recognition with the chosen model, and what has to be downloaded first. */
-    public static Advice advise() {
+    /** How the phone stands for a recognition with the model, and what has to be downloaded first. */
+    public static Advice advise(AsrModel model) {
         Context context = Utils.getContext();
-        AsrModel model = chosenModel();
         if (context == null) return new Advice(null, false, new ArrayList<String>(), 0, false);
         Guards.Device device = DeviceState.read(context);
         String blocker = null;
@@ -257,8 +294,13 @@ public final class TranscriptionManager {
      * Starts recognising a track. A recognition that is going on is stopped without telling its listener, because
      * this run speaks for the page now. A model download is stopped too, but its listener is still told, so the
      * settings row does not stay on the old progress. Whatever was done is kept.
+     *
+     * @param language The language the user said the song is in.
+     * @param model    The model that listens: the language's own, or a lighter one when memory is short.
+     * @param again    Whether the song is heard anew although it has a text (the answer was put right).
      */
-    public static void start(final String urn, final long durationMs, Listener listener) {
+    public static void start(final String urn, final long durationMs, final SongLanguage language, final AsrModel model,
+                             final boolean again, Listener listener) {
         final Context context = Utils.getContext();
         if (context == null) {
             listener.onFailed(Failure.MODEL);
@@ -272,17 +314,15 @@ public final class TranscriptionManager {
         final Run run = new Run(urn, durationMs);
         run.listener = listener;
         running = run;
-        final AsrModel model = chosenModel();
-        final String language = language();
         WORKER.execute(new Runnable() {
             @Override
             public void run() {
-                work(context, run, model, language);
+                work(context, run, model, language, again);
             }
         });
     }
 
-    private static void work(Context context, final Run run, AsrModel model, String language) {
+    private static void work(Context context, final Run run, AsrModel model, SongLanguage language, boolean again) {
         TranscriptionJob.Sink sink = new TranscriptionJob.Sink() {
             @Override
             public void installing(final int percent, final boolean library) {
@@ -327,8 +367,8 @@ public final class TranscriptionManager {
         Event outcome;
         try {
             if (run.cancelled) throw new ResumableDownload.Cancelled();
-            final Transcript result = new TranscriptionJob(context, store(), model, separatesVoice(), language, run.urn,
-                    run.durationMs, run, sink).run();
+            final Transcript result = new TranscriptionJob(context, store(), model, separatesVoice(), language, again,
+                    run.urn, run.durationMs, run, sink).run();
             Logger.printInfo(() -> "Transcribe: " + run.urn + " -> " + result.state + ", " + result.lines.length + " lines");
             outcome = new Event() {
                 @Override
@@ -412,6 +452,12 @@ public final class TranscriptionManager {
 
     public static boolean isInstalling() {
         return installing != null;
+    }
+
+    /** The model being downloaded on its own (from the settings); null if none is. */
+    public static AsrModel installingModel() {
+        Install current = installing;
+        return current == null ? null : current.model;
     }
 
     /**

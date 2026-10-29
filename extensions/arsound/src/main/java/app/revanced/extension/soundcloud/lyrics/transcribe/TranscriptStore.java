@@ -40,21 +40,29 @@ final class TranscriptStore {
     }
 
     /**
-     * The finished transcript to show for a track: the one of the preferred model if there is one, else one of
-     * another model that hears at least as well (the text of the light model does not stand in for the accurate one).
-     * A transcript made for a track of another length (uploaded again under the same urn) does not count.
+     * The finished transcript to show for a track: the newest of all models. The model follows the language the user
+     * named for the song, and a song heard again in another language (a wrong answer put right) shows the new text. A
+     * transcript made for a track of another length (uploaded again under the same urn) does not count.
      */
-    synchronized Transcript best(String urn, String preferredModelId, long durationMs) {
-        Transcript preferred = read(urn, preferredModelId);
-        if (isUsable(preferred, durationMs)) return preferred;
-        AsrModel preferredModel = AsrModel.fromId(preferredModelId);
+    synchronized Transcript latest(String urn, long durationMs) {
+        Transcript newest = null;
         for (AsrModel model : AsrModel.values()) {
-            if (model.id.equals(preferredModelId)) continue;
-            if (preferredModel != null && model.quality() < preferredModel.quality()) continue;
-            Transcript other = read(urn, model.id);
-            if (isUsable(other, durationMs)) return other;
+            Transcript transcript = read(urn, model.id);
+            if (isUsable(transcript, durationMs) && (newest == null || transcript.createdAt > newest.createdAt)) {
+                newest = transcript;
+            }
         }
-        return null;
+        return newest;
+    }
+
+    /** The newest try of any model in any state (finished, failed, cut short); null if the track was never tried. */
+    synchronized Transcript latestTry(String urn) {
+        Transcript newest = null;
+        for (AsrModel model : AsrModel.values()) {
+            Transcript transcript = read(urn, model.id);
+            if (transcript != null && (newest == null || transcript.createdAt > newest.createdAt)) newest = transcript;
+        }
+        return newest;
     }
 
     private static boolean isUsable(Transcript transcript, long durationMs) {

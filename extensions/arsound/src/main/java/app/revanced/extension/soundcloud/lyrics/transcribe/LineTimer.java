@@ -3,11 +3,12 @@ package app.revanced.extension.soundcloud.lyrics.transcribe;
 import java.util.List;
 
 /**
- * Gives the lines of one window the moments they start at. The Java API of sherpa-onnx does not hand over when each
- * phrase begins, only the text of a whole window, so the lines are spread over the part of the window where sound
- * is, each taking time in proportion to its length. The error is a second or two, which is enough to follow a song.
+ * Gives the lines of one window the moments they start at, for a model that does not tell when its words are sung
+ * (Whisper): the lines are spread over the part of the window where sound is, each taking time in proportion to its
+ * length. The error is a second or two. GigaAM tells the moment of every letter, its lines are timed by
+ * {@link PhraseLines} instead.
  * <p>
- * Used by {@link TranscriptionJob}; the span of the sound comes from {@link Chunker#activeSpan}.
+ * Used by {@link SongListener}; the span of the sound comes from {@link Chunker#activeSpan}.
  */
 final class LineTimer {
     private LineTimer() {

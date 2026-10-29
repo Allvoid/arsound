@@ -7,18 +7,22 @@ import android.view.View;
 
 import java.util.List;
 
+import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Advice;
 import app.revanced.extension.soundcloud.lyrics.transcribe.AsrModel;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Failure;
 import app.revanced.extension.soundcloud.lyrics.transcribe.HeavyNotice;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Sizes;
+import app.revanced.extension.soundcloud.lyrics.transcribe.SongLanguage;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Transcript;
 import app.revanced.extension.soundcloud.lyrics.transcribe.TranscriptionManager;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 
 /**
  * The neural recognition on the lyrics page of one player page: the offer for a song without lyrics, the dialogs
- * before it starts (what it costs, the state of the phone, the mobile network), the progress line and the result.
+ * before it starts (the language of the song, what it costs, the state of the phone, the mobile network), the progress
+ * line and the result. A recognised text can be heard again in another language when the first answer was wrong
+ * ({@link #redo}).
  * One lives in each {@link LyricsLayer}, which hands it the song when LRCLIB has none and shows its {@link AiPanel}.
  * <p>
  * The work itself is {@link TranscriptionManager}'s. This class only asks, tells and shows; it hears about the work
@@ -81,7 +85,7 @@ final class LyricsAi implements TranscriptionManager.Listener {
     private final Runnable ask = new Runnable() {
         @Override
         public void run() {
-            ask();
+            askLanguage(false);
         }
     };
 
@@ -89,14 +93,6 @@ final class LyricsAi implements TranscriptionManager.Listener {
         @Override
         public void run() {
             TranscriptionManager.cancel();
-        }
-    };
-
-    private final Runnable useAccurate = new Runnable() {
-        @Override
-        public void run() {
-            TranscriptionManager.setChosenModel(AsrModel.GIGAAM);
-            showOffer();
         }
     };
 
@@ -108,42 +104,90 @@ final class LyricsAi implements TranscriptionManager.Listener {
         } else {
             panel.show(LyricsResult.Status.MISSING.message(), ask, text("Распознать нейросетью", "Recognise with AI"), ask);
         }
-        // The fast model is chosen: say that it makes many mistakes and offer the accurate one, rather than use it silently.
-        if (TranscriptionManager.suggestsAccurateModel()) {
-            panel.suggest(text("Выбрана быстрая модель: она часто ошибается. Перейти на точную?",
-                    "The fast model is chosen and it makes many mistakes. Switch to the accurate one?"), useAccurate);
+    }
+
+    /**
+     * The words on screen are in the wrong language, the user says: asks the language again and hears the song anew.
+     * The text stays until the new one is ready.
+     */
+    void redo(TrackInfo track) {
+        if (TranscriptionManager.isRunningFor(track.urn)) return;
+        info = track;
+        askLanguage(true);
+    }
+
+    /** One recognition the user asked for: the language they named and the model that listens. */
+    private static final class Request {
+        final SongLanguage language;
+        final AsrModel model;
+        /** Whether the song is heard anew although it has a text. */
+        final boolean again;
+
+        Request(SongLanguage language, AsrModel model, boolean again) {
+            this.language = language;
+            this.model = model;
+            this.again = again;
+        }
+
+        Request withModel(AsrModel lighter) {
+            return new Request(language, lighter, again);
         }
     }
 
-    /** The user wants the song recognised: the checks and questions come first, in this order. */
-    private void ask() {
+    /** The user wants the song recognised: the language comes first, then the checks and questions, in this order. */
+    private void askLanguage(final boolean again) {
         if (info == null) return;
-        Advice advice = TranscriptionManager.advise();
+        final TrackInfo track = info;
+        SongLanguage current = again ? languageOnScreen(track) : null;
+        SongLanguage likely = current != null ? null : TranscriptionManager.suggestedLanguage(track.uploader, track.title);
+        SongLanguageDialog.show(panel.getContext(), likely, current, language -> {
+            if (info != track) return;
+            TranscriptionManager.rememberLanguage(track.uploader, language);
+            check(new Request(language, language.model(), again));
+        });
+    }
+
+    /** The language the shown text was heard in; null if it does not say. Reads a small file. */
+    private static SongLanguage languageOnScreen(TrackInfo track) {
+        Transcript shown = TranscriptionManager.stored(track.urn, track.durationMs);
+        return shown == null ? null : SongLanguage.ofHeard(shown.language);
+    }
+
+    private void check(Request request) {
+        if (info == null) return;
+        Advice advice = TranscriptionManager.advise(request.model);
         if (advice.blocker != null) {
-            showBlocked(advice);
+            showBlocked(request, advice);
             return;
         }
         boolean ready = TranscriptionManager.isEnabled() && advice.downloadBytes == 0;
         if (!ready) {
-            showOfferDialog(advice);
+            showOfferDialog(request, advice);
         } else if (!advice.warnings.isEmpty()) {
-            showWarnings(advice);
+            showWarnings(request, advice);
         } else {
-            proceed(advice);
+            proceed(request, advice);
         }
     }
 
-    private void showOfferDialog(final Advice advice) {
+    private void showOfferDialog(final Request request, final Advice advice) {
         StringBuilder body = new StringBuilder();
         body.append(text("Текст этой песни не нашёлся. Нейросеть может послушать песню на вашем телефоне и записать "
                 + "слова. Это тяжёлая работа для телефона, почти как тяжёлая игра.\n\n", "No lyrics were found for this "
                 + "song. A neural network can listen to the song on your phone and write down the words. It is heavy "
                 + "work for a phone, almost like a heavy game.\n\n"));
         body.append(HeavyNotice.points(panel.getContext())).append("\n");
-        body.append(text("• Текст приблизительный: на русских песнях в нашей проверке верно около шести слов из десяти, в "
-                + "распевных припевах и при сильной обработке голоса бывает мусор.\n", "• The text is approximate: on "
-                + "Russian songs in our test about six words in ten came out right; sung-out choruses and heavily "
-                + "processed voices may come out as rubbish.\n"));
+        if (request.language == SongLanguage.RUSSIAN) {
+            body.append(text("• Текст приблизительный: на русских песнях в нашей проверке верно около шести слов из десяти, в "
+                    + "распевных припевах и при сильной обработке голоса бывает мусор.\n", "• The text is approximate: on "
+                    + "Russian songs in our test about six words in ten came out right; sung-out choruses and heavily "
+                    + "processed voices may come out as rubbish.\n"));
+        } else {
+            body.append(text("• Текст приблизительный: многоязычная нейросеть ошибается чаще русской, в распевных припевах "
+                    + "и при сильной обработке голоса бывает мусор.\n", "• The text is approximate: the multilingual "
+                    + "network makes more mistakes than the Russian one; sung-out choruses and heavily processed voices "
+                    + "may come out as rubbish.\n"));
+        }
         if (advice.downloadBytes > 0) {
             body.append(text("• Один раз нужно скачать модель и компоненты (" + Sizes.format(advice.downloadBytes)
                             + "). Интернет нужен для этого и, если песня не скачана, для её звука; сам звук никуда не отправляется.\n",
@@ -162,19 +206,19 @@ final class LyricsAi implements TranscriptionManager.Listener {
                 .setMessage(body.toString())
                 .setPositiveButton(text("Включить и распознать", "Turn on and recognise"), (dialog, which) -> {
                     HeavyNotice.markSeen();
-                    proceed(advice);
+                    proceed(request, advice);
                 })
                 .setNegativeButton(text("Не сейчас", "Not now"), null)
                 .show();
     }
 
-    private void showWarnings(final Advice advice) {
+    private void showWarnings(final Request request, final Advice advice) {
         StringBuilder body = new StringBuilder();
         appendWarnings(body, advice.warnings);
         new ArsoundDialog(panel.getContext())
                 .setTitle(text("Распознать сейчас?", "Recognise now?"))
                 .setMessage(body.toString().trim())
-                .setPositiveButton(text("Распознать", "Recognise"), (dialog, which) -> proceed(advice))
+                .setPositiveButton(text("Распознать", "Recognise"), (dialog, which) -> proceed(request, advice))
                 .setNegativeButton(text("Не сейчас", "Not now"), null)
                 .show();
     }
@@ -183,43 +227,42 @@ final class LyricsAi implements TranscriptionManager.Listener {
         for (String warning : warnings) body.append("\n\n").append(text("Внимание: ", "Note: ")).append(warning);
     }
 
-    /** No memory for the chosen model: the work does not start; the fast model is offered if it would fit. */
-    private void showBlocked(Advice advice) {
+    /** No memory for the model: the work does not start; the fast model is offered if it would fit. */
+    private void showBlocked(final Request request, Advice advice) {
         ArsoundDialog dialog = new ArsoundDialog(panel.getContext())
                 .setTitle(text("Распознавание не начнётся", "Recognition cannot start"))
                 .setMessage(advice.blocker)
                 .setNegativeButton(text("Закрыть", "Close"), null);
         if (advice.lighterModelFits) {
-            dialog.setPositiveButton(text("Взять быструю модель (хуже)", "Use the fast model (worse)"), (d, which) -> {
-                TranscriptionManager.setChosenModel(AsrModel.BASE);
-                ask();
-            });
+            dialog.setPositiveButton(text("Взять быструю модель (хуже)", "Use the fast model (worse)"),
+                    (d, which) -> check(request.withModel(AsrModel.BASE)));
         }
         dialog.show();
     }
 
     /** The last question: a download on mobile data. Then the work starts. */
-    private void proceed(Advice advice) {
+    private void proceed(final Request request, Advice advice) {
         if (advice.metered && advice.downloadBytes > 0) {
             new ArsoundDialog(panel.getContext())
                     .setTitle(text("Скачать по мобильной сети?", "Download over mobile data?"))
                     .setMessage(text("Сейчас используется мобильная или ограниченная сеть. Будет скачано "
                             + Sizes.format(advice.downloadBytes) + ".", "The network in use is mobile or limited. "
                             + Sizes.format(advice.downloadBytes) + " will be downloaded."))
-                    .setPositiveButton(text("Скачать", "Download"), (dialog, which) -> start())
+                    .setPositiveButton(text("Скачать", "Download"), (dialog, which) -> start(request))
                     .setNegativeButton(text("Подождать Wi-Fi", "Wait for Wi-Fi"), null)
                     .show();
         } else {
-            start();
+            start(request);
         }
     }
 
-    private void start() {
+    private void start(Request request) {
         if (info == null) return;
-        TranscriptionManager.forgetFailure(info.urn);
         TranscriptionManager.setEnabled(true);
         panel.showProgress(preparing(), cancel);
-        TranscriptionManager.start(info.urn, info.durationMs, this);
+        // A text heard again: the page leaves the old words for the progress until the new ones come.
+        host.showAiPanel();
+        TranscriptionManager.start(info.urn, info.durationMs, request.language, request.model, request.again, this);
     }
 
     // endregion
@@ -266,7 +309,14 @@ final class LyricsAi implements TranscriptionManager.Listener {
     public void onFinished(Transcript transcript) {
         if (info == null) return;
         if (!transcript.isDone()) {
-            showOffer();
+            Lyrics earlier = AiTranscripts.lookUp(info);
+            if (earlier == null) {
+                showOffer();
+            } else {
+                Utils.showToastLong(text("Нейросеть не разобрала слова на этом языке: оставлен прежний текст.",
+                        "The network could not make out the words in this language: the earlier text stays."));
+                host.showAiWords(earlier);
+            }
             return;
         }
         Lyrics lyrics = AiTranscripts.toLyrics(transcript);
@@ -287,7 +337,10 @@ final class LyricsAi implements TranscriptionManager.Listener {
     @Override
     public void onCancelled() {
         if (info == null) return;
-        showOffer();
+        // A text heard again and stopped: the earlier words are still there.
+        Lyrics earlier = AiTranscripts.lookUp(info);
+        if (earlier != null) host.showAiWords(earlier);
+        else showOffer();
     }
 
     // endregion

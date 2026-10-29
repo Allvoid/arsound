@@ -321,16 +321,8 @@ public final class Settings {
         BoolSettings.LYRICS_AI_ENABLED.set(enabled);
     }
 
-    /** Which speech model recognises the words: "small" (default, accurate) or "base" (fast, many mistakes). */
-    public static final String LYRICS_AI_MODEL = "lyrics_ai_model";
     /** Takes the voice out of the music before the network listens. On by default. */
     public static final String LYRICS_AI_SEPARATE = "lyrics_ai_separate";
-
-    /**
-     * The language the words are sung in: "ru" or "en", or "auto". Until the user chooses, "ru" in a Russian app and
-     * "auto" otherwise; "auto" believes only Russian, English and the phone's language.
-     */
-    public static final String LYRICS_AI_LANGUAGE = "lyrics_ai_language";
 
     public static final String SCREENSHOT_SHARE = "screenshot_share";
 

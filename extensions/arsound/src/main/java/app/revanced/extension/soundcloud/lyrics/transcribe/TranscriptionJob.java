@@ -47,20 +47,23 @@ final class TranscriptionJob {
     private final AsrModel model;
     /** Whether the voice is taken out of the music first ({@link MdxSeparator}). */
     private final boolean separate;
-    /** "auto", "ru" or "en", as in the settings. */
-    private final String languageSetting;
+    /** The language the user said the song is in. */
+    private final SongLanguage language;
+    /** Whether the song is heard anew: a finished text or a partial one of an earlier try is not taken over. */
+    private final boolean again;
     private final String urn;
     private final long durationMs;
     private final ResumableDownload.Cancel cancel;
     private final Sink sink;
 
-    TranscriptionJob(Context context, TranscriptStore store, AsrModel model, boolean separate, String languageSetting,
-                     String urn, long durationMs, ResumableDownload.Cancel cancel, Sink sink) {
+    TranscriptionJob(Context context, TranscriptStore store, AsrModel model, boolean separate, SongLanguage language,
+                     boolean again, String urn, long durationMs, ResumableDownload.Cancel cancel, Sink sink) {
         this.context = context;
         this.store = store;
         this.model = model;
         this.separate = separate;
-        this.languageSetting = languageSetting;
+        this.language = language;
+        this.again = again;
         this.urn = urn;
         this.durationMs = durationMs;
         this.cancel = cancel;
@@ -73,8 +76,11 @@ final class TranscriptionJob {
      * @throws ResumableDownload.Cancelled  If it was cancelled; the progress so far is kept.
      */
     Transcript run() throws JobFailed, ResumableDownload.Cancelled {
-        Transcript earlier = store.read(urn, model.id);
+        Transcript earlier = again ? null : store.read(urn, model.id);
         if (earlier != null && earlier.isDone()) return earlier;
+        // A try cut short goes on only in the same language: an answer changed in between starts the song anew.
+        Transcript partial = earlier != null && earlier.state == Transcript.State.PARTIAL && language.matches(earlier.language)
+                ? earlier : null;
 
         PowerManager.WakeLock wake = acquireWakeLock();
         try {
@@ -82,7 +88,7 @@ final class TranscriptionJob {
             if (!NativeLibs.load(context)) throw new JobFailed(Failure.MODEL, null);
             float[] pcm = decode();
             long start = System.nanoTime();
-            Transcript transcript = listen(pcm, earlier != null && earlier.state == Transcript.State.PARTIAL ? earlier : null);
+            Transcript transcript = listen(pcm, partial);
             String seconds = secondsSince(start);
             Logger.printInfo(() -> "Transcribe: recognised in " + seconds + " s");
             return transcript;
@@ -156,7 +162,7 @@ final class TranscriptionJob {
         List<Long> times = new ArrayList<>();
         int start = 0;
         int done = 0;
-        String language = fixedLanguage();
+        String heardIn = fixedLanguage();
         if (partial != null && Math.abs(partial.durationMs - durationMs) <= 2000) {
             for (int i = 0; i < partial.lines.length; i++) {
                 lines.add(partial.lines[i]);
@@ -164,15 +170,14 @@ final class TranscriptionJob {
             }
             start = (int) Math.min(pcm.length, partial.resumeMs * Chunker.RATE / 1000);
             done = partial.windowsDone;
-            // A language an earlier version locked by mistake (Japanese in a Russian song) is not taken over.
-            if (language.isEmpty() && LanguagePolicy.isExpected(partial.language, Locale.getDefault().getLanguage())) {
-                language = partial.language;
-            }
+            // The language found in the windows before is the song's (the partial text matched the answer).
+            if (heardIn.isEmpty()) heardIn = partial.language;
         }
-        boolean autoLanguage = !model.russianOnly() && LanguagePolicy.AUTO.equals(languageSetting);
+        boolean autoLanguage = heardIn.isEmpty();
 
-        try (Recognizer runner = model.open(context, language, DeviceState.threads())) {
-            SongListener ear = new SongListener(runner, language, autoLanguage, Locale.getDefault().getLanguage(),
+        try (Recognizer runner = model.open(context, heardIn, DeviceState.threads())) {
+            SongListener ear = new SongListener(runner, heardIn, autoLanguage, language == SongLanguage.OTHER,
+                    Locale.getDefault().getLanguage(),
                     Lang.russian(), lines, times);
             while (start < pcm.length) {
                 if (cancel.isCancelled()) throw new ResumableDownload.Cancelled();
@@ -197,10 +202,9 @@ final class TranscriptionJob {
         }
     }
 
-    /** The language to start with: the one the settings fix, or none ("" lets Whisper find it). */
+    /** The language to start with: the one the user named, or none ("" lets Whisper find it). */
     private String fixedLanguage() {
-        if (model.russianOnly()) return "ru";
-        return "auto".equals(languageSetting) ? "" : languageSetting;
+        return model.russianOnly() ? SongLanguage.RUSSIAN.code : language.code;
     }
 
     private Transcript save(List<String> lines, List<Long> times, String language, int done, int total, long resumeMs,

@@ -92,12 +92,6 @@ public enum AsrModel {
         return null;
     }
 
-    /** The model the settings name; the default one if they name none. */
-    public static AsrModel fromSetting(String id) {
-        AsrModel model = fromId(id);
-        return model == null ? GIGAAM : model;
-    }
-
     /** Whether the model hears only Russian. */
     public boolean russianOnly() {
         return !whisper;

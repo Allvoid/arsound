@@ -64,11 +64,9 @@ public class AsrModelTest {
     }
 
     @Test
-    public void theSettingFallsBackToTheRussianModel() {
-        assertSame(AsrModel.GIGAAM, AsrModel.fromSetting(null));
-        assertSame(AsrModel.GIGAAM, AsrModel.fromSetting("tiny"));
-        assertSame(AsrModel.SMALL, AsrModel.fromSetting("small"));
-        assertSame(AsrModel.BASE, AsrModel.fromSetting("base"));
+    public void aModelIsFoundByItsId() {
+        assertSame(AsrModel.GIGAAM, AsrModel.fromId("gigaam"));
+        assertSame(AsrModel.SMALL, AsrModel.fromId("small"));
         assertNull(AsrModel.fromId("tiny"));
     }
 

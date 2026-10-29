@@ -28,9 +28,14 @@ public class TranscriptStoreTest {
     }
 
     private static Transcript make(String urn, String model, Transcript.State state, long duration, String... lines) {
+        return made(123456789L, urn, model, state, duration, lines);
+    }
+
+    private static Transcript made(long createdAt, String urn, String model, Transcript.State state, long duration,
+                                   String... lines) {
         long[] times = new long[lines.length];
         for (int i = 0; i < times.length; i++) times[i] = 1000L * i;
-        return new Transcript(urn, model, state, "ru", duration, 123456789L, 2, 7, 54_000, lines, times);
+        return new Transcript(urn, model, state, "ru", duration, createdAt, 2, 7, 54_000, lines, times);
     }
 
     @Test
@@ -65,35 +70,37 @@ public class TranscriptStoreTest {
     }
 
     @Test
-    public void aWorseModelsTextIsNotShownForTheAccurateOne() throws IOException {
-        store.write(make("7", "base", Transcript.State.DONE, 100_000, "from base"));
-        // With the accurate model chosen, the song is offered again instead of showing the fast model's guesses.
-        assertNull(store.best("7", "small", 100_000));
-        store.write(make("7", "small", Transcript.State.DONE, 100_000, "from small"));
-        assertEquals("from small", store.best("7", "small", 100_000).lines[0]);
-        assertEquals("from base", store.best("7", "base", 100_000).lines[0]);
+    public void theNewestTextOfAnyModelIsShown() throws IOException {
+        // Heard in Russian first, then again in English after the user put the answer right.
+        store.write(made(1_000, "7", "gigaam", Transcript.State.DONE, 100_000, "по-русски"));
+        assertEquals("по-русски", store.latest("7", 100_000).lines[0]);
+        store.write(made(2_000, "7", "small", Transcript.State.DONE, 100_000, "in English"));
+        assertEquals("in English", store.latest("7", 100_000).lines[0]);
     }
 
     @Test
-    public void aBetterModelsTextIsShownForTheFastOne() throws IOException {
-        store.write(make("8", "small", Transcript.State.DONE, 100_000, "from small"));
-        assertEquals("from small", store.best("8", "base", 100_000).lines[0]);
+    public void aFailedNewTryLeavesTheOldTextShown() throws IOException {
+        store.write(made(1_000, "8", "gigaam", Transcript.State.DONE, 100_000, "old words"));
+        store.write(made(2_000, "8", "small", Transcript.State.FAILED, 100_000));
+        assertEquals("old words", store.latest("8", 100_000).lines[0]);
+        assertEquals(Transcript.State.FAILED, store.latestTry("8").state);
+        assertNull(store.latestTry("never"));
     }
 
     @Test
     public void partialAndFailedTranscriptsAreNotShown() throws IOException {
         store.write(make("1", "small", Transcript.State.PARTIAL, 100_000, "half"));
-        assertNull(store.best("1", "small", 100_000));
+        assertNull(store.latest("1", 100_000));
         store.write(make("2", "small", Transcript.State.FAILED, 100_000));
-        assertNull(store.best("2", "small", 100_000));
+        assertNull(store.latest("2", 100_000));
         assertEquals(Transcript.State.FAILED, store.read("2", "small").state);
     }
 
     @Test
     public void aTrackOfAnotherLengthDoesNotTakeTheTranscript() throws IOException {
         store.write(make("3", "small", Transcript.State.DONE, 200_000, "x"));
-        assertNotNull(store.best("3", "small", 201_500));
-        assertNull(store.best("3", "small", 230_000));
+        assertNotNull(store.latest("3", 201_500));
+        assertNull(store.latest("3", 230_000));
     }
 
     @Test

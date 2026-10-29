@@ -631,7 +631,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
                 public void run() {
                     if (displayed != fading) {
                         fading.setVisibility(GONE);
-                        if (fading == list && lyrics == null) list.setLyrics(null, null, null);
+                        if (fading == list && lyrics == null) list.setLyrics(null, null, null, null);
                     }
                 }
             }).start();
@@ -702,12 +702,17 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         phase = Phase.LIST;
         removeCallbacks(showShimmer);
         Typeface face = title instanceof TextView ? ((TextView) title).getTypeface() : null;
-        list.setLyrics(words, face, words.source.caption());
+        // Words a network heard can be heard again, in another language when the first answer was wrong.
+        list.setLyrics(words, face, words.source.caption(), words.source == Lyrics.Source.NEURAL ? this::hearAgain : null);
         status.setClickable(false);
         // Put at the singing line before it is seen, then faded in.
         tick(false);
         show(list);
         updateLoop();
+    }
+
+    private void hearAgain() {
+        if (info != null) ai.redo(info);
     }
 
     private void showMessage(String message, final boolean retry) {

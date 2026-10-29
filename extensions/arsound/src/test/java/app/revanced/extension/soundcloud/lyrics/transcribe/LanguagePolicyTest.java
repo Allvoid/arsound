@@ -10,12 +10,6 @@ import java.util.EnumSet;
 
 public class LanguagePolicyTest {
     @Test
-    public void theDefaultSettingIsRussianInARussianApp() {
-        assertEquals("ru", LanguagePolicy.defaultSetting(true));
-        assertEquals("auto", LanguagePolicy.defaultSetting(false));
-    }
-
-    @Test
     public void onlyRussianEnglishAndThePhonesLanguageAreExpected() {
         assertTrue(LanguagePolicy.isExpected("ru", "en"));
         assertTrue(LanguagePolicy.isExpected("en", "ru"));
