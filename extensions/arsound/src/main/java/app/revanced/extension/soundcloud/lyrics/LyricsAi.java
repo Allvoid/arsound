@@ -204,7 +204,9 @@ final class LyricsAi implements TranscriptionManager.Listener {
         new ArsoundDialog(panel.getContext())
                 .setTitle(text("Распознать текст нейросетью?", "Recognise the lyrics with a neural network?"))
                 .setMessage(body.toString())
-                .setPositiveButton(text("Включить и распознать", "Turn on and recognise"), (dialog, which) -> {
+                .setPositiveButton(TranscriptionManager.isEnabled()
+                        ? text("Скачать и распознать", "Download and recognise")
+                        : text("Включить и распознать", "Turn on and recognise"), (dialog, which) -> {
                     HeavyNotice.markSeen();
                     proceed(request, advice);
                 })

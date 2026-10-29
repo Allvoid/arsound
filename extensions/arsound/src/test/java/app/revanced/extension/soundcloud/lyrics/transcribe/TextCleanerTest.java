@@ -64,6 +64,21 @@ public class TextCleanerTest {
         }
     }
 
+    /** Whisper's "Numb" from the separated voice: no punctuation, a capital at the start of every sung line. */
+    @Test
+    public void aCapitalStartsALineWherePunctuationIsMissing() {
+        assertEquals(Arrays.asList("I'm tired of being what you want me to be", "Feeling so faithless",
+                        "Lost under the surface", "Don't know what you're expecting of me"),
+                TextCleaner.splitLines("I'm tired of being what you want me to be Feeling so faithless Lost under the "
+                        + "surface Don't know what you're expecting of me"));
+    }
+
+    @Test
+    public void thePronounIDoesNotStartALine() {
+        assertEquals(Collections.singletonList("and then I said I'll go home"),
+                TextCleaner.splitLines("and then I said I'll go home"));
+    }
+
     @Test
     public void aLongRunWithoutPunctuationIsWrappedAtSpaces() {
         String text = "this is a very long line of words without any punctuation at all that must be broken somewhere";

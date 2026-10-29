@@ -59,7 +59,10 @@ final class LyricsCache {
                 times = new long[text.length];
                 for (int i = 0; i < times.length; i++) times[i] = stamps.getLong(i);
             }
-            return text.length == 0 ? null : LyricsResult.found(new Lyrics(text, times));
+            // Files written before the source was kept are LRCLIB's: it was the only one.
+            Lyrics.Source source = json.optString("source").equals(Lyrics.Source.NETEASE.name())
+                    ? Lyrics.Source.NETEASE : Lyrics.Source.LRCLIB;
+            return text.length == 0 ? null : LyricsResult.found(new Lyrics(text, times, source));
         } catch (IOException | JSONException ex) {
             // A broken file is no answer; the next lookup replaces it.
             return null;
@@ -81,6 +84,7 @@ final class LyricsCache {
             json.put("status", result.status.cacheKey);
             if (result.status == LyricsResult.Status.FOUND) {
                 json.put("lines", new JSONArray(Arrays.asList(result.lyrics.lines)));
+                json.put("source", result.lyrics.source.name());
                 if (result.lyrics.times != null) {
                     JSONArray stamps = new JSONArray();
                     for (long time : result.lyrics.times) stamps.put(time);

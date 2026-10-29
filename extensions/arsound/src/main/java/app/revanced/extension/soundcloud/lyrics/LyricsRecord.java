@@ -1,7 +1,10 @@
 package app.revanced.extension.soundcloud.lyrics;
 
-/** A record of the LRCLIB database: one version of one song, with the text it was uploaded with. */
-final class LrclibRecord {
+/**
+ * One version of one song as a lyrics service lists it (an LRCLIB record, a NetEase song), with its text: synced,
+ * plain, or none yet (a NetEase song before its text is fetched).
+ */
+final class LyricsRecord {
     final long id;
     final String trackName;
     final String artistName;
@@ -11,7 +14,7 @@ final class LrclibRecord {
     final String plain;
     final String synced;
 
-    LrclibRecord(long id, String trackName, String artistName, double durationSeconds, boolean instrumental,
+    LyricsRecord(long id, String trackName, String artistName, double durationSeconds, boolean instrumental,
                  String plain, String synced) {
         this.id = id;
         this.trackName = trackName;

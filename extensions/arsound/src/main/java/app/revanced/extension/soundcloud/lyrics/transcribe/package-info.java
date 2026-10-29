@@ -25,8 +25,11 @@
  * {@code Transcript}, stored by {@code TranscriptStore}/{@code TranscriptCodec}. {@code Guards} with {@code DeviceState} decide whether the phone
  * may work now (charge, heat, memory, metered network); {@code Advice} and {@code Failure} are what the page tells.
  *
- * <p>Settings: {@code lyrics_ai_enabled}, {@code lyrics_ai_model}, {@code lyrics_ai_separate}, {@code lyrics_ai_language}
- * in {@code settings.Settings}.
+ * <p>Settings: {@code lyrics_ai_enabled}, {@code lyrics_ai_separate} in {@code settings.Settings}. No model or language
+ * is set for all songs: the user names the language of each song ({@code SongLanguage}), which picks the model; the
+ * answer is remembered per artist ({@code arsound_song_languages}). GigaAM's lines are cut at the singer's pauses and
+ * timed by its words ({@code HeardWord}, {@code PhraseLines}); Whisper's are spread over the window
+ * ({@code LineTimer}).
  * Files live in {@code files/arsound/asr} (library per version, models) and the transcripts folder of the app.
  *
  * <p>Gotchas:

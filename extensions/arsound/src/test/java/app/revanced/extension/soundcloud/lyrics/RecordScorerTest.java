@@ -7,8 +7,8 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class RecordScorerTest {
-    private static LrclibRecord record(String track, String artist, double seconds, String plain, String synced) {
-        return new LrclibRecord(1, track, artist, seconds, false, plain, synced);
+    private static LyricsRecord record(String track, String artist, double seconds, String plain, String synced) {
+        return new LyricsRecord(1, track, artist, seconds, false, plain, synced);
     }
 
     @Test

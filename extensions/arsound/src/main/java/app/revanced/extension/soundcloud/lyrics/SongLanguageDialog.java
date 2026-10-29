@@ -148,9 +148,10 @@ final class SongLanguageDialog {
         }
         AsrModel model = language.model();
         long missing = TranscriptionManager.missingBytes(model);
+        // The number and its unit stay on one line.
+        String size = Sizes.format(missing).replace(' ', '\u00A0');
         return missing > 0
-                ? network + text(" Один раз нужно скачать " + Sizes.format(missing) + ".",
-                " " + Sizes.format(missing) + " to download once.")
+                ? network + text(" Один раз нужно скачать " + size + ".", " " + size + " to download once.")
                 : network;
     }
 

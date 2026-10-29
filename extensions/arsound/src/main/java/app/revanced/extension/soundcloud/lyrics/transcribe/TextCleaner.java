@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Cleans what Whisper writes for a window of a song and cuts it into lines of a song's length.
@@ -62,6 +63,13 @@ final class TextCleaner {
     private static final String[] INVENTED_WHOLE = {"thank you", "thanks", "you", "bye", "okay", "спасибо", "пока", "угу"};
 
     private static final int MAX_LINE = 42;
+    /**
+     * Where a sentence ends: after its punctuation, or, where Whisper wrote none, before a word with a capital letter
+     * that follows a word (it starts each sung line with one: "…want me to be Feeling so faithless Lost under…").
+     * "I" and "I'm", "I'll", … are capitals in the middle of a line too, so they start nothing.
+     */
+    private static final Pattern SENTENCE_END = Pattern.compile(
+            "(?<=[.!?…;])\\s+|(?<=[\\p{L}\\p{N}])\\s+(?=\\p{Lu})(?!I(?:['’]\\p{L}+)?(?:\\s|$))");
     private static final int GOOD_LINE = 30;
     private static final int MIN_LINE = 15;
 
@@ -132,12 +140,15 @@ final class TextCleaner {
         return kept;
     }
 
-    /** Breaks cleaned text into lines: at sentence ends and commas, short pieces joined, long ones wrapped. */
+    /**
+     * Breaks cleaned text into lines: at sentence ends (or capitals, {@link #SENTENCE_END}) and commas, short pieces
+     * joined, long ones wrapped.
+     */
     static List<String> splitLines(String text) {
         List<String> lines = new ArrayList<>();
         String normal = text.replaceAll("\\s+", " ").trim();
         if (normal.isEmpty()) return lines;
-        for (String sentence : normal.split("(?<=[.!?…;])\\s+")) {
+        for (String sentence : SENTENCE_END.split(normal)) {
             List<String> pieces = new ArrayList<>();
             for (String clause : sentence.split("(?<=[,:—–])\\s+")) {
                 String current = pieces.isEmpty() ? null : pieces.get(pieces.size() - 1);

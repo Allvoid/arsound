@@ -54,6 +54,8 @@ final class LyricsListView extends ScrollView {
     private static final float FOCUS = 0.40f;
     /** How long the column stays where the user left it. */
     private static final long HOLD_MS = 3_000;
+    /** The same while the "recognise again" button is on screen: the reader went down to it to press it. */
+    private static final long HOLD_AT_BUTTON_MS = 10_000;
     /** Two taps on a line this close are one double tap: it jumps to the line. */
     private static final long DOUBLE_TAP_MS = 280;
     private static final float TEXT_SP = 22f;
@@ -94,7 +96,7 @@ final class LyricsListView extends ScrollView {
     private final Runnable resume = new Runnable() {
         @Override
         public void run() {
-            long left = lastUserAt + HOLD_MS - SystemClock.uptimeMillis();
+            long left = lastUserAt + holdMs() - SystemClock.uptimeMillis();
             // Plain words stay where the reader left them: there is no singing line to go back to.
             if (touching || !isTimed()) return;
             if (left > 0) postDelayed(this, left + 30);
@@ -323,7 +325,7 @@ final class LyricsListView extends ScrollView {
 
     /** The user took the column, or let go of it a moment ago. */
     boolean isHeld() {
-        return touching || SystemClock.uptimeMillis() - lastUserAt < HOLD_MS;
+        return touching || SystemClock.uptimeMillis() - lastUserAt < holdMs();
     }
 
     /** The user is done with the column: the next change of line scrolls again. */
@@ -501,7 +503,7 @@ final class LyricsListView extends ScrollView {
 
     private void postResume() {
         removeCallbacks(resume);
-        postDelayed(resume, HOLD_MS + 30);
+        postDelayed(resume, holdMs() + 30);
     }
 
     private void tapped(float x, float y, long time) {
@@ -518,6 +520,13 @@ final class LyricsListView extends ScrollView {
         // jumps to the line.
         if (taps.next(time) == TapSequence.Kind.DOUBLE) host.onLineDoubleTapped(line);
         else host.onTap();
+    }
+
+    /** How long the column waits after the reader lets go before it goes back to the singing line. */
+    private long holdMs() {
+        if (again.getParent() != column) return HOLD_MS;
+        Rect shown = new Rect();
+        return again.getLocalVisibleRect(shown) ? HOLD_AT_BUTTON_MS : HOLD_MS;
     }
 
     /** Whether a point of this view falls on a child of the column that is shown. */

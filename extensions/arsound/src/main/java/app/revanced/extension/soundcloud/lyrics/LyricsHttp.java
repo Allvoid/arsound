@@ -8,10 +8,11 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * The way to LRCLIB: one GET at a time, kept to a gap after the last request, tried again when the server is busy or
- * the connection drops, and cut short when the lookup is not wanted any more. Knows nothing of what the replies say.
+ * The way to the lyrics services (LRCLIB, NetEase): one GET at a time, kept to a gap after the last request, tried
+ * again when the server is busy or the connection drops, and cut short when the lookup is not wanted any more. Knows
+ * nothing of what the replies say.
  */
-final class LrclibHttp {
+final class LyricsHttp {
     /** Called before every request; throws to stop it (the region guard). */
     interface Gate {
         void check() throws IOException;
@@ -38,7 +39,7 @@ final class LrclibHttp {
     /** Null when nobody can cancel. */
     private final Watch watch;
 
-    LrclibHttp(Gate gate, Watch watch) {
+    LyricsHttp(Gate gate, Watch watch) {
         this.gate = gate;
         this.watch = watch;
     }

@@ -29,14 +29,14 @@ final class RecordScorer {
 
     /** One record with the marks it earned. */
     static final class Score {
-        final LrclibRecord record;
+        final LyricsRecord record;
         final double total;
         final double title;
         final double lengthDifferenceSeconds;
         /** Whether the record's artist is, or can be taken for, the track's. */
         final boolean artistFits;
 
-        Score(LrclibRecord record, double total, double title, double lengthDifferenceSeconds,
+        Score(LyricsRecord record, double total, double title, double lengthDifferenceSeconds,
               boolean artistFits) {
             this.record = record;
             this.total = total;
@@ -56,7 +56,7 @@ final class RecordScorer {
     }
 
     /** Whether the record is about as long as the track, so its timings can be followed. */
-    static boolean timingsFit(LrclibRecord record, TrackQuery query) {
+    static boolean timingsFit(LyricsRecord record, TrackQuery query) {
         if (Double.isNaN(record.durationSeconds) || query.durationMs <= 0) return false;
         double difference = Math.abs(record.durationSeconds * 1000 - query.durationMs);
         return difference <= (query.versionTagged ? TIMINGS_FIT_VERSION_MS : TIMINGS_FIT_MS);
@@ -68,8 +68,19 @@ final class RecordScorer {
     }
 
     /** How well the record is the track: 0.4 title, 0.25 artist, 0.25 length, 0.1 synced; nothing if it has no text. */
-    static Score score(LrclibRecord record, TrackQuery query) {
-        boolean content = record.hasText() || record.instrumental;
+    static Score score(LyricsRecord record, TrackQuery query) {
+        return score(record, query, record.hasText() || record.instrumental);
+    }
+
+    /**
+     * How well a song whose text is not fetched yet can be the track, by its title, artist and length: whether its
+     * text is worth a request (NetEase gives the text of a song apart from the search).
+     */
+    static Score scoreBeforeText(LyricsRecord record, TrackQuery query) {
+        return score(record, query, true);
+    }
+
+    private static Score score(LyricsRecord record, TrackQuery query, boolean content) {
         double length = lengthScore(record.durationSeconds, query.durationMs);
         double difference = Double.isNaN(record.durationSeconds) || query.durationMs <= 0
                 ? Double.MAX_VALUE : Math.abs(record.durationSeconds - query.durationMs / 1000.0);

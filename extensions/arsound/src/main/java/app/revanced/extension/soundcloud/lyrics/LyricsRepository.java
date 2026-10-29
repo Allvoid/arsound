@@ -24,7 +24,7 @@ import app.revanced.extension.soundcloud.network.RegionGuard;
  */
 public final class LyricsRepository {
     /** A lookup in progress; cancelled when another track is wanted. */
-    static final class Request implements LrclibHttp.Watch {
+    static final class Request implements LyricsHttp.Watch {
         private volatile boolean cancelled;
         /** The connection of the request on the network now, if any. */
         private volatile HttpURLConnection connection;
@@ -163,19 +163,44 @@ public final class LyricsRepository {
 
         // Wait out a quick skip; stop at once if the track is not wanted any more.
         Pause.cancellable(DEBOUNCE_MS, request);
-        LrclibHttp http = new LrclibHttp(new LrclibHttp.Gate() {
+        LyricsHttp http = new LyricsHttp(new LyricsHttp.Gate() {
             @Override
             public void check() throws IOException {
                 RegionGuard.throwIfBlockedAnyHost();
             }
         }, request);
-        LyricsFinder finder = new LyricsFinder(new LrclibClient(http), request);
-        Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
-        LyricsResult result = finder.find(query);
+        LyricsResult result = find(info, query, http, request);
         Logger.printInfo(() -> "Lyrics: " + info.urn + " -> " + result.status
-                + (result.lyrics == null ? "" : result.lyrics.isTimed() ? ", synced" : ", plain"));
+                + (result.lyrics == null ? "" : (result.lyrics.isTimed() ? ", synced" : ", plain") + ", " + result.lyrics.source));
         cache().write(info.urn, query.signature, result);
         return orRecognised(info, result);
+    }
+
+    /**
+     * LRCLIB first: its texts are written for lyrics apps and timed for the track. NetEase when LRCLIB has nothing or
+     * cannot be reached (it is often busy). When neither answers, LRCLIB's failure is thrown: nothing is stored then.
+     */
+    private static LyricsResult find(TrackInfo info, TrackQuery query, LyricsHttp http, Request request) throws IOException {
+        LyricsResult result = null;
+        IOException failure = null;
+        try {
+            Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
+            result = new LyricsFinder(new LrclibClient(http), request).find(query);
+            if (result.status != LyricsResult.Status.MISSING) return result;
+        } catch (IOException ex) {
+            if (request.isCancelled()) throw ex;
+            failure = ex;
+        }
+        try {
+            Logger.printInfo(() -> "Lyrics: asking NetEase for " + info.urn);
+            LyricsResult other = new NeteaseFinder(new NeteaseClient(http), request).find(query);
+            if (other.status != LyricsResult.Status.MISSING) return other;
+        } catch (IOException ex) {
+            if (request.isCancelled()) throw ex;
+            Logger.printInfo(() -> "Lyrics: NetEase failed: " + ex.getMessage());
+        }
+        if (failure != null) throw failure;
+        return result;
     }
 
     /**

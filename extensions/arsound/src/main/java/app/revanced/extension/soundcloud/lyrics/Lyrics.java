@@ -11,6 +11,8 @@ final class Lyrics {
     enum Source {
         /** Written by people, found on LRCLIB. */
         LRCLIB("Тексты: LRCLIB", "Lyrics: LRCLIB"),
+        /** Found on NetEase Cloud Music when LRCLIB had none or could not be reached. */
+        NETEASE("Тексты: NetEase Cloud Music", "Lyrics: NetEase Cloud Music"),
         /** Heard by the neural network on the phone, so it may be wrong. */
         NEURAL("Распознано нейросетью · возможны ошибки", "Recognised by a neural network · may contain errors");
 
@@ -85,5 +87,10 @@ final class Lyrics {
     /** The same words as plain text: for a record whose timings do not fit the track that plays. */
     Lyrics withoutTimes() {
         return times == null ? this : new Lyrics(lines, null, source);
+    }
+
+    /** The same words credited to another source. */
+    Lyrics withSource(Source other) {
+        return other == source ? this : new Lyrics(lines, times, other);
     }
 }

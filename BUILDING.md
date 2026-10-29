@@ -71,7 +71,7 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `library` | прячет баннер импорта плейлистов | `HideImportBannerPatch` |
 | `local` | импорт файлов, плейлист «Импортированные», свои добавления и порядок, слияние, лайки с файлами | `LocalMusic`, `LocalAdditions`, `ImportedLikes` |
 | `login` | кнопка «Сохранить журналы» на экране входа | `LoginLogsButton` |
-| `lyrics` | синхронный текст песни из LRCLIB в полноэкранном плеере | `LyricsHooks`, `LyricsLayer`, `LyricsRepository` |
+| `lyrics` | синхронный текст песни из LRCLIB (запасной источник — NetEase Cloud Music) в полноэкранном плеере | `LyricsHooks`, `LyricsLayer`, `LyricsRepository` |
 | `lyrics/transcribe` | распознавание слов песни нейросетью Whisper на телефоне | `TranscriptionManager`, `TranscriptionJob` |
 | `network` | свой DNS, блокировка по стране IP, значок сети, вопрос перед DataDome, общие обложки | `NetworkPatch`, `RegionGuard` |
 | `offline` | сохранённое показывается сразу, скачанное играет из файла, повтор при сбое сети | `OfflineFirstPatch`, `InstantFilePlayback` |
