@@ -88,9 +88,15 @@ public class AsrModelTest {
     public void theLibrariesAndTheVoiceModelArePinnedToo() {
         assertTrue(NativeArchive.SHERPA.url.startsWith("https://github.com/k2-fsa/sherpa-onnx/releases/download/v"
                 + NativeArchive.SHERPA.version + "/"));
-        assertTrue(NativeArchive.ONNX_RUNTIME.url.startsWith("https://repo1.maven.org/maven2/com/microsoft/onnxruntime/"
-                + "onnxruntime-android/" + NativeArchive.ONNX_RUNTIME.version + "/"));
-        for (NativeArchive archive : new NativeArchive[]{NativeArchive.SHERPA, NativeArchive.ONNX_RUNTIME}) {
+        assertTrue(NativeArchive.ONNX_RUNTIME_PLAIN.url.startsWith("https://repo1.maven.org/maven2/com/microsoft/onnxruntime/"
+                + "onnxruntime-android/" + NativeArchive.ONNX_RUNTIME_PLAIN.version + "/"));
+        // The QNN build and the plain one are the same version of ONNX Runtime: the vendored Java classes are one.
+        assertTrue(NativeArchive.ONNX_RUNTIME_QNN.url.startsWith("https://repo1.maven.org/maven2/com/microsoft/onnxruntime/"
+                + "onnxruntime-android-qnn/" + NativeArchive.ONNX_RUNTIME_PLAIN.version + "/"));
+        assertTrue(NativeArchive.QNN_HTP.url.startsWith("https://repo1.maven.org/maven2/com/qualcomm/qti/qnn-runtime/"
+                + NativeArchive.QNN_HTP.version + "/"));
+        for (NativeArchive archive : new NativeArchive[]{NativeArchive.SHERPA, NativeArchive.ONNX_RUNTIME_PLAIN,
+                NativeArchive.ONNX_RUNTIME_QNN, NativeArchive.QNN_HTP}) {
             assertTrue(archive.sha256.matches("[0-9a-f]{64}"));
             assertTrue(archive.size > 0);
         }

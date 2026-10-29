@@ -1,6 +1,7 @@
 package app.arsound.patches.soundcloud.player
 
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.manifest.appendElement
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.ResourceGroup
 import app.arsound.util.copyResources
@@ -34,9 +35,21 @@ private val BytecodePatchContext.mediaServiceMetadataMethod by gettingFirstMetho
  * full-screen player (chevron, follow, QR code, cast), so it is right under the follow button when the other two
  * are not there, and under the cast button when that one is. It is hidden until the lyrics code shows it; the
  * "new player" has the same button in its own copy of the layout.
+ *
+ * Also names the vendor library through which lyrics recognition reaches a Snapdragon's neural processor
+ * (lyrics/transcribe/Npu): since Android 12 an app gets a vendor library only when its manifest names it. Not required,
+ * so phones without it install as before.
  */
 private val lyricsResourcePatch = resourcePatch {
     apply {
+        document("AndroidManifest.xml").use { document ->
+            document.appendElement(
+                "application",
+                "uses-native-library",
+                "android:name" to "libcdsprpc.so",
+                "android:required" to "false",
+            )
+        }
         copyResources(
             "soundcloud/player",
             ResourceGroup("drawable", "arsound_lyrics.xml", "arsound_lyrics_on.xml"),

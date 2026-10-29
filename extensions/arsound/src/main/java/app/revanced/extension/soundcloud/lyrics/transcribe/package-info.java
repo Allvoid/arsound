@@ -17,7 +17,8 @@
  * {@code TrackAudio} (imported file, own download, or a temporary stream fetched by {@code HlsFetch}/{@code HlsPlaylist}/
  * {@code HttpBytes}) -> {@code AudioDecoder} into a {@code PcmTarget}: {@code MonoTarget} (the whole song) or
  * {@code VocalsTarget} ({@code VocalsStream} pieces through {@code MdxSeparator} with {@code MdxStft}/{@code RealFft},
- * ONNX Runtime loaded by {@code OrtLibs}), both ending in mono 16 kHz via {@code StreamResampler} -> {@code Chunker}
+ * ONNX Runtime loaded by {@code OrtLibs}; on a Snapdragon's neural processor through {@code Npu} where there is one),
+ * both ending in mono 16 kHz via {@code StreamResampler} -> {@code Chunker}
  * (30 s windows) -> {@code SongListener} (per window: a {@code Recognizer}, {@code GigaAmRunner} or
  * {@code WhisperRunner}, the only classes that touch sherpa-onnx; the language by {@code LanguagePolicy}; a window that
  * looped is heard again in halves) -> {@code TextCleaner} (with {@code Loops}) and {@code LineTimer} ->
@@ -34,6 +35,10 @@
  * {@code ai.onnxruntime} (same tags as the native libraries; ONNX Runtime's loader reads the library path the app sets,
  * the one change); nothing may use them before {@code NativeLibs}/{@code OrtLibs} have loaded the checked libraries.
  * The ProGuard rules keep them.</li>
+ * <li>{@code Npu} compiles the separation model for the neural processor once and keeps the result beside the model;
+ * a phone where that fails is remembered ({@code npu-refused-<version>} in {@code files/arsound/asr}) and stays on the
+ * cores. Only the generations listed there are used: fp16 on the processor was checked against the cores on real
+ * songs (the same words).</li>
  * <li>The SHA-256 of every file and the URLs are written in {@code NativeArchive}, {@code AsrModel} and
  * {@code VoiceModel}, never taken from the server; only HTTPS and no foreign host after a redirect.</li>
  * <li>Never listen to DRM: {@code download.TranscriptionAudio} refuses previews, subscription-only tracks and every

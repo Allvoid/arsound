@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
@@ -80,7 +81,11 @@ final class TranscriptionJob {
             install();
             if (!NativeLibs.load(context)) throw new JobFailed(Failure.MODEL, null);
             float[] pcm = decode();
-            return listen(pcm, earlier != null && earlier.state == Transcript.State.PARTIAL ? earlier : null);
+            long start = System.nanoTime();
+            Transcript transcript = listen(pcm, earlier != null && earlier.state == Transcript.State.PARTIAL ? earlier : null);
+            String seconds = secondsSince(start);
+            Logger.printInfo(() -> "Transcribe: recognised in " + seconds + " s");
+            return transcript;
         } finally {
             if (wake != null && wake.isHeld()) wake.release();
         }
@@ -106,11 +111,16 @@ final class TranscriptionJob {
     }
 
     private float[] decode() throws JobFailed, ResumableDownload.Cancelled {
+        long start = System.nanoTime();
         try (TrackAudio.Prepared audio = TrackAudio.prepare(context, urn, cancel)) {
+            String fetched = secondsSince(start);
+            Logger.printInfo(() -> "Transcribe: the audio is ready in " + fetched + " s");
+            start = System.nanoTime();
             if (!separate) return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel);
-            try (MdxSeparator separator = new MdxSeparator(AsrInstaller.voiceModelFile(context), DeviceState.threads())) {
-                sink.separating(0);
-                return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel,
+            // Shown already while the model opens: the first time on a neural processor it is compiled for it.
+            sink.separating(0);
+            try (MdxSeparator separator = MdxSeparator.open(AsrInstaller.voiceModelFile(context), DeviceState.threads())) {
+                float[] voice = AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel,
                         new VocalsTarget(separator, new VocalsTarget.Progress() {
                             @Override
                             public void beforePiece() throws IOException {
@@ -123,6 +133,9 @@ final class TranscriptionJob {
                                 sink.separating((int) Math.min(99, ms * 100 / Math.max(1, durationMs)));
                             }
                         }));
+                String separated = secondsSince(start);
+                Logger.printInfo(() -> "Transcribe: the voice is separated in " + separated + " s");
+                return voice;
             }
         } catch (ResumableDownload.Cancelled ex) {
             throw ex;
@@ -202,6 +215,11 @@ final class TranscriptionJob {
             throw new JobFailed(Failure.NO_SPACE, ex);
         }
         return transcript;
+    }
+
+    /** Seconds since a {@link System#nanoTime} reading, for the log. */
+    private static String secondsSince(long start) {
+        return String.format(Locale.ROOT, "%.1f", (System.nanoTime() - start) / 1e9);
     }
 
     /** About how many windows the rest of the song needs, counting from a sample. */

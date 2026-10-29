@@ -65,12 +65,17 @@ public final class HeavyNotice {
                 "• It needs a powerful phone: 8 GB of memory or more and a flagship processor of recent years. On "
                         + "middle and weak phones the recognition takes several times longer than the song, the phone "
                         + "gets hot, and the app may lag or close.\n"));
-        body.append(text("• Даже на флагмане это небыстро: сначала одна нейросеть отделяет голос от музыки, потом "
-                        + "другая записывает слова. На Galaxy S25 Ultra песня в 3 минуты 17 секунд обрабатывается около "
-                        + "5,5 минуты, на телефонах попроще — в разы дольше. Нужно около 1,5 ГБ свободной памяти.\n",
-                "• Even on a flagship it is not quick: first one network takes the voice out of the music, then another "
-                        + "writes down the words. On a Galaxy S25 Ultra a song of 3 minutes 17 seconds takes about 5.5 "
-                        + "minutes, on simpler phones several times longer. About 1.5 GB of free memory is needed.\n"));
+        body.append(text("• Сначала одна нейросеть отделяет голос от музыки, потом другая записывает слова. На "
+                        + "Snapdragon 8 Gen 2, 8 Gen 3 и 8 Elite голос отделяет нейропроцессор: песня в три минуты — "
+                        + "меньше полуминуты (в первый раз ещё до минуты на подготовку). На других процессорах это делают "
+                        + "ядра, и даже на флагмане песня в 3,5 минуты обрабатывается около 5 минут, на телефонах "
+                        + "попроще — в разы дольше. Нужно около 1,5 ГБ свободной памяти.\n",
+                "• First one network takes the voice out of the music, then another writes down the words. On a "
+                        + "Snapdragon 8 Gen 2, 8 Gen 3 or 8 Elite the neural processor separates the voice: a "
+                        + "three-minute song takes less than half a minute (the first time up to a minute more to get "
+                        + "ready). On other processors the cores do it, and even on a flagship a song of 3.5 minutes "
+                        + "takes about 5 minutes, on simpler phones several times longer. About 1.5 GB of free memory is "
+                        + "needed.\n"));
         body.append(text("• Тратит заряд: лучше на зарядке.\n", "• It uses the battery: better while charging.\n"));
         body.append(text("• Песню можно поставить на паузу или включить другую: распознавание продолжится, а готовый "
                         + "текст подсветится по времени с любого места.",

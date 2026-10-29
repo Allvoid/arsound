@@ -96,12 +96,15 @@ final class AsrInstaller {
 
     /**
      * What still has to be downloaded to recognise with the model: the libraries and the files of the model not yet
-     * here, and with the voice taken out of the music, ONNX Runtime and the separation model.
+     * here, and with the voice taken out of the music, ONNX Runtime (with the neural processor's libraries on a
+     * Snapdragon that has one, {@link Npu}) and the separation model.
      */
     static long missingBytes(Context context, AsrModel model, boolean separate) {
         long missing = isLibraryInstalled(context) ? 0 : NativeArchive.SHERPA.size;
         if (separate) {
-            if (!isInstalled(context, NativeArchive.ONNX_RUNTIME)) missing += NativeArchive.ONNX_RUNTIME.size;
+            for (NativeArchive archive : separationArchives(context)) {
+                if (!isInstalled(context, archive)) missing += archive.size;
+            }
             if (!isVoiceModelInstalled(context)) missing += VoiceModel.FILE.size;
         }
         File folder = modelDirectory(context, model);
@@ -144,7 +147,11 @@ final class AsrInstaller {
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("No folder " + root);
         List<NativeArchive> archives = new ArrayList<>();
         if (!isLibraryInstalled(context)) archives.add(NativeArchive.SHERPA);
-        if (separate && !isInstalled(context, NativeArchive.ONNX_RUNTIME)) archives.add(NativeArchive.ONNX_RUNTIME);
+        if (separate) {
+            for (NativeArchive archive : separationArchives(context)) {
+                if (!isInstalled(context, archive)) archives.add(archive);
+            }
+        }
         long missing = missingBytes(context, model, separate);
         if (missing == 0) return;
         // An archive is kept beside the cut-out libraries for a moment, so the libraries count twice.
@@ -190,6 +197,14 @@ final class AsrInstaller {
             finished[0] += file.size;
         }
         progress.onProgress(100, false);
+    }
+
+    /** The libraries the voice separation runs on, on this phone. */
+    private static List<NativeArchive> separationArchives(Context context) {
+        List<NativeArchive> archives = new ArrayList<>();
+        archives.add(NativeArchive.ONNX_RUNTIME);
+        if (Npu.wanted(context)) archives.add(NativeArchive.QNN_HTP);
+        return archives;
     }
 
     private static int percent(long done, long total) {
