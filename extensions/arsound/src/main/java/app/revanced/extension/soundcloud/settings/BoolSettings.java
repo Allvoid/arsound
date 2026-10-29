@@ -59,6 +59,8 @@ public final class BoolSettings {
     public static final BoolSetting THEME_EFFECTS = new BoolSetting(Settings.THEME_EFFECTS, true);
     /** Removes the picture behind the title of "Your likes" (the hearts) and of the purchases page. Off by default. */
     public static final BoolSetting HIDE_HEADER_ARTWORK = new BoolSetting(Settings.HIDE_HEADER_ARTWORK, false);
+    /** Removes the theme's greeting ("Привет, имя / Что послушаем?") from the top of the home screen. Off by default. */
+    public static final BoolSetting HIDE_HOME_GREETING = new BoolSetting(Settings.HIDE_HOME_GREETING, false);
     /**
      * Keeps the player from doing needless work while it is pulled up and down, so it does not stutter on the way
      * down. Off puts SoundCloud's own behaviour back. On by default.

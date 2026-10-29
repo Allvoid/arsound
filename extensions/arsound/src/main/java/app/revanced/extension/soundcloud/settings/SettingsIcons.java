@@ -23,6 +23,7 @@ final class SettingsIcons {
         put("appearance", "ic_actions_sliders_three");
         put("theme", "arsound_set_appearance", "ic_actions_sliders_three");
         put("wallpaper", "ic_actions_image");
+        put("home", "ic_actions_navigation_home");
         put("animation", "ic_actions_star_sparkle");
         put("player", "ic_actions_play_outlined", "ic_actions_playback_play_circle");
         put("widget", "ic_actions_heart");

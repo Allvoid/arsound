@@ -361,6 +361,7 @@ public final class Settings {
     public static final String WALLHAVEN_LAST = "arsound_wallhaven_last";
 
     public static final String HIDE_HEADER_ARTWORK = "hide_header_artwork";
+    public static final String HIDE_HOME_GREETING = "hide_home_greeting";
 
     /** Removes the picture behind the title of "Your likes" (the hearts) and of the purchases page. Off by default. */
     public static boolean isHeaderArtworkHidden() {

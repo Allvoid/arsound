@@ -218,8 +218,8 @@ final class ThemeTableBuilder {
             throws Exception {
         byte[] original = originals.picture(source, picture, name, wide);
         if (original == null) return;
-        byte[] day = HeaderArtwork.tint(original, theme.accent(false));
-        byte[] night = HeaderArtwork.tint(original, theme.accent(true));
+        byte[] day = HeaderArtwork.tint(original, theme.accent(false), name);
+        byte[] night = HeaderArtwork.tint(original, theme.accent(true), name);
         if (day == null || night == null) return;
         // A path under res/, as for the fonts; the provider of the loader reads it from the files folder.
         String base = ThemeFiles.ROOT + "theme/" + theme.id + "-" + name + (wide ? "-wide" : "");

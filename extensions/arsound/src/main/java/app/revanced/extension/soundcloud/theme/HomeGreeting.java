@@ -20,14 +20,16 @@ import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.player.PlayerSheet;
+import app.revanced.extension.soundcloud.settings.BoolSettings;
 import app.revanced.extension.soundcloud.shared.AppResources;
+import app.revanced.extension.soundcloud.shared.ClearBackground;
 import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * The greeting at the top of the home screen ("ПРИВЕТ, &lt;имя&gt; / Что послушаем?") of a theme that puts it
  * there: the theme's copy of the home layout names this class. It folds away while the list below is scrolled
- * and comes back at the top of the list.
+ * and comes back at the top of the list. A setting hides it.
  * <p>
  * With a wallpaper the home screen is not painted by this class: the picture is the window's, and the screen's
  * surface fill is taken away like on every main screen (wallpaper/WallpaperSurfaces).
@@ -140,7 +142,10 @@ public final class HomeGreeting extends LinearLayout {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        getViewTreeObserver().addOnDrawListener(drawListener);
+        // Hidden by the setting: no room taken, and no looking at the list after each frame.
+        boolean hidden = BoolSettings.HIDE_HOME_GREETING.get();
+        setVisibility(hidden ? GONE : VISIBLE);
+        if (!hidden) getViewTreeObserver().addOnDrawListener(drawListener);
         // The screen's glow (its background) and the wallpaper show through the bar above: SoundCloud paints the bar's
         // toolbar.
         if (getParent() instanceof ViewGroup) {
@@ -155,11 +160,11 @@ public final class HomeGreeting extends LinearLayout {
     }
 
     private static void clearBackgrounds(View view) {
-        view.setBackground(null);
+        ClearBackground.on(view);
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                if (group.getChildAt(i) instanceof ViewGroup) group.getChildAt(i).setBackground(null);
+                if (group.getChildAt(i) instanceof ViewGroup) ClearBackground.on(group.getChildAt(i));
             }
         }
     }

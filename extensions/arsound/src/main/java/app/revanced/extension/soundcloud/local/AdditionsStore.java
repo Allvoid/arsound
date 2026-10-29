@@ -10,6 +10,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,6 +64,13 @@ final class AdditionsStore {
     }
 
     /** Entries added by the user to this playlist. */
+    /** The entries of all playlists, each once. */
+    static Set<String> allEntries() {
+        Set<String> all = new LinkedHashSet<>();
+        for (List<String> entries : readAdditions().values()) all.addAll(entries);
+        return all;
+    }
+
     static List<String> entries(String playlistUrn) {
         List<String> entries = readAdditions().get(playlistUrn);
         return entries == null ? new ArrayList<>() : entries;

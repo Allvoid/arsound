@@ -106,6 +106,28 @@ public final class LocalAdditions {
     }
 
     /**
+     * Injection point, in SoundCloud's database cleanup ({@code DatabaseCleanupWorker.doWork}): the track urns kept
+     * because a stored playlist names them. The SoundCloud tracks added on this phone join them, so their titles,
+     * covers and lengths stay in the database and the playlists show them without a network.
+     *
+     * @param kept The {@code List<Urn>} of tracks to keep; added to in place.
+     */
+    public static void keepInCleanup(List<Object> kept) {
+        try {
+            ClassLoader loader = LocalAdditions.class.getClassLoader();
+            int before = kept.size();
+            for (String stored : AdditionsStore.allEntries()) {
+                String id = Entry.parse(stored).trackIdToLoad();
+                if (id != null) kept.add(Urns.forTrack(loader, id));
+            }
+            int added = kept.size() - before;
+            Logger.printInfo(() -> "Database cleanup: kept " + added + " tracks added on this phone");
+        } catch (Exception ex) {
+            Logger.printException(() -> "Database cleanup: the tracks added on this phone are not kept", ex);
+        }
+    }
+
+    /**
      * Wraps {@code playlistTrackUrns(playlistUrn)} to append the local additions.
      *
      * @param single      {@code Single<List<Urn>>}.

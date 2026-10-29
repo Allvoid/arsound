@@ -12,7 +12,7 @@
  * {@code ImportEntryPatch.kt}):
  * <ul>
  * <li>{@code LocalMusic.setPlaybackInitiator}; {@code LocalAdditions.tracksWithLocalFiles/withoutLocalAdditions/
- * onPlaylistOpened/removeFromPlaylist} and the menu rows (also called from {@code download/DownloadTrackPatch.java});
+ * onPlaylistOpened/removeFromPlaylist/keepInCleanup} (the last one in SoundCloud's database cleanup) and the menu rows (also called from {@code download/DownloadTrackPatch.java});
  * {@code PlaylistTracks.beforeItems/cellTracksCount/tagCell/withDownloadedCount}; {@code PlaylistHeader.onBind/
  * addDownloadedCount}; {@code SavedPlaylist.hideFromLists/setPlaylistOperations/setPostsStorage/useStoredPlaylist}.</li>
  * <li>{@code ImportedLikes.pagedLikes/playItems/withImportedCount/withoutLocalTracks/setTrackRepository} and

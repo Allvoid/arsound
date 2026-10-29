@@ -20,7 +20,8 @@
  * {@code com.soundcloud.android}), {@code AtomicFiles} (write through a temporary file).</li>
  * <li>UI: {@code ArsoundDialog} (a dialog in the look of the chosen theme), {@code HelpBadge} (the small "?" that opens
  * a sheet), {@code Toasts}, {@code AboveBottomBar} (keeps a small element above the player or tab bar),
- * {@code ReorderColumn} (a column of rows rearranged by dragging).</li>
+ * {@code ReorderColumn} (a column of rows rearranged by dragging), {@code ClearBackground} (a see-through fill instead
+ * of a null background, which SoundCloud's toolbar behaviour cannot take).</li>
  * </ul>
  *
  * <p>Settings: none.

@@ -75,8 +75,9 @@ public final class NetworkPatch {
     }
 
     /**
-     * What happens to each request on its way out, in this order: the developer delay, the region guard, the power
-     * saving block of background reports, and the shared download of covers.
+     * What happens to each request on its way out, in this order: the developer delay, then for covers the region
+     * guard, the shared download and the kept copy when there is no network, for the rest the region guard and the
+     * power saving block of background reports.
      */
     private static final class RequestGate {
         // Looked up once per client: the interceptor runs for every request, reflection lookups there cost battery.
@@ -108,12 +109,7 @@ public final class NetworkPatch {
 
                 Object url = urlMethod.invoke(request);
                 String host = (String) hostMethod.invoke(url);
-                RegionGuard.throwIfBlocked(host);
                 String path = (String) pathMethod.invoke(url);
-                if (PowerSavingPatch.isBackgroundReportBlocked(host, path)) {
-                    throw new IOException("Arsound: background report blocked to save power");
-                }
-
                 SharedArtwork.Call call = () -> {
                     try {
                         return proceedMethod.invoke(chain, request);
@@ -122,7 +118,22 @@ public final class NetworkPatch {
                         throw ex.getCause();
                     }
                 };
-                if (SharedArtwork.applies(host, path)) return SharedArtwork.load(url.toString(), request, call);
+                if (SharedArtwork.applies(host, path)) {
+                    try {
+                        RegionGuard.throwIfBlocked(host);
+                        return SharedArtwork.load(url.toString(), path, request, call);
+                    } catch (IOException ex) {
+                        // No network, or SoundCloud switched off: a cover kept from an earlier download.
+                        Object kept = OfflineArtwork.answer(path, request);
+                        if (kept != null) return kept;
+                        throw ex;
+                    }
+                }
+
+                RegionGuard.throwIfBlocked(host);
+                if (PowerSavingPatch.isBackgroundReportBlocked(host, path)) {
+                    throw new IOException("Arsound: background report blocked to save power");
+                }
                 return call.proceed();
             } catch (InvocationTargetException ex) {
                 throw unwrap(ex.getCause());

@@ -19,7 +19,8 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * <p>
  * Seeds are the liked tracks, the tracks of library playlists, the imported files and the most played
  * tracks, read from the phone ({@link LibrarySeeds}). For each seed Last.fm names songs people listen to together
- * with it; for the main artists also similar artists and their best songs ({@link ForYouCandidates}). Songs already
+ * with it; for the main artists also similar artists and their best songs, more of them when Last.fm does not know
+ * the songs themselves ({@link ForYouCandidates}). Songs already
  * in the library and disliked ones are left out, at most two per artist. The rest is looked up on SoundCloud
  * ({@link SoundCloudMatcher}) and put into a private SoundCloud playlist ({@link ForYouPlaylist}), which stays empty
  * on the server: like "Imported", its tracks are added on this phone. Refreshed once a day and by hand.
@@ -147,7 +148,9 @@ public final class ForYou {
         Logger.printInfo(() -> "For you: " + seedCount + " seeds, asking about " + picked.size());
 
         ForYouCandidates candidates = new ForYouCandidates(library.knownKeys());
-        switch (candidates.gather(picked, progress)) {
+        ForYouCandidates.Status status = candidates.gather(picked, progress);
+        Logger.printInfo(() -> "For you: " + candidates.summary());
+        switch (status) {
             case NEEDS_VPN:
                 return needsVpn();
             case NO_ANSWER:

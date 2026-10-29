@@ -4,6 +4,8 @@ import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
 
+import app.revanced.extension.soundcloud.shared.ClearBackground;
+
 /**
  * Clears the opaque base layers of a screen's views, so that the wallpaper in the window shows through.
  * <p>
@@ -25,7 +27,7 @@ final class ScreenBackgrounds {
     private static void relax(View view, SurfaceColours surfaces, int depth) {
         ViewKind kind = ViewKind.of(view);
         Drawable background = view.getBackground();
-        if (background != null && kind.isBaseLayer(background, surfaces)) view.setBackground(null);
+        if (background != null && kind.isBaseLayer(background, surfaces)) ClearBackground.on(view);
         if (!kind.walkedInside() || depth >= MAX_DEPTH || !(view instanceof ViewGroup)) return;
         ViewGroup group = (ViewGroup) view;
         for (int i = 0; i < group.getChildCount(); i++) {

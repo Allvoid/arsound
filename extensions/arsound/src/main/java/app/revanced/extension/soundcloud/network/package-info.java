@@ -10,8 +10,9 @@
  * <ul>
  * <li>{@code NetworkPatch.onBuild(Object builder)} - called at the end of {@code OkHttpClient.Builder.build()}, so it
  * reaches every OkHttp client of the app. It adds one named interceptor ({@code RequestGate}: developer delay, then
- * {@code RegionGuard.throwIfBlocked}, then {@code power.PowerSavingPatch.isBackgroundReportBlocked}, then
- * {@code SharedArtwork}) and wraps the {@code Dns} with {@code CustomDns.lookup}. The wrappers are
+ * for covers {@code RegionGuard.throwIfBlocked} and {@code SharedArtwork}, with {@code OfflineArtwork} answering from
+ * the covers kept on disk when the network fails; for the rest {@code RegionGuard.throwIfBlocked} and
+ * {@code power.PowerSavingPatch.isBackgroundReportBlocked}) and wraps the {@code Dns} with {@code CustomDns.lookup}. The wrappers are
  * {@code ReflectiveProxy} objects with a name, so a client copied with {@code newBuilder()} is not wrapped twice.</li>
  * <li>{@code RegionGuard.isConnected(boolean)} - every {@code return} of SoundCloud's "is the network connected" check
  * passes through it, so the app also sees "offline" while the guard blocks.</li>

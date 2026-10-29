@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.update;
 
 import android.app.Activity;
 import android.app.Application;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -34,6 +35,7 @@ import app.revanced.extension.soundcloud.player.VivoMusicCard;
 import app.revanced.extension.soundcloud.search.SearchSourceSwitch;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Lang;
+import app.revanced.extension.soundcloud.shared.Screens;
 
 /**
  * Checks the GitHub releases of Arsound for a newer version. Nothing is downloaded or installed by the app:
@@ -66,7 +68,11 @@ public final class UpdateChecker {
     }
 
     private static WeakReference<Activity> resumedActivity = new WeakReference<>(null);
+    /** The release to offer, until the user has closed its sheet in any way. */
     private static Release pendingRelease;
+    /** The screen the sheet of {@link #pendingRelease} was put on, and the sheet. */
+    private static WeakReference<Activity> sheetActivity = new WeakReference<>(null);
+    private static WeakReference<Dialog> sheet = new WeakReference<>(null);
     private static boolean checkedThisLaunch;
 
     private UpdateChecker() {
@@ -209,28 +215,53 @@ public final class UpdateChecker {
         return 0;
     }
 
+    /**
+     * Puts the sheet of the found release on the main screen. Not on any other: the launcher's screen that opens the
+     * main one closes at once and would take the sheet with it, so it flashed for a moment and was gone. The release
+     * stays pending until the user closes its sheet; a sheet lost with its screen (closed or made again) comes back on
+     * the next main screen.
+     */
     private static void showPendingRelease() {
         Activity activity = resumedActivity.get();
         Release release = pendingRelease;
-        if (activity == null || release == null || activity.isFinishing()) return;
-        pendingRelease = null;
-        showUpdateSheet(activity, release);
+        if (activity == null || release == null || activity.isFinishing() || !Screens.isMainActivity(activity)) return;
+        Dialog shown = sheet.get();
+        if (shown != null && shown.isShowing() && sheetActivity.get() == activity) return;
+        sheetActivity = new WeakReference<>(activity);
+        sheet = new WeakReference<>(showUpdateSheet(activity, release, () -> {
+            if (pendingRelease == release) pendingRelease = null;
+        }));
     }
 
     public static void showUpdateSheet(Context context, Release release) {
+        showUpdateSheet(context, release, () -> {
+        });
+    }
+
+    /**
+     * @param onClosed Runs when the user closes the sheet: with one of its rows, a swipe, a tap outside or back.
+     * @return The sheet, or null if it could not be shown.
+     */
+    private static Dialog showUpdateSheet(Context context, Release release, Runnable onClosed) {
         boolean russian = Lang.russian();
         List<LocalSheet.Item> items = LocalSheet.items();
         // Nothing is downloaded by the app: the user picks where to get the new version.
         items.add(new LocalSheet.Item(russian ? "Скачать APK в Telegram" : "Download the APK on Telegram",
-                "ic_actions_download", () -> openUrl(context, TELEGRAM_URL)));
+                "ic_actions_download", () -> {
+            onClosed.run();
+            openUrl(context, TELEGRAM_URL);
+        }));
         items.add(new LocalSheet.Item(russian ? "Патчи на GitHub (для ReVanced Manager)" : "Patches on GitHub (for ReVanced Manager)",
-                "ic_actions_link", () -> openUrl(context, release.url)));
-        items.add(new LocalSheet.Item(russian ? "Позже" : "Later", "ic_actions_close", null));
-        LocalSheet.show(context,
+                "ic_actions_link", () -> {
+            onClosed.run();
+            openUrl(context, release.url);
+        }));
+        items.add(new LocalSheet.Item(russian ? "Позже" : "Later", "ic_actions_close", onClosed));
+        return LocalSheet.show(context,
                 russian ? "Доступно обновление" : "Update available",
                 (russian ? "Arsound " + release.version + ", у вас " : "Arsound " + release.version + ", you have ")
                         + VERSION,
-                items);
+                items, onClosed);
     }
 
     public static void openUrl(Context context, String url) {

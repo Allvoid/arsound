@@ -157,6 +157,15 @@ final class AppearanceScreen extends SectionScreen {
     private void addHomeRows(LinearLayout list) {
         list.addView(ui.createSubHeading(text("Главная и виджет", "Home and widget")));
         list.addView(ui.createToggleRow(
+                text("Без приветствия на главной", "No greeting on the home screen"),
+                text("Убирает надпись «Привет, имя / Что послушаем?» над главной, которую ставят некоторые темы: "
+                                + "список начинается сразу под верхней панелью. Главная меняется, когда её откроют снова.",
+                        "Removes the \"Hello, name / What shall we play?\" heading some themes put above the home "
+                                + "screen: the list starts right under the top bar. The home screen changes when it is "
+                                + "opened again."),
+                BoolSettings.HIDE_HOME_GREETING
+        ).icon("home").brief(text("Убирает «Привет, … Что послушаем?».", "Removes \"Hello, … What shall we play?\".")));
+        list.addView(ui.createToggleRow(
                 text("Без картинки в шапке «Ваши лайки»", "No picture at the top of \"Your likes\""),
                 text("Убирает сердца за заголовком «Ваши лайки» и карточки за заголовком покупок: остаётся фон темы. "
                                 + "Выключено — картинка в цвете темы. Открытая страница меняется, когда её откроют снова.",

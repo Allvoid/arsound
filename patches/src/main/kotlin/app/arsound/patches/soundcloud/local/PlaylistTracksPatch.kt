@@ -59,6 +59,15 @@ private val BytecodePatchContext.playbackInitiatorConstructorMethod by gettingFi
     definingClass("Lcom/soundcloud/android/playback/session/PlaybackInitiator;")
 }
 
+/**
+ * SoundCloud's periodic database cleanup: deletes every stored track that no playlist, like or history of the server
+ * names. The tracks added on this phone are named by none of them.
+ */
+private val BytecodePatchContext.databaseCleanupMethod by gettingFirstMethodDeclaratively {
+    name("doWork")
+    definingClass("Lcom/soundcloud/android/periodic/DatabaseCleanupWorker;")
+}
+
 /** Local files and tracks added from other places inside the track lists of playlists, and in playback. */
 internal val playlistTracksPatch = bytecodePatch {
     apply {
@@ -107,6 +116,22 @@ internal val playlistTracksPatch = bytecodePatch {
             "invoke-static { p1, p2 }, $ADDITIONS_DESCRIPTOR->removeFromPlaylist(Ljava/lang/Object;Ljava/lang/Object;)Z",
             GuardExit.ReturnVoid,
         )
+
+        // The tracks kept for the playlists of the library get the tracks added on this phone: without them the
+        // cleanup deleted their titles and covers, and offline a playlist showed only its tracks stored elsewhere.
+        databaseCleanupMethod.apply {
+            val callIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_INTERFACE &&
+                    (this as ReferenceInstruction).reference.toString().startsWith(
+                        "Lcom/soundcloud/android/data/playlist/PlaylistWithTracksStorage;->",
+                    ) && reference.toString().endsWith("(Ljava/util/List;)Ljava/util/ArrayList;")
+            }
+            val keptRegister = getInstruction<OneRegisterInstruction>(callIndex + 1).registerA
+            addInstruction(
+                callIndex + 2,
+                "invoke-static { v$keptRegister }, $ADDITIONS_DESCRIPTOR->keepInCleanup(Ljava/util/List;)V",
+            )
+        }
 
         playlistScreenMethod.apply {
             val itemIndex = indexOfFirstInstructionOrThrow {

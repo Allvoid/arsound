@@ -11,10 +11,15 @@
  * <li>{@code WallpaperSurfaces.onFragmentViewCreated(View root)} - SoundCloud's fragment has made its view; the opaque
  * base fills are cleared ({@code ScreenBackgrounds}) so the picture shows through.</li>
  * <li>{@code WallpaperSurfaces.screenSurface(Composer)} - the base colour of a Compose screen (SoundCloud's
- * {@code Colors.j}); transparent while a wallpaper is shown.</li>
+ * {@code Colors.j} in the theme, the scaffold and the collapsing title bar); transparent while a wallpaper is shown.</li>
+ * <li>{@code WallpaperSurfaces.headerPicture(String, Composer)} and {@code headerBackdrop(Modifier, Composer)} - the
+ * cover blurred behind the title of a profile or a playlist; none (clear) while a wallpaper is shown. The playlist
+ * header's fades also take {@code screenSurface}.</li>
  * <li>{@code WallpaperSurfaces.onActivityPreCreated/onActivityResumed} - called by {@code theme.ThemeLifecycle}, not by a
  * patch.</li>
  * </ul>
+ *
+ * <p>{@code SearchLayers} keeps the recent searches from showing through the suggestions once the fills are clear.
  *
  * <p>Main classes: {@code WallpaperStore} (the chosen picture, dim, blur, install/remove, the one shared bitmap),
  * {@code WallpaperDrawable}/{@code WallpaperBitmap}/{@code WallpaperBaker} (draw it; the baked copy is cut to the

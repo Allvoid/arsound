@@ -6,6 +6,8 @@ import android.view.View;
 import android.view.Window;
 
 import androidx.compose.runtime.Composer;
+import androidx.compose.ui.Modifier;
+import androidx.compose.ui.draw.AlphaKt;
 import androidx.compose.ui.platform.AndroidCompositionLocals_androidKt;
 
 import com.soundcloud.android.ui.components.compose.Colors;
@@ -20,7 +22,9 @@ import app.revanced.extension.shared.Logger;
  * taken away, only while a wallpaper is shown:
  * <ul>
  * <li>the base fills of the views of a screen, when its fragment has made its view ({@link ScreenBackgrounds});</li>
- * <li>the base colour of a Compose screen, which SoundCloud's theme and scaffold take from {@code Colors.j}.</li>
+ * <li>the base colour of a Compose screen, which SoundCloud's theme, scaffold and collapsing title bar ("Your likes")
+ * take from {@code Colors.j};</li>
+ * <li>the blurred cover behind the title of a playlist or a profile, and the fades of a playlist's header.</li>
  * </ul>
  * The player, the mini player, the tab bar, dialogs and sheets keep their colours: they are not in the container of
  * the main screens, or not in the window at all.
@@ -110,16 +114,38 @@ public final class WallpaperSurfaces {
      */
     public static long screenSurface(Composer composer) {
         long surface = Colors.j(composer);
-        if (!active) return surface;
+        return active && onWallpaperScreen(composer) ? TRANSPARENT : surface;
+    }
+
+    /**
+     * Injection point, in {@code BlurredHeaderBackgroundKt.a}: the address of the cover SoundCloud blurs behind the
+     * title of a playlist or a profile. None on a main screen while the wallpaper is shown: the blurred cover would
+     * lie over the top of the wallpaper like a curtain.
+     */
+    public static String headerPicture(String url, Composer composer) {
+        return url != null && active && onWallpaperScreen(composer) ? null : url;
+    }
+
+    /**
+     * Injection point, in {@code PlaylistDetailsSmallerArtworkHeaderKt.b}: the modifier of the cover a playlist's
+     * header draws blurred behind its title. Fully clear on a main screen while the wallpaper is shown, so the blur
+     * has nothing to blur; the header's fades are clear there too ({@link #screenSurface}).
+     */
+    public static Modifier headerBackdrop(Modifier modifier, Composer composer) {
+        return active && onWallpaperScreen(composer) ? AlphaKt.alpha(modifier, 0f) : modifier;
+    }
+
+    /** True if the Compose content belongs to a main screen that shows the wallpaper. */
+    private static boolean onWallpaperScreen(Composer composer) {
         try {
             Object host = composer.D(AndroidCompositionLocals_androidKt.getLocalView());
-            if (!(host instanceof View)) return surface;
+            if (!(host instanceof View)) return false;
             View view = (View) host;
             MainScreen screen = MainScreen.of(view.getContext());
-            if (screen != null && screen.hasWallpaper() && screen.contains(view)) return TRANSPARENT;
+            return screen != null && screen.hasWallpaper() && screen.contains(view);
         } catch (Throwable ex) {
             Logger.printException(() -> "Wallpaper: a Compose screen keeps its colour", ex);
+            return false;
         }
-        return surface;
     }
 }

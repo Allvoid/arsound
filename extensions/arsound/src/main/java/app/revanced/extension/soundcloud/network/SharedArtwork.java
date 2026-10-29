@@ -56,11 +56,13 @@ final class SharedArtwork {
 
     /**
      * @param url     The cover's address, the key.
+     * @param path    The path of the address: a downloaded cover is also kept for offline use under it
+     *                ({@link OfflineArtwork}).
      * @param request The {@code okhttp3.Request} of the caller, put into a shared answer.
      * @param call    Sends the request on along the chain.
      * @return The {@code okhttp3.Response}.
      */
-    static Object load(String url, Object request, Call call) throws Throwable {
+    static Object load(String url, String path, Object request, Call call) throws Throwable {
         Entry entry;
         boolean first;
         synchronized (entries) {
@@ -100,6 +102,7 @@ final class SharedArtwork {
             Object response = call.proceed();
             byte[] data = read(entry, response);
             if (data == null) return response;
+            OfflineArtwork.keep(path, data);
             entry.response = response;
             entry.at = System.currentTimeMillis();
             // Last, and volatile: a waiter that sees the body also sees the response, the type and the time.

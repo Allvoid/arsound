@@ -76,6 +76,8 @@ final class MainScreen {
         SurfaceColours colours = surfaces;
         if (colours == null) surfaces = colours = resolveSurfaces(root.getContext());
         ScreenBackgrounds.relax(root, colours);
+        // The search screen's layers hid each other with the fills taken off here.
+        SearchLayers.watch(root);
     }
 
     /**
