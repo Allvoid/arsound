@@ -169,6 +169,34 @@ val wallpaperSurfacesPatch = bytecodePatch {
                     move-result-object v$modifier
                 """,
             )
+            // The blur over the header with its dark tint: left out over the wallpaper.
+            val blur = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_STATIC && methodReference?.definingClass == "Ldev/chrisbanes/haze/HazeChildKt;"
+            }
+            val plain = getInstruction<FiveRegisterInstruction>(blur).registerC
+            val blurred = getInstruction<OneRegisterInstruction>(blur + 1).registerA
+            addInstructions(
+                blur + 2,
+                """
+                    invoke-static { v$blurred, v$plain, v$composer }, $SURFACES->headerHaze(Landroidx/compose/ui/Modifier;Landroidx/compose/ui/Modifier;Landroidx/compose/runtime/Composer;)Landroidx/compose/ui/Modifier;
+                    move-result-object v$blurred
+                """,
+            )
+            // The fade into the screen's colour: a soft shade over the wallpaper.
+            val fade = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_STATIC_RANGE && methodReference?.let {
+                    it.definingClass == "Landroidx/compose/ui/graphics/Brush\$Companion;" && it.name.startsWith("verticalGradient")
+                } == true
+            }
+            val brush = getInstruction<OneRegisterInstruction>(fade + 1).registerA
+            addInstructions(
+                fade + 2,
+                """
+                    invoke-static { v$brush, v$composer }, $SURFACES->headerShade(Ljava/lang/Object;Landroidx/compose/runtime/Composer;)Ljava/lang/Object;
+                    move-result-object v$brush
+                    check-cast v$brush, Landroidx/compose/ui/graphics/Brush;
+                """,
+            )
         }
         blurredHeaderMethod.apply {
             // The first look at the address ("did it change?") comes right after the restart group starts, with the

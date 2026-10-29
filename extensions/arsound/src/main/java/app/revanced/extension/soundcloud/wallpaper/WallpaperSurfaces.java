@@ -135,6 +135,33 @@ public final class WallpaperSurfaces {
         return active && onWallpaperScreen(composer) ? AlphaKt.alpha(modifier, 0f) : modifier;
     }
 
+    /**
+     * Injection point, in {@code PlaylistDetailsSmallerArtworkHeaderKt.b}: the modifier that lays the blur and its
+     * 40 % tint over the header. On a main screen with the wallpaper the plain modifier comes back: the tint was a dark
+     * square over the picture.
+     *
+     * @param blurred The modifier with the blur.
+     * @param plain   The same modifier without it.
+     */
+    public static Modifier headerHaze(Modifier blurred, Modifier plain, Composer composer) {
+        return active && onWallpaperScreen(composer) ? plain : blurred;
+    }
+
+    /**
+     * Injection point, in the same header: its fade ({@code Brush}), which SoundCloud runs into the screen's colour at
+     * the top and the bottom. On a main screen with the wallpaper a soft shade instead ({@link HeaderShade}), clear at
+     * both ends, so the header has no edge.
+     */
+    public static Object headerShade(Object brush, Composer composer) {
+        if (!active || !onWallpaperScreen(composer)) return brush;
+        try {
+            return HeaderShade.brush(brush.getClass().getClassLoader(), Colors.j(composer));
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Wallpaper: the header keeps its fade", ex);
+            return brush;
+        }
+    }
+
     /** True if the Compose content belongs to a main screen that shows the wallpaper. */
     private static boolean onWallpaperScreen(Composer composer) {
         try {

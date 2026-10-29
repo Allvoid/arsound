@@ -233,6 +233,34 @@ public final class DownloadProgress {
         return result;
     }
 
+    private static volatile Method itemCount, rangeChanged;
+
+    /**
+     * Rebinds every row of the list in its place: {@code notifyItemRangeChanged(0, count, payload)}. Not
+     * {@code notifyDataSetChanged}: that one throws the rows away, they were built again empty for a frame and took
+     * their height back one by one, so the tracks of a playlist jumped about and the list fell back to its top while
+     * a download started or ended. With a payload the same row is bound again, without the fade of a changed row.
+     * The names of RecyclerView's methods are shrunk; they are told by their shape.
+     */
+    private static void rebindRows(Object adapter, ClassLoader loader) throws Exception {
+        if (rangeChanged == null) {
+            Class<?> adapterClass = Class.forName("androidx.recyclerview.widget.RecyclerView$Adapter", false, loader);
+            for (Method method : adapterClass.getDeclaredMethods()) {
+                Class<?>[] parameters = method.getParameterTypes();
+                boolean isAbstract = java.lang.reflect.Modifier.isAbstract(method.getModifiers());
+                if (isAbstract && parameters.length == 0 && method.getReturnType() == int.class) itemCount = method;
+                if (parameters.length == 3 && parameters[0] == int.class && parameters[1] == int.class
+                        && parameters[2] == Object.class && method.getReturnType() == void.class) rangeChanged = method;
+            }
+            if (itemCount == null || rangeChanged == null) throw new NoSuchMethodException("RecyclerView.Adapter");
+        }
+        int count = (int) itemCount.invoke(adapter);
+        if (count > 0) rangeChanged.invoke(adapter, 0, count, REBIND);
+    }
+
+    /** The payload of {@link #rebindRows}: any object makes the list keep the row and bind it again. */
+    private static final Object REBIND = "arsound-download-state";
+
     /** Rebinds the rows of the lists on screen, so their download icons are built again. */
     private static void redrawLists(Activity activity) {
         if (activity == null) return;
@@ -244,12 +272,7 @@ public final class DownloadProgress {
             if (!type.getName().equals("androidx.recyclerview.widget.RecyclerView")) continue;
             try {
                 Object adapter = type.getMethod("getAdapter").invoke(view);
-                if (adapter != null) {
-                    // Adapter.i() is notifyDataSetChanged in this app version.
-                    Method notify = Class.forName("androidx.recyclerview.widget.RecyclerView$Adapter", false,
-                            type.getClassLoader()).getMethod("i");
-                    notify.invoke(adapter);
-                }
+                if (adapter != null) rebindRows(adapter, type.getClassLoader());
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not redraw a list", ex);
             }
