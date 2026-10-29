@@ -236,7 +236,7 @@ public final class TranscriptionManager {
         Guards.Device device = DeviceState.read(context);
         String blocker = null;
         List<String> warnings = new ArrayList<>();
-        for (Guards.Concern concern : Guards.concerns(device, model)) {
+        for (Guards.Concern concern : Guards.concerns(device, model, separatesVoice())) {
             if (concern.blocking) blocker = concern.message();
             else warnings.add(concern.message());
         }

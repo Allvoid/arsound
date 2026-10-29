@@ -11,6 +11,7 @@ import app.revanced.extension.soundcloud.lyrics.LyricsRepository;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Advice;
 import app.revanced.extension.soundcloud.lyrics.transcribe.AsrModel;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Failure;
+import app.revanced.extension.soundcloud.lyrics.transcribe.HeavyNotice;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Sizes;
 import app.revanced.extension.soundcloud.lyrics.transcribe.TranscriptionManager;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
@@ -144,13 +145,18 @@ final class LyricsAiRows {
                     TranscriptionManager.setChosenModel(model);
                     refreshModelStatus();
                     // A model that is not on the phone is of no use until it is: offer the download at once.
-                    if (!TranscriptionManager.isInstalled(model)) offerDownload(model);
+                    if (!TranscriptionManager.isInstalled(model)) {
+                        HeavyNotice.showThen(ui.activity, TranscriptionManager.missingBytes(model),
+                                () -> offerDownload(model));
+                    }
                 })
                 .setNegativeButton(text("Закрыть", "Close"), null);
         if (TranscriptionManager.isInstalled(chosen)) {
             dialog.setNeutralButton(text("Удалить", "Delete"), (d, w) -> confirmDelete(chosen));
         } else {
-            dialog.setPositiveButton(text("Скачать", "Download"), (d, w) -> offerDownload(chosen));
+            dialog.setPositiveButton(text("Скачать", "Download"),
+                    (d, w) -> HeavyNotice.showThen(ui.activity, TranscriptionManager.missingBytes(chosen),
+                            () -> offerDownload(chosen)));
         }
         dialog.show();
     }

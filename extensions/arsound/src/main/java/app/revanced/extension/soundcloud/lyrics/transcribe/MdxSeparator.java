@@ -45,6 +45,10 @@ final class MdxSeparator implements AutoCloseable, VocalsStream.Chunks {
             OrtSession.SessionOptions options = new OrtSession.SessionOptions();
             options.setIntraOpNumThreads(threads);
             options.setInterOpNumThreads(1);
+            // Without ONNX Runtime's arena and preplanned buffers the peak memory is half (1.3 GB instead of 2.6 GB
+            // on a computer) and nothing stays held between segments; the speed is about the same.
+            options.setCPUArenaAllocator(false);
+            options.setMemoryPatternOptimization(false);
             session = environment.createSession(model.getAbsolutePath(), options);
             Map<String, String> meta = session.getMetadata().getCustomMetadata();
             nFft = number(meta, "n_fft");

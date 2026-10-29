@@ -10,6 +10,7 @@ import java.util.List;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Advice;
 import app.revanced.extension.soundcloud.lyrics.transcribe.AsrModel;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Failure;
+import app.revanced.extension.soundcloud.lyrics.transcribe.HeavyNotice;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Sizes;
 import app.revanced.extension.soundcloud.lyrics.transcribe.Transcript;
 import app.revanced.extension.soundcloud.lyrics.transcribe.TranscriptionManager;
@@ -134,17 +135,15 @@ final class LyricsAi implements TranscriptionManager.Listener {
 
     private void showOfferDialog(final Advice advice) {
         StringBuilder body = new StringBuilder();
-        body.append(text("Текст этой песни не нашёлся. Нейросеть Whisper может послушать песню на вашем телефоне "
-                + "и записать слова.\n\n", "No lyrics were found for this song. The Whisper neural network can listen to "
-                + "the song on your phone and write down the words.\n\n"));
-        body.append(text("• Качество неидеальное: на русских песнях в нашей проверке верна примерно треть слов, "
-                + "смысл строк обычно угадывается. При громкой музыке, быстром речитативе или малознакомом языке "
-                + "ошибок и пропусков больше.\n", "• The quality is not perfect: on Russian songs in our test about a "
-                + "third of the words came out right, the sense of the lines is usually guessable. With loud music, "
-                + "fast rap or an unfamiliar language there are more mistakes and gaps.\n"));
-        body.append(text("• Нагрузка: телефон будет заметно работать около минуты-двух на песню, тратя заряд и "
-                + "нагреваясь. Лучше на зарядке.\n", "• Load: the phone will work hard for a minute or two per song, "
-                + "using battery and getting warm. Better while charging.\n"));
+        body.append(text("Текст этой песни не нашёлся. Нейросеть может послушать песню на вашем телефоне и записать "
+                + "слова. Это тяжёлая работа для телефона, почти как тяжёлая игра.\n\n", "No lyrics were found for this "
+                + "song. A neural network can listen to the song on your phone and write down the words. It is heavy "
+                + "work for a phone, almost like a heavy game.\n\n"));
+        body.append(HeavyNotice.points(panel.getContext())).append("\n");
+        body.append(text("• Текст приблизительный: на русских песнях в нашей проверке верно около шести слов из десяти, в "
+                + "распевных припевах и при сильной обработке голоса бывает мусор.\n", "• The text is approximate: on "
+                + "Russian songs in our test about six words in ten came out right; sung-out choruses and heavily "
+                + "processed voices may come out as rubbish.\n"));
         if (advice.downloadBytes > 0) {
             body.append(text("• Один раз нужно скачать модель и компоненты (" + Sizes.format(advice.downloadBytes)
                             + "). Интернет нужен для этого и, если песня не скачана, для её звука; сам звук никуда не отправляется.\n",
@@ -161,7 +160,10 @@ final class LyricsAi implements TranscriptionManager.Listener {
         new ArsoundDialog(panel.getContext())
                 .setTitle(text("Распознать текст нейросетью?", "Recognise the lyrics with a neural network?"))
                 .setMessage(body.toString())
-                .setPositiveButton(text("Включить и распознать", "Turn on and recognise"), (dialog, which) -> proceed(advice))
+                .setPositiveButton(text("Включить и распознать", "Turn on and recognise"), (dialog, which) -> {
+                    HeavyNotice.markSeen();
+                    proceed(advice);
+                })
                 .setNegativeButton(text("Не сейчас", "Not now"), null)
                 .show();
     }

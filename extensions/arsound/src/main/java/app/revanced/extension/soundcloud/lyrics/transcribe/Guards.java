@@ -64,8 +64,14 @@ final class Guards {
 
     /** The things to tell the user before starting; empty when all is well. The blocking one comes first. */
     static List<Concern> concerns(Device device, AsrModel model) {
+        return concerns(device, model, false);
+    }
+
+    /** The same when the voice is taken out of the music first: the separation needs more memory than the models. */
+    static List<Concern> concerns(Device device, AsrModel model, boolean separate) {
         List<Concern> concerns = new ArrayList<>();
-        if (device.availableMemoryBytes < model.minAvailableBytes) concerns.add(Concern.NOT_ENOUGH_MEMORY);
+        long needed = separate ? Math.max(model.minAvailableBytes, VoiceModel.MIN_AVAILABLE_BYTES) : model.minAvailableBytes;
+        if (device.availableMemoryBytes < needed) concerns.add(Concern.NOT_ENOUGH_MEMORY);
         if (!device.charging && device.batteryPercent >= 0 && device.batteryPercent < LOW_BATTERY_PERCENT) {
             concerns.add(Concern.LOW_BATTERY);
         }
