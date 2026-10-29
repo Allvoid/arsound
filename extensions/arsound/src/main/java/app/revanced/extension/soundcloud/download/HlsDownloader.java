@@ -382,10 +382,10 @@ public final class HlsDownloader {
     /** Refuses DRM and ciphers this assembler cannot handle, even if source inspection was inconclusive. */
     private static void requireSupportedKey(Key key) throws IOException {
         if ("NONE".equals(key.method)) return;
-        // DRM keys (Widevine/FairPlay) are now supported: the HLS downloader fetches the key and decrypts.
+        // FairPlay/Widevine hand their key out only to a licence server behind a CDM, so this assembler cannot
+        // decrypt them: such a track is downloaded through SoundCloud's native offline path instead, not here.
         if (!"identity".equals(key.keyFormat) || key.method.startsWith("SAMPLE-AES")) {
-            Logger.printInfo(() -> "DRM key supported: method=" + key.method + " format=" + key.keyFormat + " uri=" + key.uri);
-            return;
+            throw new IOException("DRM-protected HLS (" + key.method + "/" + key.keyFormat + ") is not handled here");
         }
         if (!"AES-128".equals(key.method) && !"AES-CTR".equals(key.method)) {
             throw new IOException("Unsupported HLS encryption method: " + key.method);

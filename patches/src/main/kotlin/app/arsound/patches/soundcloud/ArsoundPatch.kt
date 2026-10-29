@@ -24,6 +24,8 @@ import app.arsound.patches.soundcloud.recommendations.forYouPatch
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.patches.soundcloud.network.networkPatch
 import app.arsound.patches.soundcloud.offline.downloadedPlaybackPatch
+import app.arsound.patches.soundcloud.offline.nativeOfflinePatch
+import app.arsound.patches.soundcloud.offline.offlinePlaybackGatePatch
 import app.arsound.patches.soundcloud.offline.offlineFirstPatch
 import app.arsound.patches.soundcloud.power.powerSavingPatch
 import app.arsound.patches.soundcloud.player.currentPlayStatePatch
@@ -115,6 +117,8 @@ val arsoundDownloadsGroup = arsoundGroup(
     downloadedPlaybackPatch,
     headerDownloadButtonPatch,
     downloadButtonsPatch,
+    nativeOfflinePatch,
+    offlinePlaybackGatePatch,
 )
 
 @Suppress("unused")

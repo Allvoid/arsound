@@ -88,7 +88,7 @@ public final class DownloadTrackPatch {
      */
     private static volatile Object oAuth;
 
-    static String text(String russian, String english) {
+    public static String text(String russian, String english) {
         return russian() ? russian : english;
     }
 
@@ -297,6 +297,12 @@ public final class DownloadTrackPatch {
                     return;
                 }
                 TrackSource source = resolveSource(trackId);
+                // A DRM track (Arsound cannot get its key) or a subscription track goes to SoundCloud's own offline
+                // download instead of Arsound's file downloader.
+                if (goesToNativeOffline(source.status)) {
+                    app.revanced.extension.soundcloud.offline.NativeOffline.makeAvailable(context, trackId);
+                    return;
+                }
                 if (!source.isDownloadable()) {
                     showToast(context, unavailableMessage(source.status));
                     return;
@@ -409,6 +415,11 @@ public final class DownloadTrackPatch {
         if (!starting.add(trackId)) return true;
         try {
             if (source == null || !source.isFresh()) source = resolveSource(trackId);
+            // A DRM or subscription track is handed to SoundCloud's own offline download; Arsound cannot save it.
+            if (goesToNativeOffline(source.status)) {
+                app.revanced.extension.soundcloud.offline.NativeOffline.makeAvailable(context, trackId);
+                return true;
+            }
             if (!source.isDownloadable()) return false;
             start(context, trackId, source, false, playlistId);
             return true;
@@ -679,11 +690,8 @@ public final class DownloadTrackPatch {
         if (transientError != null) throw transientError;
         // Neither client can save it: the stricter reason of the two is the one worth showing.
         if (alternative != null && source.status == TrackSource.Status.REQUIRES_PROFILE_SEARCH) return alternative;
-        // If the track is DRM protected but has an HLS URL, try to download it anyway (like SC-MOD).
-        if (source.status == TrackSource.Status.DRM_PROTECTED && source.url != null) {
-            Logger.printInfo(() -> "DRM track " + trackId + " will be downloaded via HLS");
-            return source;
-        }
+        // A DRM track is not saved by Arsound's own downloader (it cannot get the Widevine/FairPlay key); it stays
+        // DRM_PROTECTED so the caller hands it to SoundCloud's native offline download instead.
         return source;
     }
 
@@ -747,11 +755,10 @@ public final class DownloadTrackPatch {
             return TrackSource.hls(url, mimeType);
         }
 
-        // Only DRM-locked playlists were offered: this client cannot save them, which is told apart from "no stream".
+        // Only DRM-locked playlists were offered: this client cannot decrypt them itself (the Widevine/FairPlay
+        // key comes from a licence server). Such a track is routed to SoundCloud's own offline download instead.
         if (drmSeen) {
-            // Return the last tried URL as HLS, so the track can be downloaded (like SC-MOD).
-            // The HLS downloader handles DRM keys from the playlist.
-            return TrackSource.hls(url, mimeType);
+            return TrackSource.unavailable(TrackSource.Status.DRM_PROTECTED);
         }
         if (transientError != null) throw transientError;
         Logger.printInfo(() -> "No stream of this client for " + trackId);
@@ -846,6 +853,18 @@ public final class DownloadTrackPatch {
      *
      * @return Why the track is not downloaded, or null if nothing restricts it.
      */
+    /**
+     * Whether a track Arsound cannot save as a file is handed to SoundCloud's own offline download instead: a DRM
+     * track, whose key comes from a licence server, but whose full audio the server still serves to a free account.
+     * <p>
+     * Subscription (Go/Go+) tracks are NOT handed over: for a free account the server serves them only as a short
+     * preview (policy SNIP → {@link TrackSource.Status#AUDIO_ONLY_PREVIEW}) or refuses the full stream, so there is
+     * no full audio to download by any route — even SoundCloud's own offline download filters such tracks out.
+     */
+    public static boolean goesToNativeOffline(TrackSource.Status status) {
+        return status == TrackSource.Status.DRM_PROTECTED;
+    }
+
     private static TrackSource.Status restrictionOf(JSONObject track) {
         String policy = track.optString("policy").toUpperCase(Locale.US);
         String monetization = track.optString("monetization_model").toUpperCase(Locale.US);
@@ -1592,7 +1611,7 @@ public final class DownloadTrackPatch {
         return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
     }
 
-    static void showToast(Context context, String message) {
+    public static void showToast(Context context, String message) {
         Utils.runOnMainThread(() -> Toast.makeText(context, message, Toast.LENGTH_LONG).show());
     }
 

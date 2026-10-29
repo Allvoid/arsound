@@ -360,6 +360,8 @@ public final class DownloadPlaylistPatch {
 
                 List<TrackInfo> downloadable = new ArrayList<>();
                 List<String> unavailableTitles = new ArrayList<>();
+                // DRM tracks Arsound cannot save as files; they go to SoundCloud's own offline download.
+                List<String> drmIds = new ArrayList<>();
                 int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
                 // Without the listing of the files every track would count as not downloaded, as the paths of the
                 // files are closed to the app since Android 10.
@@ -422,6 +424,7 @@ public final class DownloadPlaylistPatch {
                 // many requests, so a few tracks are asked at once.
                 TrackInfo[] found = new TrackInfo[toResolve.size()];
                 String[] unavailable = new String[toResolve.size()];
+                String[] drm = new String[toResolve.size()];
                 ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL_CHECKS, toResolve.size())));
                 try {
                     for (int i = 0; i < toResolve.size(); i++) {
@@ -444,6 +447,8 @@ public final class DownloadPlaylistPatch {
                             }
                             if (source != null && source.isDownloadable()) {
                                 found[index] = new TrackInfo(id, title, source);
+                            } else if (source != null && DownloadTrackPatch.goesToNativeOffline(source.status)) {
+                                drm[index] = id;
                             } else if (!failed) {
                                 unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
                             }
@@ -462,6 +467,7 @@ public final class DownloadPlaylistPatch {
                 synchronized (checked) {
                     for (int i = 0; i < found.length; i++) {
                         if (found[i] != null) downloadable.add(found[i]);
+                        else if (drm[i] != null) drmIds.add(drm[i]);
                         else if (unavailable[i] != null) unavailableTitles.add(unavailable[i]);
                     }
                 }
@@ -470,9 +476,9 @@ public final class DownloadPlaylistPatch {
                 int notChecked = unchecked[0];
                 Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, imported " + imported[0]
                         + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download "
-                        + downloadable.size() + ", not checked " + notChecked);
+                        + downloadable.size() + ", DRM " + drmIds.size() + ", not checked " + notChecked);
                 Utils.runOnMainThread(() -> showResult(context, playlistId, ids.size(), imported[0], alreadyDownloaded[0], alreadyDownloaded[1],
-                        notChecked, downloadable, unavailableTitles));
+                        notChecked, downloadable, unavailableTitles, drmIds));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
                 ProgressPill.onCheckFinished();
@@ -485,8 +491,8 @@ public final class DownloadPlaylistPatch {
      * @param notChecked Tracks the server gave no answer about (network, rate limit or server error).
      */
     private static void showResult(Context context, String playlistId, int total, int imported, int downloaded, int downloading,
-                                   int notChecked, List<TrackInfo> downloadable, List<String> unavailableTitles) {
-        int unavailable = total - downloaded - downloading - downloadable.size() - notChecked;
+                                   int notChecked, List<TrackInfo> downloadable, List<String> unavailableTitles, List<String> drmIds) {
+        int unavailable = total - downloaded - downloading - downloadable.size() - drmIds.size() - notChecked;
         StringBuilder summary = new StringBuilder();
         summary.append(playlistId == null
                 ? text("Лайкнутых треков: ", "Liked tracks: ")
@@ -498,6 +504,10 @@ public final class DownloadPlaylistPatch {
         if (downloading > 0) summary.append(text("Скачиваются сейчас: ", "Downloading now: ")).append(downloading).append('\n');
         summary.append(text("Ещё не скачаны, но доступны для скачивания: ", "Not downloaded yet, but available to download: "))
                 .append(downloadable.size()).append('\n');
+        if (!drmIds.isEmpty()) {
+            summary.append(text("Защищены DRM (сохраню в офлайн-библиотеку SoundCloud, играют только в приложении): ",
+                    "DRM protected (saved to SoundCloud's offline library, play in the app only): ")).append(drmIds.size()).append('\n');
+        }
         if (notChecked > 0) {
             summary.append(text("Не удалось проверить (нет ответа сервера, попробуйте позже): ",
                     "Could not be checked (no answer from the server, try again later): ")).append(notChecked).append('\n');
@@ -508,12 +518,14 @@ public final class DownloadPlaylistPatch {
             for (String title : unavailableTitles) summary.append("  ✕ ").append(title).append('\n');
         }
 
+        // Tracks that this tap would start: the ones Arsound saves as files plus the DRM ones handed to SoundCloud.
+        int toStart = downloadable.size() + drmIds.size();
         app.revanced.extension.soundcloud.shared.ArsoundDialog builder = new app.revanced.extension.soundcloud.shared.ArsoundDialog(context);
         // Everything available is on the phone: the playlist counts as downloaded.
-        if (playlistId != null && downloadable.isEmpty() && downloading == 0 && downloaded > 0 && notChecked == 0) {
+        if (playlistId != null && toStart == 0 && downloading == 0 && downloaded > 0 && notChecked == 0) {
             setPlaylistDownloaded(playlistId, true);
         }
-        if (downloadable.isEmpty()) {
+        if (toStart == 0) {
             builder.setTitle(notChecked > 0
                             ? text("Не все треки удалось проверить", "Not every track could be checked")
                             : downloaded + downloading + imported > 0
@@ -525,22 +537,30 @@ public final class DownloadPlaylistPatch {
             return;
         }
 
-        summary.append('\n').append(text("Будут скачаны:", "Will be downloaded:")).append('\n');
-        for (TrackInfo track : downloadable) {
-            summary.append("• ").append(track.title);
-            // Such a track is assembled from its stream by the app, which takes a few seconds of CPU time.
-            if (track.needsAssembly()) summary.append(text(" (фоновая обработка)", " (background processing)"));
-            summary.append('\n');
+        if (!downloadable.isEmpty()) {
+            summary.append('\n').append(text("Будут скачаны:", "Will be downloaded:")).append('\n');
+            for (TrackInfo track : downloadable) {
+                summary.append("• ").append(track.title);
+                // Such a track is assembled from its stream by the app, which takes a few seconds of CPU time.
+                if (track.needsAssembly()) summary.append(text(" (фоновая обработка)", " (background processing)"));
+                summary.append('\n');
+            }
         }
 
         // A question, so it is plain that nothing has been downloaded yet.
         builder.setTitle(downloaded > 0
-                        ? text("Скачать ещё " + downloadable.size() + "?", "Download " + downloadable.size() + " more?")
-                        : text("Скачать " + downloadable.size() + "?", "Download " + downloadable.size() + "?"))
+                        ? text("Скачать ещё " + toStart + "?", "Download " + toStart + " more?")
+                        : text("Скачать " + toStart + "?", "Download " + toStart + "?"))
                 .setMessage(summary.toString().trim())
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(text("Скачать " + downloadable.size(), "Download " + downloadable.size()),
-                        (d, which) -> downloadAll(context, playlistId, downloadable))
+                .setPositiveButton(text("Скачать " + toStart, "Download " + toStart),
+                        (d, which) -> {
+                            if (!downloadable.isEmpty()) downloadAll(context, playlistId, downloadable);
+                            // DRM tracks go to SoundCloud's own offline download.
+                            for (String drmId : drmIds) {
+                                app.revanced.extension.soundcloud.offline.NativeOffline.makeAvailable(context, drmId);
+                            }
+                        })
                 .show();
     }
 
