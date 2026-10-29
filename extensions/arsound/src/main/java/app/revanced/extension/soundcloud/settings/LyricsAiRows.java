@@ -39,22 +39,34 @@ final class LyricsAiRows {
         list.addView(ui.createSubHeading(text("Распознавание текста нейросетью", "Lyrics recognition by a neural network")));
         list.addView(ui.createToggleRow(
                 text("Распознавать текст нейросетью", "Recognise lyrics with a neural network"),
-                text("Для песен, текста которых нет, на странице текста появляется кнопка: нейросеть Whisper послушает "
-                                + "песню на телефоне и запишет слова. Качество неидеальное: на русских песнях в нашей "
-                                + "проверке верна примерно треть слов, смысл строк обычно понятен. Работа заметно нагружает "
-                                + "телефон. Результат сохраняется, второй раз песню не обрабатывают. Модель скачивается один "
-                                + "раз, после этого работает без интернета.",
-                        "For songs without lyrics a button appears on the lyrics page: the Whisper neural network listens "
-                                + "to the song on the phone and writes down the words. The quality is not perfect: on "
-                                + "Russian songs in our test about a third of the words came out right, the sense of the "
-                                + "lines is usually clear. The work loads the phone noticeably. The result is kept, the song "
-                                + "is not processed twice. The model is downloaded once and then works offline."),
+                text("Для песен, текста которых нет, на странице текста появляется кнопка: нейросеть послушает "
+                                + "песню на телефоне и запишет слова. Текст приблизительный: на русских песнях в нашей "
+                                + "проверке верно около шести слов из десяти, в распевных припевах бывает мусор. Работа "
+                                + "заметно нагружает телефон. Результат сохраняется, второй раз песню не обрабатывают. "
+                                + "Модели скачиваются один раз, после этого работают без интернета.",
+                        "For songs without lyrics a button appears on the lyrics page: a neural network listens to the "
+                                + "song on the phone and writes down the words. The text is approximate: on Russian songs in "
+                                + "our test about six words in ten came out right, sung-out choruses may come out as "
+                                + "rubbish. The work loads the phone noticeably. The result is kept, the song is not "
+                                + "processed twice. The models are downloaded once and then work offline."),
                 BoolSettings.LYRICS_AI_ENABLED,
                 (button, checked) -> {
                     if (!checked) TranscriptionManager.cancel();
                     LyricsRepository.forgetRecognised();
                 }).icon("ai"));
         addModelRow(list);
+        list.addView(ui.createToggleRow(
+                text("Отделять голос от музыки", "Take the voice out of the music"),
+                text("Перед распознаванием отдельная нейросеть убирает музыку и оставляет голос: ошибок становится "
+                                + "намного меньше (в нашей проверке с GigaAM — четыре слова из десяти вместо шести). Но это "
+                                + "в несколько раз дольше: трек в три минуты обрабатывается несколько минут. Ещё около "
+                                + "95 МБ загрузки.",
+                        "Before the recognition a separate network removes the music and keeps the voice: there are far "
+                                + "fewer mistakes (in our test with GigaAM four wrong words in ten instead of six). But it "
+                                + "takes several times longer: a three-minute track takes several minutes. About 95 MB more "
+                                + "to download."),
+                BoolSettings.LYRICS_AI_SEPARATE,
+                (button, checked) -> refreshModelStatus()).icon("ai"));
         addLanguageRow(list);
         addClearRow(list);
     }
@@ -229,11 +241,19 @@ final class LyricsAiRows {
 
     /** What the model is good and bad at, under its name. */
     private static String modelHint(AsrModel model) {
+        if (model == AsrModel.GIGAAM) {
+            return text("Рекомендуется для русских песен: точнее и быстрее Whisper, около 0,7 ГБ памяти. Слышит только "
+                            + "русский: английская песня выйдет русскими буквами. Нажмите, чтобы сменить, скачать или удалить.",
+                    "Recommended for Russian songs: more accurate and faster than Whisper, about 0.7 GB of memory. Hears "
+                            + "only Russian: an English song comes out in Russian letters. Tap to change, download or delete it.");
+        }
         return model == AsrModel.SMALL
-                ? text("Рекомендуется. На русских песнях в нашей проверке верна примерно треть слов и около 60% букв. "
-                        + "Нужно около 1,5 ГБ свободной памяти и больше времени. Нажмите, чтобы сменить, скачать или удалить.",
-                "Recommended. On Russian songs in our test about a third of the words and some 60% of the letters came "
-                        + "out right. Needs about 1.5 GB of free memory and more time. Tap to change, download or delete it.")
+                ? text("Для песен на других языках. На русских песнях в нашей проверке верна примерно треть слов "
+                        + "(половина, если отделять голос). Нужно около 1,5 ГБ свободной памяти и больше времени. "
+                        + "Нажмите, чтобы сменить, скачать или удалить.",
+                "For songs in other languages. On Russian songs in our test about a third of the words came out right "
+                        + "(half with the voice taken out). Needs about 1.5 GB of free memory and more time. Tap to change, "
+                        + "download or delete it.")
                 : text("Вдвое быстрее и легче, но на русских песнях ошибок больше, чем слов: годится для английской речи "
                         + "и слабых телефонов. Нажмите, чтобы сменить, скачать или удалить.",
                 "Twice as fast and light, but on Russian songs it makes more mistakes than there are words: fit for "

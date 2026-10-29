@@ -1,8 +1,9 @@
 /**
- * Neural recognition of lyrics on the phone (Whisper through sherpa-onnx), for songs LRCLIB does not know.
+ * Neural recognition of lyrics on the phone, for songs LRCLIB does not know: the voice is taken out of the music
+ * (UVR-MDX-NET Voc_FT through ONNX Runtime), then GigaAM v3 (Russian) or Whisper writes the words (through sherpa-onnx).
  *
  * <p>User view: after the user agrees (off by default), the lyrics page of a song without lyrics offers to listen to
- * the song and write its words with timings. Only 64-bit ARM phones; the native library and the model (small or base)
+ * the song and write its words with timings. 64-bit ARM phones (and x86-64); the native libraries and the models
  * are downloaded on demand, not shipped in the APK. The result is stored and shown as lyrics "heard by the network".
  *
  * <p>Entry points: none from Kotlin patches. Everything public is in {@code TranscriptionManager}, called on the main
@@ -11,24 +12,30 @@
  * {@code detach}, {@code cancel}, {@code startInstall}, {@code deleteModel}, {@code deleteAllFiles},
  * {@code clearTranscripts}.
  *
- * <p>Pipeline ({@code TranscriptionJob}, one background thread): {@code AsrInstaller} (library + model, with
- * {@code ResumableDownload} and SHA-256 checks) -> {@code TrackAudio} (imported file, own download, or a temporary
- * stream fetched by {@code HlsFetch}/{@code HlsPlaylist}/{@code HttpBytes}) -> {@code AudioDecoder} and
- * {@code PcmConverter}/{@code StreamResampler} (mono 16 kHz) -> {@code Chunker} (30 s windows) -> {@code SongListener}
- * (per window: {@code WhisperRunner}, the only class that touches sherpa-onnx; the language by {@code LanguagePolicy};
- * a window that looped is heard again in halves) -> {@code TextCleaner} (with {@code Loops}) and {@code LineTimer} ->
+ * <p>Pipeline ({@code TranscriptionJob}, one background thread): {@code AsrInstaller} (the {@code NativeArchive}
+ * libraries, the {@code AsrModel} and the {@code VoiceModel}, with {@code ResumableDownload} and SHA-256 checks) ->
+ * {@code TrackAudio} (imported file, own download, or a temporary stream fetched by {@code HlsFetch}/{@code HlsPlaylist}/
+ * {@code HttpBytes}) -> {@code AudioDecoder} into a {@code PcmTarget}: {@code MonoTarget} (the whole song) or
+ * {@code VocalsTarget} ({@code VocalsStream} pieces through {@code MdxSeparator} with {@code MdxStft}/{@code RealFft},
+ * ONNX Runtime loaded by {@code OrtLibs}), both ending in mono 16 kHz via {@code StreamResampler} -> {@code Chunker}
+ * (30 s windows) -> {@code SongListener} (per window: a {@code Recognizer}, {@code GigaAmRunner} or
+ * {@code WhisperRunner}, the only classes that touch sherpa-onnx; the language by {@code LanguagePolicy}; a window that
+ * looped is heard again in halves) -> {@code TextCleaner} (with {@code Loops}) and {@code LineTimer} ->
  * {@code Transcript}, stored by {@code TranscriptStore}/{@code TranscriptCodec}. {@code Guards} with {@code DeviceState} decide whether the phone
  * may work now (charge, heat, memory, metered network); {@code Advice} and {@code Failure} are what the page tells.
  *
- * <p>Settings: {@code lyrics_ai_enabled}, {@code lyrics_ai_model}, {@code lyrics_ai_language} in {@code settings.Settings}.
+ * <p>Settings: {@code lyrics_ai_enabled}, {@code lyrics_ai_model}, {@code lyrics_ai_separate}, {@code lyrics_ai_language}
+ * in {@code settings.Settings}.
  * Files live in {@code files/arsound/asr} (library per version, models) and the transcripts folder of the app.
  *
  * <p>Gotchas:
  * <ul>
- * <li>The Java classes of sherpa-onnx are vendored in {@code com.k2fsa.sherpa.onnx} (same tag as the native library);
- * nothing may use them before {@code NativeLibs} has loaded the checked library. The ProGuard rule keeps them.</li>
- * <li>The SHA-256 of every file and the URLs are written in {@code AsrLibrary} and {@code AsrModel}, never taken from
- * the server; only HTTPS and no foreign host after a redirect.</li>
+ * <li>The Java classes of sherpa-onnx are vendored in {@code com.k2fsa.sherpa.onnx} and those of ONNX Runtime in
+ * {@code ai.onnxruntime} (same tags as the native libraries; ONNX Runtime's loader reads the library path the app sets,
+ * the one change); nothing may use them before {@code NativeLibs}/{@code OrtLibs} have loaded the checked libraries.
+ * The ProGuard rules keep them.</li>
+ * <li>The SHA-256 of every file and the URLs are written in {@code NativeArchive}, {@code AsrModel} and
+ * {@code VoiceModel}, never taken from the server; only HTTPS and no foreign host after a redirect.</li>
  * <li>Never listen to DRM: {@code download.TranscriptionAudio} refuses previews, subscription-only tracks and every
  * protected stream (FairPlay, Widevine, SAMPLE-AES) before a byte is fetched. Keep that check in front of any new audio
  * source. Every request first asks {@code network.RegionGuard}.</li>

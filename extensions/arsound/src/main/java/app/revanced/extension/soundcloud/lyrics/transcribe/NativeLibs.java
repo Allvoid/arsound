@@ -12,7 +12,7 @@ import app.revanced.extension.shared.Logger;
  * Loads the downloaded native library into the app, once per process. The vendored sherpa-onnx classes do not load
  * anything themselves ({@link LibraryLoader} is switched off), so nothing in them may be used before {@link #load}.
  * <p>
- * Used by {@link WhisperRunner}.
+ * Used by {@link TranscriptionJob} before {@link WhisperRunner} or {@link GigaAmRunner}.
  */
 final class NativeLibs {
     private static boolean loaded;

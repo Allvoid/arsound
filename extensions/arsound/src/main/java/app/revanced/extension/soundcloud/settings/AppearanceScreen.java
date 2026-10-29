@@ -131,9 +131,12 @@ final class AppearanceScreen extends SectionScreen {
         playerOptions.addView(ui.createToggleRow(
                 text("Плеер в уведомлении под цвет трека", "Notification player in the track's colours"),
                 text("Плеер в уведомлении и на экране блокировки берёт обложку и цвета играющего трека. Выключено — "
-                                + "фон и цвета темы. Действует со следующего трека.",
+                                + "фон и цвета темы; на телефонах, где шторка показывает обложку (OnePlus, OPPO, vivo и "
+                                + "другие), обложка там тоже будет в цветах темы. Действует со следующего трека.",
                         "The player in the notification and on the lock screen takes the cover and colours of the "
-                                + "playing track. Off: the theme's background and colours. Applies from the next track."),
+                                + "playing track. Off: the theme's background and colours; on phones whose control centre "
+                                + "shows the cover (OnePlus, OPPO, vivo and others) the cover there is in the theme's "
+                                + "colours too. Applies from the next track."),
                 NotificationArtwork.isTrackColorsEnabled(),
                 (button, checked) -> Settings.putBoolean(
                         NotificationArtwork.TRACK_COLORS_KEY, checked)

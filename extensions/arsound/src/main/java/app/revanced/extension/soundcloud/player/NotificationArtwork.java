@@ -23,7 +23,7 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * It comes from the app's image provider, "&lt;package&gt;.imageProvider"; SoundCloud names it after its own package,
  * Arsound runs under another one. Android colours the notification player after the cover. With the new player on,
  * the notification gets the cover tinted in the theme's colours instead, so it looks like the theme; the user can choose the
- * track's colours instead.
+ * track's colours instead, which is the default.
  */
 @SuppressWarnings("unused")
 public final class NotificationArtwork {
@@ -49,8 +49,12 @@ public final class NotificationArtwork {
         return context == null ? original : context.getPackageName();
     }
 
+    /**
+     * On by default: the control centres of ColorOS, OxygenOS, vivo and others show the notification picture as the
+     * track's cover, so the theme's tinted picture looked like a cover recoloured in the theme everywhere in the phone.
+     */
     public static boolean isTrackColorsEnabled() {
-        return Settings.getBoolean(TRACK_COLORS_KEY, false);
+        return Settings.getBoolean(TRACK_COLORS_KEY, true);
     }
 
     /** The track's cover SoundCloud loaded for the notification, kept between {@link #remember} and {@link #style}. */

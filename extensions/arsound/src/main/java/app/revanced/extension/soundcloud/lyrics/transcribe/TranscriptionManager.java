@@ -12,6 +12,7 @@ import java.util.concurrent.ThreadFactory;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.settings.BoolSettings;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Lang;
 
@@ -30,6 +31,9 @@ public final class TranscriptionManager {
     public interface Listener {
         /** The library or the model is being downloaded. */
         void onInstalling(int percent, boolean library);
+
+        /** The voice is being taken out of the music; {@code percent} of the song is done. */
+        void onSeparating(int percent);
 
         /** Window {@code current} of about {@code total} is being listened to. */
         void onListening(int current, int total);
@@ -136,9 +140,14 @@ public final class TranscriptionManager {
         if (!enabled) cancel();
     }
 
-    /** The model the settings choose; the accurate one ({@link AsrModel#SMALL}) by default. */
+    /** The model the settings choose; the Russian one ({@link AsrModel#GIGAAM}) by default. */
     public static AsrModel chosenModel() {
-        return AsrModel.fromSetting(Settings.getString(Settings.LYRICS_AI_MODEL, AsrModel.SMALL.id));
+        return AsrModel.fromSetting(Settings.getString(Settings.LYRICS_AI_MODEL, AsrModel.GIGAAM.id));
+    }
+
+    /** Whether the voice is taken out of the music before the network listens. */
+    public static boolean separatesVoice() {
+        return BoolSettings.LYRICS_AI_SEPARATE.get();
     }
 
     public static void setChosenModel(AsrModel model) {
@@ -198,13 +207,13 @@ public final class TranscriptionManager {
 
     public static boolean isInstalled(AsrModel model) {
         Context context = Utils.getContext();
-        return context != null && AsrInstaller.isLibraryInstalled(context) && AsrInstaller.isModelInstalled(context, model);
+        return context != null && AsrInstaller.missingBytes(context, model, separatesVoice()) == 0;
     }
 
     /** What must still be downloaded to recognise with the model, in bytes. */
     public static long missingBytes(AsrModel model) {
         Context context = Utils.getContext();
-        return context == null ? 0 : AsrInstaller.missingBytes(context, model);
+        return context == null ? 0 : AsrInstaller.missingBytes(context, model, separatesVoice());
     }
 
     /** Space the library and the models take on the phone. Walks files: off the main thread. */
@@ -232,7 +241,7 @@ public final class TranscriptionManager {
             else warnings.add(concern.message());
         }
         return new Advice(blocker, Guards.lighterModelFits(device, model), warnings,
-                AsrInstaller.missingBytes(context, model), DeviceState.isMetered(context));
+                AsrInstaller.missingBytes(context, model, separatesVoice()), DeviceState.isMetered(context));
     }
 
     // endregion
@@ -286,6 +295,16 @@ public final class TranscriptionManager {
             }
 
             @Override
+            public void separating(final int percent) {
+                tell(run, new Event() {
+                    @Override
+                    public void deliver(Listener listener) {
+                        listener.onSeparating(percent);
+                    }
+                });
+            }
+
+            @Override
             public void listening(final int current, final int total) {
                 tell(run, new Event() {
                     @Override
@@ -308,8 +327,8 @@ public final class TranscriptionManager {
         Event outcome;
         try {
             if (run.cancelled) throw new ResumableDownload.Cancelled();
-            final Transcript result = new TranscriptionJob(context, store(), model, language, run.urn, run.durationMs,
-                    run, sink).run();
+            final Transcript result = new TranscriptionJob(context, store(), model, separatesVoice(), language, run.urn,
+                    run.durationMs, run, sink).run();
             Logger.printInfo(() -> "Transcribe: " + run.urn + " -> " + result.state + ", " + result.lines.length + " lines");
             outcome = new Event() {
                 @Override
@@ -419,7 +438,7 @@ public final class TranscriptionManager {
                 Failure failure = null;
                 boolean cancelled = false;
                 try {
-                    AsrInstaller.install(context, model, install, new AsrInstaller.Progress() {
+                    AsrInstaller.install(context, model, separatesVoice(), install, new AsrInstaller.Progress() {
                         @Override
                         public void onProgress(final int percent, boolean library) {
                             Utils.runOnMainThread(new Runnable() {

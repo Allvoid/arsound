@@ -29,9 +29,11 @@ public class AsrModelTest {
     public void everyFileIsPinnedByAnHttpsAddressAndAChecksum() {
         for (AsrModel model : AsrModel.values()) {
             AsrFile[] files = model.files();
-            assertEquals(3, files.length);
+            assertEquals(model.whisper ? 3 : 2, files.length);
+            String repository = model.whisper ? "sherpa-onnx-whisper-" + model.id
+                    : "sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16";
             for (AsrFile file : files) {
-                assertTrue(file.url, file.url.startsWith("https://huggingface.co/csukuangfj/sherpa-onnx-whisper-" + model.id + "/resolve/"));
+                assertTrue(file.url, file.url.startsWith("https://huggingface.co/csukuangfj/" + repository + "/resolve/"));
                 assertTrue(file.url, file.url.endsWith("/" + file.name));
                 assertTrue(file.name, file.sha256.matches("[0-9a-f]{64}"));
                 assertTrue(file.size > 0);
@@ -48,6 +50,9 @@ public class AsrModelTest {
         assertEquals("small-decoder.int8.onnx", model.decoderName());
         assertEquals("small-tokens.txt", model.tokensName());
         assertEquals("base-decoder.int8.onnx", AsrModel.BASE.decoderName());
+        assertEquals("model.int8.onnx", AsrModel.GIGAAM.modelName());
+        assertEquals("tokens.txt", AsrModel.GIGAAM.tokensName());
+        assertTrue(AsrModel.GIGAAM.russianOnly());
     }
 
     @Test
@@ -59,9 +64,10 @@ public class AsrModelTest {
     }
 
     @Test
-    public void theSettingFallsBackToTheAccurateModel() {
-        assertSame(AsrModel.SMALL, AsrModel.fromSetting(null));
-        assertSame(AsrModel.SMALL, AsrModel.fromSetting("tiny"));
+    public void theSettingFallsBackToTheRussianModel() {
+        assertSame(AsrModel.GIGAAM, AsrModel.fromSetting(null));
+        assertSame(AsrModel.GIGAAM, AsrModel.fromSetting("tiny"));
+        assertSame(AsrModel.SMALL, AsrModel.fromSetting("small"));
         assertSame(AsrModel.BASE, AsrModel.fromSetting("base"));
         assertNull(AsrModel.fromId("tiny"));
     }
@@ -79,10 +85,16 @@ public class AsrModelTest {
     }
 
     @Test
-    public void theLibraryIsPinnedToo() {
-        assertTrue(AsrLibrary.ARCHIVE_URL.startsWith("https://github.com/k2-fsa/sherpa-onnx/releases/download/v" + AsrLibrary.VERSION + "/"));
-        assertTrue(AsrLibrary.ARCHIVE_SHA256.matches("[0-9a-f]{64}"));
-        assertTrue(AsrLibrary.FILE_SHA256.matches("[0-9a-f]{64}"));
-        assertTrue(AsrLibrary.FILE_SIZE > 0 && AsrLibrary.ARCHIVE_SIZE > 0);
+    public void theLibrariesAndTheVoiceModelArePinnedToo() {
+        assertTrue(NativeArchive.SHERPA.url.startsWith("https://github.com/k2-fsa/sherpa-onnx/releases/download/v"
+                + NativeArchive.SHERPA.version + "/"));
+        assertTrue(NativeArchive.ONNX_RUNTIME.url.startsWith("https://repo1.maven.org/maven2/com/microsoft/onnxruntime/"
+                + "onnxruntime-android/" + NativeArchive.ONNX_RUNTIME.version + "/"));
+        for (NativeArchive archive : new NativeArchive[]{NativeArchive.SHERPA, NativeArchive.ONNX_RUNTIME}) {
+            assertTrue(archive.sha256.matches("[0-9a-f]{64}"));
+            assertTrue(archive.size > 0);
+        }
+        assertTrue(VoiceModel.FILE.url.startsWith("https://github.com/k2-fsa/sherpa-onnx/releases/download/"));
+        assertTrue(VoiceModel.FILE.sha256.matches("[0-9a-f]{64}"));
     }
 }

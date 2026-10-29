@@ -94,7 +94,7 @@ final class LyricsAi implements TranscriptionManager.Listener {
     private final Runnable useAccurate = new Runnable() {
         @Override
         public void run() {
-            TranscriptionManager.setChosenModel(AsrModel.SMALL);
+            TranscriptionManager.setChosenModel(AsrModel.GIGAAM);
             showOffer();
         }
     };
@@ -238,6 +238,13 @@ final class LyricsAi implements TranscriptionManager.Listener {
         String what = library ? text("Загружаю компоненты…", "Downloading components…")
                 : text("Загружаю модель…", "Downloading the model…");
         panel.showProgress(what + " " + percent + "%" + hint(), cancel);
+    }
+
+    @Override
+    public void onSeparating(int percent) {
+        if (info == null) return;
+        panel.showProgress(text("Отделяю голос от музыки… " + percent + "%", "Taking the voice out of the music… "
+                + percent + "%") + hint(), cancel);
     }
 
     @Override

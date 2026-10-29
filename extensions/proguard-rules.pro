@@ -24,3 +24,9 @@
 -keep class com.k2fsa.sherpa.onnx.** {
   *;
 }
+
+# ONNX Runtime's Java glue for the voice separation (vendored, the native library is downloaded on demand):
+# the native code finds its classes, fields and methods by name.
+-keep class ai.onnxruntime.** {
+    *;
+}

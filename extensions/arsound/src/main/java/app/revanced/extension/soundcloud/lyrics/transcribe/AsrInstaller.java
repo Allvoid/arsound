@@ -6,15 +6,18 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import app.revanced.extension.shared.Logger;
 
 /**
- * Puts the native library and the speech model on the phone, and takes them off. Everything lives in
- * {@code files/arsound/asr}: the library in a folder named after its version (a new version is a new folder, the old
- * one is removed), each model in a folder of its own. Nothing is ever kept as a half-file under its final name, so
+ * Puts the native libraries, the speech model and the voice separation model on the phone, and takes them off.
+ * Everything lives in {@code files/arsound/asr}: each library archive's files in a folder named after its version (a
+ * new version is a new folder, the old one is removed), each speech model in a folder of its own, the separation model
+ * in {@code voice}. Nothing is ever kept as a half-file under its final name, so
  * "the file is there with the right size" means "it was downloaded whole and its checksum was right".
  * <p>
  * Called by {@link TranscriptionJob} (install what is missing) and by the settings rows through
@@ -46,8 +49,17 @@ final class AsrInstaller {
         return new File(new File(context.getFilesDir(), "arsound"), "asr");
     }
 
+    /** The sherpa-onnx library (one file per processor). */
     static File libraryFile(Context context) {
-        return new File(new File(root(context), "lib-" + AsrLibrary.VERSION), AsrLibrary.FILE_NAME);
+        return libraryFile(context, NativeArchive.SHERPA, NativeArchive.SHERPA.parts().get(0));
+    }
+
+    static File libraryFile(Context context, NativeArchive archive, NativeArchive.Part part) {
+        return new File(new File(root(context), archive.folderName()), part.name);
+    }
+
+    static File voiceModelFile(Context context) {
+        return new File(new File(root(context), "voice"), VoiceModel.FILE.name);
     }
 
     static File modelDirectory(Context context, AsrModel model) {
@@ -55,8 +67,22 @@ final class AsrInstaller {
     }
 
     static boolean isLibraryInstalled(Context context) {
-        File file = libraryFile(context);
-        return file.isFile() && file.length() == AsrLibrary.FILE_SIZE;
+        return isInstalled(context, NativeArchive.SHERPA);
+    }
+
+    /** Every library of the archive for this phone is cut out and whole. */
+    static boolean isInstalled(Context context, NativeArchive archive) {
+        if (archive.parts().isEmpty()) return false;
+        for (NativeArchive.Part part : archive.parts()) {
+            File file = libraryFile(context, archive, part);
+            if (!file.isFile() || file.length() != part.size) return false;
+        }
+        return true;
+    }
+
+    static boolean isVoiceModelInstalled(Context context) {
+        File file = voiceModelFile(context);
+        return file.isFile() && file.length() == VoiceModel.FILE.size;
     }
 
     static boolean isModelInstalled(Context context, AsrModel model) {
@@ -68,9 +94,16 @@ final class AsrInstaller {
         return true;
     }
 
-    /** What still has to be downloaded to recognise with the model: the library and the files of the model not yet here. */
-    static long missingBytes(Context context, AsrModel model) {
-        long missing = isLibraryInstalled(context) ? 0 : AsrLibrary.ARCHIVE_SIZE;
+    /**
+     * What still has to be downloaded to recognise with the model: the libraries and the files of the model not yet
+     * here, and with the voice taken out of the music, ONNX Runtime and the separation model.
+     */
+    static long missingBytes(Context context, AsrModel model, boolean separate) {
+        long missing = isLibraryInstalled(context) ? 0 : NativeArchive.SHERPA.size;
+        if (separate) {
+            if (!isInstalled(context, NativeArchive.ONNX_RUNTIME)) missing += NativeArchive.ONNX_RUNTIME.size;
+            if (!isVoiceModelInstalled(context)) missing += VoiceModel.FILE.size;
+        }
         File folder = modelDirectory(context, model);
         for (AsrFile file : model.files()) {
             File local = new File(folder, file.name);
@@ -105,27 +138,43 @@ final class AsrInstaller {
      * @throws NoSpace                      If the phone lacks room.
      * @throws ResumableDownload.Cancelled  If the cancel flag turned true.
      */
-    static void install(Context context, AsrModel model, ResumableDownload.Cancel cancel, Progress progress)
-            throws IOException {
+    static void install(Context context, AsrModel model, boolean separate, ResumableDownload.Cancel cancel,
+                        Progress progress) throws IOException {
         File root = root(context);
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("No folder " + root);
-        boolean needLibrary = !isLibraryInstalled(context);
-        long missing = missingBytes(context, model);
+        List<NativeArchive> archives = new ArrayList<>();
+        if (!isLibraryInstalled(context)) archives.add(NativeArchive.SHERPA);
+        if (separate && !isInstalled(context, NativeArchive.ONNX_RUNTIME)) archives.add(NativeArchive.ONNX_RUNTIME);
+        long missing = missingBytes(context, model, separate);
         if (missing == 0) return;
-        // The archive is kept beside the cut-out library for a moment, so the library counts twice.
-        long needed = missing + (needLibrary ? AsrLibrary.FILE_SIZE : 0) + SPARE_BYTES;
+        // An archive is kept beside the cut-out libraries for a moment, so the libraries count twice.
+        long unpacked = 0;
+        for (NativeArchive archive : archives) unpacked += archive.unpackedBytes();
+        long needed = missing + unpacked + SPARE_BYTES;
         if (root.getUsableSpace() < needed) throw new NoSpace(needed);
 
         final long total = Math.max(1, missing);
         final long[] finished = {0};
-        if (needLibrary) {
-            installLibrary(context, cancel, new ResumableDownload.Progress() {
+        for (NativeArchive archive : archives) {
+            final long before = finished[0];
+            installLibrary(context, archive, cancel, new ResumableDownload.Progress() {
                 @Override
                 public void onBytes(long done, long all) {
-                    progress.onProgress(percent(done, total), true);
+                    progress.onProgress(percent(before + done, total), true);
                 }
             });
-            finished[0] += AsrLibrary.ARCHIVE_SIZE;
+            finished[0] += archive.size;
+        }
+        if (separate && !isVoiceModelInstalled(context)) {
+            final long before = finished[0];
+            ResumableDownload.fetch(VoiceModel.FILE.url, voiceModelFile(context), VoiceModel.FILE.size,
+                    VoiceModel.FILE.sha256, cancel, new ResumableDownload.Progress() {
+                        @Override
+                        public void onBytes(long done, long all) {
+                            progress.onProgress(percent(before + done, total), false);
+                        }
+                    });
+            finished[0] += VoiceModel.FILE.size;
         }
         File folder = modelDirectory(context, model);
         for (AsrFile file : model.files()) {
@@ -147,48 +196,56 @@ final class AsrInstaller {
         return (int) Math.max(0, Math.min(100, done * 100 / total));
     }
 
-    /** Downloads the archive, cuts the library out, checks it, and removes the archive and any older version. */
-    private static void installLibrary(Context context, ResumableDownload.Cancel cancel,
+    /** Downloads the archive, cuts the libraries out, checks them, and removes the archive and any older version. */
+    private static void installLibrary(Context context, NativeArchive library, ResumableDownload.Cancel cancel,
                                        ResumableDownload.Progress progress) throws IOException {
-        File target = libraryFile(context);
-        File folder = target.getParentFile();
-        File archive = new File(root(context), "sherpa-onnx-" + AsrLibrary.VERSION + ".aar");
-        ResumableDownload.fetch(AsrLibrary.ARCHIVE_URL, archive, AsrLibrary.ARCHIVE_SIZE, AsrLibrary.ARCHIVE_SHA256,
-                cancel, progress);
-        if (folder != null && !folder.isDirectory() && !folder.mkdirs()) throw new IOException("No folder " + folder);
-        File partial = new File(target.getPath() + ".part");
+        File folder = new File(root(context), library.folderName());
+        File archive = new File(root(context), library.archiveName());
+        ResumableDownload.fetch(library.url, archive, library.size, library.sha256, cancel, progress);
+        if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("No folder " + folder);
         try (ZipFile zip = new ZipFile(archive)) {
-            ZipEntry entry = zip.getEntry(AsrLibrary.ENTRY);
-            if (entry == null) throw new IOException("The archive has no " + AsrLibrary.ENTRY);
-            try (InputStream input = zip.getInputStream(entry); FileOutputStream output = new FileOutputStream(partial)) {
-                byte[] buffer = new byte[256 * 1024];
-                int count;
-                while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+            for (NativeArchive.Part part : library.parts()) {
+                File target = libraryFile(context, library, part);
+                File partial = new File(target.getPath() + ".part");
+                ZipEntry entry = zip.getEntry(part.entry);
+                if (entry == null) throw new IOException("The archive has no " + part.entry);
+                try (InputStream input = zip.getInputStream(entry); FileOutputStream output = new FileOutputStream(partial)) {
+                    byte[] buffer = new byte[256 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+                }
+                if (partial.length() != part.size || !part.sha256.equals(ResumableDownload.hashOf(partial))) {
+                    //noinspection ResultOfMethodCallIgnored
+                    partial.delete();
+                    throw new ResumableDownload.BadChecksum(part.name);
+                }
+                //noinspection ResultOfMethodCallIgnored
+                target.delete();
+                if (!partial.renameTo(target)) throw new IOException("Could not put " + part.name + " in place");
+                // Android 14 wants code that is loaded at run time to be read-only; harmless before.
+                //noinspection ResultOfMethodCallIgnored
+                target.setReadOnly();
             }
         }
-        if (partial.length() != AsrLibrary.FILE_SIZE || !AsrLibrary.FILE_SHA256.equals(ResumableDownload.hashOf(partial))) {
-            //noinspection ResultOfMethodCallIgnored
-            partial.delete();
-            throw new ResumableDownload.BadChecksum(AsrLibrary.FILE_NAME);
-        }
-        //noinspection ResultOfMethodCallIgnored
-        target.delete();
-        if (!partial.renameTo(target)) throw new IOException("Could not put the library in place");
-        // Android 14 wants code that is loaded at run time to be read-only; harmless before.
-        //noinspection ResultOfMethodCallIgnored
-        target.setReadOnly();
         //noinspection ResultOfMethodCallIgnored
         archive.delete();
-        removeOlderLibraries(context, folder);
-        Logger.printInfo(() -> "Transcribe: the library " + AsrLibrary.VERSION + " is installed");
+        removeOlderLibraries(context, library, folder);
+        Logger.printInfo(() -> "Transcribe: " + library.folderName() + " is installed");
     }
 
-    private static void removeOlderLibraries(Context context, File keep) {
+    private static void removeOlderLibraries(Context context, NativeArchive library, File keep) {
         File[] folders = root(context).listFiles();
         if (folders == null) return;
         for (File folder : folders) {
-            if (folder.isDirectory() && folder.getName().startsWith("lib-") && !folder.equals(keep)) deleteTree(folder);
+            if (folder.isDirectory() && folder.getName().startsWith(library.prefix) && !folder.equals(keep)) {
+                deleteTree(folder);
+            }
         }
+    }
+
+    /** Removes the libraries of an archive that the system refused to load, so the next install starts clean. */
+    static void removeLibraries(Context context, NativeArchive library) {
+        deleteTree(new File(root(context), library.folderName()));
     }
 
     /**

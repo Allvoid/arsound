@@ -12,7 +12,8 @@ import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * The work of recognising one song, start to finish, on a background thread: install what is missing, get the sound,
- * decode it, then listen to it in windows of up to 30 seconds, cleaning each window's text into lines. After every
+ * decode it (taking the voice out of the music, when the settings ask for it), then listen to it in windows of up to
+ * 30 seconds, cleaning each window's text into lines. After every
  * window the progress is written to the {@link TranscriptStore}, so a job that is stopped (cancelled, or the process
  * killed) goes on from the next window when started again.
  * <p>
@@ -23,6 +24,9 @@ final class TranscriptionJob {
     interface Sink {
         /** The library or the model is being downloaded; {@code percent} is 0 to 100. */
         void installing(int percent, boolean library);
+
+        /** The voice is being taken out of the music; {@code percent} of the song is done. */
+        void separating(int percent);
 
         /** Window number {@code current} (counting from 1) of about {@code total} is being listened to. */
         void listening(int current, int total);
@@ -40,6 +44,8 @@ final class TranscriptionJob {
     private final Context context;
     private final TranscriptStore store;
     private final AsrModel model;
+    /** Whether the voice is taken out of the music first ({@link MdxSeparator}). */
+    private final boolean separate;
     /** "auto", "ru" or "en", as in the settings. */
     private final String languageSetting;
     private final String urn;
@@ -47,11 +53,12 @@ final class TranscriptionJob {
     private final ResumableDownload.Cancel cancel;
     private final Sink sink;
 
-    TranscriptionJob(Context context, TranscriptStore store, AsrModel model, String languageSetting, String urn,
-                     long durationMs, ResumableDownload.Cancel cancel, Sink sink) {
+    TranscriptionJob(Context context, TranscriptStore store, AsrModel model, boolean separate, String languageSetting,
+                     String urn, long durationMs, ResumableDownload.Cancel cancel, Sink sink) {
         this.context = context;
         this.store = store;
         this.model = model;
+        this.separate = separate;
         this.languageSetting = languageSetting;
         this.urn = urn;
         this.durationMs = durationMs;
@@ -81,7 +88,7 @@ final class TranscriptionJob {
 
     private void install() throws JobFailed, ResumableDownload.Cancelled {
         try {
-            AsrInstaller.install(context, model, cancel, new AsrInstaller.Progress() {
+            AsrInstaller.install(context, model, separate, cancel, new AsrInstaller.Progress() {
                 @Override
                 public void onProgress(int percent, boolean library) {
                     sink.installing(percent, library);
@@ -100,7 +107,23 @@ final class TranscriptionJob {
 
     private float[] decode() throws JobFailed, ResumableDownload.Cancelled {
         try (TrackAudio.Prepared audio = TrackAudio.prepare(context, urn, cancel)) {
-            return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel);
+            if (!separate) return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel);
+            try (MdxSeparator separator = new MdxSeparator(AsrInstaller.voiceModelFile(context), DeviceState.threads())) {
+                sink.separating(0);
+                return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel,
+                        new VocalsTarget(separator, new VocalsTarget.Progress() {
+                            @Override
+                            public void beforePiece() throws IOException {
+                                if (cancel.isCancelled()) throw new ResumableDownload.Cancelled();
+                                restIfHot();
+                            }
+
+                            @Override
+                            public void separatedMs(long ms) {
+                                sink.separating((int) Math.min(99, ms * 100 / Math.max(1, durationMs)));
+                            }
+                        }));
+            }
         } catch (ResumableDownload.Cancelled ex) {
             throw ex;
         } catch (TrackAudio.Unavailable ex) {
@@ -133,9 +156,9 @@ final class TranscriptionJob {
                 language = partial.language;
             }
         }
-        boolean autoLanguage = LanguagePolicy.AUTO.equals(languageSetting);
+        boolean autoLanguage = !model.russianOnly() && LanguagePolicy.AUTO.equals(languageSetting);
 
-        try (WhisperRunner runner = new WhisperRunner(context, model, language, DeviceState.threads())) {
+        try (Recognizer runner = model.open(context, language, DeviceState.threads())) {
             SongListener ear = new SongListener(runner, language, autoLanguage, Locale.getDefault().getLanguage(),
                     Lang.russian(), lines, times);
             while (start < pcm.length) {
@@ -163,6 +186,7 @@ final class TranscriptionJob {
 
     /** The language to start with: the one the settings fix, or none ("" lets Whisper find it). */
     private String fixedLanguage() {
+        if (model.russianOnly()) return "ru";
         return "auto".equals(languageSetting) ? "" : languageSetting;
     }
 

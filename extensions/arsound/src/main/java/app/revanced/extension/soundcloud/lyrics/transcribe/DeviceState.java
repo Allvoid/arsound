@@ -22,10 +22,8 @@ final class DeviceState {
 
     static boolean isSupportedDevice() {
         if (Build.VERSION.SDK_INT < 24) return false;
-        for (String abi : Build.SUPPORTED_ABIS) {
-            if ("arm64-v8a".equals(abi)) return true;
-        }
-        return false;
+        // The libraries exist for 64-bit ARM phones, and for x86-64 (emulators, Chromebooks).
+        return NativeArchive.abi() != null;
     }
 
     static Guards.Device read(Context context) {

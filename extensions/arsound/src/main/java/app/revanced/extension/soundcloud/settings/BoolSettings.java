@@ -53,6 +53,8 @@ public final class BoolSettings {
     public static final BoolSetting LYRICS_VISIBLE = new BoolSetting(Settings.LYRICS_VISIBLE, false);
     /** Recognises the words of songs without lyrics with a neural network on the phone. Off until the user agrees. */
     public static final BoolSetting LYRICS_AI_ENABLED = new BoolSetting(Settings.LYRICS_AI_ENABLED, false);
+    /** Takes the voice out of the music before the network listens: far fewer wrong words, several times slower. On by default. */
+    public static final BoolSetting LYRICS_AI_SEPARATE = new BoolSetting(Settings.LYRICS_AI_SEPARATE, true);
     /** SoundCloud's "Share screenshot" sheet after a screenshot. Off by default. */
     public static final BoolSetting SCREENSHOT_SHARE = new BoolSetting(Settings.SCREENSHOT_SHARE, false);
     /** The animated background of the chosen theme: sparks, stars, fireflies, petals. On by default. */

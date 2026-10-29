@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Works out the pinned values for the lyrics recognition (see "Распознавание текста нейросетью" in BUILDING.md).
 
-    python tools/asr/pin.py library v1.13.8      constants for AsrLibrary.java (the official sherpa-onnx AAR)
+    python tools/asr/pin.py library v1.13.8      constants for NativeArchive.SHERPA (the official sherpa-onnx AAR)
     python tools/asr/pin.py model small          constants for AsrModel.java (a Hugging Face repository, fixed commit)
     python tools/asr/pin.py sources v1.13.8      downloads the Java classes of sherpa-onnx of that tag, with a header,
                                                  into extensions/arsound/src/main/java/com/k2fsa/sherpa/onnx

@@ -323,6 +323,8 @@ public final class Settings {
 
     /** Which speech model recognises the words: "small" (default, accurate) or "base" (fast, many mistakes). */
     public static final String LYRICS_AI_MODEL = "lyrics_ai_model";
+    /** Takes the voice out of the music before the network listens. On by default. */
+    public static final String LYRICS_AI_SEPARATE = "lyrics_ai_separate";
 
     /**
      * The language the words are sung in: "ru" or "en", or "auto". Until the user chooses, "ru" in a Russian app and

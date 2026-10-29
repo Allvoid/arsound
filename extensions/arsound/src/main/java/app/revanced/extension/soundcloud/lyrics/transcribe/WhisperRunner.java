@@ -16,25 +16,13 @@ import java.util.Locale;
 import app.revanced.extension.shared.Logger;
 
 /**
- * One loaded Whisper model, listening to windows of a song one after another. It is the only class that touches the
- * sherpa-onnx classes, so the rest of the code does not depend on them. The model takes a gigabyte of memory, so one
- * runner lives for one song and is {@link #close closed} at its end.
+ * One loaded Whisper model, listening to windows of a song one after another. With {@link GigaAmRunner} it is the only
+ * class that touches the sherpa-onnx classes, so the rest of the code does not depend on them. The model takes a
+ * gigabyte of memory, so one runner lives for one song and is {@link #close closed} at its end.
  * <p>
  * Created and driven by {@link TranscriptionJob}; the library must be loaded first ({@link NativeLibs}).
  */
-final class WhisperRunner implements AutoCloseable {
-    /** What the model heard in one window. */
-    static final class Heard {
-        final String text;
-        /** The language Whisper recognised, in its short form ("ru"); empty if it did not say. */
-        final String language;
-
-        Heard(String text, String language) {
-            this.text = text;
-            this.language = language;
-        }
-    }
-
+final class WhisperRunner implements Recognizer {
     /**
      * Frames of silence (10 ms each) added after the sound of a window. The library's default is 1000, ten seconds of
      * nothing after the last word of a short window, which is where Whisper starts to make words up; the authors of
@@ -86,7 +74,8 @@ final class WhisperRunner implements AutoCloseable {
     }
 
     /** Fixes the language for the windows to come: Whisper is more accurate when it is told than when it guesses. */
-    void fixLanguage(String language) throws IOException {
+    @Override
+    public void fixLanguage(String language) throws IOException {
         try {
             recognizer.setConfig(config(language));
         } catch (RuntimeException ex) {
@@ -96,8 +85,8 @@ final class WhisperRunner implements AutoCloseable {
         }
     }
 
-    /** Listens to 16 kHz mono samples (at most 30 seconds) and writes down what is sung. */
-    Heard hear(float[] samples) {
+    @Override
+    public Heard hear(float[] samples) {
         OfflineStream stream = recognizer.createStream();
         try {
             stream.acceptWaveform(samples, Chunker.RATE);

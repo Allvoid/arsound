@@ -5,7 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Listens to the windows of one song with a loaded {@link WhisperRunner} and adds the lines it makes out. It keeps
+ * Listens to the windows of one song with a loaded {@link Recognizer} and adds the lines it makes out. It keeps
  * the language of the song: fixed by the settings, or, when the settings leave it to Whisper, found from the first
  * window with enough words and then fixed, because Whisper is more accurate when it is told the language.
  * <p>
@@ -20,7 +20,7 @@ final class SongListener {
     /** A window shorter than this is not listened to again in halves. */
     private static final int MIN_SPLIT = 12 * Chunker.RATE;
 
-    private final WhisperRunner runner;
+    private final Recognizer runner;
     private final boolean autoLanguage;
     private final String deviceLanguage;
     private final boolean russianApp;
@@ -34,7 +34,7 @@ final class SongListener {
      * @param autoLanguage Whether the settings leave the language to Whisper (then it is fixed once it is found).
      * @param lines        The lines so far; this class adds to them, together with {@code times}.
      */
-    SongListener(WhisperRunner runner, String language, boolean autoLanguage, String deviceLanguage,
+    SongListener(Recognizer runner, String language, boolean autoLanguage, String deviceLanguage,
                  boolean russianApp, List<String> lines, List<Long> times) {
         this.runner = runner;
         this.language = language;
@@ -58,7 +58,7 @@ final class SongListener {
     private void listen(float[] pcm, int start, int end, boolean mayHalve) throws IOException {
         if (Chunker.isSilent(pcm, start, end)) return;
         float[] window = Arrays.copyOfRange(pcm, start, end);
-        WhisperRunner.Heard heard = runner.hear(window);
+        Recognizer.Heard heard = runner.hear(window);
         boolean searching = autoLanguage && language.isEmpty();
         String trusted = "";
         if (searching) {

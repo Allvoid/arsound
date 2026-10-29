@@ -134,23 +134,34 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 Runtime). Чтобы APK не вырос, **в него не входит ни нативная библиотека, ни модель**: они скачиваются при включении
 функции в `files/arsound/asr` (только 64-битные ARM-телефоны, на других функции нет).
 
-- **Что скачивается и откуда.** Библиотека: официальный AAR `sherpa-onnx-static-link-onnxruntime` с GitHub Releases,
-  из него вырезается один файл `jni/arm64-v8a/libsherpa-onnx-jni.so` (ONNX Runtime внутри него, 16 КБ-выравнивание
-  проверено). Модели: `csukuangfj/sherpa-onnx-whisper-small` и `-base` на Hugging Face (int8-энкодер, int8-декодер,
-  `tokens.txt`), с **фиксированного коммита**, не с `main`. Всё качается по HTTPS с докачкой (`ResumableDownload`).
-- **Проверка.** SHA-256 каждого файла записан в коде (`AsrLibrary`, `AsrModel`), а не берётся от сервера; файл с чужой
+- **Что скачивается и откуда.** Библиотеки: официальный AAR `sherpa-onnx-static-link-onnxruntime` с GitHub Releases
+  (из него вырезается `jni/<abi>/libsherpa-onnx-jni.so`, ONNX Runtime внутри него, 16 КБ-выравнивание проверено) и для
+  отделения голоса официальный AAR `onnxruntime-android` с Maven Central (`libonnxruntime.so` и
+  `libonnxruntime4j_jni.so`); `<abi>` — `arm64-v8a` или `x86_64`. Модели: `csukuangfj/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16`
+  (`model.int8.onnx`, `tokens.txt`), `csukuangfj/sherpa-onnx-whisper-small` и `-base` на Hugging Face (int8-энкодер,
+  int8-декодер, `tokens.txt`), с **фиксированного коммита**, не с `main`; модель отделения голоса
+  `UVR-MDX-NET-Voc_FT.onnx` из релиза `source-separation-models` sherpa-onnx. Всё качается по HTTPS с докачкой
+  (`ResumableDownload`).
+- **Проверка.** SHA-256 каждого файла записан в коде (`NativeArchive`, `AsrModel`, `VoiceModel`), а не берётся от сервера; файл с чужой
   суммой удаляется. Ссылки на другие хосты, кроме HTTPS, не принимаются, в том числе при перенаправлении.
 - **Java-классы** sherpa-onnx лежат в `extensions/arsound/src/main/java/com/k2fsa/sherpa/onnx` (Apache-2.0, **того же
   тега**, что и библиотека: нативный код читает их поля по именам). Только классы, нужные `OfflineRecognizer`; от
   оригинала отличается `LibraryLoader` (ничего не грузит сам: библиотеку после проверки грузит `NativeLibs` через
-  `System.load`). Правило `-keep class com.k2fsa.sherpa.onnx.**` стоит в `extensions/proguard-rules.pro`.
-- **Как обновить версии.** `python tools/asr/pin.py library <тег>` печатает константы для `AsrLibrary`;
+  `System.load`). Java-классы ONNX Runtime 1.22.0 лежат в `extensions/arsound/src/main/java/ai/onnxruntime` (MIT, тег
+  `v1.22.0`); в `OnnxRuntime.load` добавлено одно: путь к библиотеке берётся из свойства, которое ставит `OrtLibs`.
+  Правила `-keep class com.k2fsa.sherpa.onnx.**` и `-keep class ai.onnxruntime.**` стоят в `extensions/proguard-rules.pro`.
+- **Отделение голоса.** В Java-интерфейсе sherpa-onnx его нет (ни в 1.13.8, ни в 2.0.1), поэтому алгоритм
+  `OfflineSourceSeparationUvrImpl` перенесён на Java (`MdxSeparator`, `MdxStft`, `RealFft`, `VocalsStream`): куски по 15 с
+  с полями по 1 с, STFT с окном Ханна 6144 и шагом 1024, сегменты по 256 кадров. Перенос сверен с выводом sherpa-onnx на
+  ПК (корреляция 0,99999999). Модель берёт размеры из своих метаданных; другая модель UVR с теми же полями тоже подойдёт.
+- **Как обновить версии.** `python tools/asr/pin.py library <тег>` печатает константы библиотеки sherpa-onnx для `NativeArchive`;
   `python tools/asr/pin.py model small` (и `base`) печатает адрес, коммит, размеры и суммы файлов для `AsrModel`
   (порядок в `AsrModel`: энкодер, декодер, токены); `python tools/asr/pin.py sources <тег>` заново скачивает Java-классы.
   Потом поправить тег в `NOTICE.txt` рядом с ними, прогнать `./gradlew :extensions:arsound:testDebugUnitTest` и проверить
   на телефоне: «Модель нейросети» в настройках скачивается, песня без текста распознаётся.
-- **Качество (проверка 29.10).** На русских песнях `small` даёт WER около 0,67 и CER около 0,37, `base` — WER 1,1–1,3 (мусор), поэтому по умолчанию `small`, а `base` подписан как быстрая модель с ошибками. Модель сама зацикливается на длинных окнах («17-19-19-…», «もう一回 もう一回 …») и на выбранном «auto» уходила в японский: поэтому `Loops` режет повторы, `TextCleaner` отбрасывает окна «в основном повтор» и «не тем письмом», `LanguagePolicy` верит только русскому, английскому и языку телефона (русский язык по умолчанию в русском приложении), а `SongListener` слушает зациклившееся окно ещё раз двумя половинами. Из настроек декодера в теге 1.13.8 есть только `tailPaddings` (стоит 300), предела токенов и штрафа за повторы нет.
-- **Лицензии.** sherpa-onnx — Apache-2.0, ONNX Runtime и Whisper — MIT; указаны в `README` и `NOTICE.txt`.
+- **Качество (проверка 29.10, 5 песен CUPSIZE).** С отделением голоса `GigaAM v3` даёт WER 0,41 (CER 0,24), без него 0,63; `small` на голосе 0,67, на целой песне 0,66–0,77 (две песни); на ПК отделение занимает около половины длины трека в 4 потока, на эмуляторе трек 3:17 целиком (отделение и распознавание) занял 3,5 минуты. Подробнее про Whisper на целых песнях: `small` даёт WER около 0,67 и CER около 0,37, `base` — WER 1,1–1,3 (мусор), поэтому по умолчанию `small`, а `base` подписан как быстрая модель с ошибками. Модель сама зацикливается на длинных окнах («17-19-19-…», «もう一回 もう一回 …») и на выбранном «auto» уходила в японский: поэтому `Loops` режет повторы, `TextCleaner` отбрасывает окна «в основном повтор» и «не тем письмом», `LanguagePolicy` верит только русскому, английскому и языку телефона (русский язык по умолчанию в русском приложении), а `SongListener` слушает зациклившееся окно ещё раз двумя половинами. Из настроек декодера в теге 1.13.8 есть только `tailPaddings` (стоит 300), предела токенов и штрафа за повторы нет.
+- **Лицензии.** sherpa-onnx — Apache-2.0, ONNX Runtime, GigaAM, Whisper и Ultimate Vocal Remover — MIT; указаны в
+  `README` и `NOTICE.txt`.
 - **Хранение.** Распознанные тексты лежат в `files/arsound/transcripts` (не в кэше, который система вправе очистить),
   по файлу на трек и модель, недоделанные продолжаются с того же окна. «Очистить кэш текстов» их не трогает.
 - **Звук берётся только из разрешённого.** Импортированный файл, трек, скачанный Arsound, или поток, который отдаётся

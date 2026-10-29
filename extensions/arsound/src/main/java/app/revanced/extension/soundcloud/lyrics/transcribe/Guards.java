@@ -75,7 +75,8 @@ final class Guards {
 
     /** Whether the fast model would fit where the chosen one does not. */
     static boolean lighterModelFits(Device device, AsrModel model) {
-        return model != AsrModel.BASE && device.availableMemoryBytes >= AsrModel.BASE.minAvailableBytes;
+        // Only Whisper small has a lighter sibling worth offering; the Russian model is light already.
+        return model == AsrModel.SMALL && device.availableMemoryBytes >= AsrModel.BASE.minAvailableBytes;
     }
 
     /**
