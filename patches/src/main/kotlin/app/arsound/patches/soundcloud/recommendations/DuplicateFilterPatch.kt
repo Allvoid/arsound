@@ -1,9 +1,13 @@
 package app.arsound.patches.soundcloud.recommendations
 
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.hooks.hookConstructorEnd
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
+import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.patch.BytecodePatchContext
@@ -19,6 +23,13 @@ import app.revanced.patcher.extensions.getInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/recommendations/DuplicateFilter;"
+
+private const val AUTOPLAY_QUEUE_DESCRIPTOR =
+    "Lapp/revanced/extension/soundcloud/recommendations/AutoplayQueue;"
+
+private const val QUEUE_MANAGER_DESCRIPTOR = "Lcom/soundcloud/android/features/playqueue/PlayQueueManager;"
+
+private const val REMOVE_RECOMMENDATIONS = "Lcom/soundcloud/android/foundation/playqueue/PlayQueue;->removeRecommendations()V"
 
 private const val AUTOPLAY_DESCRIPTOR =
     "Lcom/soundcloud/android/features/playqueue/extender/PlayQueueExtenderOperations\$loadRelatedForRemoteTrack\$1;"
@@ -37,6 +48,12 @@ private val BytecodePatchContext.sectionItemsMethod by gettingFirstMethodDeclara
 private val BytecodePatchContext.autoplayItemsMethod by gettingFirstMethodDeclaratively {
     name("apply")
     definingClass(AUTOPLAY_DESCRIPTOR)
+}
+
+/** SoundCloud's play queue holder, a single instance. */
+private val BytecodePatchContext.queueManagerConstructorMethod by gettingFirstMethodDeclaratively {
+    definingClass(QUEUE_MANAGER_DESCRIPTOR)
+    name("<init>")
 }
 
 /** Server-driven home screen views that hold lists of items. */
@@ -88,6 +105,23 @@ val duplicateFilterPatch = bytecodePatch {
                 )
             }
         }
+
+        // Adding recommendations first removed all of them, the played and the playing one too, while the manager
+        // kept the place of the playing track: the player showed another track. Only the waiting ones go now.
+        queueManagerConstructorMethod.hookConstructorEnd("$AUTOPLAY_QUEUE_DESCRIPTOR->setQueueManager(Ljava/lang/Object;)V")
+        var replaced = 0
+        firstClassDef(QUEUE_MANAGER_DESCRIPTOR).methods.forEach { method ->
+            method.findInstructionIndicesReversed {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.toString() == REMOVE_RECOMMENDATIONS
+            }.forEach { index ->
+                method.replaceInstruction(
+                    index,
+                    "invoke-static { p0 }, $AUTOPLAY_QUEUE_DESCRIPTOR->removeUpcomingRecommendations(Ljava/lang/Object;)V",
+                )
+                replaced++
+            }
+        }
+        if (replaced == 0) throw PatchException("$REMOVE_RECOMMENDATIONS is not called by the queue manager any more")
 
         autoplayItemsMethod.apply {
             // invoke-interface {v1}, Iterable;->iterator(); move-result-object v17

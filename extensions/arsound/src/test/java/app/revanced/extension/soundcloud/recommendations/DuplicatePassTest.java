@@ -46,17 +46,17 @@ public class DuplicatePassTest {
     }
 
     @Test
-    public void autoplayRemembersWhatItQueuedEarlier() {
-        DuplicatePass first = new DuplicatePass.Autoplay(urn -> false);
-        assertTrue(first.keeps(song("Queued earlier song", 150_000)));
-        // A later refill is another pass, with the memory of the first.
-        DuplicatePass second = new DuplicatePass.Autoplay(urn -> false);
-        assertFalse(second.keeps(song("Queued earlier song [HD]", 151_000)));
-        assertTrue(second.keeps(song("Queued earlier song", 190_000)));
+    public void aTrackInTheListAlreadyIsNotAddedAgain() {
+        DuplicatePass pass = new DuplicatePass(urn -> false);
+        pass.keepTrack("soundcloud:tracks:1");
+        assertTrue(pass.hasTrack("soundcloud:sounds:1"));
+        assertFalse(pass.hasTrack("soundcloud:tracks:2"));
+        assertFalse(pass.hasTrack(null));
+        assertEquals(1, pass.removed());
     }
 
     @Test
-    public void aPlainPassHasNoMemoryOfEarlierPasses() {
+    public void aPassHasNoMemoryOfEarlierPasses() {
         new DuplicatePass(urn -> false).keeps(song("Plain pass song", 100_000));
         assertTrue(new DuplicatePass(urn -> false).keeps(song("Plain pass song", 100_000)));
     }

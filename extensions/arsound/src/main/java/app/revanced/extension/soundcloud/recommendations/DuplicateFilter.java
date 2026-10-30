@@ -74,27 +74,37 @@ public final class DuplicateFilter {
     }
 
     /**
-     * Autoplay: recommendations appended after the current track.
+     * Autoplay: recommendations appended after the current track. A track that stays in the play queue
+     * ({@link AutoplayQueue#stayingUrns}: played, playing, or the user's own and waiting) is never queued again, with
+     * the filters on or off: SoundCloud asks for the same seed again and again, and its answer would bring back the
+     * recommendations already played. With the duplicate filter, their re-uploads are not queued either. The queue
+     * itself is the memory, so recommendations that were waiting and make way for new ones may come back.
      *
      * @param apiTracks {@code Iterable<ApiTrack>}.
      * @param seedUrn   The track the recommendations are for.
      */
     public static Iterator<?> filterAutoplay(Iterable<?> apiTracks, Object seedUrn) {
         boolean duplicates = Settings.isDuplicateFilterEnabled();
-        if (!isActive(duplicates)) return apiTracks.iterator();
         List<Object> result = new ArrayList<>();
         try {
-            DuplicatePass pass = new DuplicatePass.Autoplay();
-            SongRef seed = KnownTracks.get(TrackUrn.normalize(seedUrn));
-            if (seed != null) pass.keep(seed.fingerprint(Settings.isMergeEditedVersions()));
+            DuplicatePass pass = new DuplicatePass();
+            boolean merge = Settings.isMergeEditedVersions();
+            SongRef seed = duplicates ? KnownTracks.get(TrackUrn.normalize(seedUrn)) : null;
+            if (seed != null) pass.keep(seed.fingerprint(merge));
+            for (String urn : AutoplayQueue.stayingUrns()) {
+                pass.keepTrack(urn);
+                SongRef queued = duplicates ? KnownTracks.get(urn) : null;
+                if (queued != null) pass.keep(queued.fingerprint(merge));
+            }
 
             for (Object track : apiTracks) {
-                if (pass.dislikes(TrackItems.urnOf(track))) continue;
+                Object urn = TrackItems.urnOf(track);
+                if (pass.hasTrack(urn) || pass.dislikes(urn)) continue;
                 SongFingerprint song = duplicates ? fingerprintOf(track) : null;
                 if (pass.keeps(song)) result.add(track);
             }
-            int removed = pass.removed();
-            Logger.printInfo(() -> "Autoplay checked, hidden: " + removed);
+            int removed = pass.removed(), kept = result.size();
+            Logger.printInfo(() -> "Autoplay checked, hidden: " + removed + ", queued: " + kept);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not filter autoplay duplicates", ex);
             return apiTracks.iterator();

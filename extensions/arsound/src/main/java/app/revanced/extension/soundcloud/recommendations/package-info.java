@@ -7,6 +7,8 @@
  *
  * <p>Entry points:
  * <ul>
+ * <li>{@code AutoplayQueue.setQueueManager(Object)} and {@code removeUpcomingRecommendations(Object)} - the queue
+ * manager's constructor and its refill of recommendations; called by {@code recommendations/DuplicateFilterPatch.kt}.</li>
  * <li>{@code DuplicateFilter.filterAutoplay(Iterable, Object)}, {@code filterHomeViews(ArrayList)},
  * {@code filterSectionEntities(List)} - called by {@code recommendations/DuplicateFilterPatch.kt}; the same class also
  * has {@code filterSystemPlaylist}, called by {@code local.LocalAdditions}.</li>

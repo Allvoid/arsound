@@ -1,18 +1,20 @@
 package app.revanced.extension.soundcloud.recommendations;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
- * One pass over a list of tracks: the first copy of a song stays, disliked tracks and later copies go. The lists
- * differ in how a track is read and in what else counts as a copy, which subclasses answer.
+ * One pass over a list of tracks: the first copy of a song stays, disliked tracks and later copies go. Songs and tracks
+ * that are in the list from the start (the track autoplay was asked for, the play queue) count as first copies.
  */
-class DuplicatePass {
+final class DuplicatePass {
     private final Predicate<Object> isDisliked;
     private final List<SongFingerprint> kept = new ArrayList<>();
+    /** Tracks that are in the list already, by normalized urn. */
+    private final Set<String> keptTracks = new HashSet<>();
     private int removed;
 
     DuplicatePass() {
@@ -32,6 +34,22 @@ class DuplicatePass {
     /** A song that stays in the list from the start, such as the track autoplay was asked for. */
     final void keep(SongFingerprint song) {
         kept.add(song);
+    }
+
+    /** A track that is in the list already, such as one waiting in the play queue: it is not added again. */
+    final void keepTrack(String urn) {
+        keptTracks.add(urn);
+    }
+
+    /**
+     * Whether the track is one kept by {@link #keepTrack}; such a track is counted as taken out.
+     *
+     * @param urn The track urn, or null.
+     */
+    final boolean hasTrack(Object urn) {
+        if (urn == null || !keptTracks.contains(TrackUrn.normalize(urn))) return false;
+        removed++;
+        return true;
     }
 
     /**
@@ -58,60 +76,11 @@ class DuplicatePass {
             return false;
         }
         kept.add(song);
-        onKept(song);
         return true;
     }
 
     /** Whether the song is a copy of one that stays. */
-    boolean isCopy(SongFingerprint song) {
+    private boolean isCopy(SongFingerprint song) {
         return SongFingerprint.containsSame(kept, song);
-    }
-
-    /** Called for each song that stays. */
-    void onKept(SongFingerprint song) {
-    }
-
-    /**
-     * Autoplay refills the queue again and again: songs it queued lately are copies too, so a later refill does not
-     * bring back another upload of a song that is already waiting.
-     */
-    static final class Autoplay extends DuplicatePass {
-        private static final int MEMORY = 300;
-
-        /** Song key to length of the songs recently queued, oldest first. */
-        private static final Map<String, Long> queued = new LinkedHashMap<String, Long>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
-                return size() > MEMORY;
-            }
-        };
-
-        Autoplay() {
-            super();
-        }
-
-        Autoplay(Predicate<Object> isDisliked) {
-            super(isDisliked);
-        }
-
-        @Override
-        boolean isCopy(SongFingerprint song) {
-            return super.isCopy(song) || recentlyQueued(song);
-        }
-
-        @Override
-        void onKept(SongFingerprint song) {
-            synchronized (queued) {
-                queued.put(song.key, song.duration);
-            }
-        }
-
-        private static boolean recentlyQueued(SongFingerprint song) {
-            synchronized (queued) {
-                Long duration = queued.get(song.key);
-                return duration != null && !song.key.isEmpty()
-                        && Math.abs(duration - song.duration) <= SongFingerprint.DURATION_TOLERANCE_MS;
-            }
-        }
     }
 }
