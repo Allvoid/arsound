@@ -1,6 +1,5 @@
 package app.arsound.patches.soundcloud.misc.minsdk
 
-import app.arsound.util.getNode
 import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.patch.stringOption
 import org.w3c.dom.Element
@@ -27,7 +26,7 @@ val lowerMinSdkPatch = resourcePatch(
 
     apply {
         document("AndroidManifest.xml").use { document ->
-            val manifest = document.getNode("manifest") as Element
+            val manifest = document.getElementsByTagName("manifest").item(0) as Element
             val usesSdk = document.getElementsByTagName("uses-sdk").item(0) as Element?
                 ?: document.createElement("uses-sdk").also { manifest.insertBefore(it, manifest.firstChild) }
             usesSdk.setAttribute("android:minSdkVersion", minSdk!!)
