@@ -22,6 +22,10 @@
  * brushes laid under the bar ({@code TopBarLook}), the glass from a blurred strip of the wallpaper.</li>
  * <li>{@code WallpaperSurfaces.previewCellFill(Composer)} and {@code trackCellBackground(int)} - no solid fill under a
  * Go+ preview track.</li>
+ * <li>{@code WallpaperSurfaces.backdropPicture(Object, Composer)} and {@code backdropShade(Modifier, Function1, Composer)}
+ * - the backdrop of the home screen's content wall (genre filters over a grid of tracks): no tinted picture and no
+ * shade; its fill and inner shadow go through {@code screenSurface}, like the fades at the ends of horizontal lists
+ * ({@code EdgeShadowKt}), the rows of tabs ({@code AdjustableTabRowKt}) and the loading screen ({@code LoadingKt}).</li>
  * </ul>
  *
  * <p>{@code SearchLayers} keeps the recent searches from showing through the suggestions once the fills are clear.

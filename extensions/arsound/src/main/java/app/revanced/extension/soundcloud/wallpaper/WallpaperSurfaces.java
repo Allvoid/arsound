@@ -8,6 +8,7 @@ import android.view.Window;
 import androidx.compose.runtime.Composer;
 import androidx.compose.ui.Modifier;
 import androidx.compose.ui.draw.AlphaKt;
+import androidx.compose.ui.draw.DrawModifierKt;
 import androidx.compose.ui.platform.AndroidCompositionLocals_androidKt;
 
 import com.soundcloud.android.ui.components.compose.Colors;
@@ -15,6 +16,8 @@ import com.soundcloud.android.ui.components.compose.Colors;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+
+import kotlin.jvm.functions.Function1;
 
 /**
  * The wallpaper behind SoundCloud's main screens (home, library, search, playlists and the rest that open over the
@@ -119,6 +122,26 @@ public final class WallpaperSurfaces {
     public static long screenSurface(Composer composer) {
         long surface = Colors.j(composer);
         return active && onWallpaperScreen(composer) ? TRANSPARENT : surface;
+    }
+
+    /**
+     * Injection point, before the picture of the home screen's content wall backdrop (genre filters over a grid of
+     * tracks) is loaded: a tinted texture that lay over the wallpaper like a band. None on a main screen with the
+     * wallpaper, SoundCloud's picture anywhere else.
+     *
+     * @param model What the picture is loaded from (an address or a request).
+     */
+    public static Object backdropPicture(Object model, Composer composer) {
+        return active && onWallpaperScreen(composer) ? null : model;
+    }
+
+    /**
+     * Injection point, in place of {@code DrawModifierKt.drawWithContent} in the same backdrop: its shade, a gradient
+     * that SoundCloud makes from the screen's colour with alphas of its own, so even a transparent colour came out as a
+     * dark band. Not drawn at all on a main screen with the wallpaper.
+     */
+    public static Modifier backdropShade(Modifier modifier, Function1 draw, Composer composer) {
+        return active && onWallpaperScreen(composer) ? modifier : DrawModifierKt.drawWithContent(modifier, draw);
     }
 
     /**

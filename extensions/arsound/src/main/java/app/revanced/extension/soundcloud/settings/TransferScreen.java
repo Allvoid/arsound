@@ -103,7 +103,11 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     public void onChanged() {
         fillProgress();
         TransferJob.Phase phase = TransferJob.phase();
-        if (phase != shownPhase && phase == TransferJob.Phase.DONE) fillHistory();
+        if (phase != shownPhase && phase == TransferJob.Phase.DONE) {
+            // The finished transfer is the first row of "Transferred" now.
+            fillHistory();
+            Toast.makeText(activity, TransferJob.status(), Toast.LENGTH_LONG).show();
+        }
         shownPhase = phase;
     }
 
@@ -164,28 +168,25 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
     // region Progress
 
+    /** The transfer running, or the one that failed; a finished one is the first row of "Transferred". */
     private void fillProgress() {
         progressPart.removeAllViews();
-        TransferJob.Phase phase = TransferJob.phase();
-        if (phase == TransferJob.Phase.IDLE) return;
+        boolean running = TransferJob.isRunning();
+        if (!running && TransferJob.phase() != TransferJob.Phase.FAILED) return;
         progressPart.addView(ui.createSubHeading(text("Сейчас", "Now")));
         String title = TransferJob.title().isEmpty() ? text("Перенос", "Transfer") : TransferJob.title();
-        boolean running = TransferJob.isRunning();
-        ActionRow row = ui.createActionRow(title, TransferJob.status(), v -> {
-            if (TransferJob.isRunning()) {
-                new ArsoundDialog(activity)
-                        .setTitle(text("Остановить перенос?", "Stop the transfer?"))
-                        .setMessage(text("Найденные треки запомнятся: если начать снова, их не придётся искать.",
-                                "The tracks found are kept: starting again will not search for them."))
-                        .setPositiveButton(text("Остановить", "Stop"), (dialog, which) -> TransferJob.cancel())
-                        .setNegativeButton(text("Продолжить", "Keep going"), null)
-                        .show();
-            } else if (phase == TransferJob.Phase.DONE) {
-                List<TransferRecord> history = TransferJob.history();
-                if (!history.isEmpty()) showRecord(history.get(0));
-            }
+        ActionRow row = ui.createActionRow(title, TransferJob.status()
+                + (running ? text(". Нажмите, чтобы остановить.", ". Tap to stop.") : ""), v -> {
+            if (!TransferJob.isRunning()) return;
+            new ArsoundDialog(activity)
+                    .setTitle(text("Остановить перенос?", "Stop the transfer?"))
+                    .setMessage(text("Найденные треки запомнятся: если начать снова, их не придётся искать.",
+                            "The tracks found are kept: starting again will not search for them."))
+                    .setPositiveButton(text("Остановить", "Stop"), (dialog, which) -> TransferJob.cancel())
+                    .setNegativeButton(text("Продолжить", "Keep going"), null)
+                    .show();
         });
-        row.icon(running ? "import" : phase == TransferJob.Phase.DONE ? "check" : "info");
+        row.icon(running ? "import" : "info");
         progressPart.addView(row);
     }
 
@@ -296,38 +297,66 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         historyPart.addView(ui.createSubHeading(text("Уже перенесено", "Transferred")));
         DateFormat format = DateFormat.getDateInstance(DateFormat.SHORT);
         for (TransferRecord record : history) {
-            String line = text("Найдено ", "Found ") + record.found + text(" из ", " of ") + record.total
-                    + " · " + format.format(new Date(record.time));
-            historyPart.addView(ui.createActionRow(record.title, line, v -> showRecord(record)).icon("check"));
+            String line = text("В плейлисте ", "In the playlist ") + record.found + text(" из ", " of ") + record.total
+                    + " · " + format.format(new Date(record.time)) + ". "
+                    + (record.missing.isEmpty() ? text("Нашлись все.", "All were found.")
+                    : text("Не нашлись " + record.missing.size() + ": нажмите, чтобы посмотреть.",
+                    record.missing.size() + " not found: tap to see them."));
+            ActionRow row = ui.createActionRow(record.title, line, v -> showRecord(record));
+            row.setOnLongClickListener(v -> {
+                askForget(record);
+                return true;
+            });
+            historyPart.addView(row.icon("check"));
         }
+    }
+
+    /** Only the line in this list goes; the playlist on SoundCloud stays. */
+    private void askForget(TransferRecord record) {
+        new ArsoundDialog(activity)
+                .setTitle(text("Убрать «", "Remove \"") + record.title + text("» из списка?", "\" from the list?"))
+                .setMessage(text("Пропадёт только эта строка. Плейлист в SoundCloud останется.",
+                        "Only this line goes. The playlist on SoundCloud stays."))
+                .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
+                    TransferJob.forget(record);
+                    fillHistory();
+                })
+                .setNegativeButton(text("Отмена", "Cancel"), null)
+                .show();
     }
 
     /** The tracks not found, to look for another way; they can be copied as text. */
     private void showRecord(TransferRecord record) {
+        if (record.missing.isEmpty()) {
+            new ArsoundDialog(activity)
+                    .setTitle(record.title)
+                    .setMessage(text("Нашлись все " + Numerals.russianTracks(record.total) + ". Плейлист «" + record.title
+                                    + "» — в вашей библиотеке SoundCloud.",
+                            "All " + Numerals.tracks(record.total) + " were found. The playlist \"" + record.title
+                                    + "\" is in your SoundCloud library."))
+                    .setPositiveButton(text("Закрыть", "Close"), null)
+                    .show();
+            return;
+        }
         StringBuilder missing = new StringBuilder();
         for (String label : record.missing) missing.append(label).append('\n');
-        String message = record.missing.isEmpty()
-                ? text("Нашлись все треки. Плейлист — в библиотеке SoundCloud.", "All tracks were found. The playlist is in the SoundCloud library.")
-                : text("Плейлист — в библиотеке SoundCloud. Не нашлись (" + record.missing.size() + "):\n\n",
-                "The playlist is in the SoundCloud library. Not found (" + record.missing.size() + "):\n\n") + missing;
-        ArsoundDialog dialog = new ArsoundDialog(activity)
-                .setTitle(record.title)
-                .setMessage(message)
-                .setNegativeButton(text("Убрать из списка", "Remove from the list"), (d, which) -> {
-                    TransferJob.forget(record);
-                    fillHistory();
-                });
-        if (record.missing.isEmpty()) {
-            dialog.setPositiveButton(text("Закрыть", "Close"), null);
-        } else {
-            dialog.setPositiveButton(text("Скопировать", "Copy"), (d, which) -> {
-                ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                if (clipboard == null) return;
-                clipboard.setPrimaryClip(ClipData.newPlainText(record.title, missing.toString().trim()));
-                Toast.makeText(activity, text("Список скопирован", "List copied"), Toast.LENGTH_SHORT).show();
-            });
-        }
-        dialog.show();
+        String intro = text(record.found + " из " + record.total + " уже в плейлисте «" + record.title + "» в вашей "
+                        + "библиотеке SoundCloud. Этих " + record.missing.size() + " в SoundCloud не нашлось: их там нет "
+                        + "или они залиты под другим названием. Список можно скопировать и поискать вручную.",
+                record.found + " of " + record.total + " are already in the playlist \"" + record.title + "\" in your "
+                        + "SoundCloud library. These " + record.missing.size() + " were not found on SoundCloud: they are "
+                        + "not there or are uploaded under another name. Copy the list to look for them by hand.");
+        new ArsoundDialog(activity)
+                .setTitle(text("Не нашлись в SoundCloud", "Not found on SoundCloud"))
+                .setMessage(intro + "\n\n" + missing.toString().trim())
+                .setPositiveButton(text("Скопировать список", "Copy the list"), (d, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (clipboard == null) return;
+                    clipboard.setPrimaryClip(ClipData.newPlainText(record.title, missing.toString().trim()));
+                    Toast.makeText(activity, text("Список скопирован", "List copied"), Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton(text("Закрыть", "Close"), null)
+                .show();
     }
 
     // endregion

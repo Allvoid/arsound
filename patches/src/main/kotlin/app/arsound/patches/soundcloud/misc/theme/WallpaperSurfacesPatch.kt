@@ -40,6 +40,28 @@ private val CELL_CONTENT_PARAMETERS = listOf("Z", "Lkotlin/jvm/functions/Functio
 /** SoundCloud's top bar (back button, "Search in …", the filter): its band is the screen's colour by default. */
 private const val TOP_APP_BAR = "Lcom/soundcloud/android/ui/components/compose/toolbars/TopAppBarKt;"
 
+/**
+ * The backdrop of the home screen's content wall (genre filters over a grid of tracks): a tinted picture, a fill and an
+ * inner shadow in the screen's colour. The server-driven home draws it here; the older sections home draws the same in a
+ * lambda among [SECTIONS_VIEW_HOLDERS].
+ */
+private const val CONTENT_WALL_BACKDROP =
+    "Lcom/soundcloud/android/sdui/components/composables/contentwall/ContentWallBackgroundKt;"
+private const val SECTIONS_VIEW_HOLDERS = "Lcom/soundcloud/android/sections/ui/viewholder/"
+
+/**
+ * Other bands of the main screens in the screen's colour: the fades at the ends of horizontal lists, the rows of tabs and
+ * the screen shown while a page loads.
+ */
+private val SURFACE_BANDS = listOf(
+    "Lcom/soundcloud/android/ui/components/compose/listviews/EdgeShadowKt;",
+    "Lcom/soundcloud/android/ui/components/compose/tabs/AdjustableTabRowKt;",
+    "Lcom/soundcloud/android/ui/components/compose/progress/LoadingKt;",
+)
+
+/** Coil's {@code AsyncImage}: the picture of the content wall's backdrop. */
+private const val ASYNC_IMAGE = "Lcoil/compose/SingletonAsyncImageKt;"
+
 /** Material's top bar, which SoundCloud's top bar is drawn with. */
 private const val MATERIAL_APP_BAR = "Landroidx/compose/material/AppBarKt;"
 
@@ -126,6 +148,20 @@ private val BytecodePatchContext.playlistHeaderMethod by gettingFirstMethodDecla
         "I",
         "I",
     )
+}
+
+/** A method that draws a backdrop with an inner shadow (the content wall's). */
+private fun MutableMethod.drawsInnerShadow() = implementation?.instructions?.any {
+    it.opcode == Opcode.INVOKE_STATIC && it.methodReference?.let { reference ->
+        reference.definingClass == "Landroidx/compose/ui/draw/ShadowKt;" && reference.name == "innerShadow"
+    } == true
+} == true
+
+/** Every call of the surface colour in the method answered by the extension's {@code screenSurface}. */
+private fun MutableMethod.replaceSurfaceColours(surfaceName: String): Int {
+    val indices = findInstructionIndicesReversed { isColourCall(surfaceName) }
+    indices.forEach { replaceSurfaceColourAt(it) }
+    return indices.size
 }
 
 /** A call of a colour of SoundCloud's palette: {@code Colors.<name>(Composer)}, a packed colour. */
@@ -316,6 +352,54 @@ val wallpaperSurfacesPatch = bytecodePatch {
                 }
             }
             if (!found) throw PatchException("$type does not pick ripple_cell_highlight_drawable any more")
+        }
+
+        // The content wall of the home screen lies on a backdrop of its own, a band over the wallpaper: its fill and
+        // shadow take the transparent colour and its picture is left out.
+        val backdrops = (listOf(CONTENT_WALL_BACKDROP) + classDefs.map { it.type }.filter { it.startsWith(SECTIONS_VIEW_HOLDERS) })
+            .flatMap { type -> firstClassDef(type).methods.filter { it.drawsInnerShadow() } }
+        if (backdrops.isEmpty()) throw PatchException("No content wall backdrop with an inner shadow any more")
+        backdrops.forEach { method ->
+            // The shade is a gradient SoundCloud makes from the screen's colour with alphas of its own: even a
+            // transparent colour comes out dark, so it is not drawn at all.
+            val colourAt = method.indexOfFirstInstructionOrThrow { isColourCall(surfaceName) }
+            val surfaceComposer = method.getInstruction<FiveRegisterInstruction>(colourAt).registerC
+            method.findInstructionIndicesReversed {
+                opcode == Opcode.INVOKE_STATIC && methodReference?.let {
+                    it.definingClass == "Landroidx/compose/ui/draw/DrawModifierKt;" && it.name == "drawWithContent"
+                } == true
+            }.forEach { index ->
+                val call = method.getInstruction<FiveRegisterInstruction>(index)
+                method.replaceInstruction(
+                    index,
+                    "invoke-static { v${call.registerC}, v${call.registerD}, v$surfaceComposer }, $SURFACES->backdropShade(" +
+                        "Landroidx/compose/ui/Modifier;Lkotlin/jvm/functions/Function1;Landroidx/compose/runtime/Composer;)" +
+                        "Landroidx/compose/ui/Modifier;",
+                )
+            }
+            if (method.replaceSurfaceColours(surfaceName) == 0) throw PatchException("${method.definingClass} has no surface colour")
+            method.findInstructionIndicesReversed {
+                opcode == Opcode.INVOKE_STATIC_RANGE && methodReference?.let { it.definingClass == ASYNC_IMAGE && it.name == "b" } == true
+            }.forEach { index ->
+                val call = method.getInstruction<RegisterRangeInstruction>(index)
+                val parameters = call.methodReference!!.parameterTypes.map(CharSequence::toString)
+                val composerAt = parameters.indexOf("Landroidx/compose/runtime/Composer;")
+                if (composerAt < 0) throw PatchException("$ASYNC_IMAGE b has no composer any more")
+                val model = call.startRegister
+                val composer = call.startRegister + parameters.take(composerAt).sumOf { if (it == "J" || it == "D") 2 else 1 }
+                if (model > 15 || composer > 15) throw PatchException("$ASYNC_IMAGE b in ${method.definingClass}: registers out of reach")
+                method.addInstructions(
+                    index,
+                    """
+                        invoke-static { v$model, v$composer }, $SURFACES->backdropPicture(Ljava/lang/Object;Landroidx/compose/runtime/Composer;)Ljava/lang/Object;
+                        move-result-object v$model
+                    """,
+                )
+            }
+        }
+        SURFACE_BANDS.forEach { type ->
+            val replaced = firstClassDef(type).methods.sumOf { it.replaceSurfaceColours(surfaceName) }
+            if (replaced == 0) throw PatchException("$type has no surface colour any more")
         }
     }
 }
