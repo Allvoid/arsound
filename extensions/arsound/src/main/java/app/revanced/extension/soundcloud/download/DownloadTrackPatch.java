@@ -312,7 +312,13 @@ public final class DownloadTrackPatch {
                     return;
                 }
                 if (!source.isDownloadable()) {
-                    showToast(context, unavailableMessage(source.status));
+                    if (RestrictionNote.isRestriction(source.status)) {
+                        // A track no app can download: a window that says so plainly, not a toast.
+                        TrackSource.Status status = source.status;
+                        Utils.runOnMainThread(() -> RestrictionNote.show(context, status));
+                    } else {
+                        showToast(context, unavailableMessage(source.status));
+                    }
                     return;
                 }
                 // "Download again" keeps the earlier file until the new one is complete, then replaces it:
@@ -880,7 +886,7 @@ public final class DownloadTrackPatch {
         if (policy.contains("SUB") || monetization.contains("SUB") || monetization.contains("GO_PLUS")) {
             return TrackSource.Status.SUBSCRIPTION_REQUIRED;
         }
-        if (policy.contains("BLOCK")) return TrackSource.Status.UNAVAILABLE;
+        if (policy.contains("BLOCK")) return TrackSource.Status.REGION_BLOCKED;
         return null;
     }
 

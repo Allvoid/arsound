@@ -355,6 +355,31 @@ public class SearchIndexTest {
     }
 
     @Test
+    public void theTopBarBackgroundHasManyNames() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"подложка", "шапка", "стекло", "liquid glass", "прозрачная панель", "toolbar",
+                "полоса сверху"}) {
+            assertFinds(index, query, "Подложка верхней панели");
+        }
+    }
+
+    @Test
+    public void linksAreFound() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"ссылки", "открывать ссылки", "links", "deeplink", "ссылка в браузере"}) {
+            assertFinds(index, query, "Открывать ссылки SoundCloud в Arsound");
+        }
+    }
+
+    @Test
+    public void ownWallpaperIsFound() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"своя картинка", "галерея", "фото на фон", "свои обои"}) {
+            assertFinds(index, query, "Своя картинка из галереи");
+        }
+    }
+
+    @Test
     public void keywordsHelpARowThatDoesNotSayTheWord() {
         SearchIndex index = new SearchIndex();
         SearchEntry theme = row("A", "Тема", "");

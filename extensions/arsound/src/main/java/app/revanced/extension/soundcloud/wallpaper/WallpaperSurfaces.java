@@ -27,7 +27,8 @@ import app.revanced.extension.shared.Utils;
  * <li>the base colour of a Compose screen, which SoundCloud's theme, scaffold and collapsing title bar ("Your likes")
  * take from {@code Colors.j};</li>
  * <li>the blurred cover behind the title of a playlist or a profile, and the fades of a playlist's header;</li>
- * <li>the solid fill of a highlighted track cell (a Go+ track that plays as a preview).</li>
+ * <li>the solid fill of a highlighted track cell (a Go+ track that plays as a preview);</li>
+ * <li>the band of the top bar, as the style chosen in Appearance has it ({@link TopBarStyle}).</li>
  * </ul>
  * The player, the mini player, the tab bar, dialogs and sheets keep their colours: they are not in the container of
  * the main screens, or not in the window at all.
@@ -189,17 +190,87 @@ public final class WallpaperSurfaces {
         }
     }
 
+    // region The top bar
+
+    /** The fill under the next top bar, set by {@link #topBarColour} and taken by {@link #topBarModifier}. Main thread. */
+    private static TopBarStyle pendingStyle;
+    private static long pendingSurface;
+    private static int pendingWidth, pendingHeight;
+
+    /**
+     * Injection point, in place of {@code Colors.j} in SoundCloud's top bar ({@code TopAppBarKt}): the colour of the
+     * band behind the back button, "Search in …" and the filter. On a main screen with the wallpaper it follows the
+     * style chosen in Appearance ({@link TopBarStyle}); for the fade and the glass the band is clear and their fill is
+     * laid under the bar through its modifier ({@link #topBarModifier}). SoundCloud's colour anywhere else.
+     */
+    public static long topBarColour(Composer composer) {
+        long surface = Colors.j(composer);
+        pendingStyle = null;
+        if (!active) return surface;
+        View view = wallpaperView(composer);
+        if (view == null) return surface;
+        TopBarStyle style = TopBarStyle.current();
+        switch (style) {
+            case CLEAR:
+                return TRANSPARENT;
+            case TINT:
+                return HeaderShade.withAlpha(surface, 0.55f);
+            case FADE:
+            case GLASS:
+                pendingStyle = style;
+                pendingSurface = surface;
+                View root = view.getRootView();
+                pendingWidth = root.getWidth();
+                pendingHeight = root.getHeight();
+                return TRANSPARENT;
+            default:
+                return surface;
+        }
+    }
+
+    /**
+     * Injection point, right before SoundCloud's top bar is laid out ({@code AppBarKt.b}): its modifier, with the fade
+     * or the glass under the bar when {@link #topBarColour} chose one for it.
+     */
+    public static Modifier topBarModifier(Modifier modifier) {
+        TopBarStyle style = pendingStyle;
+        pendingStyle = null;
+        if (style == null || modifier == null) return modifier;
+        try {
+            int width = pendingWidth, height = pendingHeight;
+            if (width <= 0 || height <= 0) {
+                android.util.DisplayMetrics metrics = android.content.res.Resources.getSystem().getDisplayMetrics();
+                width = metrics.widthPixels;
+                height = metrics.heightPixels;
+            }
+            Object result = style == TopBarStyle.FADE
+                    ? TopBarLook.fade(modifier, pendingSurface)
+                    : TopBarLook.glass(modifier, pendingSurface, (int) (pendingSurface >>> 32), width, height);
+            return (Modifier) result;
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Wallpaper: the top bar keeps a plain fill", ex);
+            return modifier;
+        }
+    }
+
+    // endregion
+
     /** True if the Compose content belongs to a main screen that shows the wallpaper. */
     private static boolean onWallpaperScreen(Composer composer) {
+        return wallpaperView(composer) != null;
+    }
+
+    /** The view of the Compose content if it belongs to a main screen that shows the wallpaper, else null. */
+    private static View wallpaperView(Composer composer) {
         try {
             Object host = composer.D(AndroidCompositionLocals_androidKt.getLocalView());
-            if (!(host instanceof View)) return false;
+            if (!(host instanceof View)) return null;
             View view = (View) host;
             MainScreen screen = MainScreen.of(view.getContext());
-            return screen != null && screen.hasWallpaper() && screen.contains(view);
+            return screen != null && screen.hasWallpaper() && screen.contains(view) ? view : null;
         } catch (Throwable ex) {
             Logger.printException(() -> "Wallpaper: a Compose screen keeps its colour", ex);
-            return false;
+            return null;
         }
     }
 }

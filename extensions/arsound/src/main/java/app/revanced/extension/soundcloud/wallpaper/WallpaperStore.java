@@ -140,6 +140,20 @@ public final class WallpaperStore {
      * @param id The picture's id on Wallhaven, for the link to its page.
      */
     public static boolean install(Context context, File downloaded, String id) {
+        return install(context, downloaded, id, "wallhaven");
+    }
+
+    /**
+     * Keeps a picture the user chose on the phone as the wallpaper; see {@link #install(Context, File, String)}.
+     *
+     * @param picture A copy of the picture in the app's cache; it is not kept.
+     */
+    public static boolean installOwn(Context context, File picture) {
+        return install(context, picture, "", "phone");
+    }
+
+    /** @param source Where the picture comes from: "wallhaven", or "phone" for one the user chose on the phone. */
+    private static boolean install(Context context, File downloaded, String id, String source) {
         synchronized (WRITE) {
             File temporary = null, metaTemporary = null, bakedTemporary = null;
             try {
@@ -149,7 +163,7 @@ public final class WallpaperStore {
                 temporary = File.createTempFile(ORIGINAL + ".", ".tmp", folder);
                 if (!keepPicture(downloaded, temporary)) return false;
 
-                JSONObject meta = new JSONObject().put("id", id == null ? "" : id).put("source", "wallhaven");
+                JSONObject meta = new JSONObject().put("id", id == null ? "" : id).put("source", source);
                 metaTemporary = File.createTempFile(META + ".", ".tmp", folder);
                 try (FileOutputStream output = new FileOutputStream(metaTemporary)) {
                     output.write(meta.toString().getBytes("UTF-8"));

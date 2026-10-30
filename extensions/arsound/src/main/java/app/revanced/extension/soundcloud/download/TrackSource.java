@@ -25,7 +25,9 @@ public final class TrackSource {
         SUBSCRIPTION_REQUIRED,
         /** The only streams left are locked by FairPlay or Widevine, whose key comes from a licence server. Such a track is not saved. */
         DRM_PROTECTED,
-        /** Blocked in this region, private, or removed. */
+        /** Blocked in the region SoundCloud decided the account or the connection is in (policy BLOCK). */
+        REGION_BLOCKED,
+        /** Private, removed, or not served for another reason. */
         UNAVAILABLE,
     }
 
@@ -120,6 +122,8 @@ public final class TrackSource {
                 return DownloadTrackPatch.text("по подписке", "subscription");
             case DRM_PROTECTED:
                 return DownloadTrackPatch.text("защищён DRM", "DRM protected");
+            case REGION_BLOCKED:
+                return DownloadTrackPatch.text("закрыт в регионе", "blocked in your region");
             case REQUIRES_PROFILE_SEARCH:
                 return DownloadTrackPatch.text("нет потока", "no stream");
             default:

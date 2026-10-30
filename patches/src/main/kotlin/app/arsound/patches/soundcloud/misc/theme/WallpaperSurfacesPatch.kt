@@ -22,6 +22,7 @@ import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 
 private const val SURFACES = "Lapp/revanced/extension/soundcloud/wallpaper/WallpaperSurfaces;"
 private const val COLORS = "Lcom/soundcloud/android/ui/components/compose/Colors;"
@@ -35,6 +36,12 @@ private val BytecodePatchContext.composeSmallTrackCellMethod by gettingFirstMeth
 
 /** The first parameters of the content lambda the Compose cell makes: clickable, click, playable, height, end content. */
 private val CELL_CONTENT_PARAMETERS = listOf("Z", "Lkotlin/jvm/functions/Function0;", "Z", "F", "Lkotlin/jvm/functions/Function3;")
+
+/** SoundCloud's top bar (back button, "Search in …", the filter): its band is the screen's colour by default. */
+private const val TOP_APP_BAR = "Lcom/soundcloud/android/ui/components/compose/toolbars/TopAppBarKt;"
+
+/** Material's top bar, which SoundCloud's top bar is drawn with. */
+private const val MATERIAL_APP_BAR = "Landroidx/compose/material/AppBarKt;"
 
 /** The view states of the track cells that may be highlighted: they pick the cell's background drawable. */
 private val TRACK_CELL_STATES = listOf("CellSmallTrack", "CellMicroTrack", "CellSlideTrack")
@@ -234,6 +241,41 @@ val wallpaperSurfacesPatch = bytecodePatch {
                 """,
             )
         }
+        // The band of the top bar over the wallpaper follows the style chosen in Appearance: its default colour comes
+        // from the extension, and the fade or the glass goes under the bar through its modifier.
+        var bands = 0
+        var bars = 0
+        firstClassDef(TOP_APP_BAR).methods.forEach { method ->
+            method.findInstructionIndicesReversed { isColourCall(surfaceName) }.forEach { index ->
+                val composer = method.getInstruction<FiveRegisterInstruction>(index).registerC
+                method.replaceInstruction(
+                    index,
+                    "invoke-static { v$composer }, $SURFACES->topBarColour(Landroidx/compose/runtime/Composer;)J",
+                )
+                bands++
+            }
+            method.findInstructionIndicesReversed {
+                opcode == Opcode.INVOKE_STATIC_RANGE && methodReference?.let {
+                    it.definingClass == MATERIAL_APP_BAR && it.name == "b"
+                } == true
+            }.forEach { index ->
+                val call = method.getInstruction<RegisterRangeInstruction>(index)
+                val parameters = call.methodReference!!.parameterTypes.map(CharSequence::toString)
+                val modifierAt = parameters.indexOf("Landroidx/compose/ui/Modifier;")
+                if (modifierAt < 0) throw PatchException("$MATERIAL_APP_BAR b has no modifier any more")
+                val register = call.startRegister + parameters.take(modifierAt).sumOf { if (it == "J" || it == "D") 2 else 1 }
+                method.addInstructions(
+                    index,
+                    """
+                        invoke-static/range { v$register .. v$register }, $SURFACES->topBarModifier(Landroidx/compose/ui/Modifier;)Landroidx/compose/ui/Modifier;
+                        move-result-object v$register
+                    """,
+                )
+                bars++
+            }
+        }
+        if (bands == 0 || bars == 0) throw PatchException("$TOP_APP_BAR: band $bands, bars $bars")
+
         // A track that plays only as a preview (Go+) gets a highlight fill in the Compose cell's content: clear over a
         // wallpaper. The content is a lambda class made by the cell; its fill is the palette colour d.
         val cellContent = composeSmallTrackCellMethod.implementation!!.instructions.firstNotNullOf { instruction ->

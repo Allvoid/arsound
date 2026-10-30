@@ -18,6 +18,20 @@ import app.revanced.extension.soundcloud.widget.WidgetHeart;
 
 /** Theme, wallpaper, app icon and language. */
 final class AppearanceScreen extends SectionScreen {
+    /** The state line of the links row; the user changes it in the system's page and comes back. */
+    private android.widget.TextView linksDescription;
+
+    @Override
+    void onResume() {
+        if (linksDescription != null) linksDescription.setText(SoundCloudLinks.describe(activity));
+    }
+    @Override
+    void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        if (requestCode != WallpaperRows.REQUEST_OWN_PICTURE || resultCode != android.app.Activity.RESULT_OK
+                || data == null || data.getData() == null) return;
+        WallpaperRows.onPicturePicked(activity, data.getData());
+    }
+
     static final String ID = "appearance";
 
     AppearanceScreen(SettingsUi ui) {
@@ -75,6 +89,16 @@ final class AppearanceScreen extends SectionScreen {
 
         list.addView(ui.createSubHeading(text("Приложение", "App")));
         addLanguageRow(list);
+        ActionRow links = ui.createActionRow(text("Открывать ссылки SoundCloud в Arsound", "Open SoundCloud links in Arsound"),
+                text("Ссылки на треки, плейлисты и профили из браузера и мессенджеров открываются в Arsound. Android "
+                                + "разрешает это только вручную, один раз: в системном окне «Открывать по умолчанию».",
+                        "Links to tracks, playlists and profiles from a browser or a messenger open in Arsound. Android "
+                                + "allows it only by hand, once: in the system page \"Open by default\"."),
+                v -> SoundCloudLinks.open(activity));
+        links.icon("link").chevron();
+        linksDescription = links.description();
+        linksDescription.setText(SoundCloudLinks.describe(activity));
+        list.addView(links);
         list.addView(ui.openScreenRow(text("Иконка приложения", "App icon"),
                 text("Цвет и градиент значка на рабочем столе", "Colour and gradient of the home screen icon"),
                 AppIconScreen.ID).icon("appicon"));

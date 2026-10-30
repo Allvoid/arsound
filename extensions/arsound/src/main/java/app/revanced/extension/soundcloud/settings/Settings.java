@@ -347,6 +347,8 @@ public final class Settings {
     public static final String WALLPAPER_DIM = "arsound_wallpaper_dim";
     /** How much the wallpaper is blurred, in percent. */
     public static final String WALLPAPER_BLUR = "arsound_wallpaper_blur";
+    /** What lies behind SoundCloud's top bar over the wallpaper (wallpaper/TopBarStyle). */
+    public static final String WALLPAPER_TOP_BAR = "arsound_wallpaper_top_bar";
     /** The user's Wallhaven API key. Optional; only read to be sent as a header, never logged, never put into an address. */
     public static final String WALLHAVEN_KEY = "arsound_wallhaven_key";
     /** Offers sketchy and NSFW wallpapers in the Wallhaven browser. Works only with a key; off by default. */

@@ -17,6 +17,11 @@
  * header's fades also take {@code screenSurface}.</li>
  * <li>{@code WallpaperSurfaces.onActivityPreCreated/onActivityResumed} - called by {@code theme.ThemeLifecycle}, not by a
  * patch.</li>
+ * <li>{@code WallpaperSurfaces.topBarColour(Composer)} and {@code topBarModifier(Modifier)} - the band of SoundCloud's
+ * top bar ({@code TopAppBarKt}) in the style chosen in Appearance ({@code TopBarStyle}); the fade and the glass are
+ * brushes laid under the bar ({@code TopBarLook}), the glass from a blurred strip of the wallpaper.</li>
+ * <li>{@code WallpaperSurfaces.previewCellFill(Composer)} and {@code trackCellBackground(int)} - no solid fill under a
+ * Go+ preview track.</li>
  * </ul>
  *
  * <p>{@code SearchLayers} keeps the recent searches from showing through the suggestions once the fills are clear.
@@ -29,7 +34,7 @@
  * ({@code ViewKind}, {@code ClassNames}, {@code SurfaceColours}, {@code MainScreen}).
  *
  * <p>Settings ({@code settings.Settings}): {@code arsound_wallpaper_enabled}, {@code arsound_wallpaper_dim},
- * {@code arsound_wallpaper_blur}, {@code arsound_wallhaven_key}, {@code arsound_wallhaven_adult},
+ * {@code arsound_wallpaper_blur}, {@code arsound_wallpaper_top_bar}, {@code arsound_wallhaven_key}, {@code arsound_wallhaven_adult},
  * {@code arsound_wallhaven_last}. Files: {@code files/arsound/wallpaper/current.jpg} (as chosen) and {@code view.jpg}
  * (baked), kept by "Reset data". Screens: {@code settings.WallpaperRows}, {@code WallhavenScreen},
  * {@code WallpaperPreviewScreen}, {@code WallhavenKeyDialog}.

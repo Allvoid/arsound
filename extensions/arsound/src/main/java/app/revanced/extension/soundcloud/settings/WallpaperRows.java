@@ -2,7 +2,10 @@ package app.revanced.extension.soundcloud.settings;
 
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
+import android.content.Context;
+import android.content.Intent;
 import android.graphics.Outline;
+import android.net.Uri;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -13,18 +16,26 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.wallpaper.TopBarStyle;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * The wallpaper rows of the appearance screen: the switch, then a small phone with the whole picture as it lies behind
- * the screens next to the dim and the blur sliders, and the buttons that choose another picture or remove it. The
+ * the screens next to the dim and the blur sliders, the look of the top bar over the picture (small phones to choose
+ * from, {@link TopBarPreview}), and the buttons that choose another picture or remove it. The
  * Wallhaven key and the 18+ switch are not here: they moved into the filters of the catalogue
  * ({@link WallhavenFilterSheet}), where they are used.
  */
@@ -87,6 +98,7 @@ final class WallpaperRows {
                     "The dim changes at once, the blur applies when you let go of the slider."));
             hint.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dp(4));
             list.addView(hint);
+            list.addView(createTopBarChooser());
         } else {
             ui.recordForSearch(text("Затемнение обоев", "Wallpaper dim"), "");
             ui.recordForSearch(text("Размытие обоев", "Wallpaper blur"), "");
@@ -96,7 +108,83 @@ final class WallpaperRows {
             empty.setPadding(ui.dimen("spacing_m"), ui.dp(4), ui.dimen("spacing_m"), ui.dp(4));
             list.addView(empty);
         }
-        list.addView(createButtons(chosen));
+        addButtons(list, chosen);
+    }
+
+    /**
+     * The look of the top bar over the wallpaper: a small phone for each style, with this wallpaper, a list scrolled
+     * under the bar and the bar drawn as the app draws it; a tap chooses. Open screens follow when they are drawn again.
+     */
+    private View createTopBarChooser() {
+        String title = text("Подложка верхней панели", "Top bar background");
+        ui.recordForSearch(title, text("Полоса за кнопкой «назад», поиском в плейлисте и фильтром над обоями: как в SoundCloud, "
+                        + "без подложки, полупрозрачная, затемнение, стекло. Шапка, панель поиска, liquid glass, прозрачность.",
+                "The band behind the back button, the playlist search and the filter over the wallpaper: as in SoundCloud, "
+                        + "none, translucent, fade, glass. Header, search bar, liquid glass, transparency."));
+        SettingsGroup card = new SettingsGroup(ui).withoutDividers();
+        card.setLayoutParams(SettingsGroup.pageParams(ui));
+        card.setPadding(0, ui.dp(14), 0, ui.dp(14));
+
+        TextView heading = ui.createText("Body.Primary", title);
+        heading.setPadding(ui.dp(18), 0, ui.dp(18), ui.dp(2));
+        card.addView(heading);
+        TextView description = ui.createText("Body.Secondary", TopBarStyle.current().description());
+        description.setPadding(ui.dp(18), ui.dp(10), ui.dp(18), 0);
+        description.setMinLines(2);
+
+        HorizontalScrollView scroller = new HorizontalScrollView(activity);
+        scroller.setHorizontalScrollBarEnabled(false);
+        scroller.setClipToPadding(false);
+        scroller.setPadding(ui.dp(14), 0, ui.dp(14), 0);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        int surface = ArsoundTheme.palette(activity, "surface");
+        int width = ui.dp(104);
+        TopBarStyle current = TopBarStyle.current();
+        java.util.List<TopBarPreview> previews = new java.util.ArrayList<>();
+        java.util.List<TextView> labels = new java.util.ArrayList<>();
+        for (TopBarStyle style : TopBarStyle.values()) {
+            LinearLayout column = ui.createColumn();
+            column.setGravity(Gravity.CENTER_HORIZONTAL);
+            column.setPadding(ui.dp(4), 0, ui.dp(4), 0);
+            TopBarPreview preview = new TopBarPreview(activity, style, surface, ui.accent());
+            preview.setChosen(style == current);
+            column.addView(preview, new LinearLayout.LayoutParams(width, Math.round(width * TopBarPreview.TILE)));
+            TextView name = ui.createText("Body.Secondary", style.label());
+            name.setGravity(Gravity.CENTER);
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            name.setPadding(0, ui.dp(6), 0, 0);
+            name.setMaxLines(2);
+            // Words are not broken in the middle: a narrow label wraps between them.
+            name.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE);
+            name.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);
+            name.setLayoutParams(new LinearLayout.LayoutParams(width + ui.dp(6), ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (style == current) name.setTextColor(ui.accent());
+            column.addView(name);
+            column.setOnClickListener(v -> {
+                style.choose();
+                for (int i = 0; i < previews.size(); i++) {
+                    boolean chosen = TopBarStyle.values()[i] == style;
+                    previews.get(i).setChosen(chosen);
+                    if (chosen) labels.get(i).setTextColor(ui.accent());
+                    else ui.style(labels.get(i), "Body.Secondary");
+                }
+                description.setText(style.description());
+            });
+            previews.add(preview);
+            labels.add(name);
+            row.addView(column);
+        }
+        scroller.addView(row);
+        // The chosen style is in sight when the screen opens, however far along the row it is.
+        int chosenIndex = current.ordinal();
+        scroller.post(() -> {
+            View chosen = row.getChildAt(chosenIndex);
+            if (chosen != null && chosen.getRight() > scroller.getWidth()) scroller.scrollTo(chosen.getLeft() - ui.dp(10), 0);
+        });
+        card.addView(scroller);
+        card.addView(description);
+        return card;
     }
 
     /** The small phone and the two sliders beside it. */
@@ -168,31 +256,85 @@ final class WallpaperRows {
         return phone;
     }
 
-    /** "Choose" (or "Change") opens the Wallhaven catalogue; "Remove" asks and deletes the picture. */
-    private View createButtons(boolean chosen) {
-        LinearLayout buttons = new LinearLayout(activity);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setPadding(ui.dimen("spacing_m") - ui.dp(8), ui.dp(4), ui.dimen("spacing_m"), ui.dp(8));
-        TextView choose = (TextView) ui.createPillButton(
-                chosen ? text("Изменить", "Change") : text("Выбрать на Wallhaven", "Choose on Wallhaven"), true,
-                v -> activity.startActivity(ui.screenIntent(WallhavenScreen.ID)));
-        choose.setContentDescription(text("Обои Wallhaven", "Wallhaven wallpapers"));
-        choose.setMinHeight(ui.dp(48));
-        buttons.addView(choose);
-        if (chosen) {
-            TextView remove = (TextView) ui.createPillButton(text("Убрать", "Remove"), false, v -> new ArsoundDialog(activity)
-                    .setTitle(text("Убрать обои?", "Remove the wallpaper?"))
-                    .setMessage(text("Картинка удаляется с телефона, фон снова как у темы.",
-                            "The picture is deleted from the phone and the background is the theme's again."))
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
-                        WallpaperStore.remove();
-                        activity.recreate();
-                    })
-                    .show());
-            remove.setMinHeight(ui.dp(48));
-            buttons.addView(remove);
+    /**
+     * Where the picture comes from and how it goes: the Wallhaven catalogue, a picture from the phone's gallery, and
+     * (with a picture chosen) removing it. Rows of their own that say what they do: the two bare buttons "Change" and
+     * "Remove" did not say what they changed or removed.
+     */
+    private void addButtons(LinearLayout list, boolean chosen) {
+        list.addView(ui.createActionRow(
+                chosen ? text("Другие обои из Wallhaven", "Other wallpaper from Wallhaven")
+                        : text("Обои из каталога Wallhaven", "Wallpaper from the Wallhaven catalogue"),
+                text("Поиск, популярное, случайные картинки. Нужен интернет.", "Search, popular and random pictures. Needs the internet."),
+                v -> activity.startActivity(ui.screenIntent(WallhavenScreen.ID))).icon("wallpaper").chevron());
+        list.addView(ui.createActionRow(
+                text("Своя картинка из галереи", "Your own picture from the gallery"),
+                text("Любое фото или картинка с телефона станет обоями: выберите её, затемнение и размытие те же.",
+                        "Any photo or picture on the phone becomes the wallpaper: pick it, the dim and the blur stay."),
+                v -> pickOwnPicture()).icon("import").chevron());
+        if (!chosen) return;
+        list.addView(ui.createActionRow(text("Убрать обои", "Remove the wallpaper"),
+                text("Картинка удаляется с телефона, фон снова как у темы.",
+                        "The picture is deleted from the phone and the background is the theme's again."),
+                v -> new ArsoundDialog(activity)
+                        .setTitle(text("Убрать обои?", "Remove the wallpaper?"))
+                        .setMessage(text("Картинка удаляется с телефона, фон снова как у темы.",
+                                "The picture is deleted from the phone and the background is the theme's again."))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
+                            WallpaperStore.remove();
+                            activity.recreate();
+                        })
+                        .show()).icon("trash").danger());
+    }
+
+    /** Opens the system's photo picker (Android 13+) or the gallery; the answer comes to {@link #onPicturePicked}. */
+    private void pickOwnPicture() {
+        Intent intent = android.os.Build.VERSION.SDK_INT >= 33
+                ? new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES).setType("image/*")
+                : new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+        try {
+            activity.startActivityForResult(intent, REQUEST_OWN_PICTURE);
+        } catch (android.content.ActivityNotFoundException ex) {
+            Toast.makeText(activity, text("На телефоне нет приложения для выбора картинок", "No app on the phone picks pictures"),
+                    Toast.LENGTH_LONG).show();
         }
-        return buttons;
+    }
+
+    /** The request code of {@link #pickOwnPicture}, for the screen's {@code onActivityResult}. */
+    static final int REQUEST_OWN_PICTURE = 7101;
+
+    /**
+     * The picture the user picked: copied into the cache, kept as the wallpaper the same way a Wallhaven picture is
+     * (an odd file is refused with a message), then the screen is built again with it.
+     */
+    static void onPicturePicked(ReVancedSettingsActivity activity, Uri picture) {
+        Toast.makeText(activity, text("Ставлю обои…", "Setting the wallpaper…"), Toast.LENGTH_SHORT).show();
+        Context context = activity.getApplicationContext();
+        Utils.runOnBackgroundThread(() -> {
+            File copy = new File(context.getCacheDir(), "arsound-own-wallpaper.tmp");
+            boolean kept = false;
+            try (InputStream input = context.getContentResolver().openInputStream(picture);
+                 OutputStream output = new FileOutputStream(copy)) {
+                if (input != null) {
+                    byte[] buffer = new byte[64 * 1024];
+                    for (int read; (read = input.read(buffer)) > 0; ) output.write(buffer, 0, read);
+                    kept = true;
+                }
+            } catch (Exception ex) {
+                app.revanced.extension.shared.Logger.printException(() -> "Wallpaper: could not read the picked picture", ex);
+            }
+            boolean installed = kept && WallpaperStore.installOwn(context, copy);
+            copy.delete();
+            Utils.runOnMainThread(() -> {
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                if (!installed) {
+                    Toast.makeText(activity, text("Не получилось открыть эту картинку", "Could not open this picture"),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                activity.recreate();
+            });
+        });
     }
 }

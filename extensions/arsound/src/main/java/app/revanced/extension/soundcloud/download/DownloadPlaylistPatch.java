@@ -371,6 +371,8 @@ public final class DownloadPlaylistPatch {
                 // Tracks on the phone are counted at once; the rest wait for their file links below.
                 List<JSONObject> toResolve = new ArrayList<>();
                 int[] checked = {0};
+                // Whether a Go+ track [0] or a track blocked in the region [1] is among the unavailable ones; guarded by checked.
+                boolean[] restricted = {false, false};
                 // Tracks of requests the server did not answer: unknown, not "unavailable".
                 int[] unchecked = {0};
                 for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
@@ -451,6 +453,12 @@ public final class DownloadPlaylistPatch {
                                 drm[index] = id;
                             } else if (!failed) {
                                 unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
+                                if (source != null && RestrictionNote.isRestriction(source.status)) {
+                                    synchronized (checked) {
+                                        if (source.status == TrackSource.Status.REGION_BLOCKED) restricted[1] = true;
+                                        else restricted[0] = true;
+                                    }
+                                }
                             }
                             synchronized (checked) {
                                 if (failed) unchecked[0]++;
@@ -477,8 +485,9 @@ public final class DownloadPlaylistPatch {
                 Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, imported " + imported[0]
                         + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download "
                         + downloadable.size() + ", DRM " + drmIds.size() + ", not checked " + notChecked);
+                String footnote = RestrictionNote.footnote(restricted[0], restricted[1]);
                 Utils.runOnMainThread(() -> showResult(context, playlistId, ids.size(), imported[0], alreadyDownloaded[0], alreadyDownloaded[1],
-                        notChecked, downloadable, unavailableTitles, drmIds));
+                        notChecked, downloadable, unavailableTitles, drmIds, footnote));
             } catch (Exception ex) {
                 Logger.printException(() -> "Playlist check failure", ex);
                 ProgressPill.onCheckFinished();
@@ -489,9 +498,11 @@ public final class DownloadPlaylistPatch {
 
     /**
      * @param notChecked Tracks the server gave no answer about (network, rate limit or server error).
+     * @param footnote   The note about Go+ and region-blocked tracks among the unavailable ones, or empty.
      */
     private static void showResult(Context context, String playlistId, int total, int imported, int downloaded, int downloading,
-                                   int notChecked, List<TrackInfo> downloadable, List<String> unavailableTitles, List<String> drmIds) {
+                                   int notChecked, List<TrackInfo> downloadable, List<String> unavailableTitles, List<String> drmIds,
+                                   String footnote) {
         int unavailable = total - downloaded - downloading - downloadable.size() - drmIds.size() - notChecked;
         StringBuilder summary = new StringBuilder();
         summary.append(playlistId == null
@@ -516,6 +527,7 @@ public final class DownloadPlaylistPatch {
             summary.append(text("Недоступно (заблокировано в регионе, по подписке, отрывки или закрытые): ",
                     "Not available (blocked in your region, subscription, previews or private): ")).append(unavailable).append('\n');
             for (String title : unavailableTitles) summary.append("  ✕ ").append(title).append('\n');
+            if (!footnote.isEmpty()) summary.append(footnote).append('\n');
         }
 
         // Tracks that this tap would start: the ones Arsound saves as files plus the DRM ones handed to SoundCloud.
