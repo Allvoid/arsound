@@ -210,6 +210,10 @@ final class SynonymTable {
             {"TOPBAR",
                     "подложка подложку шапка шапку topbar toolbar header полоса стекло glass liquid_glass панель_поиска",
                     "прозрачная прозрачность transparent размытие blur затемнение градиент верхняя панель сверху наверху верх"},
+            {"TRANSFER",
+                    "перенос перенести перенесу переносить перенеси переезд переехать transfer migrate migration "
+                            + "яндекс yandex яндекс_музыка yandex_music ямузыка",
+                    "плейлист плейлисты playlist лайки likes импорт import импортировать другой сервис service"},
             {"GREETING",
                     "приветствие привет приветик здравствуйте greeting hello hi welcome что_послушаем",
                     "надпись заголовок шапка header главная home имя name сверху"},

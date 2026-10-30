@@ -104,7 +104,7 @@ public final class ClientProfiles {
         /** Full length in milliseconds, 0 if the search did not say. */
         public final long duration;
 
-        FoundTrack(String id, String title, String user, String policy, long duration) {
+        public FoundTrack(String id, String title, String user, String policy, long duration) {
             this.id = id;
             this.title = title;
             this.user = user;

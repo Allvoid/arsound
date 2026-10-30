@@ -31,7 +31,8 @@
  * {@code settings.search}.</li>
  * <li>Other: theme and wallpaper widgets ({@code ThemeSheet}, {@code ColorPickerSheet}, {@code HsvColorPicker},
  * {@code WallhavenScreen}), equalizer UI ({@code EqualizerPanel}, {@code EqualizerGraph}), {@code DataReset}
- * ("Reset data" keeps logins, settings and imports), {@code StorageUsage}.</li>
+ * ("Reset data" keeps logins, settings and imports), {@code StorageUsage}, {@code TransferScreen} (the transfer from
+ * Yandex Music, opened from "Your music"; the work itself is in {@code transfer}).</li>
  * </ul>
  *
  * <p>Gotchas: saved keys must never change; users already have them. A section that is not listed in

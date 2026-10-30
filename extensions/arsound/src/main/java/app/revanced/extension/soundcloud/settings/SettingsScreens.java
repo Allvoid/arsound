@@ -13,6 +13,7 @@ final class SettingsScreens {
         if (id == null) return new MainScreen(ui);
         if (LocalMusicScreen.ID.equals(id)) return new LocalMusicScreen(ui);
         if (WallhavenScreen.ID.equals(id)) return new WallhavenScreen(ui);
+        if (TransferScreen.ID.equals(id)) return new TransferScreen(ui);
         for (SectionScreen section : sections(ui)) {
             if (section.id().equals(id)) return section;
         }

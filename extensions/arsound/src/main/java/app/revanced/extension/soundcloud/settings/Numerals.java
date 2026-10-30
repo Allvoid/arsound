@@ -18,6 +18,11 @@ final class Numerals {
         return count + " " + russianForm(count, "трек", "трека", "треков");
     }
 
+    /** "5 треков" or "5 tracks". */
+    static String tracks(long count) {
+        return text(russianTracks(count), count + (count == 1 ? " track" : " tracks"));
+    }
+
     /** The form of a word after a number: one (1, 21), few (2-4, 22-24), many (the rest, and 11-14). */
     static String russianForm(long count, String one, String few, String many) {
         long tens = count % 100, ones = count % 10;

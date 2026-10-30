@@ -43,7 +43,9 @@
  * {@code local.Urns} finds and makes SoundCloud's {@code Urn} objects by reflection, while {@code shared.Urns} only
  * parses urn strings such as {@code soundcloud:tracks:123}.</li>
  * <li>Pure rules without Android ({@code MergePlan}, {@code LikesPaging}, {@code HiddenLikes}, {@code LikedFiles},
- * {@code TrackMatcher}, {@code Debounced}) are covered by JUnit tests; keep them Android-free.</li>
+ * {@code TrackMatcher}, {@code SongChoice}, {@code Debounced}) are covered by JUnit tests; keep them Android-free.
+ * {@code SongChoice} is public for the transfer from Yandex Music ({@code transfer}): it picks the SoundCloud upload
+ * of a song known by its artists, title and length.</li>
  * </ul>
  */
 package app.revanced.extension.soundcloud.local;

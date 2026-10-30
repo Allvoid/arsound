@@ -61,6 +61,16 @@ final class MusicScreen extends SectionScreen {
         ).icon("import").chevron());
         addWatchFolderOptions(list);
 
+        list.addView(ui.createSubHeading(text("Из других сервисов", "From other services")));
+        list.addView(ui.createActionRow(
+                text("Перенос из Яндекс Музыки", "Transfer from Yandex Music"),
+                text("Плейлист, альбом или лайки из Яндекс Музыки становятся приватным плейлистом SoundCloud: "
+                                + "Arsound находит каждый трек в SoundCloud. По ссылке или из своего аккаунта Яндекса.",
+                        "A playlist, an album or likes from Yandex Music become a private SoundCloud playlist: "
+                                + "Arsound finds each track on SoundCloud. By link or from your Yandex account."),
+                v -> activity.startActivity(ui.screenIntent(TransferScreen.ID))
+        ).icon("import").chevron());
+
         list.addView(ui.createSubHeading(text("В библиотеке", "In the library")));
         SubRows savedOptions = ui.createSubRows();
         list.addView(ui.createToggleRow(

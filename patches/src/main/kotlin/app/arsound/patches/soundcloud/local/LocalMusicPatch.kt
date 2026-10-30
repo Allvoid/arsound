@@ -26,6 +26,14 @@ private val importActivityPatch = resourcePatch {
                 // The WebView handles these itself; a restart would reload the sign-in page and lose what was typed.
                 "android:configChanges" to "orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|fontScale",
             )
+            // Yandex's sign-in page for the optional Yandex account of the transfer from Yandex Music.
+            document.addApplicationComponent(
+                "activity",
+                "android:name" to "app.revanced.extension.soundcloud.transfer.YandexLoginActivity",
+                "android:exported" to "false",
+                "android:theme" to "@android:style/Theme.Material.NoActionBar",
+                "android:configChanges" to "orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|fontScale",
+            )
             // Batch downloads started from a computer over adb; reads lists from the app's own folder only.
             // Only a sender holding DUMP itself (the adb shell) may start it; the app never starts it.
             document.addApplicationComponent(

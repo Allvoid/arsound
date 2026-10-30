@@ -1,0 +1,26 @@
+/**
+ * Transfer from Yandex Music: a playlist, an album or likes become a private SoundCloud playlist.
+ *
+ * <p>User view: Settings → Arsound → Your music → "Transfer from Yandex Music" ({@code settings.TransferScreen}). A
+ * link from Yandex Music's "Share" (a playlist, an album, the likes of an open profile) is pasted, or, after signing in
+ * to Yandex, one of the account's own lists is picked (closed likes, private playlists). Arsound looks each track up on
+ * SoundCloud and makes a private playlist of the ones found, with the same name and order (one more, numbered, per 500
+ * tracks). The tracks not found are listed and can be copied. It runs on while the settings are closed.
+ *
+ * <p>Entry points: none from patches. {@code YandexLoginActivity} is declared in the manifest by
+ * {@code local/LocalMusicPatch.kt}; the screen calls {@code TransferJob}, {@code YandexAccount} and {@code YandexLink}.
+ *
+ * <p>Main classes: {@code YandexLink} (what a link points at, pure), {@code YandexMusic} (Yandex Music's API, the one
+ * its apps use: public collections need no account), {@code YandexAccount} and {@code YandexLoginActivity} (the
+ * optional token from Yandex's own sign-in page, with the client id of the Yandex Music apps, the only one the music
+ * API takes), {@code SoundCloudSide} (search with {@code local.SongChoice} and the playlist through SoundCloud's own
+ * {@code PlaylistOperations.createNewPlaylist}), {@code TransferJob} (the run, one at a time) and
+ * {@code TransferStore} (JSON in {@code files/arsound-transfer}: the match of every Yandex track for 60 days, a miss
+ * for 3, and the last 20 transfers with their missing tracks).
+ *
+ * <p>Gotchas: the token is kept in the private preferences {@code arsound_yandex} and sent only to
+ * {@code api.music.yandex.net}. A closed profile shows empty likes to everyone else: that is told apart from an empty
+ * list and reported as private. SoundCloud's search is asked three tracks at a time, with pauses on errors; eight
+ * failures in a row with nothing found stop the run as "no connection".
+ */
+package app.revanced.extension.soundcloud.transfer;
