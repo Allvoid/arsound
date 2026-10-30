@@ -1516,7 +1516,8 @@ public final class DownloadTrackPatch {
 
     /**
      * What the player is given to play a downloaded track: the path of its file, or the address of its row in the
-     * media store where the path is closed to the app (a file in Music since Android 10).
+     * media store where the path is closed to the app (a file in Music since Android 10). A streamed track fetched
+     * ahead while the one before it played ({@link PrefetchedTracks}) plays from its copy the same way.
      * May wait for the system, so it is for the threads of the player, not for the main thread.
      *
      * @return The source, or null if the track is not downloaded or the file cannot be opened: it is streamed then.
@@ -1524,7 +1525,8 @@ public final class DownloadTrackPatch {
     public static String playableSource(String trackId) {
         DownloadIndex.Entry entry = downloadedEntry(trackId, true);
         Context context = Utils.getContext();
-        return entry == null || context == null ? null : entry.playable(context);
+        String downloaded = entry == null || context == null ? null : entry.playable(context);
+        return downloaded != null ? downloaded : PrefetchedTracks.playable(trackId);
     }
 
     /** When each running job was last found running, so lists that ask for many files do not ask the system each time. */

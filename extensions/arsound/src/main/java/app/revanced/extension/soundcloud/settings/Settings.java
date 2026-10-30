@@ -367,6 +367,15 @@ public final class Settings {
 
     public static final String SMOOTH_PLAYER_COLLAPSE = "smooth_player_collapse";
 
+    /** The end of a track fades out and the next one fades in (player/Crossfade). Off by default. */
+    public static final String CROSSFADE = "crossfade";
+    /** How long one fade of the smooth transition takes, in seconds. */
+    public static final String CROSSFADE_SECONDS = "crossfade_seconds";
+    /** When the next streamed track is loaded whole ahead (player/NextTrackPreload): 0 never, 1 on Wi-Fi, 2 always. */
+    public static final String PRELOAD_NEXT = "preload_next";
+    /** Hides the comments that pop up in the player while a track plays (player/PlayerComments). Off by default. */
+    public static final String HIDE_PLAYER_COMMENTS = "hide_player_comments";
+
     /**
      * Keeps the player from doing needless work while it is pulled up and down, so it does not stutter on the way
      * down. Off puts SoundCloud's own behaviour back. On by default.

@@ -131,7 +131,7 @@ final class SynonymTable {
                     "не_нравится dislike dislikes дизлайк нелюбимое blacklist черный_список не_рекомендовать",
                     "рекомендации скрыть hide"},
             {"HIDE",
-                    "скрыть скрывать спрятать убрать hide hidden",
+                    "скрыть скрывать спрятать убрать убирать убирает убери hide hidden",
                     "отключить выключить disable remove"},
             {"ANIMATION",
                     "анимация анимации animation animations эффект эффекты effect effects частицы particles движение motion",
@@ -190,5 +190,22 @@ final class SynonymTable {
             {"MUSIC",
                     "музыка музыку music songs треки tracks мелодии",
                     "свои_файлы импорт плейлист лайки"},
+            {"CROSSFADE",
+                    "переход переходы кроссфейд кросфейд crossfade crossfading затухание затухать затихание затихает "
+                            + "fade fading нарастание transition transitions сведение склейка gapless бесшовный "
+                            + "плавный_переход между_треками",
+                    "плавно плавный smooth громкость volume следующий next конец end микс mix"},
+            {"PRELOAD",
+                    "предзагрузка предзагружать подгрузка подгружать подгружается заранее preload preloading prefetch "
+                            + "буферизация буферизировать загружать_заранее следующий_трек",
+                    "следующий next буфер buffer трафик traffic wifi вайфай мобильная кэш cache быстрее faster "
+                            + "загрузка тормозит лагает"},
+            {"COMMENTS",
+                    "комментарии комментарий комменты коменты коммент комент коментарии comments comment отзывы "
+                            + "всплывающие всплывают popup pop-up",
+                    "реакции reactions волна waveform обложка плеер player скрыть убрать отключить"},
+            {"GREETING",
+                    "приветствие привет приветик здравствуйте greeting hello hi welcome что_послушаем",
+                    "надпись заголовок шапка header главная home имя name сверху"},
     };
 }

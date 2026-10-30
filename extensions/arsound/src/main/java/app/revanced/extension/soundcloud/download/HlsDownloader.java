@@ -59,7 +59,7 @@ public final class HlsDownloader {
     }
 
     /** The track was deleted while it was assembled, so the rest of the segments are not asked for. */
-    private static final class CancelledException extends IOException {
+    static final class CancelledException extends IOException {
         CancelledException() {
             super("The assembly was cancelled");
         }
@@ -112,52 +112,16 @@ public final class HlsDownloader {
         File stripped = new File(cache, FILE_PREFIX + trackId + ".mp4");
         try {
             requireFreeSpace(cache, MIN_FREE_BYTES);
-            List<Segment> segments = parsePlaylist(track.url);
-            boolean hasAudio = false;
-            for (Segment segment : segments) hasAudio |= segment.sequence != INITIALISATION_SEGMENT;
-            if (!hasAudio) {
-                // Only the headers of a fragmented MP4 would be saved as a silent "complete" file.
-                Logger.printInfo(() -> "HLS playlist of " + trackId + " has no segments");
-                return null;
-            }
-            String method = segments.get(segments.size() - 1).key.method;
-            Logger.printInfo(() -> "HLS track " + trackId + ": " + segments.size() + " segments, key " + method);
-
-            writeDecrypted(segments, transportStream, cancelled);
-            // Packing and publishing make one more copy of the track each, next to the decrypted stream.
-            requireFreeSpace(cache, 2 * transportStream.length() + MIN_FREE_BYTES);
-
+            Packed result = assemble(trackId, track.url, track.mimeType, new Parts(transportStream, packed, stripped),
+                    cancelled);
+            if (result == null) return null;
             // "Artist - Title" when the track's data is known, the id otherwise.
             String base = track.fileBase != null ? track.fileBase : "soundcloud-" + trackId;
-            String fileName;
-            File source;
-            if (isFragmentedMp4(transportStream)) {
-                // Every segment brings its own index, and the first one covers only its own ten seconds: players that
-                // trust it show a track of ten seconds and stop there. A plain MP4 has the whole length in its header.
-                if (remux(transportStream, packed)) {
-                    source = packed;
-                } else if (dropSegmentIndexes(transportStream, stripped)) {
-                    // At least without the false length: the track plays through, only without a length.
-                    source = stripped;
-                    Logger.printInfo(() -> "HLS track " + trackId + " saved as fragments without their indexes");
-                } else {
-                    source = transportStream;
-                }
-                fileName = base + ".m4a";
-            } else if (remux(transportStream, packed)) {
-                source = packed;
-                fileName = base + ".m4a";
-            } else {
-                // Not a transport stream the system can read: save the decrypted bytes as they are.
-                source = transportStream;
-                fileName = base + extensionFor(track.mimeType);
-                Logger.printInfo(() -> "HLS track " + trackId + " saved without remuxing");
-            }
 
             if (cancelled.getAsBoolean()) throw new CancelledException();
             // Another track may already have this name (two uploads of one song): the id tells them apart.
-            return publish(context, location, source, DownloadTrackPatch.freeFileName(location, fileName, trackId),
-                    track.title, track.artist);
+            return publish(context, location, result.file,
+                    DownloadTrackPatch.freeFileName(location, base + result.extension, trackId), track.title, track.artist);
         } catch (CancelledException ex) {
             Logger.printInfo(() -> "HLS assembly of " + trackId + " was cancelled");
             return null;
@@ -178,6 +142,86 @@ public final class HlsDownloader {
             delete(packed);
             delete(stripped);
         }
+    }
+
+    /** The working files of one assembly: the decrypted stream and its two packed forms. */
+    static final class Parts {
+        final File transportStream, packed, stripped;
+
+        Parts(File transportStream, File packed, File stripped) {
+            this.transportStream = transportStream;
+            this.packed = packed;
+            this.stripped = stripped;
+        }
+
+        void delete() {
+            HlsDownloader.delete(transportStream);
+            HlsDownloader.delete(packed);
+            HlsDownloader.delete(stripped);
+        }
+    }
+
+    /** The track packed into one file (one of the {@link Parts}), and the extension it plays under. */
+    static final class Packed {
+        final File file;
+        final String extension;
+
+        Packed(File file, String extension) {
+            this.file = file;
+            this.extension = extension;
+        }
+    }
+
+    static Packed assemble(String trackId, String playlistUrl, String mimeType, Parts parts, BooleanSupplier cancelled)
+            throws Exception {
+        return assemble(trackId, playlistUrl, mimeType, parts, cancelled, 0);
+    }
+
+    /**
+     * Downloads and decrypts the segments of a track and packs them into one file a player reads to the end.
+     *
+     * @param maxSegments A track of more segments is not assembled; 0 for any length.
+     * @return The packed file, or null if the playlist has no audio segments or too many.
+     * @throws CancelledException If {@code cancelled} turned true between segments.
+     * @throws NoSpaceException   If there is no room for the packed copies next to the stream.
+     */
+    static Packed assemble(String trackId, String playlistUrl, String mimeType, Parts parts, BooleanSupplier cancelled,
+                           int maxSegments) throws Exception {
+        List<Segment> segments = parsePlaylist(playlistUrl);
+        if (maxSegments > 0 && segments.size() > maxSegments) {
+            Logger.printInfo(() -> "HLS track " + trackId + " is too long to assemble ahead: " + segments.size() + " segments");
+            return null;
+        }
+        boolean hasAudio = false;
+        for (Segment segment : segments) hasAudio |= segment.sequence != INITIALISATION_SEGMENT;
+        if (!hasAudio) {
+            // Only the headers of a fragmented MP4 would be saved as a silent "complete" file.
+            Logger.printInfo(() -> "HLS playlist of " + trackId + " has no segments");
+            return null;
+        }
+        String method = segments.get(segments.size() - 1).key.method;
+        Logger.printInfo(() -> "HLS track " + trackId + ": " + segments.size() + " segments, key " + method);
+
+        File transportStream = parts.transportStream;
+        writeDecrypted(segments, transportStream, cancelled);
+        // Packing and publishing make one more copy of the track each, next to the decrypted stream.
+        requireFreeSpace(transportStream.getParentFile(), 2 * transportStream.length() + MIN_FREE_BYTES);
+
+        if (isFragmentedMp4(transportStream)) {
+            // Every segment brings its own index, and the first one covers only its own ten seconds: players that
+            // trust it show a track of ten seconds and stop there. A plain MP4 has the whole length in its header.
+            if (remux(transportStream, parts.packed)) return new Packed(parts.packed, ".m4a");
+            if (dropSegmentIndexes(transportStream, parts.stripped)) {
+                // At least without the false length: the track plays through, only without a length.
+                Logger.printInfo(() -> "HLS track " + trackId + " saved as fragments without their indexes");
+                return new Packed(parts.stripped, ".m4a");
+            }
+            return new Packed(transportStream, ".m4a");
+        }
+        if (remux(transportStream, parts.packed)) return new Packed(parts.packed, ".m4a");
+        // Not a transport stream the system can read: save the decrypted bytes as they are.
+        Logger.printInfo(() -> "HLS track " + trackId + " saved without remuxing");
+        return new Packed(transportStream, extensionFor(mimeType));
     }
 
     /**
@@ -611,7 +655,7 @@ public final class HlsDownloader {
         }
     }
 
-    private static String extensionFor(String mimeType) {
+    static String extensionFor(String mimeType) {
         if (mimeType == null) return ".aac";
         if (mimeType.contains("mpeg")) return ".mp3";
         if (mimeType.contains("opus") || mimeType.contains("ogg")) return ".opus";

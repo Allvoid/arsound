@@ -319,6 +319,42 @@ public class SearchIndexTest {
     }
 
     @Test
+    public void theSmoothTransitionHasManyNames() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"кроссфейд", "кросфейд", "crossfade", "затухание", "затухает трек",
+                "плавный переход", "переход между треками", "fade", "склейка треков", "сведение", "gapless", "rhjccatql"}) {
+            assertFinds(index, query, "Плавный переход между треками");
+        }
+    }
+
+    @Test
+    public void loadingTheNextTrackHasManyNames() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"предзагрузка", "подгрузка", "подгружать следующий", "буферизация",
+                "preload", "prefetch", "следующий трек", "загружать заранее"}) {
+            assertFinds(index, query, "Загружать следующий трек заранее");
+        }
+    }
+
+    @Test
+    public void commentsAreFoundHoweverTheyAreSpelt() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"комментарии", "комменты", "коменты", "коментарии", "comments",
+                "убрать комментарии", "всплывающие", "popup", "отключить комменты"}) {
+            assertFinds(index, query, "Скрыть всплывающие комментарии");
+        }
+    }
+
+    @Test
+    public void theGreetingIsFoundByItsWords() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"привет", "приветствие", "что послушаем", "greeting", "hello",
+                "надпись на главной", "убрать привет"}) {
+            assertFinds(index, query, "Без приветствия на главной");
+        }
+    }
+
+    @Test
     public void keywordsHelpARowThatDoesNotSayTheWord() {
         SearchIndex index = new SearchIndex();
         SearchEntry theme = row("A", "Тема", "");

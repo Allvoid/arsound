@@ -6,9 +6,14 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import app.revanced.extension.soundcloud.player.MixWithOtherApps;
+import app.revanced.extension.soundcloud.player.NextTrackPreload;
+import app.revanced.extension.soundcloud.player.PlayerComments;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
 
-/** Playing offline, retrying, mixing with other apps, the stream cache, the lyrics. */
+/**
+ * Transitions between tracks, loading the next track ahead, the comments in the player, retrying, mixing with other
+ * apps, the lyrics, playing offline.
+ */
 final class PlaybackScreen extends SectionScreen {
     static final String ID = "playback";
     /** The rows of the lyrics recognition built last; null until the screen is built. */
@@ -25,8 +30,8 @@ final class PlaybackScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Повтор при обрыве связи, игра вместе с другими приложениями, тексты песен, плейлисты без интернета",
-                "Retry on a dropped connection, playing along with other apps, lyrics, playlists without a connection");
+        return text("Плавный переход между треками, загрузка следующего трека, комментарии в плеере, тексты песен, офлайн",
+                "Smooth transitions, loading the next track, comments in the player, lyrics, offline");
     }
 
     @Override
@@ -41,17 +46,21 @@ final class PlaybackScreen extends SectionScreen {
 
     @Override
     String keywords() {
-        return text("плеер музыка играть тексты песен офлайн", "player music play lyrics offline");
+        return text("плеер музыка играть тексты песен офлайн переход затухание кроссфейд комментарии предзагрузка",
+                "player music play lyrics offline transition fade crossfade comments preload");
     }
 
     @Override
     String summary() {
-        return text("Повтор при обрыве: ", "Retry on drop: ") + (BoolSettings.PLAYBACK_RETRY.get() ? text("вкл", "on") : text("выкл", "off"))
+        return text("Плавный переход: ", "Smooth transition: ") + (BoolSettings.CROSSFADE.get() ? text("вкл", "on") : text("выкл", "off"))
                 + text(" · тексты: ", " · lyrics: ") + (BoolSettings.LYRICS_ENABLED.get() ? text("вкл", "on") : text("выкл", "off"));
     }
 
     @Override
     void fill(LinearLayout list) {
+        addTransitionRows(list);
+        addPlayerRows(list);
+
         list.addView(ui.createSubHeading(text("Воспроизведение", "Playback")));
         list.addView(ui.createToggleRow(
                 text("Повторять при обрыве связи", "Retry on dropped connection"),
@@ -102,6 +111,64 @@ final class PlaybackScreen extends SectionScreen {
         ).icon("playback"));
 
         addVivoMusicCardRow(list);
+    }
+
+    /** How one track goes over into the next: the fades, and the next track loaded ahead. */
+    private void addTransitionRows(LinearLayout list) {
+        list.addView(ui.createSubHeading(text("Между треками", "Between tracks")));
+        SubRows fadeOptions = ui.createSubRows();
+        list.addView(ui.createToggleRow(
+                text("Плавный переход между треками", "Smooth transition between tracks"),
+                text("Конец трека плавно затихает, а следующий трек начинается тихо и плавно набирает громкость. "
+                                + "Срабатывает, когда трек доиграл сам; трек, который вы включили или переключили сами, "
+                                + "начинается сразу на полной громкости. Меняется громкость плеера, а не телефона.",
+                        "The end of a track fades out, and the next track starts quietly and fades in. It works when a "
+                                + "track played to its end; a track you picked or skipped to starts at full volume at "
+                                + "once. The player's volume changes, not the phone's."),
+                BoolSettings.CROSSFADE,
+                fadeOptions
+        ).icon("volume").brief(text("Трек затихает в конце, следующий плавно нарастает.",
+                "A track fades out at its end, the next one fades in.")));
+        fadeOptions.addView(ui.createChoiceRow(text("Длительность затухания", "Fade length"), null,
+                Settings.CROSSFADE_SECONDS, 6, new long[]{2, 4, 6, 8, 10, 12},
+                new String[]{text("2 с", "2 s"), text("4 с", "4 s"), text("6 с", "6 s"), text("8 с", "8 s"),
+                        text("10 с", "10 s"), text("12 с", "12 s")},
+                null));
+        list.addView(fadeOptions);
+        list.addView(ui.createChoiceRow(text("Загружать следующий трек заранее", "Load the next track ahead"),
+                text("Пока играет трек, следующий из облака скачивается целиком во временную папку, поэтому "
+                                + "начинается сразу и не прерывается на слабой сети. Скачанные и свои треки "
+                                + "уже на телефоне, их это не касается. По мобильной сети следующий трек грузится "
+                                + "за полторы минуты до конца текущего, чтобы не тратить трафик на пропущенные треки. "
+                                + "Временные копии удаляются сами и не видны среди скачанных.",
+                        "While a track plays, the next one from the cloud is fetched whole into a temporary folder, "
+                                + "so it starts at once and does not stop on a weak network. Downloaded and imported "
+                                + "tracks are already on the phone and are left alone. On mobile data the next track "
+                                + "is fetched a minute and a half before the current one ends, so skipped tracks cost "
+                                + "no data. The temporary copies delete themselves and are not shown as downloads."),
+                Settings.PRELOAD_NEXT, NextTrackPreload.ALWAYS,
+                new long[]{NextTrackPreload.OFF, NextTrackPreload.UNMETERED, NextTrackPreload.ALWAYS},
+                new String[]{text("Никогда", "Never"), text("Только по Wi-Fi", "Wi-Fi only"),
+                        text("Wi-Fi и мобильная сеть", "Wi-Fi and mobile data")},
+                null).icon("offline").brief(text("Следующий трек из облака скачивается, пока играет текущий.",
+                "The next track from the cloud is fetched while the current one plays.")));
+    }
+
+    /** What the full screen player shows besides the track. */
+    private void addPlayerRows(LinearLayout list) {
+        list.addView(ui.createSubHeading(text("Плеер", "Player")));
+        list.addView(ui.createToggleRow(
+                text("Скрыть всплывающие комментарии", "Hide pop-up comments"),
+                text("Комментарии слушателей больше не всплывают поверх обложки, пока играет трек, и не отмечаются "
+                                + "на волне. Писать и читать комментарии по-прежнему можно: кнопка комментариев под "
+                                + "плеером остаётся.",
+                        "Listeners' comments no longer pop up over the artwork while a track plays and are not marked "
+                                + "on the waveform. You can still read and write comments: the comments button under "
+                                + "the player stays."),
+                BoolSettings.HIDE_PLAYER_COMMENTS,
+                (button, checked) -> PlayerComments.onSettingChanged(checked)
+        ).icon("log").brief(text("Комментарии не всплывают над обложкой во время трека.",
+                "Comments do not pop up over the artwork while a track plays.")));
     }
 
     /** The lyrics button of the player. The cache of the lyrics is cleared on the storage screen. */

@@ -64,6 +64,11 @@ public final class PlayModeButton {
         queueManager = new WeakReference<>(manager);
     }
 
+    /** SoundCloud's queue manager, or null before it is made. */
+    static Object queueManager() {
+        return queueManager.get();
+    }
+
     // region Android 13 and later: the media session
 
     /** Injection point. The start of the media service's method that hands a playback state to the session. */
