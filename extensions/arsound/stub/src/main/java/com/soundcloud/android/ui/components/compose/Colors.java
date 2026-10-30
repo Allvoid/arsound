@@ -7,4 +7,9 @@ public final class Colors {
     public static long j(Composer composer) {
         return 0;
     }
+
+    /** @return The highlight colour (the search field, a highlighted cell), as a packed Compose Color. */
+    public static long d(Composer composer) {
+        return 0;
+    }
 }

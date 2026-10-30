@@ -11,6 +11,7 @@ import android.graphics.Paint;
 import java.io.ByteArrayOutputStream;
 
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * The pictures behind the title of some pages: the orange hearts of "Your likes" and the golden cards of the
@@ -19,8 +20,8 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * the server as a picture link and stay as they are.)
  * <p>
  * The theme recolours them into its accent when it is built ({@link #tint}), and a setting hides them. The pictures
- * behind a page title lose their dark ground on the way: the drawing lies over the page, so a wallpaper behind the
- * page shows through instead of being covered by a dark band.
+ * behind a page title lose their dark ground on the way, so over a plain page they look as designed. Over a wallpaper
+ * the picture is not drawn at all: even see-through it lay over the top of the page as a pale band with hearts.
  */
 public final class HeaderArtwork {
     /** The pictures, by resource name. */
@@ -33,11 +34,11 @@ public final class HeaderArtwork {
 
     /**
      * Called by {@code CollapsableAppBarBackground.Companion.a(resource)} for the opacity of the picture
-     * (1 in SoundCloud). Zero leaves the bar with the page's plain background.
+     * (1 in SoundCloud). Zero leaves the bar with the page's plain background, or the wallpaper.
      */
     @SuppressWarnings("unused")
     public static float alpha(int resource) {
-        return Settings.isHeaderArtworkHidden() ? 0f : 1f;
+        return Settings.isHeaderArtworkHidden() || WallpaperStore.isActive() ? 0f : 1f;
     }
 
     /**

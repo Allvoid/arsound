@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.AndroidCompositionLocals_androidKt;
 import com.soundcloud.android.ui.components.compose.Colors;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.shared.ResourceType;
+import app.revanced.extension.shared.Utils;
 
 /**
  * The wallpaper behind SoundCloud's main screens (home, library, search, playlists and the rest that open over the
@@ -24,7 +26,8 @@ import app.revanced.extension.shared.Logger;
  * <li>the base fills of the views of a screen, when its fragment has made its view ({@link ScreenBackgrounds});</li>
  * <li>the base colour of a Compose screen, which SoundCloud's theme, scaffold and collapsing title bar ("Your likes")
  * take from {@code Colors.j};</li>
- * <li>the blurred cover behind the title of a playlist or a profile, and the fades of a playlist's header.</li>
+ * <li>the blurred cover behind the title of a playlist or a profile, and the fades of a playlist's header;</li>
+ * <li>the solid fill of a highlighted track cell (a Go+ track that plays as a preview).</li>
  * </ul>
  * The player, the mini player, the tab bar, dialogs and sheets keep their colours: they are not in the container of
  * the main screens, or not in the window at all.
@@ -115,6 +118,30 @@ public final class WallpaperSurfaces {
     public static long screenSurface(Composer composer) {
         long surface = Colors.j(composer);
         return active && onWallpaperScreen(composer) ? TRANSPARENT : surface;
+    }
+
+    /**
+     * Injection point, in the content of SoundCloud's Compose track cell (the likes, playlists): the fill of a track
+     * that plays only as a preview for this account (Go+), {@code Colors.d}. Clear on a main screen with the wallpaper,
+     * like the other rows; the GO+ mark on the cover still tells the track apart. SoundCloud's colour anywhere else.
+     */
+    public static long previewCellFill(Composer composer) {
+        long fill = Colors.d(composer);
+        return active && onWallpaperScreen(composer) ? TRANSPARENT : fill;
+    }
+
+    /**
+     * Injection point, in the view states of track cells: the background of a highlighted cell, which SoundCloud gives
+     * a track that plays only as a preview for this account (Go+). Its solid colour lay over the wallpaper like a band;
+     * while the wallpaper is shown the cell has the plain background of the others, and the GO+ mark on the cover still
+     * tells the track apart.
+     *
+     * @param highlight The drawable resource of the highlighted cell.
+     */
+    public static int trackCellBackground(int highlight) {
+        if (!active) return highlight;
+        int plain = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ripple_cell_default_drawable");
+        return plain == 0 ? highlight : plain;
     }
 
     /**

@@ -1,16 +1,20 @@
 package app.arsound.patches.soundcloud.misc.theme
 
+import app.arsound.util.findInstructionIndicesReversed
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.fieldReference
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.extensions.replaceInstruction
+import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
+import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod
@@ -21,6 +25,20 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val SURFACES = "Lapp/revanced/extension/soundcloud/wallpaper/WallpaperSurfaces;"
 private const val COLORS = "Lcom/soundcloud/android/ui/components/compose/Colors;"
+
+/** A small track cell of a Compose list (the likes, a playlist): {@code CellSmallTrackKt.b}. */
+private val BytecodePatchContext.composeSmallTrackCellMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/ui/components/compose/listviews/track/CellSmallTrackKt;")
+    name("b")
+    returnType("V")
+}
+
+/** The first parameters of the content lambda the Compose cell makes: clickable, click, playable, height, end content. */
+private val CELL_CONTENT_PARAMETERS = listOf("Z", "Lkotlin/jvm/functions/Function0;", "Z", "F", "Lkotlin/jvm/functions/Function3;")
+
+/** The view states of the track cells that may be highlighted: they pick the cell's background drawable. */
+private val TRACK_CELL_STATES = listOf("CellSmallTrack", "CellMicroTrack", "CellSlideTrack")
+    .map { "Lcom/soundcloud/android/ui/components/listviews/track/$it\$ViewState;" }
 
 /** The end of a fragment's view being made: {@code Fragment.performViewCreated()}, which calls {@code onViewCreated}. */
 private val BytecodePatchContext.fragmentViewCreatedMethod by gettingFirstMethodDeclaratively {
@@ -215,6 +233,47 @@ val wallpaperSurfacesPatch = bytecodePatch {
                     move-result-object v${call.registerD}
                 """,
             )
+        }
+        // A track that plays only as a preview (Go+) gets a highlight fill in the Compose cell's content: clear over a
+        // wallpaper. The content is a lambda class made by the cell; its fill is the palette colour d.
+        val cellContent = composeSmallTrackCellMethod.implementation!!.instructions.firstNotNullOf { instruction ->
+            instruction.methodReference?.takeIf {
+                it.name == "<init>" && it.parameterTypes.map(CharSequence::toString).take(5) == CELL_CONTENT_PARAMETERS
+            }?.definingClass
+        }
+        var fills = 0
+        firstClassDef(cellContent).methods.forEach { method ->
+            method.findInstructionIndicesReversed { isColourCall("d") }.forEach { index ->
+                val composer = method.getInstruction<FiveRegisterInstruction>(index).registerC
+                method.replaceInstruction(
+                    index,
+                    "invoke-static { v$composer }, $SURFACES->previewCellFill(Landroidx/compose/runtime/Composer;)J",
+                )
+                fills++
+            }
+        }
+        if (fills == 0) throw PatchException("The Compose track cell $cellContent has no highlight fill any more")
+
+        // A highlighted track cell (a Go+ preview) reads its background from the extension: plain over a wallpaper.
+        TRACK_CELL_STATES.forEach { type ->
+            val constructors = firstClassDef(type).methods.filter { it.name == "<init>" }
+            var found = false
+            constructors.forEach { constructor ->
+                constructor.findInstructionIndicesReversed {
+                    opcode == Opcode.SGET && fieldReference?.name == "ripple_cell_highlight_drawable"
+                }.forEach { index ->
+                    val register = constructor.getInstruction<OneRegisterInstruction>(index).registerA
+                    constructor.addInstructions(
+                        index + 1,
+                        """
+                            invoke-static/range { v$register .. v$register }, $SURFACES->trackCellBackground(I)I
+                            move-result v$register
+                        """,
+                    )
+                    found = true
+                }
+            }
+            if (!found) throw PatchException("$type does not pick ripple_cell_highlight_drawable any more")
         }
     }
 }

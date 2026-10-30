@@ -52,7 +52,8 @@ final class SettingsIcons {
         put("storage", "ic_actions_downloaded");
         put("cache", "ic_actions_cloud_offline");
         put("trash", "ic_actions_delete_bin");
-        put("clock", "ic_actions_timer");
+        // The timer icon is a hairline stroke that does not show in a tile; the history clock is filled.
+        put("clock", "ic_actions_listening_history_dark", "ic_actions_timer");
         put("eq", "ic_actions_sliders_vertical");
         put("volume", "ic_actions_volume_high_light");
         put("stats", "ic_actions_insights");

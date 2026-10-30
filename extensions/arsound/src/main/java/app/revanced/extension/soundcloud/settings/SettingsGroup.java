@@ -40,6 +40,13 @@ final class SettingsGroup extends LinearLayout {
         return params;
     }
 
+    /** A card whose rows keep apart by their own spacing, with no lines between them. */
+    SettingsGroup withoutDividers() {
+        dividerSet = true;
+        setShowDividers(SHOW_DIVIDER_NONE);
+        return this;
+    }
+
     @Override
     public void addView(View child, int index, ViewGroup.LayoutParams params) {
         super.addView(child, index, params);
