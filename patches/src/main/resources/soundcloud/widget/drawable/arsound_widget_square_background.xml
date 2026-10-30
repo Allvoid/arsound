@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The card of the 2 x 2 widget: the cover is cut to its rounded corners on Android 12 and later. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#FF17151F" />
+    <corners android:radius="24dp" />
+</shape>

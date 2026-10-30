@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Arsound player widget, 2 x 2: the cover with the track and the buttons over it (widget/SquarePlayerWidget). -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/arsound_widget_square_empty"
+    android:previewLayout="@layout/arsound_widget_square_empty"
+    android:previewImage="@drawable/appwidget_empty_logo_background"
+    android:widgetCategory="home_screen" />

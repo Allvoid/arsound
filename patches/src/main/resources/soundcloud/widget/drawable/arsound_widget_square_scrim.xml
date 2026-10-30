@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Darkens the bottom of the cover under the title and the buttons, and a little the top under the heart. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#40000000"
+        android:centerColor="#00000000"
+        android:endColor="#E6000000"
+        android:centerY="0.38" />
+</shape>

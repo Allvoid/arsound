@@ -49,6 +49,7 @@ local/                            Локальные файлы, в Git не п�
 | **Track transitions** | `PlaybackEvents`: начало элемента (`BaseExoPlayer.f`) и отчёт о позиции (`LocalPlayback.i`, поля `ProgressChangeEvent.b/c`) уходят в `Crossfade` (затухание и нарастание громкостью плеера `BaseExoPlayer.setVolume`) и `NextTrackPreload` (следующий облачный трек целиком в `cache/arsound-next` через `download.PrefetchedTracks`, играет как скачанный). |
 | **Top bar over the wallpaper** | В `WallpaperSurfacesPatch`: `Colors.j` в `TopAppBarKt` (b, c) заменён на `WallpaperSurfaces.topBarColour`, перед `AppBarKt.b` модификатор панели проходит через `topBarModifier` — стили `wallpaper.TopBarStyle`, заливки градиента и стекла (`TopBarLook`: размытая полоса обоев через `ShaderBrush`) строятся рефлексией по сохранённым именам Compose. |
 | **Player comments** | `PlayerSettings.a()` (настройка SoundCloud `player_popup_comments`) проходит через `PlayerComments.showPopups`; переключатель Arsound пишет и саму настройку SoundCloud, открытый плеер меняется сразу. |
+| **Square player widget** | Виджет 2 × 2 (`SquarePlayerWidget`, ресурсы в `soundcloud/widget`, приёмник «Arsound 2×2» в манифесте). В начало `PlayerWidgetPresenter.b(RemoteViews)` вставлен вызов `SquarePlayerWidget.onPlayerWidget`: тот же построитель SoundCloud (`PlayerWidgetRemoteViewsBuilder`) запускается ещё раз с `WidgetResourceProvider` через `Proxy`, который отдаёт свой макет (с id виджета SoundCloud) и свои круглые значки. |
 | **Change account type** | Свой тип аккаунта Android, чтобы мод работал рядом с оригиналом. |
 | **Custom app name**, **Arsound branding** | Название, иконки (и 93 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
 | **Change package name** | Патч ReVanced: пакет `com.arsound.app` (до 0.9.3 включительно был `com.soundcloud.android.revanced`). |
@@ -93,7 +94,7 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `update` | проверка обновлений и реестр реакций на экраны (`ScreenHooks`) | `UpdateChecker` |
 | `upsell` | прячет предложения подписки и вкладку Upgrade | `HidePaywallPatch` |
 | `wallpaper` | обои за главными экранами, браузер Wallhaven | `WallpaperSurfaces`, `WallpaperStore` |
-| `widget` | сердечко виджета плеера по цвету обложки, обложки виджета лайков | `WidgetHeart`, `WidgetImages` |
+| `widget` | сердечко виджета плеера по цвету обложки, обложки виджета лайков, квадратный виджет 2 × 2 | `WidgetHeart`, `WidgetImages` |
 
 Правила, по которым код разложен:
 

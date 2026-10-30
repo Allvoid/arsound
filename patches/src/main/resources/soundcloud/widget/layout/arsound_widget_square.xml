@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Arsound player widget, 2 x 2. SoundCloud's own widget builder fills it: the ids are those of its widget
+    (widget_body, icon, title_txt, user_txt, prev, toggle_playback, next, btn_like), so the texts, the cover, the play
+    state and every button's action come from SoundCloud. See widget/SquarePlayerWidget.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@id/widget_body"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/arsound_widget_square_background"
+    android:clipToOutline="true"
+    android:contentDescription="@string/widget_touch_to_open"
+    android:theme="@style/Theme.AppWidget.AppWidgetContainer">
+
+    <ImageView
+        android:id="@id/icon"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:src="@drawable/appwidget_empty_logo_background" />
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/arsound_widget_square_scrim" />
+
+    <ImageButton
+        android:id="@id/btn_like"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="4dp"
+        android:background="@drawable/arsound_widget_square_round"
+        android:contentDescription="@string/accessibility_like_action"
+        android:padding="9dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/arsound_widget_heart" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@id/title_txt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@id/user_txt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#B8FFFFFF"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <!-- Three columns that share the width: a narrow cell shrinks the icons instead of cutting them. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@id/prev"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:background="@drawable/arsound_widget_square_round"
+                android:contentDescription="@string/accessibility_previous"
+                android:padding="6dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/arsound_widget_prev" />
+
+            <ImageButton
+                android:id="@id/toggle_playback"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1.2"
+                android:background="@drawable/arsound_widget_square_round"
+                android:contentDescription="@string/accessibility_play"
+                android:scaleType="centerInside"
+                android:src="@drawable/arsound_widget_play" />
+
+            <ImageButton
+                android:id="@id/next"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:background="@drawable/arsound_widget_square_round"
+                android:contentDescription="@string/accessibility_next"
+                android:padding="6dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/arsound_widget_next" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
