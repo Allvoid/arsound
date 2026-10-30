@@ -93,7 +93,8 @@ public final class NativeOffline {
                 if ("DOWNLOADED".equals(state) || "REQUESTED".equals(state) || "DOWNLOADING".equals(state)) continue;
                 try {
                     Object urn = urn(operations, trackId);
-                    Method make = operations.getClass().getMethod("makeTrackAvailableOffline", urn.getClass());
+                    Method make = operations.getClass().getMethod("makeTrackAvailableOffline",
+                            Reflect.type(operations.getClass().getClassLoader(), URN_CLASS));
                     Object completable = make.invoke(operations, urn);
                     if (completable != null) completable.getClass().getMethod("subscribe").invoke(completable);
                     queued++;
