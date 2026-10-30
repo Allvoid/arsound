@@ -157,8 +157,16 @@ public final class DownloadTrackPatch {
         try {
             Object trackUrn = trackItem.getClass().getMethod("getUrn").invoke(trackItem);
             String trackId = parseTrackId(trackUrn);
-            if (trackId == null || !getDownloadedTracks().contains(trackId)) return icon;
-            return iconState(DownloadProgress.isDownloading(trackId) ? "DOWNLOADING" : "DOWNLOADED");
+            if (trackId == null) return icon;
+            if (getDownloadedTracks().contains(trackId)) {
+                return iconState(DownloadProgress.isDownloading(trackId) ? "DOWNLOADING" : "DOWNLOADED");
+            }
+            // A DRM track lives in SoundCloud's offline library, not as an Arsound file, but the user wants it to
+            // look the same: show it the same downloaded (or downloading) icon from SoundCloud's own offline state.
+            String nativeState = app.revanced.extension.soundcloud.offline.NativeOffline.offlineState(trackId);
+            if ("DOWNLOADED".equals(nativeState)) return iconState("DOWNLOADED");
+            if ("REQUESTED".equals(nativeState) || "DOWNLOADING".equals(nativeState)) return iconState("DOWNLOADING");
+            return icon;
         } catch (Exception ex) {
             Logger.printException(() -> "getDownloadIcon failure", ex);
             return icon;
@@ -1368,6 +1376,10 @@ public final class DownloadTrackPatch {
         if (downloadedEntry(trackId) != null) return DownloadState.DOWNLOADED;
         // An HLS track has no file until its segments are packed.
         if (DownloadProgress.isAssembling(trackId)) return DownloadState.IN_PROGRESS;
+        // A DRM track downloaded through SoundCloud's own offline library counts as downloaded like any other.
+        String nativeState = app.revanced.extension.soundcloud.offline.NativeOffline.offlineState(trackId);
+        if ("DOWNLOADED".equals(nativeState)) return DownloadState.DOWNLOADED;
+        if ("REQUESTED".equals(nativeState) || "DOWNLOADING".equals(nativeState)) return DownloadState.IN_PROGRESS;
         if (!getDownloadedTracks().contains(trackId)) return DownloadState.NOT_DOWNLOADED;
 
         SharedPreferences preferences = getPreferences();

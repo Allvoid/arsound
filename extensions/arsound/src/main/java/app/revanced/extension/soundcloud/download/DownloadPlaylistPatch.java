@@ -556,9 +556,10 @@ public final class DownloadPlaylistPatch {
                 .setPositiveButton(text("Скачать " + toStart, "Download " + toStart),
                         (d, which) -> {
                             if (!downloadable.isEmpty()) downloadAll(context, playlistId, downloadable);
-                            // DRM tracks go to SoundCloud's own offline download.
-                            for (String drmId : drmIds) {
-                                app.revanced.extension.soundcloud.offline.NativeOffline.makeAvailable(context, drmId);
+                            // DRM tracks go to SoundCloud's own offline download, queued as one batch so the native
+                            // service starts once instead of spamming a notification per track.
+                            if (!drmIds.isEmpty()) {
+                                app.revanced.extension.soundcloud.offline.NativeOffline.makeAvailableAll(context, drmIds);
                             }
                         })
                 .show();
