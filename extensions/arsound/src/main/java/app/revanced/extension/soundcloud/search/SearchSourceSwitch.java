@@ -74,13 +74,17 @@ public final class SearchSourceSwitch {
             // The screen found last is kept whatever the "Smooth player collapse" setting: the lookups by name ran on every
             // layout of the slide with the setting off.
             LinearLayout known = switched.get();
-            if (known != null && known.isAttachedToWindow() && known.findViewWithTag(SourceToggle.TAG) != null) return;
+            if (known != null && known.isAttachedToWindow() && known.findViewWithTag(SourceToggle.TAG) != null) {
+                roundBackButton(known);
+                return;
+            }
             if (coordinatorId < 0) coordinatorId = id("search_coordinator");
             View found = decor.findViewById(coordinatorId);
             if (!(found instanceof LinearLayout)) return;
             LinearLayout coordinator = (LinearLayout) found;
             if (coordinator.findViewWithTag(SourceToggle.TAG) != null) {
                 switched = new WeakReference<>(coordinator);
+                roundBackButton(coordinator);
                 return;
             }
             View container = coordinator.findViewById(id("search_container"));
@@ -88,8 +92,15 @@ public final class SearchSourceSwitch {
             if (container == null || !(edit instanceof EditText)) return;
             SearchScreen.makeCurrent(new SearchScreen(coordinator, container, (EditText) edit));
             switched = new WeakReference<>(coordinator);
+            roundBackButton(coordinator);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not add the search switch", ex);
         }
+    }
+
+    /** The arrow of the search field presses as a circle around it, not as a square the size of the field. */
+    private static void roundBackButton(LinearLayout coordinator) {
+        View edit = coordinator.findViewById(id("search_edit_text"));
+        if (edit instanceof EditText) SearchBackButton.round(coordinator, id("search_edit_text_action"), (EditText) edit);
     }
 }
