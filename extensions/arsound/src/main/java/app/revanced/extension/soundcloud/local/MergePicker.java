@@ -166,9 +166,12 @@ final class MergePicker {
     // region Window
 
     void show() {
-        for (MergeCandidate candidate : library.sources) rows.add(new Row(candidate));
+        // The first rows now, the rest a part per frame once the window is up: a library of hundreds of playlists made
+        // thousands of views in the frame the window opened in.
+        int first = Math.min(FIRST_ROWS, library.sources.size());
+        for (int i = 0; i < first; i++) rows.add(new Row(library.sources.get(i)));
         // Room for the covers of the whole library, so opening the window again does not load them again.
-        THUMBNAILS.resize(Math.max(MIN_CACHE_BYTES, Math.min(MAX_CACHE_BYTES, rows.size() * COVER_CACHE_BYTES)));
+        THUMBNAILS.resize(Math.max(MIN_CACHE_BYTES, Math.min(MAX_CACHE_BYTES, library.sources.size() * COVER_CACHE_BYTES)));
 
         PickerContent content = new PickerContent(context);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -222,11 +225,33 @@ final class MergePicker {
                 .setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Совместить", "Merge"), (d, which) -> listener.onMerge(tickedCandidates()))
-                .setOnDismissListener((DialogInterface d) -> closed = true)
+                .setOnDismissListener((DialogInterface d) -> {
+                    closed = true;
+                    // The covers of a big library are not kept at full size for the rest of the process.
+                    THUMBNAILS.resize(MIN_CACHE_BYTES);
+                })
                 .show();
         // The window did not open (its screen is going away): nobody is there to see the covers.
         if (!dialog.isShowing()) closed = true;
         updateState();
+        if (rows.size() < library.sources.size()) pool.post(this::addMoreRows);
+    }
+
+    /** Rows built when the window opens, and per frame afterwards. */
+    private static final int FIRST_ROWS = 40, ROWS_PER_FRAME = 25;
+
+    /** Adds the next rows of the library to the list, then asks for the next frame for the rest. */
+    private void addMoreRows() {
+        if (closed) return;
+        int end = Math.min(library.sources.size(), rows.size() + ROWS_PER_FRAME);
+        while (rows.size() < end) {
+            Row row = new Row(library.sources.get(rows.size()));
+            rows.add(row);
+            pool.addView(row.view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        updateState();
+        loadVisibleCovers();
+        if (rows.size() < library.sources.size()) pool.post(this::addMoreRows);
     }
 
     /** The playlist that gets the tracks: it cannot be moved or unticked. */

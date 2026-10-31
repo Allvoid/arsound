@@ -332,6 +332,8 @@ public final class OtherSource {
         long total = sizeOf(url);
         long done = 0;
         while (done < total) {
+            // A download given up (a batch's time limit, a stop) ends at the next part instead of going on unseen.
+            if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Download stopped");
             byte[] bytes = readPart(url, done, (int) Math.min(part, total - done));
             if (bytes.length == 0) throw new IOException("Empty part at " + done);
             output.write(bytes);

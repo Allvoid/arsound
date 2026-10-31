@@ -55,6 +55,20 @@ public final class WatchFolder {
     private WatchFolder() {
     }
 
+    /** The failed copies of each file, by document id: {"id": count}. */
+    private static final String FAILURES = "watch_folder_failures";
+    private static final int MAX_FAILURES = 3;
+    /** Below this much free space the folder is not copied from at all. */
+    private static final long MIN_FREE_BYTES = 100L * 1024 * 1024;
+
+    private static org.json.JSONObject readFailures(SharedPreferences preferences) {
+        try {
+            return new org.json.JSONObject(preferences.getString(FAILURES, "{}"));
+        } catch (Exception ex) {
+            return new org.json.JSONObject();
+        }
+    }
+
     private static SharedPreferences preferences() {
         return LocalPrefs.open(PREFERENCES_NAME);
     }
@@ -129,15 +143,32 @@ public final class WatchFolder {
                 // One by one, to know which file failed: only that one is tried again.
                 List<File> files = new ArrayList<>();
                 Set<String> failed = new HashSet<>();
+                Set<String> skipped = new HashSet<>();
+                org.json.JSONObject failures = readFailures(preferences);
                 for (Uri uri : found) {
+                    String id = DocumentsContract.getDocumentId(uri);
+                    // A nearly full phone: nothing is copied, and nothing counts as a failure of the file.
+                    if (context.getFilesDir().getUsableSpace() < MIN_FREE_BYTES) {
+                        skipped.add(id);
+                        continue;
+                    }
                     List<File> copied = LocalMusic.importFileList(context, Collections.singletonList(uri));
-                    if (copied.isEmpty()) failed.add(DocumentsContract.getDocumentId(uri));
+                    if (copied.isEmpty()) {
+                        int count = failures.optInt(id) + 1;
+                        // A file that fails again and again is given up on: it was copied at every check.
+                        if (count < MAX_FAILURES) failed.add(id);
+                        else Logger.printInfo(() -> "Watch folder: gave up on " + id + " after " + count + " failures");
+                        failures.put(id, count);
+                    } else {
+                        failures.remove(id);
+                    }
                     files.addAll(copied);
                 }
                 seen.addAll(foundIds);
                 // A file that could not be copied is tried again at the next check, not forgotten.
                 seen.removeAll(failed);
-                preferences.edit().putStringSet(SEEN, seen).apply();
+                seen.removeAll(skipped);
+                preferences.edit().putStringSet(SEEN, seen).putString(FAILURES, failures.toString()).apply();
                 Logger.printInfo(() -> "Watch folder: " + found.size() + " new, imported " + files.size());
                 if (files.isEmpty() && !report) return;
 

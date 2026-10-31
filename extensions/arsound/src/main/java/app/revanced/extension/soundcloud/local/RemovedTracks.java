@@ -86,8 +86,20 @@ public final class RemovedTracks {
         List<String> previous = stored == null || stored.isEmpty()
                 ? new ArrayList<>() : new ArrayList<>(Arrays.asList(stored.split("\n")));
 
-        // An empty list after a full one is more likely a failed load than a playlist emptied on purpose.
-        if (current.isEmpty() && !previous.isEmpty()) return;
+        // An empty list after a full one is more likely a failed load than a playlist emptied on purpose. Twice in a row
+        // it is taken as emptied: the old list goes, so tracks deleted later do not come back from it greyed out.
+        if (current.isEmpty() && !previous.isEmpty()) {
+            Integer before = emptyReads.get(playlist);
+            int reads = before == null ? 1 : before + 1;
+            if (reads < 2) {
+                emptyReads.put(playlist, reads);
+                return;
+            }
+            emptyReads.remove(playlist);
+            preferences.edit().putString(SNAPSHOT_PREFIX + playlist, "").apply();
+            return;
+        }
+        emptyReads.remove(playlist);
 
         Set<String> now = new HashSet<>(current);
         restoreListed(preferences, playlist, now);
@@ -232,6 +244,9 @@ public final class RemovedTracks {
     }
 
     /** Remembers the name of a downloaded track shown on screen, so its imported copy gets a readable name. */
+    /** The empty reads of each playlist in a row, while its kept list is not empty. */
+    private static final java.util.Map<String, Integer> emptyReads = new java.util.concurrent.ConcurrentHashMap<>();
+
     static void rememberTitle(String urn, String title, String artist) {
         DownloadImporter.rememberTitle(urn, title, artist);
     }

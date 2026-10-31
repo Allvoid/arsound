@@ -89,9 +89,12 @@ final class TrackFinder {
 
         // A track downloaded earlier is reused instead of downloading a copy.
         File file = null;
-        String prefix = FileIo.safeName(match.artist + " - " + match.title) + ".";
+        // The whole name before the extension: "Artist - Song. Live.mp3" is another track than "Artist - Song".
+        String base = FileIo.safeName(match.artist + " - " + match.title);
         for (File existing : LocalMusic.getFiles(context)) {
-            if (existing.getName().startsWith(prefix)) file = existing;
+            String name = existing.getName();
+            int dot = name.lastIndexOf('.');
+            if (dot > 0 && name.substring(0, dot).equals(base)) file = existing;
         }
         for (int attempt = 1; file == null; attempt++) {
             AudioStream stream = OtherSource.bestAudio(match.url);

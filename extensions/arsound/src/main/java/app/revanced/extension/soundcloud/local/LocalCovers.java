@@ -366,10 +366,22 @@ public final class LocalCovers {
         int separator = saved == null ? -1 : saved.indexOf('\n');
         String address = separator > 0 ? saved.substring(separator + 1) : null;
         // A cover file of an imported track goes away with its album.
-        boolean present = address != null && (!address.startsWith("file:")
-                || new File(Uri.parse(address).getPath()).isFile());
+        boolean present = address != null && (!address.startsWith("file:") || coverFileExists(address));
         return present ? address : null;
     }
+
+    /** Whether a cover file is there, asked of the file system at most every half minute per file: cells bind often. */
+    private static boolean coverFileExists(String address) {
+        long now = SystemClock.elapsedRealtime();
+        long[] known = coverFileChecks.get(address);
+        if (known != null && now - known[0] < COVER_FILE_CHECK_MS) return known[1] != 0;
+        boolean exists = new File(Uri.parse(address).getPath()).isFile();
+        coverFileChecks.put(address, new long[]{now, exists ? 1 : 0});
+        return exists;
+    }
+
+    private static final java.util.Map<String, long[]> coverFileChecks = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long COVER_FILE_CHECK_MS = 30_000;
 
     /** Compares the first track of a playlist with the remembered one in the background, one check at a time. */
     private static void checkFirstTrack(SharedPreferences preferences, String playlistUrn) {

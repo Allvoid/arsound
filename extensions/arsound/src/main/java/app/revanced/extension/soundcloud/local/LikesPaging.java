@@ -15,8 +15,11 @@ import java.util.Map;
  * change the list without moving it. No Android here, so it can be tested on the JVM.
  */
 final class LikesPaging {
-    /** Lists remembered at once: every search text is a list of its own. */
-    private static final int REMEMBERED_LISTS = 32;
+    /**
+     * Lists remembered at once: every search text is a list of its own. A list whose number was dropped while it was
+     * still paged skipped likes, so the room is ample: an entry is a short text and a number.
+     */
+    private static final int REMEMBERED_LISTS = 512;
 
     /** List key to the number of imported files on its first page, least recently used dropped first. */
     private final Map<String, Integer> importedOnFirstPage = new LinkedHashMap<String, Integer>(16, 0.75f, true) {

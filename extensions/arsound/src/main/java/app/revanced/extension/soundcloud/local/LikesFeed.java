@@ -53,12 +53,15 @@ final class LikesFeed {
             if (stored == null) return;
             list = compose();
         }
-        try {
-            // Outside the lock: the screen reacts to the list on this thread.
-            Rx.relayAccept(relay, list);
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not redraw the likes", ex);
-        }
+        // Outside the lock, and on the main thread: the timer of the redraw runs on a thread of its own, and the screen's
+        // chain is not to be fed from it.
+        app.revanced.extension.shared.Utils.runOnMainThread(() -> {
+            try {
+                Rx.relayAccept(relay, list);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not redraw the likes", ex);
+            }
+        });
     }
 
     private List<Object> compose() {

@@ -34,7 +34,22 @@ import app.revanced.extension.shared.Utils;
  */
 final class BatchRunner {
     private static final int TRACK_LIMIT_MINUTES = 3;
-    private static ExecutorService worker = Executors.newSingleThreadExecutor();
+    private static ExecutorService worker = newWorker();
+    /** Workers given up on a hung track and still running; past a few, the network is taken as stuck for good. */
+    private static int abandoned;
+    private static final int MAX_ABANDONED = 3;
+
+    /**
+     * A daemon thread: one given up on a hung lookup must not keep the process alive, and the downloads stop at the next
+     * part once interrupted (OtherSource.download).
+     */
+    private static ExecutorService newWorker() {
+        return Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "Arsound batch");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
 
     private final Context context;
     private final File list;
@@ -137,7 +152,10 @@ final class BatchRunner {
             } catch (TimeoutException ex) {
                 task.cancel(true);
                 worker.shutdownNow();
-                worker = Executors.newSingleThreadExecutor();
+                if (++abandoned > MAX_ABANDONED) {
+                    throw new IOException("The network seems stuck: " + abandoned + " tracks had no answer");
+                }
+                worker = newWorker();
                 throw new IOException("No answer in " + TRACK_LIMIT_MINUTES + " minutes");
             } catch (ExecutionException ex) {
                 throw ex.getCause();

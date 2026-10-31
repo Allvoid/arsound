@@ -346,8 +346,21 @@ public class Utils {
      * @see #getResourceIdentifierOrThrow(ResourceType, String)
      */
     public static int getResourceIdentifier(@Nullable ResourceType type, String resourceIdentifierName) {
-        return getResourceIdentifier(getContext(), type, resourceIdentifierName);
+        // The ids of the app's resources do not change while the process lives (a resource loader replaces values,
+        // not ids), and a lookup by name goes through the whole table: list cells asked for the same names on every
+        // bind. Kept per type and name.
+        String key = (type == null ? "" : type.value) + "/" + resourceIdentifierName;
+        Integer known = RESOURCE_IDS.get(key);
+        if (known != null) return known;
+        Context current = getContext();
+        if (current == null) return 0;
+        int id = getResourceIdentifier(current, type, resourceIdentifierName);
+        RESOURCE_IDS.put(key, id);
+        return id;
     }
+
+    /** The resource ids looked up by name, by "type/name". */
+    private static final java.util.Map<String, Integer> RESOURCE_IDS = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * @return zero, if the resource is not found.

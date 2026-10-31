@@ -42,7 +42,10 @@ public final class LocalSheet {
     }
 
     /** Rows built when the sheet opens, and added each time the list is scrolled near its end. */
-    private static final int ROWS_PER_STEP = 40;
+    /** Rows built in one go, within a frame of a 120 Hz screen; the first screenful comes in a few frames. */
+    private static final int ROWS_PER_STEP = 15;
+    /** Rows built when the sheet opens, a step per frame. */
+    private static final int FIRST_ROWS = 40;
 
     /** @return The dialog shown, or null if the sheet could not be shown. */
     public static Dialog show(Context context, String title, String subtitle, List<Item> items) {
@@ -109,6 +112,8 @@ public final class LocalSheet {
                 for (; built[0] < end; built[0]++) {
                     Item item = rows.get(built[0]);
                     list.addView(DownloadTrackPatch.createMenuRow(context, item.title, item.icon, v -> {
+                        // A second quick tap, before the sheet is gone, does not run the action again.
+                        if (chosen[0]) return;
                         chosen[0] = true;
                         dialog.dismiss();
                         if (item.action != null) item.action.run();
@@ -116,6 +121,19 @@ public final class LocalSheet {
                 }
             };
             buildNextRows.run();
+            // The rest of the first screenful follows a step per frame, not in the frame the sheet opens in.
+            Runnable[] buildFirst = new Runnable[1];
+            buildFirst[0] = () -> {
+                if (built[0] >= Math.min(FIRST_ROWS, rows.size())) return;
+                try {
+                    buildNextRows.run();
+                    list.post(buildFirst[0]);
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not add more rows to the sheet", ex);
+                    built[0] = rows.size();
+                }
+            };
+            list.post(buildFirst[0]);
             ScrollView scroll = new ScrollView(context);
             scroll.addView(list);
             if (rows.size() > ROWS_PER_STEP) {

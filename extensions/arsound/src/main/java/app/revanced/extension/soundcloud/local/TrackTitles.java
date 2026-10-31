@@ -72,8 +72,9 @@ final class TrackTitles {
     static void rememberAll(Collection<String> entries) {
         List<String> uncached = new ArrayList<>();
         Snapshot titles = snapshot();
+        Set<String> gone = missing();
         for (String entry : entries) {
-            if (titles.has(entry) || Entry.parse(entry).trackIdToLoad() == null) continue;
+            if (titles.has(entry) || gone.contains(entry) || Entry.parse(entry).trackIdToLoad() == null) continue;
             uncached.add(entry);
         }
         if (uncached.isEmpty()) return;
@@ -115,6 +116,11 @@ final class TrackTitles {
         String id = DownloadTrackPatch.parseTrackId(entry);
         if (id == null) return;
         String[] response = DownloadTrackPatch.apiGet(TRACK_URL + id);
+        if ("404".equals(response[0])) {
+            // Deleted on SoundCloud: it has no title to give, and asking again at every open of the list is for nothing.
+            rememberMissing(entry);
+            return;
+        }
         if (response[1] == null) return;
         JSONObject track = new JSONObject(response[1]);
         JSONObject user = track.optJSONObject("user");
@@ -126,6 +132,26 @@ final class TrackTitles {
             titles.put(entry, title);
             preferences.edit().putString(TITLES, titles.toString()).apply();
         }
+    }
+
+    /** The entries SoundCloud answered "not found" for: deleted tracks, which have no title to load. */
+    private static final String MISSING = "titles_missing";
+    private static Set<String> missing;
+
+    private static synchronized Set<String> missing() {
+        if (missing == null) {
+            SharedPreferences preferences = LocalPrefs.open();
+            missing = preferences == null ? new java.util.HashSet<>()
+                    : new java.util.HashSet<>(preferences.getStringSet(MISSING, new java.util.HashSet<>()));
+        }
+        return new java.util.HashSet<>(missing);
+    }
+
+    private static synchronized void rememberMissing(String entry) {
+        missing();
+        if (!missing.add(entry)) return;
+        SharedPreferences preferences = LocalPrefs.open();
+        if (preferences != null) preferences.edit().putStringSet(MISSING, new java.util.HashSet<>(missing)).apply();
     }
 
     private static synchronized JSONObject readTitles() {
