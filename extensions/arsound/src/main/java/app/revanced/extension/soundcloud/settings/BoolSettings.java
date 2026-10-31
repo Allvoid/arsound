@@ -70,6 +70,8 @@ public final class BoolSettings {
     public static final BoolSetting SMOOTH_PLAYER_COLLAPSE = new BoolSetting(Settings.SMOOTH_PLAYER_COLLAPSE, true);
     /** The end of a track fades out and the next one fades in. Off by default. */
     public static final BoolSetting CROSSFADE = new BoolSetting(Settings.CROSSFADE, false);
+    /** Every track plays slowed, unless its title says it is slowed or sped up already. Off by default. */
+    public static final BoolSetting SLOWED_PLAYBACK = new BoolSetting(Settings.SLOWED_PLAYBACK, false);
     /** Hides the comments that pop up over the player and their marks on the waveform. Off by default. */
     public static final BoolSetting HIDE_PLAYER_COMMENTS = new BoolSetting(Settings.HIDE_PLAYER_COMMENTS, false);
     public static final BoolSetting DUPLICATE_FILTER = new BoolSetting(Settings.DUPLICATE_FILTER, false);

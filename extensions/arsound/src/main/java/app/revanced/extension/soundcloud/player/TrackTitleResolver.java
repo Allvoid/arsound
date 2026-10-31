@@ -152,7 +152,7 @@ final class TrackTitleResolver {
     }
 
     /** Titles and uploaders of tracks from SoundCloud's own database, without the network. */
-    private static Map<String, String[]> storedTitles(List<String> urns) {
+    static Map<String, String[]> storedTitles(List<String> urns) {
         Map<String, String[]> found = new HashMap<>();
         Context context = Utils.getContext();
         File path = context == null ? null : context.getDatabasePath("core.db");

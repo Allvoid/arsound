@@ -382,6 +382,10 @@ public final class Settings {
     public static final String CROSSFADE = "crossfade";
     /** How long one fade of the smooth transition takes, in seconds. */
     public static final String CROSSFADE_SECONDS = "crossfade_seconds";
+    /** Every track plays slowed (player/SlowedPlayback), except one whose title says it is slowed or sped up already. Off by default. */
+    public static final String SLOWED_PLAYBACK = "slowed_playback";
+    /** The speed of the slowed tracks in percent; the pitch follows it. */
+    public static final String SLOWED_PERCENT = "slowed_percent";
     /** When the next streamed track is loaded whole ahead (player/NextTrackPreload): 0 never, 1 on Wi-Fi, 2 always. */
     public static final String PRELOAD_NEXT = "preload_next";
     /** Hides the comments that pop up in the player while a track plays (player/PlayerComments). Off by default. */

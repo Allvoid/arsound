@@ -27,7 +27,10 @@ public final class PlaybackEvents {
         boolean newTrack = !urn.equals(playingUrn);
         playingUrn = urn;
         Crossfade.onPlay(exoPlayer, newTrack);
-        if (newTrack) NextTrackPreload.onTrackChanged();
+        if (newTrack) {
+            NextTrackPreload.onTrackChanged();
+            SlowedPlayback.onNewItem(exoPlayer, urn);
+        }
     }
 
     /** Injection point: start of {@code LocalPlayback.i(ProgressChangeEvent)}, about twice a second while playing. */
