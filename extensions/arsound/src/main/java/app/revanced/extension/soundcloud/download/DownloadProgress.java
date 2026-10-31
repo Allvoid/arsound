@@ -40,6 +40,12 @@ public final class DownloadProgress {
     private static volatile Set<String> downloading = Collections.emptySet();
     /** Track ids the app downloads and packs itself, which the download manager does not know about. */
     private static volatile Set<String> assembling = Collections.emptySet();
+    /**
+     * Track ids waiting in or downloading through SoundCloud's own offline library (the DRM tracks). Only for telling
+     * that something changed: the download manager knows nothing about them, and nothing else says when their icon
+     * turns from the spinner into the downloaded one.
+     */
+    private static volatile Set<String> nativeActive = Collections.emptySet();
     /** Playlist id to the track ids started from its "Check track downloads" dialog. */
     private static final Map<String, Set<String>> playlistTracks = new HashMap<>();
     /** Set while a redraw waits for the rest of a playlist that is being queued. */
@@ -137,6 +143,8 @@ public final class DownloadProgress {
         }
         forgetFinishedPlaylistTracks();
         ProgressPill.onDownloadsChanged();
+        // The icon turns at once; the numbers of the playlists follow with the recount.
+        redrawSoon();
         recountAndRedraw();
     }
 
@@ -152,13 +160,28 @@ public final class DownloadProgress {
                 tracks.add(trackId);
             }
         }
-        // A playlist queues its tracks in a quick loop: one redraw covers all of them.
+        redrawSoon();
+    }
+
+    /**
+     * The lists are drawn again in a moment, and the polling of the running downloads starts. A playlist queues its
+     * tracks in a quick loop: one redraw covers all of them.
+     */
+    static void redrawSoon() {
         if (!redrawQueued.compareAndSet(false, true)) return;
         handler.postDelayed(() -> {
             redrawQueued.set(false);
             redrawLists(resumed.get());
             startPolling();
         }, REDRAW_DELAY_MS);
+    }
+
+    /**
+     * Called when a track was handed to SoundCloud's own offline download, or its request was taken back: its icon
+     * changes, and the state of the library is followed from now on.
+     */
+    public static void onNativeChanged() {
+        redrawSoon();
     }
 
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
@@ -226,6 +249,10 @@ public final class DownloadProgress {
                 changed = !current.equals(downloading);
                 downloading = current;
             }
+            // SoundCloud's own offline library: the DRM tracks change their icon when its state of them does.
+            Set<String> nativeNow = app.revanced.extension.soundcloud.offline.NativeOffline.inProgressIds();
+            boolean nativeChanged = !nativeNow.equals(nativeActive);
+            nativeActive = nativeNow;
             // A finished download changes the numbers of files in the playlists; a failed one is forgotten.
             if (changed || !settledOnce) {
                 settledOnce = true;
@@ -237,11 +264,9 @@ public final class DownloadProgress {
                 recountAndRedraw();
             }
             Utils.runOnMainThread(() -> {
-                if (changed) {
-                    redrawLists(resumed.get());
-                    ProgressPill.onDownloadsChanged();
-                }
-                if (!current.isEmpty()) startPolling();
+                if (changed || nativeChanged) redrawLists(resumed.get());
+                if (changed) ProgressPill.onDownloadsChanged();
+                if (!current.isEmpty() || !nativeNow.isEmpty()) startPolling();
             });
         });
     }
@@ -268,6 +293,42 @@ public final class DownloadProgress {
     }
 
     private static volatile Method itemCount, rangeChanged;
+
+    /**
+     * The download state the cells of Compose lists (the search, the likes, a profile) were drawn from. Their rows are
+     * not in a RecyclerView, so {@link #rebindRows} does not reach them: a cell that read this state while it drew its
+     * icon ({@link #followedByCompose}) is composed again when the state changes ({@link #redrawCompose}).
+     */
+    private static final androidx.compose.runtime.MutableState<Integer> composeVersion = newComposeVersion();
+    private static int composeCount;
+
+    private static androidx.compose.runtime.MutableState<Integer> newComposeVersion() {
+        try {
+            return new androidx.compose.runtime.SnapshotMutableIntStateImpl(0);
+        } catch (Throwable ex) {
+            Logger.printInfo(() -> "Compose lists are not told of download changes: " + ex);
+            return null;
+        }
+    }
+
+    /**
+     * Called while a cell draws its download icon. Inside a composition it makes the cell follow the downloads: it is
+     * composed again when they change. Anywhere else it does nothing.
+     */
+    public static void followedByCompose() {
+        androidx.compose.runtime.MutableState<Integer> version = composeVersion;
+        if (version != null) version.getValue();
+    }
+
+    private static void redrawCompose() {
+        androidx.compose.runtime.MutableState<Integer> version = composeVersion;
+        if (version == null) return;
+        try {
+            version.setValue(++composeCount);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Could not tell the Compose lists of a download change", ex);
+        }
+    }
 
     /**
      * Rebinds every row of the list in its place: {@code notifyItemRangeChanged(0, count, payload)}. Not
@@ -297,6 +358,7 @@ public final class DownloadProgress {
 
     /** Rebinds the rows of the lists on screen, so their download icons are built again. */
     private static void redrawLists(Activity activity) {
+        redrawCompose();
         if (activity == null) return;
         redraw(activity.getWindow().getDecorView());
     }

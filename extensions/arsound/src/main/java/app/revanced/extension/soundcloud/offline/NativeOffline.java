@@ -13,6 +13,7 @@ import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.download.DownloadProgress;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.shared.Reflect;
 import app.revanced.extension.soundcloud.shared.Rx;
@@ -43,6 +44,10 @@ public final class NativeOffline {
 
     /** Tracks already handed to the native download this run, so a repeated tap does not queue them again. */
     private static final Set<String> requested = Collections.synchronizedSet(new HashSet<>());
+
+    /** When each track was handed to SoundCloud's offline library: its request shows only a moment later in its state. */
+    private static final Map<String, Long> justRequested = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long SHOW_REQUEST_MS = 5_000;
 
     // Reflection handles are the same for the life of the process, so they are found once and kept.
     private static volatile Method urnFromString;
@@ -107,10 +112,13 @@ public final class NativeOffline {
                     if (completable != null) {
                         Rx.subscribeIgnoringErrors(completable, error -> {
                             requested.remove(trackId);
+                            justRequested.remove(trackId);
+                            DownloadProgress.onNativeChanged();
                             Logger.printInfo(() -> "The native offline request of " + trackId + " failed: " + error);
                         });
                     }
                     queued++;
+                    justRequested.put(trackId, android.os.SystemClock.elapsedRealtime());
                     watch(context, trackId);
                     Logger.printInfo(() -> "DRM track " + trackId + " requested for the native offline download");
                 } catch (Throwable ex) {
@@ -119,6 +127,9 @@ public final class NativeOffline {
                 }
             }
             if (queued == 0) return;
+            DownloadProgress.onNativeChanged();
+            // The request that SoundCloud never shows as its state stops looking like a download after a while.
+            Utils.runOnMainThreadDelayed(DownloadProgress::onNativeChanged, SHOW_REQUEST_MS + 500);
             try {
                 startWorker(operations);
             } catch (Throwable ex) {
@@ -256,6 +267,7 @@ public final class NativeOffline {
     public static void cancel(Context context, String trackId) {
         forget(context, trackId);
         requested.remove(trackId);
+        justRequested.remove(trackId);
         Object operations = offlineOperations.get();
         if (operations == null) return;
         try {
@@ -267,6 +279,7 @@ public final class NativeOffline {
                         Logger.printInfo(() -> "Could not take back the native offline request of " + trackId + ": " + error));
             }
             startWorker(operations);
+            DownloadProgress.onNativeChanged();
             Logger.printInfo(() -> "The native offline request of " + trackId + " is taken back");
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not take back the native offline request of " + trackId, ex);
@@ -292,6 +305,41 @@ public final class NativeOffline {
             return state instanceof Enum ? ((Enum<?>) state).name() : null;
         } catch (Throwable ex) {
             return null;
+        }
+    }
+
+    /** Whether the track was handed to SoundCloud's offline library a moment ago, before its state shows the request. */
+    public static boolean isJustRequested(String trackId) {
+        Long at = justRequested.get(trackId);
+        if (at == null) return false;
+        if (android.os.SystemClock.elapsedRealtime() - at < SHOW_REQUEST_MS) return true;
+        justRequested.remove(trackId);
+        return false;
+    }
+
+    /**
+     * The ids of the tracks that wait in SoundCloud's offline library or are downloaded by it now: the ones whose icon
+     * is a spinner. Empty when the library cannot be read.
+     */
+    public static Set<String> inProgressIds() {
+        Object operations = offlineOperations.get();
+        if (operations == null) return Collections.emptySet();
+        try {
+            Object provider = offlineStateProviderField(operations).get(operations);
+            Object mapValue = provider == null ? null : offlineStateMapField(provider).get(provider);
+            if (!(mapValue instanceof Map)) return Collections.emptySet();
+            Set<String> ids = new HashSet<>();
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) mapValue).entrySet()) {
+                Object state = entry.getValue();
+                if (!(state instanceof Enum)) continue;
+                String name = ((Enum<?>) state).name();
+                if (!"REQUESTED".equals(name) && !"DOWNLOADING".equals(name)) continue;
+                String id = DownloadTrackPatch.parseTrackId(entry.getKey());
+                if (id != null) ids.add(id);
+            }
+            return ids;
+        } catch (Throwable ex) {
+            return Collections.emptySet();
         }
     }
 

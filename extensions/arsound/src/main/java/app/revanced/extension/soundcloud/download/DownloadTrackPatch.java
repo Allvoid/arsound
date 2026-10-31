@@ -159,6 +159,7 @@ public final class DownloadTrackPatch {
      * @return SoundCloud's "downloaded" icon if the track was downloaded with this patch, otherwise the original icon.
      */
     public static Object getDownloadIcon(Object icon) {
+        DownloadProgress.followedByCompose();
         Object trackItem = currentTrackItem.get();
         if (trackItem == null) return icon;
 
@@ -174,6 +175,10 @@ public final class DownloadTrackPatch {
             String nativeState = app.revanced.extension.soundcloud.offline.NativeOffline.offlineState(trackId);
             if ("DOWNLOADED".equals(nativeState)) return iconState("DOWNLOADED");
             if ("REQUESTED".equals(nativeState) || "DOWNLOADING".equals(nativeState)) return iconState("DOWNLOADING");
+            // Asked to download a moment ago: the spinner turns at the tap, not when the source is found and queued.
+            if (starting.contains(trackId) || app.revanced.extension.soundcloud.offline.NativeOffline.isJustRequested(trackId)) {
+                return iconState("DOWNLOADING");
+            }
             return icon;
         } catch (Exception ex) {
             Logger.printException(() -> "getDownloadIcon failure", ex);
@@ -201,6 +206,7 @@ public final class DownloadTrackPatch {
      * original. The number of downloaded tracks is shown next to the number of tracks instead of an icon.
      */
     public static Object getPlaylistDownloadIcon(Object icon, Object playlist) {
+        DownloadProgress.followedByCompose();
         try {
             Object urn = playlist.getClass().getMethod("getUrn").invoke(playlist);
             String id = parseTrackId(urn);
@@ -333,6 +339,7 @@ public final class DownloadTrackPatch {
                 showToast(context, text("Этот трек уже скачивается", "This track is already downloading"));
                 return;
             }
+            DownloadProgress.redrawSoon();
             try {
                 // Also a track downloaded again, which counts as downloaded while its earlier file is there.
                 if (isDownloadPending(trackId) || getDownloadState(context, trackId) == DownloadState.IN_PROGRESS) {
@@ -364,6 +371,8 @@ public final class DownloadTrackPatch {
                 showToast(context, text("Не удалось скачать трек", "Could not download the track"));
             } finally {
                 starting.remove(trackId);
+                // Queued by now (the spinner stays), or not (the icon goes back).
+                DownloadProgress.redrawSoon();
             }
         });
     }
@@ -558,6 +567,7 @@ public final class DownloadTrackPatch {
             return true;
         } finally {
             starting.remove(trackId);
+            DownloadProgress.redrawSoon();
         }
     }
 
