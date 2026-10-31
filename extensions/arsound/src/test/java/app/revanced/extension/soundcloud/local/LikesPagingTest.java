@@ -87,9 +87,12 @@ public class LikesPagingTest {
     public void oldestListIsForgottenAfterManySearches() {
         LikesPaging paging = new LikesPaging();
         paging.firstPage("RECENT|first", 2);
+        // Room for hundreds of lists: forty searches keep the first one.
         for (int i = 0; i < 40; i++) paging.firstPage("RECENT|query" + i, 1);
-        // Forgotten: nothing to move back any more.
+        assertEquals(50, paging.databaseOffset("RECENT|first", 52));
+        for (int i = 40; i < 600; i++) paging.firstPage("RECENT|query" + i, 1);
+        // Forgotten after many more: nothing to move back any more.
         assertEquals(52, paging.databaseOffset("RECENT|first", 52));
-        assertEquals(51, paging.databaseOffset("RECENT|query39", 52));
+        assertEquals(51, paging.databaseOffset("RECENT|query599", 52));
     }
 }

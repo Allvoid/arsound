@@ -74,12 +74,25 @@ public class RegionStateTest {
     }
 
     @Test
-    public void aFailedBackgroundCheckOnAnAllowedNetworkForgetsTheCountry() {
+    public void twoFailedBackgroundChecksOnAnAllowedNetworkForgetTheCountry() {
         RegionState state = new RegionState();
         state.publishCheck(state.generation(), "DE");
+        // One lost answer keeps the allowed country: requests are not refused for it.
+        state.publishBackgroundCheck(state.generation(), "DE", null, code -> false);
+        assertEquals("DE", state.country());
         state.publishBackgroundCheck(state.generation(), "DE", null, code -> false);
         assertNull(state.country());
         assertTrue(state.lastFailedCheck() > 0);
+    }
+
+    @Test
+    public void aSuccessfulCheckInBetweenStartsTheCountOfFailuresAgain() {
+        RegionState state = new RegionState();
+        state.publishCheck(state.generation(), "DE");
+        state.publishBackgroundCheck(state.generation(), "DE", null, code -> false);
+        state.publishBackgroundCheck(state.generation(), "DE", "DE", code -> false);
+        state.publishBackgroundCheck(state.generation(), "DE", null, code -> false);
+        assertEquals("DE", state.country());
     }
 
     @Test
