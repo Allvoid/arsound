@@ -48,11 +48,31 @@ final class YouTubeSession {
         return true;
     }
 
+    /** The sites whose cookies are the YouTube session; the cookies of other sites (the Yandex sign-in) stay. */
+    private static final String[][] SESSION_SITES = {
+            {"https://music.youtube.com", ".youtube.com"}, {"https://www.youtube.com", ".youtube.com"},
+            {"https://m.youtube.com", ".youtube.com"}, {"https://accounts.google.com", ".google.com"},
+            {"https://www.google.com", ".google.com"}, {"https://accounts.youtube.com", ".youtube.com"}};
+
     static void signOut() {
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().clear().apply();
-        CookieManager.getInstance().removeAllCookies(null);
-        CookieManager.getInstance().flush();
+        // Only the cookies of YouTube and Google: removing all of them signed the user out of Yandex too. A cookie is
+        // removed by setting it again already expired, for the site and for its whole domain.
+        CookieManager cookies = CookieManager.getInstance();
+        for (String[] site : SESSION_SITES) {
+            String header = cookies.getCookie(site[0]);
+            if (header == null) continue;
+            for (String part : header.split(";")) {
+                int equals = part.indexOf('=');
+                String name = (equals < 0 ? part : part.substring(0, equals)).trim();
+                if (name.isEmpty()) continue;
+                String expired = name + "=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/";
+                cookies.setCookie(site[0], expired);
+                cookies.setCookie(site[0], expired + "; Domain=" + site[1]);
+            }
+        }
+        cookies.flush();
         // The hidden WebViews of the age-restricted lookups stay alive otherwise. Neither call waits for
         // the lookup lock, which a lookup holds for tens of seconds: the sign-out click runs on the main thread.
         PoTokenWebView.releaseAll();

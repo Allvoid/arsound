@@ -93,6 +93,10 @@ final class ResultRow {
         return track;
     }
 
+    private static int downloadedIcon, downloadIcon;
+    /** The icon the download button shows, so it is not set again unchanged. */
+    private int shownIcon;
+
     /** Redraws the row from what is playing and downloading now. */
     void refresh() {
         boolean playing = PreviewPlayer.isPlaying(track.url);
@@ -112,8 +116,16 @@ final class ResultRow {
         boolean done = DownloadQueue.isDownloaded(track.url);
         download.setVisibility(progress == null ? View.VISIBLE : View.INVISIBLE);
         download.setEnabled(!done);
-        download.setImageResource(Utils.getResourceIdentifier(ResourceType.DRAWABLE,
-                done ? "ic_actions_downloaded" : "ic_actions_download_initial"));
+        // Looked up by name once, not on every redraw of every row.
+        if (downloadedIcon == 0) {
+            downloadedIcon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_downloaded");
+            downloadIcon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_download_initial");
+        }
+        int icon = done ? downloadedIcon : downloadIcon;
+        if (icon != shownIcon) {
+            shownIcon = icon;
+            download.setImageResource(icon);
+        }
         download.setImageTintList(done ? null : ColorStateList.valueOf(screen.textColor));
         busy.setVisibility(progress == null ? View.GONE : View.VISIBLE);
         percent.setVisibility(progress == null || progress <= 0 ? View.GONE : View.VISIBLE);

@@ -11,6 +11,12 @@ import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 /** The question "Sign in to YouTube Music?" for a track that YouTube gives only to an account. */
 final class SignInOffer {
     private static boolean shown;
+    /** The dialog on screen, to ask whether it still is. */
+    private static android.app.Dialog dialog;
+    /** The user turned the offer down in this run of the app. */
+    private static boolean declined;
+    /** The user chose to sign in: the dismiss that follows is no refusal. */
+    private static boolean signingIn;
 
     private SignInOffer() {
     }
@@ -22,10 +28,14 @@ final class SignInOffer {
      */
     static void offer(boolean botCheck) {
         Activity current = SearchSourceSwitch.resumedActivity();
+        // A dialog closed together with its screen never calls its dismiss listener: whether it is up is asked of it.
+        if (shown && (dialog == null || !dialog.isShowing())) shown = false;
         if (current == null || current.isFinishing() || shown) return;
+        // Turned down once: not asked again in this run of the app, so a batch of failures does not ask for each.
+        if (declined) return;
         shown = true;
         try {
-            new ArsoundDialog(current)
+            ArsoundDialog built = new ArsoundDialog(current)
                     .setView(WelcomePermissions.createDialogContent(current,
                             botCheck
                                     ? text("YouTube принял запросы из этой сети за бота и просит войти в аккаунт. "
@@ -38,10 +48,17 @@ final class SignInOffer {
                                             + "а выйти можно в Настройках → Arsound → Аккаунт.",
                                     "Sign in to YouTube Music? It is optional: the password is typed into Google's page, "
                                             + "and you can sign out in Settings → Arsound → Account.")))
-                    .setPositiveButton(text("Войти", "Sign in"), (dialog, which) -> YouTubeLoginActivity.start(current))
+                    .setPositiveButton(text("Войти", "Sign in"), (shownDialog, which) -> {
+                        signingIn = true;
+                        YouTubeLoginActivity.start(current);
+                    })
                     .setNegativeButton(text("Не сейчас", "Not now"), null)
-                    .setOnDismissListener(dialog -> shown = false)
-                    .show();
+                    .setOnDismissListener(shownDialog -> {
+                        shown = false;
+                        if (!signingIn) declined = true;
+                        signingIn = false;
+                    });
+            dialog = built.show();
         } catch (Exception ex) {
             shown = false;
             Logger.printException(() -> "Could not offer the sign-in", ex);

@@ -307,11 +307,18 @@ public final class OtherSource {
                 Logger.printInfo(() -> "Stream part refused: " + info);
                 throw code == 403 ? new RefusedException(info) : new IOException(info);
             }
+            // A server that ignored the range sends the whole stream: written at the offset of the part, it would
+            // put the beginning of the song in its middle. More than the part asked for is refused.
+            long declared = connection.getContentLengthLong();
+            if (declared > length) throw new IOException("The server sent " + declared + " bytes for a part of " + length);
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(length);
             byte[] buffer = new byte[64 * 1024];
             try (InputStream input = connection.getInputStream()) {
                 int read;
-                while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
+                while ((read = input.read(buffer)) != -1) {
+                    bytes.write(buffer, 0, read);
+                    if (bytes.size() > length) throw new IOException("The server sent more than the part of " + length);
+                }
             }
             return bytes.toByteArray();
         } finally {
@@ -345,20 +352,34 @@ public final class OtherSource {
             }
         };
 
+        /** Set by {@link #close}: a read still on the network gives up when it comes back. */
+        private volatile boolean closed;
+
         public PartSource(String url) throws IOException {
             this.url = url;
             this.size = sizeOf(url);
         }
 
+        /**
+         * Not synchronized across the network: the read of a part waits up to the read timeout, and a stop of the
+         * preview (on the main thread) waited for it in close(). The kept parts are guarded on their own.
+         */
         @Override
-        public synchronized int readAt(long position, byte[] buffer, int offset, int length) throws IOException {
+        public int readAt(long position, byte[] buffer, int offset, int length) throws IOException {
+            if (closed) throw new IOException("Closed");
             if (position >= size) return -1;
             long index = position / PART;
-            byte[] part = parts.get(index);
+            byte[] part;
+            synchronized (parts) {
+                part = parts.get(index);
+            }
             if (part == null) {
                 long start = index * PART;
                 part = readPart(url, start, (int) Math.min(PART, size - start));
-                parts.put(index, part);
+                if (closed) throw new IOException("Closed");
+                synchronized (parts) {
+                    parts.put(index, part);
+                }
             }
             int inPart = (int) (position - index * PART);
             int count = Math.min(length, part.length - inPart);
@@ -373,8 +394,11 @@ public final class OtherSource {
         }
 
         @Override
-        public synchronized void close() {
-            parts.clear();
+        public void close() {
+            closed = true;
+            synchronized (parts) {
+                parts.clear();
+            }
         }
     }
 

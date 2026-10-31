@@ -23,6 +23,8 @@ final class PreviewPlayer {
     private static boolean preparing;
     /** Changes with every tap and every stop, so a stream lookup of an earlier tap cannot start a second player. */
     private static volatile int token;
+    /** The lookup of the stream of the preview tapped last; a newer tap gives it up, queued or under way. */
+    private static java.util.concurrent.Future<?> lookup;
     private static AudioFocusRequest focusRequest;
 
     private PreviewPlayer() {
@@ -51,8 +53,9 @@ final class PreviewPlayer {
         int current = ++token;
         playingUrl = url;
         preparing = true;
-        SearchScreen.refreshRows();
-        SearchThreads.NETWORK.execute(() -> {
+        SearchScreen.refreshRow(url);
+        if (lookup != null) lookup.cancel(true);
+        lookup = SearchThreads.NETWORK.submit(() -> {
             // Stopped or tapped again while waiting in the queue: no need to look the stream up.
             if (current != token) return;
             try {
@@ -84,7 +87,7 @@ final class PreviewPlayer {
                 // SoundCloud pauses its own playback when it loses the audio focus.
                 requestFocus(context);
                 prepared.start();
-                SearchScreen.refreshRows();
+                if (playingUrl != null) SearchScreen.refreshRow(playingUrl);
             });
             created.setOnCompletionListener(finished -> stop());
             created.setOnErrorListener((failed, what, extra) -> {
@@ -113,11 +116,17 @@ final class PreviewPlayer {
         // Drops the stream lookup and the player start of the preview that is being stopped.
         token++;
         if (player != null) {
-            try {
-                player.release();
-            } catch (Exception ignored) {
-            }
+            MediaPlayer old = player;
             player = null;
+            // Off the main thread: the player may be inside a read of its stream on a slow network.
+            Thread release = new Thread(() -> {
+                try {
+                    old.release();
+                } catch (Exception ignored) {
+                }
+            }, "Arsound preview release");
+            release.setDaemon(true);
+            release.start();
         }
         Activity current = SearchSourceSwitch.resumedActivity();
         if (focusRequest != null && current != null) {
@@ -125,9 +134,11 @@ final class PreviewPlayer {
         }
         focusRequest = null;
         if (playingUrl == null) return;
+        String stopped = playingUrl;
         playingUrl = null;
         preparing = false;
-        SearchScreen.refreshRows();
+        // Only the row that played changes.
+        SearchScreen.refreshRow(stopped);
     }
 
     private static AudioAttributes audioAttributes() {

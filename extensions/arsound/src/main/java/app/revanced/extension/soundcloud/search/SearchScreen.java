@@ -42,6 +42,10 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  */
 final class SearchScreen {
     private static final long SEARCH_DELAY_MS = 700;
+    /** How long the tracks wait, at most, for the albums and the artists found beside them. */
+    private static final long EXTRA_WAIT_MS = 20_000;
+    /** Rows of an album added per frame: an album may have 500 tracks, each row a few views. */
+    private static final int ROWS_PER_STEP = 30;
 
     /** The screen that is on show: previews and downloads redraw its rows. */
     private static WeakReference<SearchScreen> current = new WeakReference<>(null);
@@ -157,7 +161,11 @@ final class SearchScreen {
     private void select(boolean arsound) {
         if (arsoundSelected == arsound) return;
         arsoundSelected = arsound;
-        if (!arsound) PreviewPlayer.stop();
+        if (!arsound) {
+            PreviewPlayer.stop();
+            // A search waiting for the typing to pause is for the Arsound half, which is left now.
+            SearchThreads.MAIN.removeCallbacks(searchLater);
+        }
         apply();
     }
 
@@ -181,6 +189,8 @@ final class SearchScreen {
     // region Search
 
     private void search() {
+        // A search posted while the Arsound half was on, run after it was left.
+        if (!arsoundSelected) return;
         String query = edit.getText().toString().trim();
         if (query.equals(shownQuery)) return;
         shownQuery = query;
@@ -230,8 +240,10 @@ final class SearchScreen {
             artists.cancel(true);
             return;
         }
-        List<OtherSource.Album> foundAlbums = resultOrEmpty(albums);
-        List<OtherSource.Artist> foundArtists = resultOrEmpty(artists);
+        // One time limit for both, counted from now: one after the other, a stuck network held the tracks 40 s.
+        long deadline = System.currentTimeMillis() + EXTRA_WAIT_MS;
+        List<OtherSource.Album> foundAlbums = resultOrEmpty(albums, deadline);
+        List<OtherSource.Artist> foundArtists = resultOrEmpty(artists, deadline);
         List<OtherSource.Track> tracks = error != null ? new ArrayList<>() : found;
         boolean failed = error != null;
         boolean blocked = SearchFailure.isRegionBlock(error);
@@ -253,10 +265,10 @@ final class SearchScreen {
         });
     }
 
-    private static <T> List<T> resultOrEmpty(Future<List<T>> future) {
+    private static <T> List<T> resultOrEmpty(Future<List<T>> future, long deadline) {
         try {
             // The tracks wait for this: a stuck lookup must not hold them for ever.
-            return future.get(20, TimeUnit.SECONDS);
+            return future.get(Math.max(0, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
         } catch (Exception ex) {
             future.cancel(true);
             Logger.printException(() -> "Arsound album or artist search failed", ex);
@@ -381,13 +393,19 @@ final class SearchScreen {
                 return;
             }
             // Only the tracks of this album: the count in the row has to match what is downloaded.
-            List<ResultRow> albumRows = new ArrayList<>();
             list.addView(linkRow(text("Скачать всё", "Download all") + " (" + tracks.size() + ")",
-                    text("В плейлист «Импортированные»", "To the imported music"), () -> {
-                        for (ResultRow row : albumRows) DownloadQueue.start(context.getApplicationContext(), row.track());
-                    }));
-            albumRows.addAll(addTracks(tracks));
+                    text("В плейлист «Импортированные»", "To the imported music"),
+                    () -> DownloadQueue.askToStartAll(context, tracks)));
+            addTracksInSteps(tracks, 0, generation);
         });
+    }
+
+    /** Adds the rows a few per frame, so a long album does not stop the screen while it builds them. */
+    private void addTracksInSteps(List<OtherSource.Track> tracks, int from, int current) {
+        if (current != generation) return;
+        int to = Math.min(tracks.size(), from + ROWS_PER_STEP);
+        addTracks(tracks.subList(from, to));
+        if (to < tracks.size()) list.post(() -> addTracksInSteps(tracks, to, current));
     }
 
     // endregion

@@ -55,7 +55,32 @@ final class YouTubeWebPlayer {
      *
      * @param cookies The session of the account, or null to ask as a visitor.
      */
+    /**
+     * The hidden WebViews of the lookups (the player script, the token minter) are closed this long after the last
+     * lookup: they held the whole player script in memory for as long as the app lived.
+     */
+    private static final long IDLE_RELEASE_MS = 3 * 60_000;
+    private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final Runnable RELEASE_IDLE = () -> {
+        PoTokenWebView.releaseAll();
+        PlayerCipher.releaseSolver();
+    };
+
     static AudioStream audio(String videoId, String cookies) throws Exception {
+        MAIN.removeCallbacks(RELEASE_IDLE);
+        try {
+            return lookUp(videoId, cookies);
+        } finally {
+            MAIN.postDelayed(RELEASE_IDLE, IDLE_RELEASE_MS);
+        }
+    }
+
+    /** A lookup given up (another preview was tapped) stops before it waits for the locks of the shared WebViews. */
+    private static void stopIfGivenUp() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException("The lookup was given up");
+    }
+
+    private static AudioStream lookUp(String videoId, String cookies) throws Exception {
         Context context = Utils.getContext();
         if (context == null) throw new IOException("No context");
 
@@ -65,7 +90,9 @@ final class YouTubeWebPlayer {
         // A signed-in session is bound to the account's data sync id, an anonymous one to the visitor.
         String session = page.dataSyncId != null ? page.dataSyncId : visitorData;
         if (session == null) throw new IOException("YouTube Music gave no session data");
+        stopIfGivenUp();
         String[] tokens = PoTokenWebView.tokens(context, session, videoId);
+        stopIfGivenUp();
 
         JSONObject clientContext = new JSONObject()
                 .put("clientName", "WEB_REMIX")
@@ -98,6 +125,7 @@ final class YouTubeWebPlayer {
         JSONObject best = bestAudioFormat(response.getJSONObject("streamingData").optJSONArray("adaptiveFormats"));
         if (best == null) throw new IOException("No m4a audio for " + videoId);
 
+        stopIfGivenUp();
         String url = PlayerCipher.decipherUrl(context, best.optString("signatureCipher", null), best.optString("url", null));
         url += (url.contains("?") ? "&" : "?") + "pot=" + URLEncoder.encode(tokens[1], "UTF-8");
 
