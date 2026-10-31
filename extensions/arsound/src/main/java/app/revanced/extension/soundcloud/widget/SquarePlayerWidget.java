@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.widget.RemoteViews;
 
@@ -14,8 +15,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.shared.SerialWork;
 
 /**
  * The player widget 2 x 2: the cover over the whole square, the title and the artist over its darkened bottom, the
@@ -42,6 +46,52 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
     };
     private static volatile Map<Integer, Integer> swaps;
 
+    /**
+     * The square is built and sent on a thread of its own, in order, and only for the newest state: it was built a
+     * second time on the main thread after SoundCloud's own widget, at every change of track, cover or play state.
+     */
+    private static final SerialWork WORK = new SerialWork("arsound-square-widget");
+    private static final AtomicInteger latest = new AtomicInteger();
+    /**
+     * The longest side the cover is cut to for the square. SoundCloud hands the widget the cover in full size, and the
+     * square sent it once more, serialized for the home screen; the square is never bigger than this on a screen.
+     */
+    private static final int COVER_SIZE = 300;
+    /** The cover last cut, and what it was cut from: a pause or a heart does not cut it again. Work thread only. */
+    private static Bitmap coverSource, coverCut;
+    /** The fields of SoundCloud's classes, found once per class and kind. */
+    private static final Map<String, Field> FIELDS = new ConcurrentHashMap<>();
+    private static final Field NO_FIELD;
+    private static volatile Method build;
+
+    static {
+        Field none = null;
+        try {
+            none = SquarePlayerWidget.class.getDeclaredField("COVER_SIZE");
+        } catch (NoSuchFieldException ignored) {
+            // Cannot happen: the field is right here.
+        }
+        NO_FIELD = none;
+    }
+
+    /** SoundCloud's widget state at the moment it was shown, taken on the main thread where SoundCloud changes it. */
+    private static final class Snapshot {
+        final Class<?> builderClass;
+        final Object item, playing, factory, resources;
+        final Bitmap cover;
+        final int layoutId;
+
+        Snapshot(Object builder, Object factory, Object resources, int layoutId) throws IllegalAccessException {
+            builderClass = builder.getClass();
+            item = valueEndingWith(builder, "WidgetItem");
+            playing = valueOfType(builder, Boolean.class);
+            cover = (Bitmap) valueOfType(builder, Bitmap.class);
+            this.factory = factory;
+            this.resources = resources;
+            this.layoutId = layoutId;
+        }
+    }
+
     @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
         // Something to show at once; SoundCloud fills it with the track when it has built its widget again.
@@ -64,28 +114,52 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
      */
     public static void onPlayerWidget(Object presenter, RemoteViews views) {
         try {
-            Context context = (Context) fieldOfType(presenter, Context.class);
+            Context context = (Context) valueOfType(presenter, Context.class);
             if (context == null) return;
-            ComponentName square = new ComponentName(context, SquarePlayerWidget.class);
-            AppWidgetManager manager = AppWidgetManager.getInstance(context);
-            int[] ids = manager.getAppWidgetIds(square);
-            if (ids == null || ids.length == 0) return;
-            manager.updateAppWidget(square, squareViews(context, presenter, views));
+            Object builder = valueEndingWith(presenter, "PlayerWidgetRemoteViewsBuilder");
+            Object factory = valueEndingWith(presenter, "WidgetIntentFactory");
+            Object resources = valueEndingWith(presenter, "WidgetResourceProvider");
+            Snapshot snapshot = builder == null || factory == null || resources == null
+                    ? null : new Snapshot(builder, factory, resources, views.getLayoutId());
+            int mine = latest.incrementAndGet();
+            WORK.execute(() -> {
+                // A newer state came while this one waited: only that one is built.
+                if (mine != latest.get()) return;
+                send(context, snapshot);
+            });
         } catch (Throwable ex) {
             Logger.printException(() -> "Square widget: could not update", ex);
         }
     }
 
-    /** The square for the same state as SoundCloud's widget, or the empty square when that one shows no track. */
-    private static RemoteViews squareViews(Context context, Object presenter, RemoteViews views) throws Exception {
-        Object builder = fieldEndingWith(presenter, "PlayerWidgetRemoteViewsBuilder");
-        Object factory = fieldEndingWith(presenter, "WidgetIntentFactory");
-        Object resources = fieldEndingWith(presenter, "WidgetResourceProvider");
-        if (builder == null || factory == null || resources == null) return emptyViews(context);
+    /** Builds the square and hands it to the home screen. Work thread. */
+    private static void send(Context context, Snapshot snapshot) {
+        try {
+            ComponentName square = new ComponentName(context, SquarePlayerWidget.class);
+            AppWidgetManager manager = AppWidgetManager.getInstance(context);
+            int[] ids = manager.getAppWidgetIds(square);
+            if (ids == null || ids.length == 0) return;
+            manager.updateAppWidget(square, snapshot == null ? emptyViews(context) : squareViews(context, snapshot));
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Square widget: could not update", ex);
+        }
+    }
+
+    /**
+     * The square for the same state as SoundCloud's widget, or the empty square when that one shows no track. A
+     * builder of its own is filled with the state taken on the main thread and a cover cut to the square's size.
+     */
+    private static RemoteViews squareViews(Context context, Snapshot snapshot) throws Exception {
+        Object resources = snapshot.resources;
         Class<?> resourcesType = interfaceEndingWith(resources.getClass(), "WidgetResourceProvider");
         // SoundCloud's empty widget ("touch to open") has a layout of its own, not the player's.
         int playerLayout = (int) resourcesType.getMethod("getLayoutId").invoke(resources);
-        if (views.getLayoutId() != playerLayout) return emptyViews(context);
+        if (snapshot.layoutId != playerLayout) return emptyViews(context);
+        Object builder = snapshot.builderClass.getConstructor().newInstance();
+        setEndingWith(builder, "WidgetItem", snapshot.item);
+        setOfType(builder, Boolean.class, snapshot.playing);
+        setOfType(builder, Bitmap.class, cut(snapshot.cover));
+        Object factory = snapshot.factory;
 
         int layout = resource(context, "layout", LAYOUT);
         Map<Integer, Integer> swapped = swaps(context);
@@ -103,14 +177,7 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
                     }
                     return answer;
                 });
-        Method build = null;
-        for (Method method : builder.getClass().getMethods()) {
-            Class<?>[] parameters = method.getParameterTypes();
-            if (parameters.length == 3 && parameters[0] == Context.class && RemoteViews.class.isAssignableFrom(method.getReturnType())) {
-                build = method;
-                break;
-            }
-        }
+        Method build = buildMethod(builder.getClass());
         if (build == null) return emptyViews(context);
         RemoteViews square = (RemoteViews) build.invoke(builder, context, factory, squareResources);
         // White on the dark bottom of the cover: no colour of the card, which the 4 x 1 widget's heart is fitted to.
@@ -148,24 +215,70 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
         return context.getResources().getIdentifier(name, type, context.getPackageName());
     }
 
-    private static Object fieldOfType(Object owner, Class<?> type) throws IllegalAccessException {
-        for (Field field : owner.getClass().getDeclaredFields()) {
-            if (type.isAssignableFrom(field.getType())) {
-                field.setAccessible(true);
-                return field.get(owner);
+    /** The cover cut to {@link #COVER_SIZE} on its longest side, or the cover itself when it is small. */
+    private static Bitmap cut(Bitmap cover) {
+        if (cover == null || cover.isRecycled()) return null;
+        int side = Math.max(cover.getWidth(), cover.getHeight());
+        if (side <= COVER_SIZE) return cover;
+        if (cover != coverSource) {
+            float scale = COVER_SIZE / (float) side;
+            coverCut = Bitmap.createScaledBitmap(cover, Math.max(1, Math.round(cover.getWidth() * scale)),
+                    Math.max(1, Math.round(cover.getHeight() * scale)), true);
+            coverSource = cover;
+        }
+        return coverCut;
+    }
+
+    /** The builder's method that makes the widget (context, intents, resources), found once. */
+    private static Method buildMethod(Class<?> builderClass) {
+        Method known = build;
+        if (known != null && known.getDeclaringClass().isAssignableFrom(builderClass)) return known;
+        for (Method method : builderClass.getMethods()) {
+            Class<?>[] parameters = method.getParameterTypes();
+            if (parameters.length == 3 && parameters[0] == Context.class && RemoteViews.class.isAssignableFrom(method.getReturnType())) {
+                build = method;
+                return method;
             }
         }
         return null;
     }
 
-    private static Object fieldEndingWith(Object owner, String typeName) throws IllegalAccessException {
-        for (Field field : owner.getClass().getDeclaredFields()) {
-            if (field.getType().getName().endsWith(typeName)) {
+    /** The first field of the owner's class whose type is the given one or ends with the name; looked up once. */
+    private static Field field(Class<?> owner, Class<?> type, String typeName) {
+        String key = owner.getName() + "/" + (type != null ? type.getName() : "*" + typeName);
+        Field known = FIELDS.get(key);
+        if (known != null) return known == NO_FIELD ? null : known;
+        Field found = NO_FIELD;
+        for (Field field : owner.getDeclaredFields()) {
+            boolean matches = type != null ? type.isAssignableFrom(field.getType()) : field.getType().getName().endsWith(typeName);
+            if (matches) {
                 field.setAccessible(true);
-                return field.get(owner);
+                found = field;
+                break;
             }
         }
-        return null;
+        FIELDS.put(key, found);
+        return found == NO_FIELD ? null : found;
+    }
+
+    private static Object valueOfType(Object owner, Class<?> type) throws IllegalAccessException {
+        Field field = field(owner.getClass(), type, null);
+        return field == null ? null : field.get(owner);
+    }
+
+    private static Object valueEndingWith(Object owner, String typeName) throws IllegalAccessException {
+        Field field = field(owner.getClass(), null, typeName);
+        return field == null ? null : field.get(owner);
+    }
+
+    private static void setOfType(Object owner, Class<?> type, Object value) throws IllegalAccessException {
+        Field field = field(owner.getClass(), type, null);
+        if (field != null) field.set(owner, value);
+    }
+
+    private static void setEndingWith(Object owner, String typeName, Object value) throws IllegalAccessException {
+        Field field = field(owner.getClass(), null, typeName);
+        if (field != null) field.set(owner, value);
     }
 
     private static Class<?> interfaceEndingWith(Class<?> type, String name) {

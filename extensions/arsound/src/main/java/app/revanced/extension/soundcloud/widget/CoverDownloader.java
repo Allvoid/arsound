@@ -5,6 +5,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
 
@@ -18,6 +21,18 @@ final class CoverDownloader {
 
     /** SoundCloud's HTTP client with the Arsound network rules, made once. */
     private static volatile Object client;
+
+    /** The whole call of one cover, connection to last byte: a slow network held the widget's update for long. */
+    private static final long CALL_TIMEOUT_SECONDS = 8;
+    /** A cover that failed for a passing reason (network, 5xx, 408, 429) is not asked for again this long. */
+    private static final long RETRY_AFTER_MS = 10 * 60 * 1000L;
+    /**
+     * After a network error no cover is asked for this long: the covers of one update were asked one after another,
+     * and each waited for the network that was not there.
+     */
+    private static final long NETWORK_PAUSE_MS = 60 * 1000L;
+    private static final Map<String, Long> failedAt = new ConcurrentHashMap<>();
+    private static volatile long networkFailedAt;
 
     private CoverDownloader() {
     }
@@ -33,6 +48,13 @@ final class CoverDownloader {
             if (client == null) {
                 Object builder = Class.forName("okhttp3.OkHttpClient$Builder", true, CoverDownloader.class.getClassLoader())
                         .getConstructor().newInstance();
+                try {
+                    builder.getClass().getMethod("callTimeout", long.class, TimeUnit.class)
+                            .invoke(builder, CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                } catch (NoSuchMethodException ex) {
+                    // An OkHttp without a call timeout: its own timeouts for connecting and reading stay.
+                    Logger.printInfo(() -> "Widget: no call timeout in this OkHttp");
+                }
                 client = builder.getClass().getMethod("build").invoke(builder);
             }
             return client;
@@ -47,6 +69,10 @@ final class CoverDownloader {
         File part = new File(target.getPath() + ".part");
         File miss = CoverFiles.missMark(target);
         if (CoverFiles.recentlyRefused(miss)) return false;
+        long now = System.currentTimeMillis();
+        if (now - networkFailedAt < NETWORK_PAUSE_MS) return false;
+        Long failed = failedAt.get(url);
+        if (failed != null && now - failed < RETRY_AFTER_MS) return false;
         Closeable response = null;
         try {
             File folder = target.getParentFile();
@@ -56,6 +82,7 @@ final class CoverDownloader {
             if (code != 200) {
                 Logger.printInfo(() -> "Widget: cover answered " + code + ": " + url);
                 if (code >= 400 && code < 500 && code != 408 && code != 429) CoverFiles.markMiss(miss);
+                else failedAt.put(url, System.currentTimeMillis());
                 return false;
             }
             if (!copyBody(response, part)) {
@@ -70,12 +97,16 @@ final class CoverDownloader {
             if (!part.renameTo(target)) return false;
             //noinspection ResultOfMethodCallIgnored
             miss.delete();
+            failedAt.remove(url);
             CoverFiles.trim(folder);
             return true;
         } catch (Throwable ex) {
-            // A network error or the country block: the cover is asked for again at the next update.
+            // A network error, a timeout or the country block: the covers wait a minute, this one ten.
             Throwable cause = ex instanceof InvocationTargetException && ex.getCause() != null ? ex.getCause() : ex;
             Logger.printInfo(() -> "Widget: could not download the cover " + url + ": " + cause);
+            long failedNow = System.currentTimeMillis();
+            failedAt.put(url, failedNow);
+            if (cause instanceof java.io.IOException) networkFailedAt = failedNow;
             return false;
         } finally {
             if (response != null) {

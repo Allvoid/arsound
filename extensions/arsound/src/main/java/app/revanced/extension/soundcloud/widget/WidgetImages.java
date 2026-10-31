@@ -41,10 +41,17 @@ public final class WidgetImages {
      */
     public static File find(Object finder, Context context, String url) {
         File own = CoverFiles.of(context, url);
-        // The widget asks for the same cover from several threads at once; one of them downloads it.
-        synchronized (own.getPath().intern()) {
+        // The widget asks for the same cover from several threads at once; one of them downloads it. The locks are a
+        // fixed set picked by the path: an interned path stayed in the process for good, for every cover ever shown.
+        synchronized (LOCKS[(own.getPath().hashCode() & 0x7fffffff) % LOCKS.length]) {
             return find(finder, context, url, own);
         }
+    }
+
+    private static final Object[] LOCKS = new Object[16];
+
+    static {
+        for (int i = 0; i < LOCKS.length; i++) LOCKS[i] = new Object();
     }
 
     private static File find(Object finder, Context context, String url, File own) {
