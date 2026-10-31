@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.TextView;
 
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
@@ -64,7 +65,30 @@ abstract class ScrollingScreen extends SettingsScreen {
             }
             titleRow.addView(logo, logoParams);
         }
-        titleRow.addView(ui.createText("H1.Primary", title));
+        TextView titleView = ui.createText("H1.Primary", title);
+        // Without the font's extra top and bottom room, the word sits in the middle of the logo, not low beside it.
+        titleView.setIncludeFontPadding(false);
+        titleView.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(titleView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        if (withLogo) {
+            // "Support" right after the title, the same as on the Arsound tab.
+            TextView donate = ui.createText("H4.Primary", app.revanced.extension.soundcloud.shared.DonateDialog.label());
+            int accent = ui.themeColor("themeColorHighlight");
+            donate.setTextColor(accent);
+            donate.setIncludeFontPadding(false);
+            donate.setGravity(Gravity.CENTER);
+            donate.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8));
+            GradientDrawable outline = new GradientDrawable();
+            outline.setStroke(Math.max(1, Math.round(app.revanced.extension.soundcloud.shared.Dimens.dpExact(activity, 1.5f))), accent);
+            outline.setCornerRadius(ui.dp(20));
+            donate.setBackground(outline);
+            donate.setOnClickListener(v -> app.revanced.extension.soundcloud.shared.DonateDialog.show(activity));
+            LinearLayout.LayoutParams donateParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            donateParams.leftMargin = ui.dp(12);
+            titleRow.addView(donate, donateParams);
+        }
         return titleRow;
     }
 

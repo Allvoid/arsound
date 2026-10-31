@@ -132,6 +132,33 @@ public final class UpgradeTabPage {
         column.addView(paragraph(context, text(
                 "Вернуть её можно там же, выключив переключатель.",
                 "It comes back by turning the same switch off."), secondary, 12));
+
+        // Arsound itself is free: the place where SoundCloud sold its subscription offers to support the project.
+        column.addView(paragraph(context, text(
+                "Arsound бесплатный. Если хотите премиум-доступ или просто поддержать проект, это можно сделать в нашем "
+                        + "боте в Telegram.",
+                "Arsound is free. If you want the premium access or just want to support the project, you can do it in "
+                        + "our Telegram bot."), primary, 36));
+        TextView donate = label(context, app.revanced.extension.soundcloud.shared.DonateDialog.label(), 16, accent);
+        donate.setTypeface(Typeface.DEFAULT_BOLD);
+        donate.setGravity(Gravity.CENTER);
+        donate.setPadding(side, vertical, side, vertical);
+        GradientDrawable outline = new GradientDrawable();
+        outline.setColor(android.graphics.Color.TRANSPARENT);
+        outline.setStroke(dp(context, 2), accent);
+        outline.setCornerRadius(dp(context, 28));
+        donate.setBackground(outline);
+        donate.setOnClickListener(view -> {
+            Context viewContext = view.getContext();
+            Activity activity = viewContext instanceof Activity ? (Activity) viewContext
+                    : app.revanced.extension.soundcloud.update.UpdateChecker.resumedActivity();
+            app.revanced.extension.soundcloud.shared.DonateDialog.show(activity);
+        });
+        LinearLayout.LayoutParams donateParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        donateParams.topMargin = dp(context, 16);
+        donateParams.gravity = Gravity.START;
+        column.addView(donate, donateParams);
         return scroll;
     }
 
