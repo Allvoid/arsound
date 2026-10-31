@@ -430,7 +430,8 @@ final class SearchScreen {
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setPadding(look.dp(16), look.dp(4), look.dp(16), look.dp(12));
         box.addView(look.pill(text("Скачать всё", "Download all") + " (" + tracks.size() + ")",
-                () -> DownloadQueue.askToStartAll(context, tracks)));
+                () -> DownloadQueue.askToStartAll(context, tracks)), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         TextView where = look.meta(text("В плейлист «Импортированные»", "To the imported music"));
         where.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
