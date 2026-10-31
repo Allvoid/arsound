@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.shared.ComposeFollow;
 import app.revanced.extension.shared.Utils;
 
 /**
@@ -323,35 +324,18 @@ public final class DownloadProgress {
      * not in a RecyclerView, so {@link #rebindRows} does not reach them: a cell that read this state while it drew its
      * icon ({@link #followedByCompose}) is composed again when the state changes ({@link #redrawCompose}).
      */
-    private static final androidx.compose.runtime.MutableState<Integer> composeVersion = newComposeVersion();
-    private static int composeCount;
-
-    private static androidx.compose.runtime.MutableState<Integer> newComposeVersion() {
-        try {
-            return new androidx.compose.runtime.SnapshotMutableIntStateImpl(0);
-        } catch (Throwable ex) {
-            Logger.printInfo(() -> "Compose lists are not told of download changes: " + ex);
-            return null;
-        }
-    }
+    private static final ComposeFollow COMPOSE = new ComposeFollow();
 
     /**
      * Called while a cell draws its download icon. Inside a composition it makes the cell follow the downloads: it is
      * composed again when they change. Anywhere else it does nothing.
      */
     public static void followedByCompose() {
-        androidx.compose.runtime.MutableState<Integer> version = composeVersion;
-        if (version != null) version.getValue();
+        COMPOSE.follow();
     }
 
     private static void redrawCompose() {
-        androidx.compose.runtime.MutableState<Integer> version = composeVersion;
-        if (version == null) return;
-        try {
-            version.setValue(++composeCount);
-        } catch (Throwable ex) {
-            Logger.printException(() -> "Could not tell the Compose lists of a download change", ex);
-        }
+        COMPOSE.changed();
     }
 
     /**

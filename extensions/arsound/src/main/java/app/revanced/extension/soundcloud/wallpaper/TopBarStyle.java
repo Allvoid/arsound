@@ -3,6 +3,7 @@ package app.revanced.extension.soundcloud.wallpaper;
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.ComposeFollow;
 
 /**
  * What lies behind SoundCloud's top bar (the back button, "Search in …", the filter) over the wallpaper, chosen in
@@ -49,8 +50,12 @@ public enum TopBarStyle {
         return text(russianDescription, englishDescription);
     }
 
+    /** The screens that show a top bar are composed again when another style is chosen. */
+    private static final ComposeFollow FOLLOW = new ComposeFollow();
+
     /** The chosen style; SoundCloud's own until the user picks another. */
     public static TopBarStyle current() {
+        FOLLOW.follow();
         long id = Settings.getLong(Settings.WALLPAPER_TOP_BAR, SOUNDCLOUD.id);
         for (TopBarStyle style : values()) if (style.id == id) return style;
         return SOUNDCLOUD;
@@ -58,5 +63,6 @@ public enum TopBarStyle {
 
     public void choose() {
         Settings.putLong(Settings.WALLPAPER_TOP_BAR, id);
+        FOLLOW.changed();
     }
 }
