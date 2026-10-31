@@ -79,6 +79,7 @@ public final class PlayerStatusBar {
             Drawable cover = artwork == null ? null : coverOf(artwork);
             Activity activity = artwork == null ? null : activityOf(artwork.getContext());
             if (cover == null || activity == null || lyricsShown(artwork)) {
+                if (cover == null && artwork != null) Logger.printDebug(() -> "Player status bar: no picture in the artwork");
                 restore();
                 return;
             }
@@ -87,7 +88,10 @@ public final class PlayerStatusBar {
                 return;
             }
             Bitmap bitmap = cover instanceof BitmapDrawable ? ((BitmapDrawable) cover).getBitmap() : null;
-            if (bitmap == null || bitmap.isRecycled()) return;
+            if (bitmap == null || bitmap.isRecycled()) {
+                Logger.printDebug(() -> "Player status bar: the picture is not a bitmap: " + cover.getClass().getName());
+                return;
+            }
             int mine = ++generation;
             // A hardware bitmap is copied back from the graphics memory to be read: off the main thread.
             Utils.runOnBackgroundThread(() -> {
@@ -96,6 +100,7 @@ public final class PlayerStatusBar {
                     if (mine != generation || !PlayerSheet.isExpanded()) return;
                     measured = new WeakReference<>(cover);
                     measuredLight = light;
+                    Logger.printInfo(() -> "Player status bar: " + (light ? "dark" : "light") + " icons over the cover");
                     if (!activity.isDestroyed()) apply(activity.getWindow(), light);
                 });
             });
@@ -119,16 +124,32 @@ public final class PlayerStatusBar {
         return best;
     }
 
-    /** The picture of the artwork's image view, or null. */
+    /**
+     * The picture of the artwork: that of its biggest image view a few levels deep (the image view sits inside a
+     * wrapper), with the top layer of a fade between two pictures. Null when there is none.
+     */
     private static Drawable coverOf(View artwork) {
-        if (artwork instanceof ImageView) return ((ImageView) artwork).getDrawable();
-        if (!(artwork instanceof ViewGroup)) return null;
-        ViewGroup group = (ViewGroup) artwork;
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            if (child instanceof ImageView && ((ImageView) child).getDrawable() != null) return ((ImageView) child).getDrawable();
+        ImageView image = biggestImage(artwork, 0);
+        Drawable drawable = image == null ? null : image.getDrawable();
+        while (drawable instanceof android.graphics.drawable.LayerDrawable) {
+            android.graphics.drawable.LayerDrawable layers = (android.graphics.drawable.LayerDrawable) drawable;
+            if (layers.getNumberOfLayers() == 0) return null;
+            drawable = layers.getDrawable(layers.getNumberOfLayers() - 1);
         }
-        return null;
+        return drawable;
+    }
+
+    private static ImageView biggestImage(View view, int depth) {
+        if (view instanceof ImageView) return ((ImageView) view).getDrawable() != null ? (ImageView) view : null;
+        if (depth >= 4 || !(view instanceof ViewGroup)) return null;
+        ImageView best = null;
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            ImageView found = biggestImage(group.getChildAt(i), depth + 1);
+            if (found != null && (best == null
+                    || found.getWidth() * found.getHeight() > best.getWidth() * best.getHeight())) best = found;
+        }
+        return best;
     }
 
     /** Whether the lyrics lie over the artwork: the page around it holds a shown lyrics layer. */
