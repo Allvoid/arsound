@@ -90,6 +90,9 @@ final class ThemeTableBuilder {
         overrides.color("arsound_launch_background", theme.surface(true), theme.surface(true));
         // The accent is one colour for both modes in SoundCloud; the night value overrides it in dark mode.
         overrides.color("shared_colors_special_action", theme.accent(false), theme.accent(true));
+        // Links («Ещё» under a description, links in texts) in the accent, not SoundCloud's blue.
+        overrides.color("dark_mode_link", theme.accent(true), null);
+        overrides.color("light_mode_link", theme.accent(false), null);
     }
 
     /** Any other SoundCloud colour by name, such as the grey scale behind cards and the mini player's gradient. */

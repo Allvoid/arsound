@@ -88,7 +88,7 @@ private val themeResourcesPatch = resourcePatch {
 
 /** Arsound themes: Applies the colour theme chosen in Settings → Arsound → Appearance. Part of the "Arsound" patch, not shown on its own. */
 val themePatch = bytecodePatch {
-    dependsOn(themeResourcesPatch, wallpaperSurfacesPatch)
+    dependsOn(themeResourcesPatch, wallpaperSurfacesPatch, readMoreLinkPatch)
     compatibleWith("com.soundcloud.android")
 
     apply {
