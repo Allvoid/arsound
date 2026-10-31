@@ -6,9 +6,7 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
-import android.graphics.Typeface;
 import android.text.Editable;
-import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -16,6 +14,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -54,6 +53,8 @@ final class SearchScreen {
 
     final Context context;
     final int textColor;
+    /** SoundCloud's look for the rows, so both halves of the switch read as one app. */
+    final SearchLook look;
     private final View soundCloudResults;
     private final EditText edit;
     private final SourceToggle toggle;
@@ -81,6 +82,7 @@ final class SearchScreen {
         this.soundCloudResults = soundCloudResults;
         this.edit = edit;
         textColor = edit.getCurrentTextColor();
+        look = new SearchLook(context, textColor);
 
         toggle = new SourceToggle(context, textColor, this::select);
         coordinator.addView(toggle.view(), 1, new LinearLayout.LayoutParams(
@@ -297,8 +299,8 @@ final class SearchScreen {
             if (all) list.addView(header(text("Исполнители", "Artists")));
             for (int i = 0; i < (all ? Math.min(3, artists.size()) : artists.size()); i++) {
                 OtherSource.Artist artist = artists.get(i);
-                list.addView(linkRow(artist.name, text("Исполнитель · альбомы", "Artist · albums"),
-                        () -> open(() -> showArtist(artist))));
+                list.addView(entityRow(artist.name, text("Исполнитель", "Artist"), null, artist.thumbUrl, true,
+                        "ic_actions_user", () -> open(() -> showArtist(artist))));
             }
         }
         if ((all || tab == ResultTabs.ALBUMS) && !albums.isEmpty()) {
@@ -313,9 +315,21 @@ final class SearchScreen {
     }
 
     private void addAlbumRow(OtherSource.Album album) {
-        String count = album.trackCount > 0 ? album.trackCount + " " + text("тр.", "tracks") : "";
-        String subtitle = album.artist.isEmpty() ? count : count.isEmpty() ? album.artist : album.artist + " · " + count;
-        list.addView(linkRow(album.title, subtitle, () -> open(() -> showAlbum(album))));
+        list.addView(entityRow(album.title, album.artist, albumDetails(album), album.thumbUrl, false,
+                "ic_actions_playlist", () -> open(() -> showAlbum(album))));
+    }
+
+    /** "Album · 12 tracks", as the details line of SoundCloud's playlist cells. */
+    private static String albumDetails(OtherSource.Album album) {
+        String kind = text("Альбом", "Album");
+        return album.trackCount > 0 ? kind + " · " + tracks(album.trackCount) : kind;
+    }
+
+    private static String tracks(long count) {
+        if (!app.revanced.extension.soundcloud.shared.Lang.russian()) return count + (count == 1 ? " track" : " tracks");
+        long tens = count % 100, ones = count % 10;
+        String word = tens >= 11 && tens <= 14 ? "треков" : ones == 1 ? "трек" : ones >= 2 && ones <= 4 ? "трека" : "треков";
+        return count + " " + word;
     }
 
     /** Adds a row for each track and returns the rows that were added. */
@@ -344,14 +358,18 @@ final class SearchScreen {
         previous.run();
     }
 
-    /** Shows a page title with a back row, then loads the page content off the main thread. */
-    private <T> void loadPage(Runnable self, String title, Callable<T> load, Consumer<T> show) {
+    /**
+     * Shows the top of a page (back, the big cover or avatar, the name), then loads the page content off the main
+     * thread.
+     */
+    private <T> void loadPage(Runnable self, String title, String subtitle, String thumb, boolean round, String icon,
+                              Callable<T> load, Consumer<T> show) {
         shownPage = self;
         int current = ++generation;
         int token = ++pageToken;
         clearList();
-        list.addView(linkRow("←  " + text("Назад", "Back"), null, this::goBack));
-        list.addView(header(title));
+        list.addView(backRow());
+        list.addView(hero(title, subtitle, thumb, round, icon));
         spinner.setVisibility(View.VISIBLE);
         SearchThreads.NETWORK.execute(() -> {
             // Replaced or left while waiting in the queue: nothing to load.
@@ -380,24 +398,46 @@ final class SearchScreen {
     }
 
     private void showArtist(OtherSource.Artist artist) {
-        loadPage(() -> showArtist(artist), artist.name, () -> OtherSource.artistAlbums(artist), albums -> {
-            if (albums.isEmpty()) list.addView(note(text("Альбомов не нашлось.", "No albums found.")));
-            for (OtherSource.Album album : albums) addAlbumRow(album);
-        });
+        loadPage(() -> showArtist(artist), artist.name, text("Исполнитель", "Artist"), artist.thumbUrl, true,
+                "ic_actions_user", () -> OtherSource.artistAlbums(artist), albums -> {
+                    if (albums.isEmpty()) {
+                        list.addView(note(text("Альбомов не нашлось.", "No albums found.")));
+                        return;
+                    }
+                    list.addView(header(text("Альбомы и синглы", "Albums and singles")));
+                    for (OtherSource.Album album : albums) addAlbumRow(album);
+                });
     }
 
     private void showAlbum(OtherSource.Album album) {
-        loadPage(() -> showAlbum(album), album.title, () -> OtherSource.albumTracks(album), tracks -> {
-            if (tracks.isEmpty()) {
-                list.addView(note(text("В альбоме нет треков.", "The album has no tracks.")));
-                return;
-            }
-            // Only the tracks of this album: the count in the row has to match what is downloaded.
-            list.addView(linkRow(text("Скачать всё", "Download all") + " (" + tracks.size() + ")",
-                    text("В плейлист «Импортированные»", "To the imported music"),
-                    () -> DownloadQueue.askToStartAll(context, tracks)));
-            addTracksInSteps(tracks, 0, generation);
-        });
+        String subtitle = album.artist.isEmpty() ? albumDetails(album) : album.artist + " · " + albumDetails(album);
+        loadPage(() -> showAlbum(album), album.title, subtitle, album.thumbUrl, false, "ic_actions_playlist",
+                () -> OtherSource.albumTracks(album), tracks -> {
+                    if (tracks.isEmpty()) {
+                        list.addView(note(text("В альбоме нет треков.", "The album has no tracks.")));
+                        return;
+                    }
+                    // Only the tracks of this album: the count on the button has to match what is downloaded.
+                    list.addView(downloadAllButton(tracks));
+                    addTracksInSteps(tracks, 0, generation);
+                });
+    }
+
+    /** "Download all (N)" under the cover of an album page, and where the tracks go. */
+    private View downloadAllButton(List<OtherSource.Track> tracks) {
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(look.dp(16), look.dp(4), look.dp(16), look.dp(12));
+        box.addView(look.pill(text("Скачать всё", "Download all") + " (" + tracks.size() + ")",
+                () -> DownloadQueue.askToStartAll(context, tracks)));
+        TextView where = look.meta(text("В плейлист «Импортированные»", "To the imported music"));
+        where.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = look.dp(6);
+        box.addView(where, params);
+        return box;
     }
 
     /** Adds the rows a few per frame, so a long album does not stop the screen while it builds them. */
@@ -413,52 +453,80 @@ final class SearchScreen {
     // region Rows of the list
 
     private TextView header(String label) {
-        TextView view = new TextView(context);
-        view.setText(label);
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        view.setTypeface(Typeface.DEFAULT_BOLD);
-        view.setTextColor(textColor);
-        view.setPadding(dpTruncated(context, 16), dpTruncated(context, 16), dpTruncated(context, 16), dpTruncated(context, 4));
-        return view;
+        return look.header(label);
     }
 
     private TextView note(String label) {
-        TextView view = new TextView(context);
-        view.setText(label);
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        view.setTextColor(withAlpha(textColor, 0xB0));
-        view.setPadding(dpTruncated(context, 16), dpTruncated(context, 16), dpTruncated(context, 16), dpTruncated(context, 16));
-        return view;
+        return look.note(label);
     }
 
-    /** A row that opens something: a title and an optional grey line under it. */
-    private LinearLayout linkRow(String title, String subtitle, Runnable onClick) {
-        LinearLayout view = new LinearLayout(context);
-        view.setOrientation(LinearLayout.VERTICAL);
-        view.setGravity(Gravity.CENTER_VERTICAL);
-        view.setMinimumHeight(dpTruncated(context, 56));
-        view.setPadding(dpTruncated(context, 16), dpTruncated(context, 8), dpTruncated(context, 16), dpTruncated(context, 8));
+    /**
+     * A row that opens a page, as SoundCloud's artist and playlist cells: the picture, the name, a grey line, the
+     * details and an arrow.
+     */
+    private LinearLayout entityRow(String title, String subtitle, String details, String thumb, boolean round, String icon,
+                                   Runnable onClick) {
+        LinearLayout row = look.row();
+        row.setOnClickListener(v -> onClick.run());
+        ImageView art = look.artwork(round, icon);
+        look.load(art, thumb, SearchLook.ART_DP);
+        TextView second = subtitle == null || subtitle.isEmpty() ? null : look.subtitle(subtitle);
+        TextView third = details == null || details.isEmpty() ? null : look.meta(details);
+        look.fill(row, art, look.texts(look.title(title), second, third), look.chevron());
+        return row;
+    }
+
+    /** The back arrow at the top of a page opened from the results. */
+    private View backRow() {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(look.dp(4), look.dp(4), look.dp(16), 0);
+        ImageView arrow = new ImageView(context);
+        int icon = app.revanced.extension.shared.Utils.getResourceIdentifier(
+                app.revanced.extension.shared.ResourceType.DRAWABLE, "ic_actions_back_primary");
+        if (icon != 0) arrow.setImageResource(icon);
+        arrow.setImageTintList(ColorStateList.valueOf(look.primary));
+        arrow.setScaleType(ImageView.ScaleType.CENTER);
+        arrow.setContentDescription(text("Назад", "Back"));
         TypedValue ripple = new TypedValue();
-        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
-        view.setBackgroundResource(ripple.resourceId);
-        view.setOnClickListener(v -> onClick.run());
-        TextView first = new TextView(context);
-        first.setText(title);
-        first.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        first.setTextColor(textColor);
-        first.setSingleLine(true);
-        first.setEllipsize(TextUtils.TruncateAt.END);
-        view.addView(first);
+        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true);
+        arrow.setBackgroundResource(ripple.resourceId);
+        arrow.setOnClickListener(v -> goBack());
+        row.addView(arrow, new LinearLayout.LayoutParams(look.dp(48), look.dp(48)));
+        return row;
+    }
+
+    /** The top of an album or artist page: the big cover (a circle for an artist), the name and a grey line. */
+    private View hero(String title, String subtitle, String thumb, boolean round, String icon) {
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(look.dp(24), 0, look.dp(24), look.dp(12));
+        ImageView art = look.artwork(round, icon);
+        look.load(art, thumb, SearchLook.HERO_DP);
+        box.addView(art, new LinearLayout.LayoutParams(look.dp(SearchLook.HERO_DP), look.dp(SearchLook.HERO_DP)));
+        TextView name = look.title(title);
+        int h2 = app.revanced.extension.shared.Utils.getResourceIdentifier(
+                app.revanced.extension.shared.ResourceType.STYLE, "H2.Primary");
+        if (h2 != 0) name.setTextAppearance(h2);
+        name.setTextColor(look.primary);
+        name.setSingleLine(false);
+        name.setMaxLines(2);
+        name.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nameParams.topMargin = look.dp(16);
+        box.addView(name, nameParams);
         if (subtitle != null && !subtitle.isEmpty()) {
-            TextView second = new TextView(context);
-            second.setText(subtitle);
-            second.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-            second.setTextColor(withAlpha(textColor, 0xA0));
-            second.setSingleLine(true);
-            second.setEllipsize(TextUtils.TruncateAt.END);
-            view.addView(second);
+            TextView line = look.subtitle(subtitle);
+            line.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lineParams.topMargin = look.dp(4);
+            box.addView(line, lineParams);
         }
-        return view;
+        return box;
     }
 
     // endregion

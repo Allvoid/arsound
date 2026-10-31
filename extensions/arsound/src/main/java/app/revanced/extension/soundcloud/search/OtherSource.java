@@ -66,14 +66,46 @@ public final class OtherSource {
         public final long durationSeconds;
         /** The album cover, or null. */
         public final String coverUrl;
+        /** The same cover small, for the row of the list, or null. */
+        public final String thumbUrl;
 
-        Track(String url, String title, String artist, long durationSeconds, String coverUrl) {
+        Track(String url, String title, String artist, long durationSeconds, String coverUrl, String thumbUrl) {
             this.url = url;
             this.title = title;
             this.artist = artist;
             this.durationSeconds = durationSeconds;
             this.coverUrl = coverUrl;
+            this.thumbUrl = thumbUrl;
         }
+    }
+
+    /** The side, in pixels, the pictures of the list rows are asked for in: a 64 dp cell on a dense screen. */
+    private static final int THUMB_PX = 226;
+
+    /**
+     * A picture for a row of the list: YouTube Music sizes a cover or an avatar by its address, so the smallest one
+     * that still fills the row is asked for instead of the 544 px one kept for the downloaded file.
+     */
+    static String thumbUrl(List<Image> images) {
+        Image best = null;
+        for (Image image : images) {
+            if (best == null) {
+                best = image;
+                continue;
+            }
+            boolean bigEnough = image.getHeight() >= THUMB_PX;
+            boolean bestBigEnough = best.getHeight() >= THUMB_PX;
+            // The smallest picture that is big enough; while none is, the biggest.
+            if (bigEnough && (!bestBigEnough || image.getHeight() < best.getHeight())
+                    || !bigEnough && !bestBigEnough && image.getHeight() > best.getHeight()) {
+                best = image;
+            }
+        }
+        if (best == null) return null;
+        String url = best.getUrl();
+        if (url.contains("googleusercontent.com")) return url.replaceAll("=w\\d+-h\\d+[^/]*$", "=w" + THUMB_PX + "-h" + THUMB_PX);
+        if (url.contains("ggpht.com")) return url.replaceAll("=s\\d+", "=s" + THUMB_PX);
+        return url;
     }
 
     /**
@@ -107,7 +139,7 @@ public final class OtherSource {
                 if (!(item instanceof StreamInfoItem)) continue;
                 StreamInfoItem stream = (StreamInfoItem) item;
                 tracks.add(new Track(stream.getUrl(), stream.getName(), artistName(stream.getUploaderName()),
-                        stream.getDuration(), coverUrl(stream.getThumbnails())));
+                        stream.getDuration(), coverUrl(stream.getThumbnails()), thumbUrl(stream.getThumbnails())));
             }
             if (!tracks.isEmpty()) break;
         }
@@ -119,22 +151,28 @@ public final class OtherSource {
         public final String title;
         public final String artist;
         public final long trackCount;
+        /** The cover for the row, or null. */
+        public final String thumbUrl;
 
-        Album(String url, String title, String artist, long trackCount) {
+        Album(String url, String title, String artist, long trackCount, String thumbUrl) {
             this.url = url;
             this.title = title;
             this.artist = artist;
             this.trackCount = trackCount;
+            this.thumbUrl = thumbUrl;
         }
     }
 
     public static final class Artist {
         public final String url;
         public final String name;
+        /** The avatar for the row, or null. */
+        public final String thumbUrl;
 
-        Artist(String url, String name) {
+        Artist(String url, String name, String thumbUrl) {
             this.url = url;
             this.name = name;
+            this.thumbUrl = thumbUrl;
         }
     }
 
@@ -154,7 +192,7 @@ public final class OtherSource {
         PlaylistInfoItem playlist = (PlaylistInfoItem) item;
         String artist = artistName(playlist.getUploaderName());
         return new Album(playlist.getUrl(), playlist.getName(), artist.isEmpty() ? fallbackArtist : artist,
-                playlist.getStreamCount());
+                playlist.getStreamCount(), thumbUrl(playlist.getThumbnails()));
     }
 
     /** Albums and singles of YouTube Music. */
@@ -170,7 +208,7 @@ public final class OtherSource {
     public static List<Artist> searchArtists(String query) throws Exception {
         List<Artist> artists = new ArrayList<>();
         for (InfoItem item : searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS)) {
-            if (item instanceof ChannelInfoItem) artists.add(new Artist(item.getUrl(), item.getName()));
+            if (item instanceof ChannelInfoItem) artists.add(new Artist(item.getUrl(), item.getName(), thumbUrl(item.getThumbnails())));
         }
         return artists;
     }
@@ -196,8 +234,10 @@ public final class OtherSource {
             String artist = artistName(stream.getUploaderName());
             // Tracks of an album share its cover.
             String cover = coverUrl(info.getThumbnails());
+            String thumb = album.thumbUrl != null ? album.thumbUrl : thumbUrl(info.getThumbnails());
             tracks.add(new Track(stream.getUrl(), stream.getName(), artist.isEmpty() ? album.artist : artist,
-                    stream.getDuration(), cover != null ? cover : coverUrl(stream.getThumbnails())));
+                    stream.getDuration(), cover != null ? cover : coverUrl(stream.getThumbnails()),
+                    thumb != null ? thumb : thumbUrl(stream.getThumbnails())));
         }
         return tracks;
     }

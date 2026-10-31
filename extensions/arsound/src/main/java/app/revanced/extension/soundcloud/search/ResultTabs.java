@@ -14,8 +14,8 @@ import android.widget.TextView;
 
 /**
  * The same tabs as SoundCloud's own search results: text, a line under the selected one and a thin line under the row.
- * SoundCloud draws them in Compose, so they are made here the same way, with its labels (the app has no Russian
- * translation of them).
+ * SoundCloud draws them in Compose, so they are made here the same way, labelled in the language of the app (SoundCloud
+ * has no Russian for its own labels).
  */
 final class ResultTabs {
     static final int ALL = 0;
@@ -23,7 +23,12 @@ final class ResultTabs {
     static final int ARTISTS = 2;
     static final int ALBUMS = 3;
 
-    private static final String[] LABELS = {"All", "Tracks", "Profiles", "Albums"};
+    /** In the language of the app: SoundCloud's own labels had no Russian. */
+    private static String[] labels() {
+        return app.revanced.extension.soundcloud.shared.Lang.russian()
+                ? new String[]{"Все", "Треки", "Исполнители", "Альбомы"}
+                : new String[]{"All", "Tracks", "Artists", "Albums"};
+    }
 
     /** Called when the user picks another tab. */
     interface Listener {
@@ -41,7 +46,8 @@ final class ResultTabs {
         bar.setOrientation(LinearLayout.VERTICAL);
         tabs = new LinearLayout(context);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < LABELS.length; i++) {
+        String[] labels = labels();
+        for (int i = 0; i < labels.length; i++) {
             int index = i;
             LinearLayout tabView = new LinearLayout(context);
             tabView.setOrientation(LinearLayout.VERTICAL);
@@ -53,7 +59,7 @@ final class ResultTabs {
                 listener.onTabChanged();
             });
             TextView label = new TextView(context);
-            label.setText(LABELS[i]);
+            label.setText(labels[i]);
             label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
             label.setTypeface(Typeface.DEFAULT_BOLD);
             label.setGravity(Gravity.CENTER);
