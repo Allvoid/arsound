@@ -74,7 +74,7 @@ abstract class ScrollingScreen extends SettingsScreen {
         if (withLogo) {
             // "Support" right after the title, the same as on the Arsound tab.
             TextView donate = ui.createText("H4.Primary", app.revanced.extension.soundcloud.shared.DonateDialog.label());
-            int accent = ui.themeColor("themeColorHighlight");
+            int accent = ArsoundTheme.palette(activity, "special");
             donate.setTextColor(accent);
             donate.setIncludeFontPadding(false);
             donate.setGravity(Gravity.CENTER);

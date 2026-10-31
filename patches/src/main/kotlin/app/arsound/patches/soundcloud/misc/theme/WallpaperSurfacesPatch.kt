@@ -57,7 +57,16 @@ private val SURFACE_BANDS = listOf(
     "Lcom/soundcloud/android/ui/components/compose/listviews/EdgeShadowKt;",
     "Lcom/soundcloud/android/ui/components/compose/tabs/AdjustableTabRowKt;",
     "Lcom/soundcloud/android/ui/components/compose/progress/LoadingKt;",
+    // The strip over the chips of the Feed's "Following": a band in the screen's colour over the wallpaper.
+    "Lcom/soundcloud/android/features/feed/ui/components/following/FeedForegroundTopKt;",
 )
+
+/** The list item of a list that loads, is empty or failed: a view of empty_container_layout, filled in the surface colour. */
+private val BytecodePatchContext.emptyItemCreateMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/uniflow/android/EmptyAdapter;")
+    returnType("Landroidx/recyclerview/widget/RecyclerView\$ViewHolder;")
+    parameterTypes("Landroid/view/ViewGroup;", "I")
+}
 
 /** Coil's {@code AsyncImage}: the picture of the content wall's backdrop. */
 private const val ASYNC_IMAGE = "Lcoil/compose/SingletonAsyncImageKt;"
@@ -396,6 +405,19 @@ val wallpaperSurfacesPatch = bytecodePatch {
                     """,
                 )
             }
+        }
+        // The item a list shows while it loads (the search spinner), when it is empty or failed: made long after the
+        // screen, inside the list, it filled the whole list in the surface colour. Taken off as it is made.
+        emptyItemCreateMethod.apply {
+            val inflate = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.let {
+                    it.definingClass == "Landroid/view/LayoutInflater;" && it.name == "inflate"
+                } == true
+            }
+            val item = getInstruction<OneRegisterInstruction>(inflate + 1).registerA
+            val parent = getInstruction<FiveRegisterInstruction>(inflate).registerE
+            addInstruction(inflate + 2,
+                "invoke-static { v$item, v$parent }, $SURFACES->onEmptyItem(Landroid/view/View;Landroid/view/ViewGroup;)V")
         }
         SURFACE_BANDS.forEach { type ->
             val replaced = firstClassDef(type).methods.sumOf { it.replaceSurfaceColours(surfaceName) }

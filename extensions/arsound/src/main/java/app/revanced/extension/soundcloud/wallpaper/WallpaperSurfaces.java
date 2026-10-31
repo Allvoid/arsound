@@ -115,6 +115,24 @@ public final class WallpaperSurfaces {
     }
 
     /**
+     * Injection point, in the list adapter that shows a loading, empty or failed list: its item, just made, filled the
+     * whole list in the screen's colour (the search while it searched was one opaque rectangle over the wallpaper). On a
+     * main screen with the wallpaper its fill goes; anywhere else (dialogs, sheets) it stays.
+     *
+     * @param parent The list the item is made for.
+     */
+    public static void onEmptyItem(View item, android.view.ViewGroup parent) {
+        if (!active || item == null || parent == null) return;
+        try {
+            MainScreen screen = MainScreen.of(parent.getContext());
+            if (screen == null || !screen.hasWallpaper() || !screen.contains(parent)) return;
+            app.revanced.extension.soundcloud.shared.ClearBackground.on(item);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Wallpaper: could not clear a list's empty item", ex);
+        }
+    }
+
+    /**
      * Injection point, in place of {@code Colors.j} in SoundCloud's Compose theme and scaffold: the colour they
      * fill a screen with. Transparent on a main screen while the wallpaper is shown, SoundCloud's colour anywhere
      * else (dialogs, sheets, the player, the other windows).
