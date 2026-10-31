@@ -12,7 +12,6 @@ import java.util.function.Predicate;
  */
 final class DuplicatePass {
     private final Predicate<Object> isDisliked;
-    private final List<SongFingerprint> kept = new ArrayList<>();
     /** Tracks that are in the list already, by normalized urn. */
     private final Set<String> keptTracks = new HashSet<>();
     private int removed;
@@ -33,7 +32,7 @@ final class DuplicatePass {
 
     /** A song that stays in the list from the start, such as the track autoplay was asked for. */
     final void keep(SongFingerprint song) {
-        kept.add(song);
+        remember(song);
     }
 
     /** A track that is in the list already, such as one waiting in the play queue: it is not added again. */
@@ -75,9 +74,13 @@ final class DuplicatePass {
             removed++;
             return false;
         }
-        kept.add(song);
-        keptByKey.computeIfAbsent(song.key, key -> new java.util.ArrayList<>()).add(song);
+        remember(song);
         return true;
+    }
+
+    /** A song that stays, under its key: the seeded songs too, or their copies went through. */
+    private void remember(SongFingerprint song) {
+        keptByKey.computeIfAbsent(song.key, key -> new ArrayList<>()).add(song);
     }
 
     /** Whether the song is a copy of one that stays: only songs of the same key can be. */
