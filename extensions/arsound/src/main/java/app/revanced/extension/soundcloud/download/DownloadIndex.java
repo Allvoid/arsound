@@ -67,6 +67,18 @@ public final class DownloadIndex {
     private static final AtomicBoolean refreshQueued = new AtomicBoolean();
     private static volatile long lastRefreshAt;
     private static volatile long lastFailureAt;
+    /**
+     * When a listing was last tried, complete or not. A folder out of reach makes every listing incomplete, and
+     * {@link #lastRefreshAt} stays old then: the time of the try keeps such listings as rare as complete ones.
+     */
+    private static volatile long lastAttemptAt;
+    /** Guards {@link #changesWhileListing}. */
+    private static final Object JOURNAL = new Object();
+    /**
+     * The changes the app made itself while a listing runs ({@link #noteSaved}, {@link #forget}): they go into the
+     * listing in use, and are made again on the new one before it takes its place. Null while no listing runs.
+     */
+    private static List<java.util.function.Consumer<MediaSnapshot>> changesWhileListing;
     /** Whether the access to music was given when the app last came to the screen; null before the first time. */
     private static volatile Boolean lastGranted;
     /** Tracks whose missing file was already written down, so a list that asks every second does not fill the log. */
@@ -441,7 +453,22 @@ public final class DownloadIndex {
      * directly ({@link #noteSaved}, {@link #forget}), so a recent listing is as good as a new one.
      */
     static void refreshIfStale() {
-        if (snapshot == null || SystemClock.elapsedRealtime() - lastRefreshAt > REFRESH_INTERVAL_MS) refreshNow();
+        if (isStale()) refreshNow();
+    }
+
+    /** No listing yet, or the last one, complete or tried, is older than {@link #REFRESH_INTERVAL_MS}. */
+    private static boolean isStale() {
+        long now = SystemClock.elapsedRealtime();
+        return snapshot == null || (now - lastRefreshAt > REFRESH_INTERVAL_MS && now - lastAttemptAt > REFRESH_INTERVAL_MS);
+    }
+
+    /** Makes a change of the app's own in the listing in use, and keeps it for the listing that runs, if one does. */
+    private static void change(java.util.function.Consumer<MediaSnapshot> change) {
+        synchronized (JOURNAL) {
+            MediaSnapshot listed = snapshot;
+            if (listed != null) change.accept(listed);
+            if (changesWhileListing != null) changesWhileListing.add(change);
+        }
     }
 
     /**
@@ -453,6 +480,10 @@ public final class DownloadIndex {
         if (context == null) return;
         boolean listedAll = false;
         synchronized (REFRESH_LOCK) {
+            lastAttemptAt = SystemClock.elapsedRealtime();
+            synchronized (JOURNAL) {
+                changesWhileListing = new ArrayList<>();
+            }
             try {
                 MediaSnapshot before = snapshot;
                 MediaSnapshot fresh = new MediaSnapshot();
@@ -466,7 +497,12 @@ public final class DownloadIndex {
                         addListed(fresh, location, rows);
                     }
                 }
-                snapshot = fresh;
+                synchronized (JOURNAL) {
+                    // What the app saved or removed while the system listed is not in the listing yet.
+                    for (java.util.function.Consumer<MediaSnapshot> change : changesWhileListing) change.accept(fresh);
+                    changesWhileListing = null;
+                    snapshot = fresh;
+                }
                 // A listing that missed a location is made again at the next chance.
                 if (complete) lastRefreshAt = SystemClock.elapsedRealtime();
                 lastFailureAt = complete ? 0 : SystemClock.elapsedRealtime();
@@ -478,6 +514,10 @@ public final class DownloadIndex {
             } catch (Exception ex) {
                 lastFailureAt = SystemClock.elapsedRealtime();
                 Logger.printInfo(() -> "Download index: could not list the media store: " + ex);
+            } finally {
+                synchronized (JOURNAL) {
+                    changesWhileListing = null;
+                }
             }
         }
         // Those who wait for the first listing go on, with the listing or without it.
@@ -532,21 +572,20 @@ public final class DownloadIndex {
      * the whole location again, which for a folder of thousands of files takes seconds for each track of a playlist.
      */
     static void noteSaved(Context context, Ref file, long size) {
-        MediaSnapshot listed = snapshot;
-        if (listed == null || file.uri == null) return;
-        listed.add(new DownloadLocation.Row(file.locationId, file.name, Uri.parse(file.uri), size,
-                System.currentTimeMillis(), context.getPackageName()));
+        if (file.uri == null) return;
+        DownloadLocation.Row row = new DownloadLocation.Row(file.locationId, file.name, Uri.parse(file.uri), size,
+                System.currentTimeMillis(), context.getPackageName());
+        change(listed -> listed.add(row));
     }
 
     /** A file was removed: it is left out of the listing at once, so it is not shown as downloaded any more. */
     private static void forget(Ref ref, Uri removedRow) {
-        MediaSnapshot listed = snapshot;
-        if (listed != null) {
+        change(listed -> {
             DownloadLocation.Row byName = listed.byName.get(MediaSnapshot.key(ref.locationId, ref.name));
             if (byName != null) listed.remove(byName);
             DownloadLocation.Row byUri = removedRow == null ? null : listed.byUri.get(removedRow.toString());
             if (byUri != null) listed.remove(byUri);
-        }
+        });
     }
 
     /**
@@ -561,7 +600,7 @@ public final class DownloadIndex {
         lastGranted = granted;
         if (granted && before != null && !before) {
             Utils.runOnBackgroundThread(() -> adoptOnAccess(context));
-        } else if (snapshot == null || SystemClock.elapsedRealtime() - lastRefreshAt > REFRESH_INTERVAL_MS) {
+        } else if (isStale()) {
             refreshAsync();
         }
     }
@@ -825,10 +864,7 @@ public final class DownloadIndex {
      * @return How many tracks were forgotten.
      */
     public static int forgetLost(Lost lost) {
-        int forgotten = 0;
-        for (String trackId : lost.trackIds) {
-            if (DownloadTrackPatch.forgetDownload(trackId)) forgotten++;
-        }
+        int forgotten = DownloadTrackPatch.forgetDownloads(lost.trackIds);
         // The lists lose the download icons of these tracks.
         DownloadProgress.onDownloadsDeleted();
         return forgotten;

@@ -2,6 +2,8 @@ package app.revanced.extension.soundcloud.local;
 
 import java.io.File;
 
+import app.revanced.extension.shared.Logger;
+
 /**
  * The heart of an imported track, which is liked "as if" while it is among the likes.
  * <p>
@@ -20,9 +22,15 @@ public final class LikeHearts {
      * @return True also for an imported file that is among the likes.
      */
     public static boolean isFilled(boolean liked, Object urn) {
-        if (liked || !LikeObjects.isLocal(urn) || !ImportedLikes.isActive()) return liked;
-        File file = LikeObjects.fileOf(urn);
-        return file != null && ImportedLikes.likedFiles().contains(file);
+        // A hook on every heart of every list: a failure here must leave SoundCloud's own answer.
+        try {
+            if (liked || !LikeObjects.isLocal(urn) || !ImportedLikes.isActive()) return liked;
+            File file = LikeObjects.fileOf(urn);
+            return file != null && ImportedLikes.likedFiles().contains(file);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not tell whether an imported file is liked", ex);
+            return liked;
+        }
     }
 
     /**

@@ -34,4 +34,16 @@ public class ManualOrderTest {
         List<String> sorted = order.sort(Arrays.asList("a", null, "b"), SAVED, item -> item);
         assertEquals(Arrays.asList(null, "b", "a"), sorted);
     }
+
+    @Test
+    public void eachKeyIsReadOnce() {
+        ManualOrder order = new ManualOrder("k", ManualOrder.Unknown.LAST);
+        int[] reads = new int[1];
+        List<String> items = Arrays.asList("y", "a", "x", "b", "z", "q", "w");
+        order.sort(items, SAVED, item -> {
+            reads[0]++;
+            return item;
+        });
+        assertEquals(items.size(), reads[0]);
+    }
 }

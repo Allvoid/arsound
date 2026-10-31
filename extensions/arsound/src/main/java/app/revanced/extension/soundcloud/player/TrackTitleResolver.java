@@ -57,7 +57,8 @@ final class TrackTitleResolver {
         for (ListeningStats.Entry entry : entries) {
             File local = LocalAdditions.importedFileOf(entry.key);
             if (local != null) {
-                LocalMusic.Track track = local.isFile() ? LocalMusic.readTrack(local) : null;
+                // Kept per file: the statistics resolve every listen of the period, the same files many times.
+                LocalMusic.Track track = local.isFile() ? LocalMusic.track(local) : null;
                 if (track != null && !track.artist.isEmpty()) {
                     entry.title = track.title;
                     entry.artist = track.artist;

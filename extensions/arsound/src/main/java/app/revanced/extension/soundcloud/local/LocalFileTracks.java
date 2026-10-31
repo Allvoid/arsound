@@ -91,7 +91,7 @@ final class LocalFileTracks {
         else return response;
 
         Map<Object, Object> byUrn = new HashMap<>();
-        for (Object item : found) byUrn.put(item.getClass().getMethod("getTrackUrn").invoke(item), item);
+        for (Object item : found) byUrn.put(app.revanced.extension.soundcloud.shared.Getters.get(item, "getTrackUrn"), item);
 
         List<Object> merged = new ArrayList<>();
         for (Object urn : requested) {

@@ -238,7 +238,10 @@ public final class ImportActivity extends LocalActivity {
             // The saved playlist already shows every imported file.
             boolean addToPlaylist = playlistUrn != null && !SavedPlaylist.isSavedPlaylist(playlistUrn);
             if (addToPlaylist) {
-                for (File file : files) LocalAdditions.add(playlistUrn, LocalAdditions.fileEntry(file));
+                // One read and one write for the whole batch: one add per file read and wrote the playlist each time.
+                List<String> entries = new java.util.ArrayList<>(files.size());
+                for (File file : files) entries.add(LocalAdditions.fileEntry(file));
+                LocalAdditions.addAll(playlistUrn, entries);
             }
             String saved = SavedPlaylist.getUrn();
             Utils.runOnMainThread(() -> {

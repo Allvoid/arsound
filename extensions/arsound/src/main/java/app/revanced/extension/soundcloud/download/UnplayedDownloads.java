@@ -53,6 +53,9 @@ public final class UnplayedDownloads {
 
         /** Deletes the file. @return True if it was deleted. */
         abstract boolean delete(Context context);
+
+        /** When the track was last used, read again now: it may have started playing since the list was made. */
+        abstract long lastUseNow(SharedPreferences preferences);
     }
 
     private static final class UnplayedDownload extends Unplayed {
@@ -72,14 +75,21 @@ public final class UnplayedDownloads {
         boolean delete(Context context) {
             return DownloadTrackPatch.deleteDownload(context, trackId);
         }
+
+        @Override
+        long lastUseNow(SharedPreferences preferences) {
+            DownloadIndex.Entry file = DownloadIndex.known(trackId);
+            return lastUse(file == null ? 0 : file.modifiedMs(), preferences == null ? 0 : preferences.getLong(trackId, 0),
+                    app.revanced.extension.soundcloud.player.ListeningStats.lastListens().get(Urns.track(trackId)));
+        }
     }
 
     private static final class UnplayedImport extends Unplayed {
-        private final LocalMusic.Track track;
+        private final File file;
 
-        UnplayedImport(LocalMusic.Track track, long size) {
+        UnplayedImport(File file, long size) {
             super(size);
-            this.track = track;
+            this.file = file;
         }
 
         @Override
@@ -89,7 +99,17 @@ public final class UnplayedDownloads {
 
         @Override
         boolean delete(Context context) {
-            return LocalMusic.delete(track);
+            return LocalMusic.delete(file);
+        }
+
+        @Override
+        long lastUseNow(SharedPreferences preferences) {
+            Long listened = null;
+            for (Map.Entry<String, Long> listen : app.revanced.extension.soundcloud.player.ListeningStats.lastListens().entrySet()) {
+                if (file.equals(LocalAdditions.importedFileOf(listen.getKey()))) listened = listen.getValue();
+            }
+            return lastUse(file.lastModified(), preferences == null ? 0 : preferences.getLong(FILE_PREFIX + file.getPath(), 0),
+                    listened);
         }
     }
 
@@ -148,13 +168,14 @@ public final class UnplayedDownloads {
                 File file = LocalAdditions.importedFileOf(listen.getKey());
                 if (file != null) importedListens.put(file.getPath(), listen.getValue());
             }
-            for (LocalMusic.Track track : LocalMusic.getTracks(context)) {
-                if (RemovedTracks.isConvertedCopy(track.file)) continue;
-                String path = track.file.getPath();
+            // The files alone: their size and time are all the rule needs, and reading the tags of each took a while.
+            for (File file : LocalMusic.getFiles(context)) {
+                if (RemovedTracks.isConvertedCopy(file)) continue;
+                String path = file.getPath();
                 // The copy is written at import, so its time is the import time.
-                long last = lastUse(track.file.lastModified(),
+                long last = lastUse(file.lastModified(),
                         preferences == null ? 0 : preferences.getLong(FILE_PREFIX + path, 0), importedListens.get(path));
-                if (last < cutoff) result.add(new UnplayedImport(track, track.file.length()));
+                if (last < cutoff) result.add(new UnplayedImport(file, file.length()));
             }
         }
         return result;
@@ -177,8 +198,14 @@ public final class UnplayedDownloads {
         try {
             Context context = Utils.getContext();
             if (context == null) return;
+            // The files of a chosen folder are known only once the first listing is done.
+            DownloadIndex.awaitListing();
             int downloads = 0, imported = 0;
+            long cutoff = System.currentTimeMillis() - days() * DAY_MS;
+            SharedPreferences played = preferences();
             for (Unplayed track : unplayed()) {
+                // Started since the list was made (the clean-up runs a while after the start): it stays.
+                if (track.lastUseNow(played) >= cutoff) continue;
                 if (!track.delete(context)) continue;
                 if (track.isImported()) imported++;
                 else downloads++;
@@ -187,8 +214,9 @@ public final class UnplayedDownloads {
             Logger.printInfo(() -> "Unplayed downloads: deleted " + downloadCount + " downloaded and " + importedCount
                     + " imported files not played for " + days() + " days");
             // Forget tracks that are gone.
+            // Every start, not only after deletions: the file gets an entry for every track played.
             SharedPreferences preferences = preferences();
-            if (preferences != null && downloads + imported > 0) {
+            if (preferences != null) {
                 SharedPreferences.Editor editor = preferences.edit();
                 for (String key : preferences.getAll().keySet()) {
                     boolean gone = key.startsWith(FILE_PREFIX)
@@ -203,8 +231,10 @@ public final class UnplayedDownloads {
         }
     }
 
+    /** Written together at most every two seconds: every start of a track writes it. */
     private static SharedPreferences preferences() {
         Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+        return context == null ? null : app.revanced.extension.soundcloud.shared.BatchedPreferences.of(
+                context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE));
     }
 }

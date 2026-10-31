@@ -29,6 +29,9 @@
  * Per-track records are in the preferences {@code revanced_soundcloud_downloads} ({@code track_uri_}, {@code track_dir_},
  * {@code track_file_}, ...); others: {@code arsound_downloaded_playlists}, {@code arsound_music_access},
  * {@code arsound_played_downloads}, {@code arsound_unavailable_tracks}, {@code revanced_soundcloud_download_parts}.
+ * The per-track records and {@code arsound_played_downloads} go through {@code shared.BatchedPreferences}: changes reach
+ * the disk together, at most every two seconds and when a screen leaves the front; never open those files directly.
+ * The set of downloaded ids is read once and kept ({@code DownloadTrackPatch.getDownloadedTracks}, not to be changed).
  *
  * <p>Gotchas: <b>DRM work in progress, do not edit</b> {@code ClientProfiles}, {@code DownloadTrackPatch},
  * {@code DownloadPlaylistPatch}, {@code HlsDownloader}, {@code TrackSource}, {@code UnavailableTracks}. FairPlay and

@@ -44,7 +44,9 @@ public final class LocalAdditions {
     public static List<String> getShownEntries(String playlistUrn) {
         List<String> entries = getEntries(playlistUrn);
         if (SavedPlaylist.isSavedPlaylist(playlistUrn)) {
-            for (String entry : SavedPlaylist.getEntries()) if (!entries.contains(entry)) entries.add(entry);
+            // A set beside the list: the saved playlist holds every download and imported file.
+            java.util.Set<String> seen = new java.util.HashSet<>(entries);
+            for (String entry : SavedPlaylist.getEntries()) if (seen.add(entry)) entries.add(entry);
         }
         return entries;
     }
@@ -144,36 +146,48 @@ public final class LocalAdditions {
 
     private static Object appendToTrackUrns(Object single, Object playlistUrn, boolean playback) {
         String key = String.valueOf(playlistUrn);
-        int count = getShownEntries(key).size();
-        Logger.printInfo(() -> "Track urns requested for " + key + ", local additions: " + count);
         try {
             // Always mapped: the list is also watched for tracks that SoundCloud deleted.
             return Rx.mapSingle(single, value -> {
-                List<Object> urns = new ArrayList<>((List<?>) value);
-                // What SoundCloud lists itself: the library cell adds only the difference to its own number.
-                int serverSize = urns.size();
-                ClassLoader loader = single.getClass().getClassLoader();
-                RemovedTracks.onTrackList(key, urns);
-                app.revanced.extension.soundcloud.recommendations.DuplicateFilter.filterSystemPlaylist(key, urns);
-                List<String> skipped = new ArrayList<>();
-                for (String entry : getShownEntries(key)) {
-                    Object urn = toUrn(loader, entry);
-                    if (urn != null && !urns.contains(urn)) {
-                        urns.add(urn);
-                    } else {
-                        skipped.add(entry + (urn == null ? " (no file)" : " (already in the list)"));
-                    }
+                try {
+                    return withLocalAdditions(key, value, single.getClass().getClassLoader(), playback);
+                } catch (Exception ex) {
+                    // A damaged record must not turn into an error of the whole playlist: its own tracks are shown.
+                    Logger.printException(() -> "Could not add the local additions of " + key, ex);
+                    return value;
                 }
-                if (!skipped.isEmpty()) Logger.printInfo(() -> "Local additions of " + key + " not shown: " + skipped);
-                RemovedTracks.placeKept(key, urns, loader, !playback);
-                Object ordered = TrackOrder.apply(key, urns);
-                if (!playback) PlaylistHeader.onScreenTracks(key, (List<?>) ordered, serverSize);
-                return ordered;
             });
         } catch (Exception ex) {
             Logger.printException(() -> "Could not append local additions", ex);
             return single;
         }
+    }
+
+    /** The playlist's urns with its local additions, the tracks SoundCloud deleted and its own order. */
+    private static Object withLocalAdditions(String key, Object value, ClassLoader loader, boolean playback) throws Exception {
+        List<Object> urns = new ArrayList<>((List<?>) value);
+        // What SoundCloud lists itself: the library cell adds only the difference to its own number.
+        int serverSize = urns.size();
+        RemovedTracks.onTrackList(key, urns);
+        app.revanced.extension.soundcloud.recommendations.DuplicateFilter.filterSystemPlaylist(key, urns);
+        List<String> shown = getShownEntries(key);
+        Logger.printInfo(() -> "Track urns requested for " + key + ", local additions: " + shown.size());
+        // A set beside the list: the saved playlist adds every download, each checked against the list.
+        java.util.Set<Object> present = new java.util.HashSet<>(urns);
+        List<String> skipped = new ArrayList<>();
+        for (String entry : shown) {
+            Object urn = toUrn(loader, entry);
+            if (urn != null && present.add(urn)) {
+                urns.add(urn);
+            } else {
+                skipped.add(entry + (urn == null ? " (no file)" : " (already in the list)"));
+            }
+        }
+        if (!skipped.isEmpty()) Logger.printInfo(() -> "Local additions of " + key + " not shown: " + skipped);
+        RemovedTracks.placeKept(key, urns, loader, !playback);
+        Object ordered = TrackOrder.apply(key, urns);
+        if (!playback) PlaylistHeader.onScreenTracks(key, (List<?>) ordered, serverSize);
+        return ordered;
     }
 
     static Object toUrn(ClassLoader loader, String entry) {

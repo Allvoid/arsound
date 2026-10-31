@@ -78,10 +78,16 @@ final class ManualOrder {
     <T> List<T> sort(List<T> items, List<String> order, Function<T, String> keyOf) {
         Map<String, Integer> positions = new HashMap<>();
         for (int i = 0; i < order.size(); i++) positions.put(order.get(i), i);
-        List<T> result = new ArrayList<>(items);
-        Collections.sort(result, (first, second) -> Integer.compare(
-                positions.getOrDefault(keyOf.apply(first), unknown.position),
-                positions.getOrDefault(keyOf.apply(second), unknown.position)));
+        // The key of each item is read once (by reflection, for SoundCloud's items), not twice per comparison.
+        int[] rank = new int[items.size()];
+        Integer[] indexes = new Integer[items.size()];
+        for (int i = 0; i < items.size(); i++) {
+            rank[i] = positions.getOrDefault(keyOf.apply(items.get(i)), unknown.position);
+            indexes[i] = i;
+        }
+        java.util.Arrays.sort(indexes, (first, second) -> Integer.compare(rank[first], rank[second]));
+        List<T> result = new ArrayList<>(items.size());
+        for (Integer index : indexes) result.add(items.get(index));
         return result;
     }
 }

@@ -12,7 +12,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -55,7 +54,12 @@ final class LocalTrackLoader {
      * loads overlap (wrong or garbled metadata, a native abort), so files load one at a time. Fair, so the
      * list refresh waiting within its budget is not starved by the background loads.
      */
-    private static final ReentrantLock LOAD_LOCK = new ReentrantLock(true);
+    /** One read of a file's tags at a time, held until the read has really ended. */
+    private static final java.util.concurrent.Semaphore READ_SLOT = new java.util.concurrent.Semaphore(1, true);
+    /** The files whose read runs now. */
+    private static final Set<String> IN_FLIGHT = java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
+    /** A read is taken for ended after this long, whatever its source said. */
+    private static final long MAX_READ_MS = 60_000;
     /** Files loaded in the background since the playlists were last told to reload. */
     private static final AtomicInteger LOADED_SINCE_REFRESH = new AtomicInteger();
     private static final int REFRESH_EVERY = 100;
@@ -140,32 +144,46 @@ final class LocalTrackLoader {
      */
     static Object loadWithin(Object repository, Method track, Object urn, Object strategy, long timeoutMs) {
         boolean locked = false;
+        String key = String.valueOf(urn);
+        // The slot is given back when the read really ends: a wait that ran out leaves the native read going, and a
+        // second read beside it shared SoundCloud's one metadata reader.
+        java.util.concurrent.atomic.AtomicBoolean released = new java.util.concurrent.atomic.AtomicBoolean();
+        Runnable release = () -> {
+            if (!released.compareAndSet(false, true)) return;
+            IN_FLIGHT.remove(key);
+            READ_SLOT.release();
+        };
         try {
             long started = System.nanoTime();
-            locked = LOAD_LOCK.tryLock(timeoutMs, TimeUnit.MILLISECONDS);
+            locked = READ_SLOT.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS);
             if (!locked) {
                 Logger.printInfo(() -> "Local file track not loaded, another file is loading: " + urn);
                 return null;
             }
-            // The time spent waiting for the lock counts against the timeout.
+            IN_FLIGHT.add(key);
+            // A source that never answers must not keep the slot for ever.
+            Utils.runOnMainThreadDelayed(release, MAX_READ_MS);
+            // The time spent waiting for the slot counts against the timeout.
             long left = timeoutMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-            if (left <= 0) return null;
-            Object found = Rx.blockingFirst(track.invoke(repository, urn, strategy), left, TimeUnit.MILLISECONDS);
+            if (left <= 0) {
+                release.run();
+                return null;
+            }
+            Object found = Rx.firstWithin(track.invoke(repository, urn, strategy), left, TimeUnit.MILLISECONDS, release);
             Object item = found == null ? null : found.getClass().getMethod("getItem").invoke(found);
             if (item != null) {
-                String key = String.valueOf(urn);
                 if (Urns.isLocalFile(urn)) FILES.put(key, new LoadedFile(Urns.fileOf(urn)));
                 LOCAL_TRACK_CACHE.put(key, item);
             }
             return item;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            if (locked) release.run();
             return null;
         } catch (Exception ex) {
             Logger.printInfo(() -> "Local file track unavailable: " + urn + " " + ex);
+            if (locked) release.run();
             return null;
-        } finally {
-            if (locked) LOAD_LOCK.unlock();
         }
     }
 
@@ -189,7 +207,8 @@ final class LocalTrackLoader {
 
     static void queue(Object repository, Method track, Object urn, Object strategy) {
         String key = String.valueOf(urn);
-        if (LOCAL_TRACK_CACHE.containsKey(key)) return;
+        // Being read right now (by a list that ran out of time): the read in flight brings it.
+        if (LOCAL_TRACK_CACHE.containsKey(key) || IN_FLIGHT.contains(key)) return;
         Long failedAt = LOAD_FAILED_AT.get(key);
         if (failedAt != null && System.currentTimeMillis() - failedAt < LOAD_RETRY_MS) return;
         if (!LOADING.add(key)) return;

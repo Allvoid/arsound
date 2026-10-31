@@ -18,7 +18,7 @@ final class Urns {
 
     /** The urn of an item such as a playlist or a track item ({@code getUrn()}), as SoundCloud's object. */
     static Object of(Object item) throws Exception {
-        return item.getClass().getMethod("getUrn").invoke(item);
+        return app.revanced.extension.soundcloud.shared.Getters.get(item, "getUrn");
     }
 
     /** The urn of an item as text, e.g. {@code soundcloud:playlists:123}. */
@@ -39,8 +39,14 @@ final class Urns {
         return Class.forName(URN_CLASS, false, loader);
     }
 
+    /** The factories of urns, looked up once: a list of a thousand files made a lookup per file. */
+    private static volatile java.lang.reflect.Method forTrackMethod, fromFileMethod;
+    private static volatile Object localUrnCompanion;
+
     static Object forTrack(ClassLoader loader, String id) throws Exception {
-        return urnClass(loader).getMethod("forTrack", String.class).invoke(null, id);
+        java.lang.reflect.Method method = forTrackMethod;
+        if (method == null) forTrackMethod = method = urnClass(loader).getMethod("forTrack", String.class);
+        return method.invoke(null, id);
     }
 
     static Object forPlaylist(ClassLoader loader, String id) throws Exception {
@@ -49,9 +55,16 @@ final class Urns {
 
     /** The urn of an imported file, which SoundCloud's player resolves with metadata read from the file. */
     static Object forFile(ClassLoader loader, File file) throws Exception {
-        Class<?> localUrn = Class.forName(LOCAL_TRACK_URN_CLASS, false, loader);
-        Object companion = localUrn.getField("Companion").get(null);
-        return companion.getClass().getMethod("fromFile", File.class).invoke(companion, file);
+        java.lang.reflect.Method method = fromFileMethod;
+        Object companion = localUrnCompanion;
+        if (method == null || companion == null) {
+            Class<?> localUrn = Class.forName(LOCAL_TRACK_URN_CLASS, false, loader);
+            companion = localUrn.getField("Companion").get(null);
+            method = companion.getClass().getMethod("fromFile", File.class);
+            localUrnCompanion = companion;
+            fromFileMethod = method;
+        }
+        return method.invoke(companion, file);
     }
 
     /** True for the urn of an imported file. */

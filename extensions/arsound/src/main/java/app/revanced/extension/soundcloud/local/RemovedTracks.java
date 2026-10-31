@@ -236,6 +236,11 @@ public final class RemovedTracks {
         DownloadImporter.rememberTitle(urn, title, artist);
     }
 
+    /** Whether the title of this track is still to be remembered: a downloaded track not titled in this run. */
+    static boolean wantsTitle(String urn) {
+        return DownloadImporter.wantsTitle(urn);
+    }
+
     // endregion
 
     // region Track list

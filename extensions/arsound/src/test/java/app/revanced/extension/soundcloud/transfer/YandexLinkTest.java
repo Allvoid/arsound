@@ -50,6 +50,23 @@ public class YandexLinkTest {
     }
 
     @Test
+    public void keyGivesTheLinkBack() {
+        for (String url : new String[]{"https://music.yandex.ru/users/yamusic-top/playlists/1076",
+                "https://music.yandex.ru/users/me%40ya.ru/tracks", "https://music.yandex.ru/album/43177815",
+                "https://music.yandex.ru/playlists/lk.4612b26e-9983-4c16-bb15-72d5e614c842"}) {
+            YandexLink link = YandexLink.find(url);
+            YandexLink back = YandexLink.fromKey(link.key());
+            assertEquals(link.key(), back.key());
+            assertEquals(link.kind, back.kind);
+            assertEquals(link.owner, back.owner);
+            assertEquals(link.id, back.id);
+        }
+        assertNull(YandexLink.fromKey("NOPE:a:b"));
+        assertNull(YandexLink.fromKey("PLAYLIST"));
+        assertNull(YandexLink.fromKey(null));
+    }
+
+    @Test
     public void keyTellsCollectionsApart() {
         assertEquals("PLAYLIST:yamusic-top:1076",
                 YandexLink.find("https://music.yandex.ru/users/yamusic-top/playlists/1076").key());

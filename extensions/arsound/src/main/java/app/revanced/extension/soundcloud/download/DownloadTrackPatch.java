@@ -31,6 +31,9 @@ import java.util.regex.Pattern;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.BatchedPreferences;
+import app.revanced.extension.soundcloud.shared.Getters;
+import app.revanced.extension.soundcloud.shared.SerialWork;
 
 /**
  * Adds a "Download" row to the track menu.
@@ -45,6 +48,11 @@ public final class DownloadTrackPatch {
     private static final String DELETE_ROW_TAG = "arsound_delete_row";
     private static final String PREFERENCES_NAME = "revanced_soundcloud_downloads";
     private static final String DOWNLOADED_TRACKS = "downloaded_tracks";
+    /** Guards the reading and dropping of {@link #downloadedSnapshot}, so a stale read is never kept after a write. */
+    private static final Object DOWNLOADED_LOCK = new Object();
+    /** What is done with the files of finished downloads, one after another. */
+    private static final SerialWork SETTLE_WORK = new SerialWork("Arsound settle");
+    private static volatile Set<String> downloadedSnapshot;
     /**
      * Maps a track id to the file name in its download location. Downloads made before this key existed have no
      * entry. The row of the file in the media store and the location are kept next to it, see {@link DownloadIndex}.
@@ -155,7 +163,7 @@ public final class DownloadTrackPatch {
         if (trackItem == null) return icon;
 
         try {
-            Object trackUrn = trackItem.getClass().getMethod("getUrn").invoke(trackItem);
+            Object trackUrn = Getters.get(trackItem, "getUrn");
             String trackId = parseTrackId(trackUrn);
             if (trackId == null) return icon;
             if (getDownloadedTracks().contains(trackId)) {
@@ -1011,6 +1019,7 @@ public final class DownloadTrackPatch {
                 removeReplaced(editor, trackId);
             }
             editor.apply();
+            downloadedChanged();
         }
     }
 
@@ -1062,6 +1071,7 @@ public final class DownloadTrackPatch {
                 removeReplaced(editor, entry.getKey());
             }
             editor.putStringSet(DOWNLOADED_TRACKS, tracks).putStringSet(DELETED_TRACKS, deleted).apply();
+            downloadedChanged();
         }
     }
 
@@ -1320,10 +1330,12 @@ public final class DownloadTrackPatch {
                 }
             }
             editor.apply();
+            downloadedChanged();
         }
         if (complete) {
-            // The media store is asked off this thread: settling also runs where lists are drawn.
-            Utils.runOnBackgroundThread(() -> {
+            // The media store is asked off this thread: settling also runs where lists are drawn. One thread for all of
+            // them: a return to the app may settle hundreds of downloads at once.
+            SETTLE_WORK.execute(() -> {
                 if (replaced != null) deleteReplaced(context, replaced);
                 if (completed == null) return;
                 // The download manager's own address of the file is the one that opens for the app that asked for it.
@@ -1392,21 +1404,10 @@ public final class DownloadTrackPatch {
         String fileName = preferences == null ? null : preferences.getString(TRACK_FILE_PREFIX + trackId, null);
         if (fileName == null) return DownloadState.DOWNLOADED;
 
-        // Marked, but the file is not complete: either still downloading, or the file was deleted.
-        try {
-            DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-            DownloadManager.Query query = new DownloadManager.Query().setFilterByStatus(
-                    DownloadManager.STATUS_PENDING | DownloadManager.STATUS_RUNNING | DownloadManager.STATUS_PAUSED);
-            try (android.database.Cursor cursor = manager.query(query)) {
-                int title = cursor.getColumnIndex(DownloadManager.COLUMN_TITLE);
-                while (cursor.moveToNext()) {
-                    if (fileName.equals(cursor.getString(title))) return DownloadState.IN_PROGRESS;
-                }
-            }
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not check running downloads", ex);
-        }
-        return DownloadState.NOT_DOWNLOADED;
+        // Marked, but the file is not complete: either still downloading, or the file was deleted. The running
+        // downloads are the ones DownloadProgress last read from the download manager (every second and a half while
+        // the app is open): asking the download manager here cost a call into the system per track of a list.
+        return DownloadProgress.isDownloading(trackId) ? DownloadState.IN_PROGRESS : DownloadState.NOT_DOWNLOADED;
     }
 
     /**
@@ -1453,31 +1454,48 @@ public final class DownloadTrackPatch {
      * @return True if the record was dropped.
      */
     static boolean forgetDownload(String trackId) {
+        return trackId != null && forgetDownloads(java.util.Collections.singletonList(trackId)) == 1;
+    }
+
+    /**
+     * The same for many tracks at once, in one change of the records: one at a time copied the whole set of downloads
+     * for each track.
+     *
+     * @return How many records were dropped.
+     */
+    static int forgetDownloads(java.util.Collection<String> trackIds) {
         SharedPreferences preferences = getPreferences();
-        if (preferences == null || trackId == null) return false;
-        dropRecord(preferences, trackId, false);
-        return true;
+        if (preferences == null || trackIds.isEmpty()) return 0;
+        dropRecords(preferences, trackIds, false);
+        return trackIds.size();
     }
 
     /**
      * @param deleted True if the user deleted the track, so the copies of it that are left are not taken over again.
      */
     private static void dropRecord(SharedPreferences preferences, String trackId, boolean deleted) {
+        dropRecords(preferences, java.util.Collections.singletonList(trackId), deleted);
+    }
+
+    private static void dropRecords(SharedPreferences preferences, java.util.Collection<String> trackIds, boolean deleted) {
         synchronized (DOWNLOADS_LOCK) {
             Set<String> tracks = new HashSet<>(getDownloadedTracks());
-            tracks.remove(trackId);
-            SharedPreferences.Editor editor = preferences.edit()
-                    .putStringSet(DOWNLOADED_TRACKS, tracks)
-                    .remove(TRACK_FILE_PREFIX + trackId)
-                    .remove(DownloadIndex.TRACK_DIR_PREFIX + trackId)
-                    .remove(DownloadIndex.TRACK_URI_PREFIX + trackId)
-                    .remove(DownloadIndex.TRACK_READ_PREFIX + trackId)
-                    .remove(TRACK_JOB_PREFIX + trackId)
-                    .remove(TRACK_TITLE_PREFIX + trackId)
-                    .remove(TRACK_ARTIST_PREFIX + trackId);
-            removeReplaced(editor, trackId);
-            if (deleted) markDeleted(editor, trackId, true);
+            SharedPreferences.Editor editor = preferences.edit();
+            for (String trackId : trackIds) {
+                tracks.remove(trackId);
+                editor.remove(TRACK_FILE_PREFIX + trackId)
+                        .remove(DownloadIndex.TRACK_DIR_PREFIX + trackId)
+                        .remove(DownloadIndex.TRACK_URI_PREFIX + trackId)
+                        .remove(DownloadIndex.TRACK_READ_PREFIX + trackId)
+                        .remove(TRACK_JOB_PREFIX + trackId)
+                        .remove(TRACK_TITLE_PREFIX + trackId)
+                        .remove(TRACK_ARTIST_PREFIX + trackId);
+                removeReplaced(editor, trackId);
+                if (deleted) markDeleted(editor, trackId, true);
+            }
+            editor.putStringSet(DOWNLOADED_TRACKS, tracks);
             editor.apply();
+            downloadedChanged();
         }
     }
 
@@ -1621,14 +1639,40 @@ public final class DownloadTrackPatch {
         return new HashSet<>(getDownloadedTracks());
     }
 
+    /**
+     * The ids of the downloaded tracks: one set read once and kept until it changes, not to be changed by the caller.
+     * Every track cell of every list asks for it, and the preferences hand out a new copy of the whole set on every
+     * read.
+     */
     static Set<String> getDownloadedTracks() {
+        Set<String> snapshot = downloadedSnapshot;
+        if (snapshot != null) return snapshot;
         SharedPreferences preferences = getPreferences();
-        return preferences == null ? new HashSet<>() : preferences.getStringSet(DOWNLOADED_TRACKS, new HashSet<>());
+        if (preferences == null) return java.util.Collections.emptySet();
+        synchronized (DOWNLOADED_LOCK) {
+            if (downloadedSnapshot != null) return downloadedSnapshot;
+            snapshot = java.util.Collections.unmodifiableSet(
+                    new HashSet<>(preferences.getStringSet(DOWNLOADED_TRACKS, java.util.Collections.emptySet())));
+            downloadedSnapshot = snapshot;
+            return snapshot;
+        }
     }
 
+    /** The set of downloaded tracks was written: the next read takes it again. Call after the write. */
+    private static void downloadedChanged() {
+        synchronized (DOWNLOADED_LOCK) {
+            downloadedSnapshot = null;
+        }
+    }
+
+    /**
+     * The per-track records, written to the disk together at most every two seconds: Android writes the whole file
+     * (five keys per track) on every change, and a download writes several changes per track.
+     */
     private static SharedPreferences getPreferences() {
         Context context = Utils.getContext();
-        return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+        return context == null ? null
+                : BatchedPreferences.of(context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE));
     }
 
     public static void showToast(Context context, String message) {

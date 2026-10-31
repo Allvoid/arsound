@@ -198,6 +198,53 @@ public final class Rx {
     }
 
     /**
+     * Waits up to the timeout for the first item of a Single (or Maybe, Observable), like {@link #blockingFirst}, but
+     * does not give up on the source when the time runs out: {@code onEnd} runs once the source has answered (item
+     * or error), even long after the wait ended. For work that cannot be stopped, such as a read of a file in native
+     * code, whose end must be known before the next one starts.
+     *
+     * @return The item, or null on error, completion without items or timeout.
+     */
+    public static Object firstWithin(Object reactive, long timeout, java.util.concurrent.TimeUnit unit, Runnable onEnd)
+            throws Exception {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Object> result = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean ended = new java.util.concurrent.atomic.AtomicBoolean();
+        Runnable end = () -> {
+            if (ended.compareAndSet(false, true)) onEnd.run();
+        };
+        ClassLoader loader = reactive.getClass().getClassLoader();
+        Class<?> consumer = type(loader, FUNCTIONS + "Consumer");
+        Object onItem = function(loader, "Consumer", args -> {
+            result.compareAndSet(null, args[0]);
+            latch.countDown();
+            end.run();
+            return null;
+        });
+        Object onError = function(loader, "Consumer", args -> {
+            latch.countDown();
+            end.run();
+            return null;
+        });
+        boolean subscribed = false;
+        try {
+            for (Method method : reactive.getClass().getMethods()) {
+                Class<?>[] parameters = method.getParameterTypes();
+                if (method.getName().equals("subscribe") && parameters.length == 2
+                        && parameters[0] == consumer && parameters[1] == consumer) {
+                    method.invoke(reactive, onItem, onError);
+                    subscribed = true;
+                    break;
+                }
+            }
+        } finally {
+            if (!subscribed) end.run();
+        }
+        latch.await(timeout, unit);
+        return result.get();
+    }
+
+    /**
      * Waits for a Completable to finish. Not {@link #blockingFirst}: a Completable has no item, and its
      * {@code subscribe} takes an action instead of a consumer for the end.
      *

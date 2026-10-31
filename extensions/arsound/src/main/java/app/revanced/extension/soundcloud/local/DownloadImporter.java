@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
@@ -30,6 +31,8 @@ final class DownloadImporter {
     private static final String LAST_SWEEP = "last_download_sweep";
     /** Downloaded track ids already answered in the running check of downloads, so a cut-short check goes on. */
     private static final String SWEEP_CHECKED = "sweep_checked";
+    /** The ids answered in a round of the check are saved this often. */
+    private static final long SWEEP_SAVE_MS = 30_000;
 
     private static final long SWEEP_INTERVAL_MS = 7L * 24 * 60 * 60 * 1000;
     /** Failed requests in a row after which the check of downloads stops until the next start. */
@@ -97,6 +100,10 @@ final class DownloadImporter {
         int found = 0;
         int failures = 0;
         boolean complete = true;
+        // The answered ids are saved every few seconds and at the end, not after each track: each save wrote the
+        // whole file, with all the ids answered so far.
+        long savedAt = System.currentTimeMillis();
+        int unsaved = 0;
         for (String id : DownloadTrackPatch.getDownloadedTrackIds()) {
             if (checked.contains(id) || isConverted(id) || DownloadTrackPatch.downloadedEntry(id) == null) continue;
             TrackAnswer answer = null;
@@ -125,7 +132,12 @@ final class DownloadImporter {
                 Logger.printInfo(() -> "Downloaded track " + id + " was deleted on SoundCloud, imported");
             }
             checked.add(id);
-            preferences.edit().putStringSet(SWEEP_CHECKED, new HashSet<>(checked)).apply();
+            unsaved++;
+            if (System.currentTimeMillis() - savedAt >= SWEEP_SAVE_MS) {
+                preferences.edit().putStringSet(SWEEP_CHECKED, new HashSet<>(checked)).apply();
+                savedAt = System.currentTimeMillis();
+                unsaved = 0;
+            }
             try {
                 Thread.sleep(300);
             } catch (InterruptedException ex) {
@@ -135,6 +147,7 @@ final class DownloadImporter {
             }
         }
         if (complete) preferences.edit().putLong(LAST_SWEEP, System.currentTimeMillis()).remove(SWEEP_CHECKED).apply();
+        else if (unsaved > 0) preferences.edit().putStringSet(SWEEP_CHECKED, new HashSet<>(checked)).apply();
         int total = found;
         Logger.printInfo(() -> "Download check: deleted and imported " + total);
         if (found > 0) {
@@ -172,26 +185,49 @@ final class DownloadImporter {
         }
     }
 
-    /** Remembers the name of a downloaded track shown on screen, so its imported copy gets a readable name. */
+    /** Whether the title of this track is still to be remembered: a downloaded track not titled in this run. */
+    static boolean wantsTitle(String urn) {
+        String id = DownloadTrackPatch.parseTrackId(urn);
+        return id != null && !titledIds.contains(id) && DownloadTrackPatch.isDownloaded(id);
+    }
+
+    /**
+     * Remembers the name of a downloaded track shown on screen, so its imported copy gets a readable name. The names
+     * of a screenful of cells are written together, in one change of the file a moment later.
+     */
     static void rememberTitle(String urn, String title, String artist) {
         String id = DownloadTrackPatch.parseTrackId(urn);
         if (id == null || title == null || titledIds.contains(id) || !DownloadTrackPatch.isDownloaded(id)) return;
         titledIds.add(id);
-        Utils.runOnBackgroundThread(() -> {
-            synchronized (DownloadImporter.class) {
-                SharedPreferences preferences = preferences();
-                if (preferences == null) return;
-                try {
-                    JSONObject titles = new JSONObject(preferences.getString(TITLES, "{}"));
-                    String value = artist == null || artist.isEmpty() ? title : title + " — " + artist;
-                    if (value.equals(titles.optString(id, null))) return;
+        pendingTitles.put(id, artist == null || artist.isEmpty() ? title : title + " — " + artist);
+        if (!titlesPosted.compareAndSet(false, true)) return;
+        Utils.runOnMainThreadDelayed(() -> Utils.runOnBackgroundThread(DownloadImporter::writeTitles), TITLES_DELAY_MS);
+    }
+
+    /** The names waiting to be written, by track id. */
+    private static final Map<String, String> pendingTitles = new ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicBoolean titlesPosted = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final long TITLES_DELAY_MS = 1_500;
+
+    private static void writeTitles() {
+        titlesPosted.set(false);
+        synchronized (DownloadImporter.class) {
+            SharedPreferences preferences = preferences();
+            if (preferences == null || pendingTitles.isEmpty()) return;
+            try {
+                JSONObject titles = new JSONObject(preferences.getString(TITLES, "{}"));
+                boolean changed = false;
+                for (String id : new java.util.ArrayList<>(pendingTitles.keySet())) {
+                    String value = pendingTitles.remove(id);
+                    if (value == null || value.equals(titles.optString(id, null))) continue;
                     titles.put(id, value);
-                    preferences.edit().putString(TITLES, titles.toString()).apply();
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Could not remember a track title", ex);
+                    changed = true;
                 }
+                if (changed) preferences.edit().putString(TITLES, titles.toString()).apply();
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not remember the track titles", ex);
             }
-        });
+        }
     }
 
     private static String getTitle(String id) {

@@ -112,7 +112,7 @@ public final class ImportedLikes {
             LikeObjects objects = objects(count.getClass().getClassLoader());
             return Rx.mapObservable(count, total -> {
                 if (!isActive()) return total;
-                return (Integer) total + shownLikes(objects, "").size();
+                return (Integer) total + shownCount(objects);
             });
         } catch (Exception ex) {
             Logger.printException(() -> "Could not count imported files in the likes", ex);
@@ -211,6 +211,19 @@ public final class ImportedLikes {
         Object repository = trackRepository;
         if (!waiting.isEmpty() && repository != null) LocalTrackLoader.queueAll(repository, waiting);
         return likes;
+    }
+
+    /**
+     * The number of rows {@link #shownLikes} would give, without making the like objects or asking for loads: the
+     * number in the header is counted on every change of the likes.
+     */
+    private static int shownCount(LikeObjects objects) {
+        int count = 0;
+        for (File file : likedFiles().matching("")) {
+            Object urn = objects.urn(file);
+            if (urn != null && LocalTrackLoader.isLoaded(urn)) count++;
+        }
+        return count;
     }
 
     private static LikeObjects objects(ClassLoader loader) throws ReflectiveOperationException {

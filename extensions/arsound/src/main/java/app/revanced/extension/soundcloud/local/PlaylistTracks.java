@@ -81,7 +81,30 @@ public final class PlaylistTracks {
         return LocalPrefs.open(PREFERENCES_NAME);
     }
 
-    private static void load() {
+    /** Set once a load off the main thread was asked for. */
+    private static final java.util.concurrent.atomic.AtomicBoolean loadStarted = new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * Whether the store is read, for the paths that draw cells on the main thread. They do not read it themselves (the
+     * whole file, every remembered list split) in the middle of a frame: the first asks for it off the main thread and
+     * shows SoundCloud's numbers until then; the lists are drawn again once it is read.
+     */
+    private static boolean ready() {
+        if (loaded) return true;
+        if (!Utils.isCurrentlyOnMainThread()) {
+            load();
+            return loaded;
+        }
+        if (loadStarted.compareAndSet(false, true)) {
+            Utils.runOnBackgroundThread(() -> {
+                load();
+                app.revanced.extension.soundcloud.download.DownloadProgress.redrawNow();
+            });
+        }
+        return false;
+    }
+
+    private static synchronized void load() {
         if (loaded) return;
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
@@ -168,7 +191,7 @@ public final class PlaylistTracks {
     }
 
     public static Integer downloadedCount(String playlistUrn) {
-        load();
+        if (!ready()) return null;
         return downloaded.get(playlistUrn);
     }
 
@@ -302,7 +325,7 @@ public final class PlaylistTracks {
      */
     public static int cellTracksCount(Object playlist, int count) {
         try {
-            load();
+            if (!ready()) return count;
             String urn = Urns.textOf(playlist);
             cellPlaylist.set(urn);
             Integer seen = seenCounts.put(urn, count);
@@ -440,11 +463,20 @@ public final class PlaylistTracks {
         }
     }
 
+    /** The label with an icon and a number, and the download icon: looked up once, used on every bind of a cell. */
+    private static volatile java.lang.reflect.Constructor<?> iconWithText;
+    private static int downloadedIcon;
+
     /** Adds the download icon with the number after the number of tracks, or after the type. */
     static void addCount(List<Object> items, int count, ClassLoader loader) throws Exception {
-        Object downloadedItem = Class.forName("com.soundcloud.android.ui.components.labels.MetaLabelType$IconWithText", false, loader)
-                .getConstructor(String.class, int.class)
-                .newInstance(String.valueOf(count), Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_labels_downloaded"));
+        java.lang.reflect.Constructor<?> constructor = iconWithText;
+        if (constructor == null) {
+            downloadedIcon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_labels_downloaded");
+            constructor = Class.forName("com.soundcloud.android.ui.components.labels.MetaLabelType$IconWithText", false, loader)
+                    .getConstructor(String.class, int.class);
+            iconWithText = constructor;
+        }
+        Object downloadedItem = constructor.newInstance(String.valueOf(count), downloadedIcon);
         int position = Math.min(1, items.size());
         for (int i = 0; i < items.size(); i++) {
             if (items.get(i).getClass().getName().contains("$Tracks$")) position = i + 1;

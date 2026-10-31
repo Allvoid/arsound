@@ -10,6 +10,7 @@ import java.util.List;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.CallSlot;
+import app.revanced.extension.soundcloud.shared.Getters;
 import app.revanced.extension.soundcloud.shared.Reflect;
 import app.revanced.extension.soundcloud.shared.Rx;
 
@@ -104,14 +105,40 @@ public final class FollowingsCache {
         return urns;
     }
 
-    /** Keeps the urns of a loaded page: the first page starts the list again, later pages add to it. */
+    /** The urns of the walk through the pages under way, per profile; main thread or the server's thread. */
+    private static final java.util.Map<String, java.util.LinkedHashSet<String>> walks = new java.util.HashMap<>();
+
+    /**
+     * Keeps the urns of a loaded page. A walk through the pages replaces the stored list only when it reaches the last
+     * page: until then the stored list keeps the profiles of the pages not seen again yet (offline, after a first page
+     * alone, the whole list stayed one page long). It is written at the first page and at the last, not at every page.
+     */
     private static void remember(String key, Object page, boolean firstPage) {
         try {
-            List<?> items = (List<?>) page.getClass().getMethod("getCollection").invoke(page);
-            List<String> urns = firstPage ? new ArrayList<>() : stored(key);
-            for (Object item : items) {
-                String urn = String.valueOf(item.getClass().getMethod("getUrn").invoke(item));
-                if (!urns.contains(urn)) urns.add(urn);
+            List<?> items = (List<?>) Getters.get(page, "getCollection");
+            boolean lastPage = Getters.get(page, "getNextPageLink") == null;
+            java.util.LinkedHashSet<String> walk;
+            synchronized (walks) {
+                walk = firstPage ? null : walks.get(key);
+                if (walk == null) {
+                    walk = new java.util.LinkedHashSet<>();
+                    // A walk that went on after the app restarted starts from what was stored.
+                    if (!firstPage) walk.addAll(stored(key));
+                    walks.put(key, walk);
+                }
+                for (Object item : items) walk.add(String.valueOf(Getters.get(item, "getUrn")));
+                if (lastPage) walks.remove(key);
+            }
+            List<String> urns;
+            if (lastPage) {
+                urns = new ArrayList<>(walk);
+            } else if (firstPage) {
+                // The first page in front, the rest of the stored list after it, until the walk is done.
+                java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>(walk);
+                merged.addAll(stored(key));
+                urns = new ArrayList<>(merged);
+            } else {
+                return;
             }
             SharedPreferences preferences = preferences();
             if (preferences != null) preferences.edit().putString(key, String.join("\n", urns)).apply();

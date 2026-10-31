@@ -44,6 +44,13 @@ public final class DownloadProgress {
     private static final Map<String, Set<String>> playlistTracks = new HashMap<>();
     /** Set while a redraw waits for the rest of a playlist that is being queued. */
     private static final AtomicBoolean redrawQueued = new AtomicBoolean();
+    /**
+     * Set while a count of the playlists' downloaded tracks waits. A batch of downloads changes the set every few
+     * seconds, and a count goes through every track of every playlist kept on the phone.
+     */
+    private static final AtomicBoolean recountQueued = new AtomicBoolean();
+    /** A count is run at most this often; the last change of a batch is always counted. */
+    private static final long RECOUNT_MS = 3_000;
 
     private static WeakReference<Activity> resumed = new WeakReference<>(null);
     private static boolean polling;
@@ -72,11 +79,30 @@ public final class DownloadProgress {
     }
 
     public static boolean isPlaylistDownloading(String playlistId) {
+        Set<String> now = downloading;
         synchronized (playlistTracks) {
             Set<String> tracks = playlistTracks.get(playlistId);
-            if (tracks == null) return false;
-            for (String track : tracks) if (downloading.contains(track)) return true;
+            if (tracks == null || now.isEmpty()) return false;
+            // The smaller set is walked: asked for on every playlist cell drawn.
+            if (now.size() < tracks.size()) {
+                for (String track : now) if (tracks.contains(track)) return true;
+            } else {
+                for (String track : tracks) if (now.contains(track)) return true;
+            }
             return false;
+        }
+    }
+
+    /** Lets go of the tracks of the playlists that are no longer downloading, and of playlists left with none. */
+    private static void forgetFinishedPlaylistTracks() {
+        Set<String> now = downloading;
+        synchronized (playlistTracks) {
+            java.util.Iterator<Set<String>> lists = playlistTracks.values().iterator();
+            while (lists.hasNext()) {
+                Set<String> tracks = lists.next();
+                tracks.retainAll(now);
+                if (tracks.isEmpty()) lists.remove();
+            }
         }
     }
 
@@ -109,6 +135,7 @@ public final class DownloadProgress {
             assembling = without(assembling, trackId);
             downloading = without(downloading, trackId);
         }
+        forgetFinishedPlaylistTracks();
         ProgressPill.onDownloadsChanged();
         recountAndRedraw();
     }
@@ -152,13 +179,19 @@ public final class DownloadProgress {
         Utils.runOnMainThread(() -> redrawLists(resumed.get()));
     }
 
-    /** The playlists count their tracks playing from a file again, then the lists are drawn again. */
+    /**
+     * The playlists count their tracks playing from a file again, then the lists are drawn again. Changes that come
+     * close together are counted once, at most every {@link #RECOUNT_MS}.
+     */
     private static void recountAndRedraw() {
-        Utils.runOnBackgroundThread(() -> {
+        if (!recountQueued.compareAndSet(false, true)) return;
+        handler.postDelayed(() -> Utils.runOnBackgroundThread(() -> {
+            // Cleared first: a change made while this counts asks for another count.
+            recountQueued.set(false);
             app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
             DownloadsScreen.refresh();
             Utils.runOnMainThread(() -> redrawLists(resumed.get()));
-        });
+        }), RECOUNT_MS);
     }
 
     public static void onActivityResumed(Activity activity) {
@@ -199,8 +232,9 @@ public final class DownloadProgress {
                 DownloadTrackPatch.settleDownloads(context);
             }
             if (changed) {
-                app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
-                DownloadsScreen.refresh();
+                forgetFinishedPlaylistTracks();
+                // The icons of the tracks that started or ended change now; the numbers of the playlists follow.
+                recountAndRedraw();
             }
             Utils.runOnMainThread(() -> {
                 if (changed) {
@@ -276,7 +310,8 @@ public final class DownloadProgress {
             } catch (Exception ex) {
                 Logger.printException(() -> "Could not redraw a list", ex);
             }
-            return;
+            // A row may hold a list of its own (the sideways rows of the home screen): it is gone through too.
+            break;
         }
         if (!(view instanceof ViewGroup)) return;
         ViewGroup group = (ViewGroup) view;

@@ -13,6 +13,7 @@ import java.lang.reflect.Field;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.shared.Getters;
 import app.revanced.extension.soundcloud.shared.Lang;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function0;
@@ -89,8 +90,11 @@ public final class TrackCellMarks {
         try {
             String urn = Urns.textOrNull(trackItem);
             if (urn == null) return modifier;
-            RemovedTracks.rememberTitle(urn, (String) trackItem.getClass().getMethod("getTitle").invoke(trackItem),
-                    (String) trackItem.getClass().getMethod("getCreatorName").invoke(trackItem));
+            // The title is read only for a downloaded track not titled yet: this runs on every composition of a cell.
+            if (RemovedTracks.wantsTitle(urn)) {
+                RemovedTracks.rememberTitle(urn, (String) Getters.get(trackItem, "getTitle"),
+                        (String) Getters.get(trackItem, "getCreatorName"));
+            }
             if (RemovedTracks.isDeleted(urn)) return AlphaKt.alpha((Modifier) modifier, DELETED_ALPHA);
         } catch (Exception ex) {
             Logger.printException(() -> "cellModifier failure", ex);

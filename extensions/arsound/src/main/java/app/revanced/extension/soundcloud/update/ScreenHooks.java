@@ -43,7 +43,7 @@ final class ScreenHooks {
         for (Hook hook : hooks) {
             try {
                 hook.onResumed.accept(activity);
-            } catch (Exception ex) {
+            } catch (Throwable ex) {
                 Logger.printException(() -> "Resume hook failed: " + hook.name, ex);
             }
         }
@@ -51,7 +51,13 @@ final class ScreenHooks {
 
     void paused(Activity activity) {
         for (Hook hook : hooks) {
-            if (hook.onPaused != null) hook.onPaused.accept(activity);
+            if (hook.onPaused == null) continue;
+            // Each on its own, as on resume: one failing feature must not keep the ones after it from their pause.
+            try {
+                hook.onPaused.accept(activity);
+            } catch (Throwable ex) {
+                Logger.printException(() -> "Pause hook failed: " + hook.name, ex);
+            }
         }
     }
 }

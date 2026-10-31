@@ -93,7 +93,10 @@ public final class UpdateChecker {
                 .add("progress pill", ProgressPill::onActivityResumed)
                 .add("search switch", SearchSourceSwitch::onActivityResumed, SearchSourceSwitch::onActivityPaused)
                 .add("watch folder", WatchFolder::onActivityResumed)
-                .add("login logs", LoginLogsButton::onActivityResumed);
+                .add("login logs", LoginLogsButton::onActivityResumed)
+                // Changes kept back to be written together reach the disk before the app may be ended in the background.
+                .add("batched preferences", activity -> {
+                }, activity -> app.revanced.extension.soundcloud.shared.BatchedPreferences.flushAll());
     }
 
     /**
