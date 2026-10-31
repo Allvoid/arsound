@@ -132,6 +132,15 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).apply();
     }
 
+    /**
+     * Waits until every value put in the background is on the disk: a commit of an empty edit writes whatever is
+     * pending. For the moment before the app ends its own process. Not on the main thread: it waits for the disk.
+     */
+    public static void flush() {
+        SharedPreferences preferences = preferences();
+        if (preferences != null) preferences.edit().commit();
+    }
+
     /** Written to the disk before it returns, for a value the app restarts right after. */
     public static void putStringNow(String key, String value) {
         SharedPreferences preferences = preferences();

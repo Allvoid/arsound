@@ -24,6 +24,7 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.player.PlayerSheet;
 import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
@@ -61,6 +62,11 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
     /** A lookup shorter than this shows no placeholder: a stored text appears without a flash of "searching". */
     private static final long SHIMMER_DELAY_MS = 250;
     private static final float BLUR_DP = 22f;
+    /**
+     * The blur comes in this many steps on the way up. Every new radius makes the graphics chip blur the whole cover
+     * again, which a frame of the slide cannot afford; in between, the fade of the veil carries the change.
+     */
+    private static final int BLUR_STEPS = 4;
     /** The words need room: a page whose free middle is shorter than this has no lyrics (a phone on its side). */
     private static final int MIN_HEIGHT_DP = 160;
     /**
@@ -113,12 +119,14 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
     private boolean active;
     /** The old words fade out until then; the new ones wait for it. */
     private long fadeOutUntil;
+    /** Words that came in the middle of a slide and wait for its end to be laid out; null when none wait. */
+    private Lyrics pendingWords;
     private boolean lastEnabled = true;
 
     private final Runnable showShimmer = new Runnable() {
         @Override
         public void run() {
-            if (phase == Phase.LOADING) show(shimmer);
+            if (phase == Phase.LOADING && pendingWords == null) show(shimmer);
         }
     };
 
@@ -261,7 +269,14 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         scrim.setBackground(scrimDrawable(context));
         addView(scrim, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
-        content = new FrameLayout(context);
+        content = new FrameLayout(context) {
+            @Override
+            public boolean hasOverlappingRendering() {
+                // The dim of a pause goes onto each line as it is drawn: an offscreen copy of the whole column on every
+                // frame would cost more than the few overlapping pixels it gets right.
+                return false;
+            }
+        };
         addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         list = new LyricsListView(context, this);
         list.setVisibility(GONE);
@@ -310,6 +325,13 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
 
     private float dp(float value) {
         return Dimens.dpExact(getContext(), value);
+    }
+
+    @Override
+    public boolean hasOverlappingRendering() {
+        // The layer fades on every frame of the slide. Faded as a group, the screen-sized layer would be drawn offscreen
+        // first each time; faded piece by piece, the veil only shows a little through the words, which nobody sees.
+        return false;
     }
 
     // endregion
@@ -485,6 +507,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         ai.release();
         loadedSignature = null;
         lyrics = null;
+        pendingWords = null;
         removeCallbacks(showShimmer);
         phase = Phase.IDLE;
         show(null);
@@ -550,16 +573,20 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
 
     /** Fades the veil and the words, blurs the cover and slides the words up, all by how far the lyrics are on. */
     private void applyVisuals() {
-        float on = available() ? shown : 0f;
-        float alpha = on * clamp((expand - 0.4f) / 0.5f);
+        boolean on = available();
+        float shownNow = on ? shown : 0f;
+        float alpha = shownNow * clamp((expand - 0.4f) / 0.5f);
         boolean visible = alpha > 0.01f;
-        if (visible != (getVisibility() == VISIBLE)) setVisibility(visible ? VISIBLE : GONE);
+        // Hidden on the way down, the layer stays laid out while the lyrics are on: the next way up shows it without a
+        // layout of the page in the middle of the slide.
+        int visibility = visible ? VISIBLE : on && LyricsManager.isVisible() ? INVISIBLE : GONE;
+        if (getVisibility() != visibility) setVisibility(visibility);
         if (visible) {
             setAlpha(alpha);
-            content.setTranslationY((1f - clamp((on - 0.3f) / 0.7f)) * dp(14));
+            content.setTranslationY((1f - clamp((shownNow - 0.3f) / 0.7f)) * dp(14));
         }
-        float radius = visible ? alpha * dp(BLUR_DP) : 0f;
-        if (Math.abs(radius - blur) >= 0.5f || (radius == 0f && blur != 0f)) {
+        float radius = visible ? dp(BLUR_DP) * (float) Math.ceil(alpha * BLUR_STEPS) / BLUR_STEPS : 0f;
+        if (radius != blur) {
             blur = radius;
             CoverBlur.set(artwork, radius);
         }
@@ -697,7 +724,22 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         applyWords(words);
     }
 
-    private void applyWords(Lyrics words) {
+    private void applyWords(final Lyrics words) {
+        if (PlayerSheet.isBusy()) {
+            // The column takes a view per line: not built in a frame of the slide (the words of a stored song come right
+            // when the sheet passes the middle), but when the sheet rests. Until then the veil and the blur fade in.
+            pendingWords = words;
+            final String signature = loadedSignature;
+            PlayerSheet.afterSlide(new Runnable() {
+                @Override
+                public void run() {
+                    if (pendingWords != words || signature == null || !signature.equals(loadedSignature)) return;
+                    applyWords(words);
+                }
+            });
+            return;
+        }
+        pendingWords = null;
         lyrics = words;
         phase = Phase.LIST;
         removeCallbacks(showShimmer);
@@ -796,6 +838,10 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         super.onDetachedFromWindow();
         LyricsManager.unregister(this);
         active = false;
+        // A recognition under way must not hold this page, and the screen it is on, until it ends: the page lets it go.
+        // Words on screen stay for a return; the offer or the progress is looked up again then, and finds the work.
+        if (phase == Phase.LIST) ai.release();
+        else forgetWords();
         if (showAnimator != null) showAnimator.cancel();
         showAnimator = null;
         // Back to what the button says, not left in the middle of a fade by the animator that was just stopped.

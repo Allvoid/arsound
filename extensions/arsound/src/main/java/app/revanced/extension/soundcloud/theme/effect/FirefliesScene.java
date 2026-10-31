@@ -13,6 +13,8 @@ final class FirefliesScene implements EffectScene {
         float x, y, duration, delay, glowDuration, glowDelay;
         /** The offsets in dp the drift visits: (a, b), then (c, d), then (b, a), then back to the start. */
         float a, b, c, d;
+        /** The same as keyframes, made once: the loop over the fireflies runs on every frame. */
+        float[] xs, ys;
     }
 
     private final EffectBrush brush;
@@ -34,6 +36,8 @@ final class FirefliesScene implements EffectScene {
             p.delay = -random.next() * 10;
             p.glowDuration = 2.5f + random.next() * 3;
             p.glowDelay = -random.next() * 4;
+            p.xs = new float[]{0, p.a, p.c, p.b, 0};
+            p.ys = new float[]{0, p.b, p.d, p.a, 0};
         }
     }
 
@@ -50,7 +54,7 @@ final class FirefliesScene implements EffectScene {
             float g = progress(time, p.glowDuration, p.glowDelay);
             if (t < 0 || g < 0) continue;
             // Keyframes (0,0) → (a,b) → (c,d) → (b,a) → (0,0), eased on each quarter.
-            float[] xs = {0, p.a, p.c, p.b, 0}, ys = {0, p.b, p.d, p.a, 0};
+            float[] xs = p.xs, ys = p.ys;
             int segment = Math.min(3, (int) (t * 4));
             float local = ease(t * 4 - segment);
             float dx = xs[segment] + (xs[segment + 1] - xs[segment]) * local;

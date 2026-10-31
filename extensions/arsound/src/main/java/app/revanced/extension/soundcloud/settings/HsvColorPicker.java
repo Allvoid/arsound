@@ -38,6 +38,12 @@ public final class HsvColorPicker extends View {
     private static final int NONE = 0, SQUARE = 1, BAR = 2;
 
     private final float[] hsv = {210f, .6f, .9f};
+    /** The colours worked out in a frame, kept to make no arrays while a thumb is dragged. */
+    private final float[] hueHsv = {0f, 1f, 1f};
+    private final float[] squareHsv = {0f, 1f, 1f};
+    /** The thumb's shadow at its normal size, centred on 0, 0; moved and grown with a matrix. */
+    private RadialGradient shadow;
+    private final android.graphics.Matrix shadowMatrix = new android.graphics.Matrix();
     /** The colour as it was set or last dragged to: converting to hue, saturation and value and back can shift a channel. */
     private int color = Color.HSVToColor(hsv);
     private ColorRange range = ColorRange.FULL;
@@ -139,7 +145,9 @@ public final class HsvColorPicker extends View {
         if (square.isEmpty()) return;
         // The square: white to the hue across, multiplied by a grey that falls down. The range cuts the part shown.
         if (squareShaderHue != hsv[0]) {
-            int hue = Color.HSVToColor(new float[]{hsv[0], range.saturationMax, 1f});
+            squareHsv[0] = hsv[0];
+            squareHsv[1] = range.saturationMax;
+            int hue = Color.HSVToColor(squareHsv);
             int top = grey(range.valueMax), bottom = grey(range.valueMin);
             squareShader = new ComposeShader(
                     new LinearGradient(square.left, 0, square.right, 0, Color.WHITE, hue, Shader.TileMode.CLAMP),
@@ -157,7 +165,8 @@ public final class HsvColorPicker extends View {
 
         float squareX = square.left + range.acrossOf(hsv[1]) * square.width();
         float squareY = square.top + range.downOf(hsv[2]) * square.height();
-        int hueColor = Color.HSVToColor(new float[]{hsv[0], 1f, 1f});
+        hueHsv[0] = hsv[0];
+        int hueColor = Color.HSVToColor(hueHsv);
         float barX = bar.left + hsv[0] / 360f * bar.width();
         drawThumb(canvas, squareX, squareY, getColor(), scaled == SQUARE);
         drawThumb(canvas, barX, bar.centerY(), hueColor, scaled == BAR);
@@ -177,8 +186,17 @@ public final class HsvColorPicker extends View {
         // The shadow is a radial fade, not setShadowLayer, which a hardware canvas does not draw before Android 9.
         float shadowRadius = radius + dp(5);
         thumb.setStyle(Paint.Style.FILL);
-        thumb.setShader(new RadialGradient(x, y + dp(2), shadowRadius, new int[]{0x66000000, 0x33000000, 0x00000000},
-                new float[]{radius / shadowRadius * .8f, radius / shadowRadius, 1f}, Shader.TileMode.CLAMP));
+        // One gradient for both thumbs and every frame: a grown thumb scales it, which moves its soft edge a little.
+        float restRadius = thumbRadius + dp(5);
+        if (shadow == null) {
+            shadow = new RadialGradient(0, 0, restRadius, new int[]{0x66000000, 0x33000000, 0x00000000},
+                    new float[]{thumbRadius / restRadius * .8f, thumbRadius / restRadius, 1f}, Shader.TileMode.CLAMP);
+        }
+        float grow = shadowRadius / restRadius;
+        shadowMatrix.setScale(grow, grow);
+        shadowMatrix.postTranslate(x, y + dp(2));
+        shadow.setLocalMatrix(shadowMatrix);
+        thumb.setShader(shadow);
         canvas.drawCircle(x, y + dp(2), shadowRadius, thumb);
         thumb.setShader(null);
         thumb.setColor(0x33000000);

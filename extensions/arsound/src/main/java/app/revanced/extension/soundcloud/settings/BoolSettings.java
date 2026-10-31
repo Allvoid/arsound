@@ -13,7 +13,7 @@ public final class BoolSettings {
     /** On by default, the offer screen cannot load its prices outside of Google Play anyway. */
     public static final BoolSetting HIDE_SUBSCRIPTION_OFFERS = new BoolSetting(Settings.HIDE_SUBSCRIPTION_OFFERS, true);
     /** Removes the Upgrade tab from the bottom bar. Off by default. Written at once: the app restarts right after it. */
-    public static final BoolSetting HIDE_UPGRADE_TAB = new BoolSetting(Settings.HIDE_UPGRADE_TAB, false, true);
+    public static final BoolSetting HIDE_UPGRADE_TAB = new BoolSetting(Settings.HIDE_UPGRADE_TAB, false);
     /** Checks GitHub for a newer Arsound release on every launch. On by default. */
     public static final BoolSetting UPDATE_CHECK = new BoolSetting(Settings.UPDATE_CHECK, true);
     /** Shows stored playlists before the server answers. On by default. */

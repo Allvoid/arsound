@@ -3,6 +3,7 @@ package app.revanced.extension.soundcloud.lyrics;
 import android.view.View;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.player.PlayerArtworkLayers;
 
 /**
  * Where the patched player calls into the lyrics: when a player page is filled with a track, and when the player
@@ -45,6 +46,9 @@ public final class LyricsHooks {
      */
     public static void onSlide(View view, float fraction) {
         try {
+            // A page beside the visible one sits the slide out, as it does for SoundCloud's own work: the call is put
+            // before the guard that skips it. It gets the final look at the ends, 0 and 1, which always come through.
+            if (PlayerArtworkLayers.skipSlide(view, fraction)) return;
             View page = LyricsLayer.pageOf(view);
             if (page == null) return;
             LyricsLayer layer = LyricsLayer.forPage(page);

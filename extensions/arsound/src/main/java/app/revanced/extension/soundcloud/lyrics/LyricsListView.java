@@ -146,6 +146,12 @@ final class LyricsListView extends ScrollView {
         return Dimens.dp(getContext(), value);
     }
 
+    @Override
+    public boolean hasOverlappingRendering() {
+        // The column fades in and out with the layer's pages; its lines do not overlap, so no offscreen copy is needed.
+        return false;
+    }
+
     /** One line of the song. */
     private static final class LineView extends TextView {
         final LineKind kind;
@@ -154,6 +160,14 @@ final class LyricsListView extends ScrollView {
         LineView(Context context, LineKind kind) {
             super(context);
             this.kind = kind;
+        }
+
+        @Override
+        public boolean hasOverlappingRendering() {
+            // A text view with a shadow says it overlaps, and every line but the singing one is faded, so each would be
+            // drawn into a layer of its own: some twenty of them made anew on every way up of the player. Faded
+            // directly, the shadow shows a touch through the letters, which on a dark veil nobody sees.
+            return false;
         }
 
         @Override

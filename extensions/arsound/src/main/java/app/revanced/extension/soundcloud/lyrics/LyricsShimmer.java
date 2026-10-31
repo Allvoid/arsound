@@ -16,9 +16,13 @@ import app.revanced.extension.soundcloud.shared.Dimens;
 
 /**
  * What stands in for the lyrics while they are looked up: faint rounded bars where the lines will be, with a soft
- * light passing over them. It moves only while it is on screen.
+ * light passing over them. It moves only while it is on screen, and at a third of a fast display's rate: the light
+ * is soft and slow, and the view covers most of the player.
  */
 final class LyricsShimmer extends View {
+    /** The light moves on at most this often; the view is redrawn only then. */
+    private static final long FRAME_MS = 33;
+
     /** Widths of the bars as a share of the view's, like lines of a song. */
     private static final float[] WIDTHS = {0.72f, 0.88f, 0.56f, 0.8f, 0.64f, 0.84f, 0.5f};
 
@@ -33,6 +37,7 @@ final class LyricsShimmer extends View {
     private final float inset;
     private LinearGradient gradient;
     private float phase;
+    private long lastFrameAt;
 
     LyricsShimmer(Context context) {
         super(context);
@@ -46,6 +51,9 @@ final class LyricsShimmer extends View {
         animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
+                long now = animation.getCurrentPlayTime();
+                if (Math.abs(now - lastFrameAt) < FRAME_MS) return;
+                lastFrameAt = now;
                 phase = (float) animation.getAnimatedValue();
                 invalidate();
             }
@@ -78,10 +86,8 @@ final class LyricsShimmer extends View {
         float band = getWidth() * 0.7f;
         matrix.setTranslate(-band + phase * (getWidth() + band), 0);
         gradient.setLocalMatrix(matrix);
-        canvas.save();
-        canvas.clipPath(bars);
-        canvas.drawRect(0, 0, getWidth(), getHeight(), light);
-        canvas.restore();
+        // The light is painted with the bars' own shape: no clip and no fill of the whole view.
+        canvas.drawPath(bars, light);
     }
 
     @Override
@@ -111,7 +117,8 @@ final class LyricsShimmer extends View {
     private void update() {
         // The view calls this while it is still being built, before its fields are set.
         if (animator == null) return;
-        boolean run = isAttachedToWindow() && getVisibility() == VISIBLE && getWindowVisibility() == VISIBLE;
+        // isShown(), not the view's own visibility: the lyrics layer above it is hidden while the player is shut.
+        boolean run = isAttachedToWindow() && isShown() && getWindowVisibility() == VISIBLE;
         if (run && !animator.isStarted()) animator.start();
         else if (!run && animator.isStarted()) animator.cancel();
     }

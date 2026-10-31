@@ -261,7 +261,7 @@ public final class SearchIndex {
 
     // region Typing mistakes
 
-    private Map<String, String> vocabulary() {
+    private synchronized Map<String, String> vocabulary() {
         if (vocabulary == null) {
             Map<String, String> words = new TreeMap<>();
             for (Field field : Field.values()) {

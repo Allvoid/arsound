@@ -184,8 +184,9 @@ final class ThemeTableBuilder {
         byte[] original = originals.loadingAnimation(resources, animation);
         String day = ThemeFiles.ROOT + "theme/" + theme.id + "-loading.json";
         String night = ThemeFiles.ROOT + "theme/" + theme.id + "-loading-night.json";
-        ThemeFiles.write(new File(context.getFilesDir(), day), LoadingAnimation.tint(original, theme.accent(false)));
-        ThemeFiles.write(new File(context.getFilesDir(), night), LoadingAnimation.tint(original, theme.accent(true)));
+        byte[][] looks = LoadingAnimation.tint(original, new int[]{theme.accent(false), theme.accent(true)});
+        ThemeFiles.write(new File(context.getFilesDir(), day), looks[0]);
+        ThemeFiles.write(new File(context.getFilesDir(), night), looks[1]);
         table.put(animation, "raw", "loading_animation", ArscWriter.Value.file(day), false);
         table.put(animation, "raw", "loading_animation", ArscWriter.Value.file(night), true);
     }
@@ -218,9 +219,10 @@ final class ThemeTableBuilder {
             throws Exception {
         byte[] original = originals.picture(source, picture, name, wide);
         if (original == null) return;
-        byte[] day = HeaderArtwork.tint(original, theme.accent(false), name);
-        byte[] night = HeaderArtwork.tint(original, theme.accent(true), name);
-        if (day == null || night == null) return;
+        byte[][] looks = HeaderArtwork.tint(original, new int[]{theme.accent(false), theme.accent(true)}, name);
+        if (looks == null) return;
+        byte[] day = looks[0];
+        byte[] night = looks[1];
         // A path under res/, as for the fonts; the provider of the loader reads it from the files folder.
         String base = ThemeFiles.ROOT + "theme/" + theme.id + "-" + name + (wide ? "-wide" : "");
         String dayPath = base + ".png";

@@ -1,5 +1,6 @@
 package app.revanced.extension.soundcloud.theme;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
@@ -26,16 +27,20 @@ import app.revanced.extension.soundcloud.theme.effect.EffectScene;
  * backgrounds are opaque) or in a small preview tile. Every particle is computed from the time alone, like a CSS
  * keyframe animation, so nothing piles up between frames. It runs only while visible, and stands still in battery
  * saver mode or when Android's animations are turned off.
+ * <p>
+ * It is drawn at most {@link #SCREEN_FPS} frames a second on a screen and {@link #TILE_FPS} in a preview tile, not at
+ * the display's top rate: a layer over the whole window redrawn 120 times a second kept a core of the phone busy at
+ * rest, and the particles drift too slowly for the eye to tell the difference.
  */
 public final class ThemeEffect extends Drawable implements Runnable {
-    /**
-     * Time between frames: one refresh of the screen at its highest rate, so on a 120 Hz screen the particles move
-     * as smoothly as the rest of the app. A fixed 16 ms held them at 60 frames a second there.
-     */
+    /** The most frames a second of an effect over or under a whole screen. */
+    public static final int SCREEN_FPS = 60;
+    /** The same for a preview tile: small, and several of them at once. */
+    public static final int TILE_FPS = 30;
+
+    /** The delay asked of the drawable's callback after a frame, so the next one comes a whole number of refreshes later. */
     private final long frameMs;
 
-    /** Kept to look again at battery saver and Android's animations whenever the effect comes back on screen. */
-    private final Context appContext;
     private final EffectBrush brush;
     private final EffectScene scene;
     private boolean still;
@@ -50,9 +55,10 @@ public final class ThemeEffect extends Drawable implements Runnable {
      * @param night     The dark look: the design's colours. The light look draws everything in the accent.
      * @return Null for a theme without an effect.
      */
-    public static ThemeEffect create(Context context, String kind, float sizeScale, float density, boolean night, int accent) {
+    public static ThemeEffect create(Context context, String kind, float sizeScale, float density, boolean night, int accent,
+                                     int maxFps) {
         EffectKind effect = EffectKind.fromId(kind);
-        return effect == null ? null : new ThemeEffect(context, effect, sizeScale, density, night, accent);
+        return effect == null ? null : new ThemeEffect(context, effect, sizeScale, density, night, accent, maxFps);
     }
 
     /** Whether the theme has an effect, for the settings. */
@@ -60,18 +66,20 @@ public final class ThemeEffect extends Drawable implements Runnable {
         return EffectKind.fromId(kind) != null;
     }
 
-    private ThemeEffect(Context context, EffectKind kind, float sizeScale, float density, boolean night, int accent) {
-        Context application = context.getApplicationContext();
-        this.appContext = application != null ? application : context;
+    private ThemeEffect(Context context, EffectKind kind, float sizeScale, float density, boolean night, int accent,
+                        int maxFps) {
         this.brush = new EffectBrush(context.getResources().getDisplayMetrics().density * sizeScale, night, accent);
         this.still = isStill(context);
-        this.frameMs = frameMs(context);
+        this.frameMs = frameMs(context, maxFps);
         this.scene = kind.scene(brush, density);
+        // The ice of «Зима» is drawn off the main thread and arrives later.
+        brush.setRedraw(this::invalidateSelf);
     }
 
     /**
      * Stops or restarts the animation after battery saver or Android's animations were switched while it was on
-     * screen. Without this it stayed as it was made until the app restarted.
+     * screen. Without this it stayed as it was made until the app restarted. Called by {@link ThemeBackdrop}, which
+     * hears of both switches.
      */
     public void refreshStill(Context context) {
         boolean now = isStill(context);
@@ -80,8 +88,20 @@ public final class ThemeEffect extends Drawable implements Runnable {
         invalidateSelf();
     }
 
-    /** One refresh at the screen's highest supported rate, in whole milliseconds, at least 4 (250 Hz). */
-    private static long frameMs(Context context) {
+    /**
+     * The delay to ask for after a frame. The drawable's callback runs on the frame clock, which takes
+     * {@link ValueAnimator#getFrameDelay()} (the frame delay of Choreographer) off any delay and then waits for the next refresh. Asking for half a refresh
+     * less than a whole number of them puts the next frame right on the refresh it is meant for, whatever the moment
+     * of the refresh this frame was drawn in.
+     */
+    private static long frameMs(Context context, int maxFps) {
+        float refreshMs = 1000f / displayRate(context);
+        int refreshes = Math.max(1, Math.round((1000f / maxFps) / refreshMs));
+        return Math.max(1, Math.round(refreshes * refreshMs - refreshMs / 2 + ValueAnimator.getFrameDelay()));
+    }
+
+    /** The screen's highest supported rate, 60 Hz if it cannot be read. */
+    private static float displayRate(Context context) {
         float rate = 60f;
         try {
             DisplayManager displays = context.getSystemService(DisplayManager.class);
@@ -94,8 +114,7 @@ public final class ThemeEffect extends Drawable implements Runnable {
         } catch (Exception ignored) {
             // The usual 60 Hz.
         }
-        // A little under one refresh, so the next frame is asked for before its refresh, not one refresh late.
-        return Math.max(4, (long) Math.floor(1000f / rate) - 1);
+        return rate;
     }
 
     private static boolean isStill(Context context) {
@@ -140,13 +159,10 @@ public final class ThemeEffect extends Drawable implements Runnable {
     @Override
     public boolean setVisible(boolean visible, boolean restart) {
         boolean changed = super.setVisible(visible, restart);
-        if (!visible) {
-            unscheduleSelf(this);
-        } else {
-            // Battery saver or Android's animations may have been switched while the effect was off screen.
-            refreshStill(appContext);
-            if (changed) invalidateSelf();
-        }
+        // Battery saver and Android's animations are not read here: this runs at the end of every slide of the player,
+        // and ThemeBackdrop is told of both switches as they happen.
+        if (!visible) unscheduleSelf(this);
+        else if (changed) invalidateSelf();
         return changed;
     }
 

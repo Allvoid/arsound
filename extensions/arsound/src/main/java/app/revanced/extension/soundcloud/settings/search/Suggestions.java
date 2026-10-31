@@ -13,6 +13,12 @@ public final class Suggestions {
     private Suggestions() {
     }
 
+    /** The words of a query that are tried, as many as the search itself reads: a pasted text is not tried word by word. */
+    private static List<Token> words(String query) {
+        List<Token> tokens = Text.tokens(query);
+        return tokens.size() > QueryPlan.MAX_WORDS ? tokens.subList(0, QueryPlan.MAX_WORDS) : tokens;
+    }
+
     /** Other spellings of the whole query that find something, the likeliest first. */
     public static List<String> didYouMean(SearchIndex index, String query, int max) {
         List<String> result = new ArrayList<>();
@@ -24,7 +30,7 @@ public final class Suggestions {
         if (swapped != null && !index.searchAsTyped(swapped, 1).isEmpty()) result.add(swapped);
 
         // Fix one word at a time, the first word that finds nothing.
-        List<Token> tokens = Text.tokens(trimmed);
+        List<Token> tokens = words(trimmed);
         for (Token token : tokens) {
             if (result.size() >= max) break;
             if (Text.isStopWord(token.norm) || index.knows(token.norm)) continue;
@@ -41,7 +47,7 @@ public final class Suggestions {
     public static List<String> related(SearchIndex index, String query, int max) {
         List<String> result = new ArrayList<>();
         Set<String> seenStems = new HashSet<>();
-        List<Token> tokens = Text.tokens(query);
+        List<Token> tokens = words(query);
         for (Token token : tokens) seenStems.add(token.stem);
         for (Token token : tokens) {
             if (Text.isStopWord(token.norm)) continue;

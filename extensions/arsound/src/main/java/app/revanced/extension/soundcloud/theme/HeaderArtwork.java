@@ -69,10 +69,28 @@ public final class HeaderArtwork {
      * @return PNG bytes, or null if the picture could not be read.
      */
     static byte[] tint(byte[] original, int accent, String name) {
+        byte[][] tinted = tint(original, new int[]{accent}, name);
+        return tinted == null ? null : tinted[0];
+    }
+
+    /**
+     * The picture in each of the accents, read once for all of them: the day and the night look of a theme come from
+     * one decoding of the picture instead of two.
+     *
+     * @return The PNG bytes in the order of the accents, or null if the picture could not be read.
+     */
+    static byte[][] tint(byte[] original, int[] accents, String name) {
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false;
         Bitmap bitmap = BitmapFactory.decodeByteArray(original, 0, original.length, options);
         if (bitmap == null) return null;
+        byte[][] result = new byte[accents.length][];
+        for (int i = 0; i < accents.length; i++) result[i] = tinted(bitmap, accents[i], name);
+        bitmap.recycle();
+        return result;
+    }
+
+    private static byte[] tinted(Bitmap bitmap, int accent, String name) {
         Bitmap tinted = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
         float r = ((accent >> 16) & 0xFF) / 255f;
         float g = ((accent >> 8) & 0xFF) / 255f;
@@ -92,7 +110,6 @@ public final class HeaderArtwork {
                 1, 0, 0, 0, 0,
         })));
         new Canvas(tinted).drawBitmap(bitmap, 0, 0, paint);
-        bitmap.recycle();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         tinted.compress(Bitmap.CompressFormat.PNG, 100, output);
         tinted.recycle();

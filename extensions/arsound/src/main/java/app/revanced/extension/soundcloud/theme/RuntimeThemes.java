@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.theme;
 
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Build;
 
@@ -12,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme.Theme;
 
 /**
@@ -45,7 +47,7 @@ public final class RuntimeThemes {
         CUSTOM(RuntimeThemes.CUSTOM) {
             @Override
             Theme make(Resources resources, Theme seed) {
-                return custom(seed, CustomTheme.load());
+                return customSaved(seed);
             }
         };
 
@@ -84,6 +86,12 @@ public final class RuntimeThemes {
 
     /** The latest theme of each seed (by the seed's id); the key tells whether its colours are still the ones asked for. */
     private static final Map<String, Made> LATEST = new HashMap<>();
+    /** The latest theme the editor asked for, by the colours: a step of a drag asks twice (the note and the drawing). */
+    private static Made editing;
+    /** The system palette, read again only when the configuration changes (a new wallpaper changes it too). */
+    private static Map<String, String> tones;
+    private static String tonesKey;
+    private static Configuration tonesFor;
 
     private RuntimeThemes() {
     }
@@ -108,19 +116,27 @@ public final class RuntimeThemes {
 
     /** The accent of the system palette as #RRGGBB, or null where there is none (before Android 12). */
     public static String systemAccent(Resources resources) {
-        return Kind.MONET.isAvailable() ? systemTones(resources).get("accent1_200") : null;
+        return Kind.MONET.isAvailable() ? currentTones(resources).get("accent1_200") : null;
     }
 
-    /** The custom theme in these colours, for the preview of the editor; nothing is kept. */
-    public static Theme custom(Context context, CustomTheme settings) {
-        return makeCustom(ArsoundTheme.seed(context, CUSTOM), settings);
+    /** The custom theme in these colours, for the preview of the editor; only the latest one is kept. */
+    public static synchronized Theme custom(Context context, CustomTheme settings) {
+        String key = settings.toJson();
+        if (editing != null && editing.key.equals(key)) return editing.theme;
+        Theme made = makeCustom(ArsoundTheme.seed(context, CUSTOM), settings);
+        editing = new Made(key, made);
+        return made;
     }
 
-    private static synchronized Theme custom(Theme seed, CustomTheme settings) {
-        String key = CUSTOM + "/" + settings.toJson();
+    /**
+     * The custom theme in the saved colours. Asked for on every look-up of a colour, so it is kept by the saved text
+     * itself: the colours are read from it again only when it changes.
+     */
+    private static synchronized Theme customSaved(Theme seed) {
+        String key = CUSTOM + "/saved/" + Settings.getString(Settings.CUSTOM_THEME, "");
         Theme kept = kept(seed.id, key);
         if (kept != null) return kept;
-        Theme made = makeCustom(seed, settings);
+        Theme made = makeCustom(seed, CustomTheme.load());
         keep(seed.id, key, made);
         return made;
     }
@@ -140,13 +156,29 @@ public final class RuntimeThemes {
     }
 
     private static synchronized Theme monet(Resources resources, Theme seed) {
-        Map<String, String> tones = systemTones(resources);
-        String key = MONET + "/" + tones.values();
+        Map<String, String> tones = currentTones(resources);
+        String key = tonesKey;
         Theme kept = kept(seed.id, key);
         if (kept != null) return kept;
         Theme made = make(seed, key, PaletteEngine.monetDark(tones), PaletteEngine.monetLight(tones), false, false);
         keep(seed.id, key, made);
         return made;
+    }
+
+    /**
+     * The system palette for these resources. Reading it takes a dozen colours and as many formatted strings, and it is
+     * asked for on every look-up of a colour, so it is kept until the configuration differs: a change of the palette
+     * reaches the app as one (with a new sequence number of the assets), and so do the day and night looks.
+     */
+    @TargetApi(Build.VERSION_CODES.S)
+    private static synchronized Map<String, String> currentTones(Resources resources) {
+        Configuration config = resources.getConfiguration();
+        if (tones == null || tonesFor == null || !tonesFor.equals(config)) {
+            tones = systemTones(resources);
+            tonesKey = MONET + "/" + tones.values();
+            tonesFor = new Configuration(config);
+        }
+        return tones;
     }
 
     /** The theme made for this seed in these colours, or null if the latest one was made for other colours. */

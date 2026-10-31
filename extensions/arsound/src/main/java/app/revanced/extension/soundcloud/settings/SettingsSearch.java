@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.search.SearchIndex;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
@@ -41,6 +42,11 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * take the place of the section rows. It reads every settings screen once into a {@link SearchIndex}.
  */
 final class SettingsSearch {
+    /** The screens are read for the search only after the main screen has come in: its animation is not held up. */
+    private static final long INDEX_DELAY_MS = 600;
+    /** A query is looked up once the typing has paused this long, not on every letter. */
+    private static final long TYPING_PAUSE_MS = 150;
+
     private final ReVancedSettingsActivity activity;
     private final SettingsUi ui;
     /** Adds the rows of the main screen's sections; they are in the index as sections of their own. */
@@ -55,7 +61,16 @@ final class SettingsSearch {
     private EditText searchField;
     private boolean searchOpen;
     private Animator searchReveal;
+    /** The finished index; null until every screen has been read. */
     private SearchIndex searchIndex;
+    /** The index being read, a screen at a time; main thread only. */
+    private SearchIndex building;
+    /** The next screen to read into it, -1 for the main screen's rows. */
+    private int nextSection = -1;
+    /** Counts the changes of the field, so an answer to an older query is dropped. Main thread only. */
+    private int queries;
+    /** The query waiting for the typing to pause. */
+    private String pendingQuery;
     private SearchResults resultsBuilder;
 
     SettingsSearch(SettingsUi ui, Consumer<LinearLayout> mainRows, List<SectionScreen> sections) {
@@ -84,30 +99,83 @@ final class SettingsSearch {
     }
 
     /**
-     * Builds every searched screen once, off screen, and keeps what its rows say. Done while the main screen sits
-     * idle, so the first tap on the search finds it ready.
+     * Builds the next searched screen off screen and keeps what its rows say; the main screen's rows come first.
+     * One screen per call, each in a pass of the main thread of its own, so no frame waits for all of them. Done while
+     * the main screen sits idle, so the first tap on the search usually finds it ready.
+     *
+     * @return Whether screens are left to read.
      */
-    private void ensureSearchIndex() {
-        if (searchIndex != null) return;
-        SearchIndex index = new SearchIndex();
+    private boolean indexStep() {
+        if (searchIndex != null || activity.isFinishing()) return false;
+        if (building == null) {
+            building = new SearchIndex();
+            nextSection = -1;
+        }
         SearchRecorder recorder = ui.search;
-        recorder.start(index);
+        recorder.start(building);
         try {
-            mainRows.accept(new LinearLayout(activity));
-            for (SectionScreen section : sections) {
-                if (!section.searched()) continue;
-                recorder.building(section);
-                try {
-                    section.fill(new LinearLayout(activity));
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Search index: could not read the " + section.id() + " screen", ex);
+            if (nextSection < 0) {
+                mainRows.accept(new LinearLayout(activity));
+            } else {
+                SectionScreen section = sections.get(nextSection);
+                if (section.searched()) {
+                    recorder.building(section);
+                    try {
+                        section.fill(new LinearLayout(activity));
+                    } catch (Exception ex) {
+                        Logger.printException(() -> "Search index: could not read the " + section.id() + " screen", ex);
+                    }
                 }
             }
         } finally {
             recorder.stop();
         }
-        searchIndex = index;
+        nextSection++;
+        if (nextSection < sections.size()) return true;
+        // Handed out only whole: the look-ups run off the main thread and must not see it grow.
+        searchIndex = building;
+        building = null;
+        if (searchOpen && searchField != null) updateSearchResults(searchField.getText().toString());
+        return false;
     }
+
+    /** Reads the screens that are left one per message: the search is open and waits for them. */
+    private final Runnable indexNow = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (indexStep()) searchResults.post(this);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Search index failed", ex);
+            }
+        }
+    };
+
+    /** Looks up the query typed last, once typing has paused. */
+    private final Runnable lookUp = new Runnable() {
+        @Override
+        public void run() {
+            final SearchIndex index = searchIndex;
+            final String query = pendingQuery;
+            final int generation = queries;
+            if (index == null || query == null) return;
+            Utils.runOnBackgroundThread(() -> {
+                SearchResults.Found found;
+                try {
+                    found = SearchResults.find(index, query);
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Search failed for " + query, ex);
+                    return;
+                }
+                Utils.runOnMainThread(() -> {
+                    // A later key has asked again, or the screen is gone: this answer is of no use.
+                    if (generation != queries || activity.isFinishing() || searchResults == null) return;
+                    if (!searchOpen && searchResults.getVisibility() != View.VISIBLE) return;
+                    resultsBuilder.show(searchResults, found);
+                });
+            });
+        }
+    };
 
     /** The title row with the search button at its end, and the field that grows out of the button. */
     View createHeader(View title) {
@@ -133,17 +201,16 @@ final class SettingsSearch {
         header.addView(searchBar, barParams);
         searchBar.setVisibility(View.INVISIBLE);
 
-        // The index is read when the main thread has nothing else to do, before anyone taps the button.
-        Looper.myQueue().addIdleHandler(() -> {
-            if (!activity.isFinishing()) {
-                try {
-                    ensureSearchIndex();
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Search index failed", ex);
-                }
+        // The index is read when the main thread has nothing else to do, before anyone taps the button: after the
+        // screen has come in, a screen per idle moment.
+        header.postDelayed(() -> Looper.myQueue().addIdleHandler(() -> {
+            try {
+                return indexStep();
+            } catch (Exception ex) {
+                Logger.printException(() -> "Search index failed", ex);
+                return false;
             }
-            return false;
-        });
+        }), INDEX_DELAY_MS);
         return header;
     }
 
@@ -228,11 +295,8 @@ final class SettingsSearch {
     private void openSearch() {
         if (searchOpen) return;
         searchOpen = true;
-        try {
-            ensureSearchIndex();
-        } catch (Exception ex) {
-            Logger.printException(() -> "Search index failed", ex);
-        }
+        // The screens not read yet are read now, one per message; the results show "getting ready" meanwhile.
+        if (searchIndex == null) searchResults.post(indexNow);
 
         int[] reveal = revealCentre();
         float far = (float) Math.hypot(Math.max(reveal[0], searchBar.getWidth() - reveal[0]), searchBar.getHeight());
@@ -330,8 +394,24 @@ final class SettingsSearch {
         return true;
     }
 
+    /**
+     * The field changed. The look-up waits for a pause in the typing and runs off the main thread; an empty field and
+     * an index not ready yet are answered at once.
+     */
     private void updateSearchResults(String query) {
         if (searchResults == null || !searchOpen && searchResults.getVisibility() != View.VISIBLE) return;
-        resultsBuilder.show(searchResults, searchIndex, query);
+        queries++;
+        searchResults.removeCallbacks(lookUp);
+        if (query.trim().isEmpty()) {
+            pendingQuery = null;
+            resultsBuilder.showStart(searchResults);
+            return;
+        }
+        pendingQuery = query;
+        if (searchIndex == null) {
+            resultsBuilder.showPreparing(searchResults);
+            return;
+        }
+        searchResults.postDelayed(lookUp, TYPING_PAUSE_MS);
     }
 }

@@ -10,7 +10,7 @@ import java.util.Map;
  * {@link SearchIndex}.
  */
 final class QueryPlan {
-    private static final int MAX_WORDS = 6;
+    static final int MAX_WORDS = 6;
 
     /** The readings of the query; each is a list of terms that must all be found. The first one has no phrases. */
     final List<List<QueryTerm>> readings = new ArrayList<>();

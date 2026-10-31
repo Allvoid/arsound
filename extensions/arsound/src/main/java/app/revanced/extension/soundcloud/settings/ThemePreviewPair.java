@@ -64,6 +64,7 @@ final class ThemePreviewPair extends LinearLayout {
      * @param mode  One of the modes of {@link CustomTheme}: with the phone's own mode both looks are drawn.
      */
     void show(ArsoundTheme.Theme theme, String mode) {
+        boolean wasBoth = both;
         both = CustomTheme.MODE_AUTO.equals(mode);
         boolean night = !CustomTheme.MODE_LIGHT.equals(mode);
         first.setTheme(theme, night);
@@ -71,7 +72,8 @@ final class ThemePreviewPair extends LinearLayout {
         secondColumn.setVisibility(both ? View.VISIBLE : View.GONE);
         firstCaption.setVisibility(both ? View.VISIBLE : View.INVISIBLE);
         secondCaption.setVisibility(both ? View.VISIBLE : View.INVISIBLE);
-        requestLayout();
+        // The widths of the columns depend on the mode alone: a new colour only redraws.
+        if (both != wasBoth) requestLayout();
     }
 
     @Override

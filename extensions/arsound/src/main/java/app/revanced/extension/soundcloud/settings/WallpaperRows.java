@@ -128,6 +128,8 @@ final class WallpaperRows {
         TextView heading = ui.createText("Body.Primary", title);
         heading.setPadding(ui.dp(18), 0, ui.dp(18), ui.dp(2));
         card.addView(heading);
+        // Read for the search, the screen needs only the words above: a preview is a wallpaper drawn for each style.
+        if (ui.search.isIndexing()) return card;
         TextView description = ui.createText("Body.Secondary", TopBarStyle.current().description());
         description.setPadding(ui.dp(18), ui.dp(10), ui.dp(18), 0);
         description.setMinLines(2);

@@ -112,8 +112,10 @@ public final class UpgradeTabPage {
                 Utils.showToastShort(text("Вкладка скрыта после перезапуска SoundCloud", "The tab is hidden once SoundCloud restarts"));
                 return;
             }
-            Utils.showToastShort(text("Вкладка скрыта, SoundCloud перезапускается", "Tab hidden, SoundCloud restarts"));
-            ArsoundTheme.restartApp(activity);
+            // The bar of tabs is built with the main screen: making the screen again is enough, and unlike a restart
+            // of the app it leaves the music and the downloads alone.
+            Utils.showToastShort(text("Вкладка скрыта", "Tab hidden"));
+            activity.recreate();
         });
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

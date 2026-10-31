@@ -5,6 +5,8 @@ import android.os.Looper;
 import android.view.View;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.debug.SlideJank;
@@ -37,6 +39,10 @@ public final class PlayerSheet {
 
     /** Main thread only. */
     private static boolean moving;
+    /** The last state the sheet reported; main thread only. A screen that starts with the player open tells it too. */
+    private static int state = COLLAPSED;
+    /** Work that waits for the slide to end, in the order it came; main thread only. */
+    private static final List<Runnable> afterSlide = new ArrayList<>();
     /**
      * The sheet that reported last. A screen that is rebuilt while the sheet slides (a turn, a fold) never gets the
      * final state of that slide from the new sheet, which is made already at rest, so the flag must not outlive the
@@ -66,6 +72,23 @@ public final class PlayerSheet {
         return isSmoothEnabled();
     }
 
+    /** Whether the full player is open and at rest: it covers the whole screen then. */
+    public static boolean isExpanded() {
+        return state == EXPANDED && !isBusy() && sheetAlive();
+    }
+
+    /**
+     * Runs the work now if the sheet is at rest, or when the slide is over. For work a frame of the slide cannot afford,
+     * such as building many views. Main thread only.
+     */
+    public static void afterSlide(Runnable work) {
+        if (!isBusy()) {
+            work.run();
+            return;
+        }
+        afterSlide.add(work);
+    }
+
     /**
      * Called when the main screen is destroyed. A slide that was running on it is over: the new screen starts at
      * rest, and the frames of the old window are of no use to anyone.
@@ -91,8 +114,11 @@ public final class PlayerSheet {
                 handler.removeCallbacks(release);
                 handler.postDelayed(release, WATCHDOG_MS);
             }
+            PlayerSheet.state = state;
             setMoving(slides);
             PlayerArtworkLayers.sheetRested(state);
+            // Also at rest, where the moving flag does not change: the theme animation waits out the open player too.
+            ThemeBackdrop.onSheet(isBusy(), isExpanded());
         } catch (Exception ex) {
             Logger.printException(() -> "Player sheet: state " + state + " not handled", ex);
         }
@@ -103,6 +129,23 @@ public final class PlayerSheet {
         if (moving == now) return;
         moving = now;
         // The theme animation draws over the player; it waits for the slide and goes on at rest.
-        ThemeBackdrop.setSheetBusy(isBusy());
+        ThemeBackdrop.onSheet(isBusy(), isExpanded());
+        if (!now) runAfterSlide();
+    }
+
+    private static void runAfterSlide() {
+        if (afterSlide.isEmpty()) return;
+        // Not inside the frame where the sheet came to rest: that one already draws the player in its new look.
+        final List<Runnable> due = new ArrayList<>(afterSlide);
+        afterSlide.clear();
+        handler.post(() -> {
+            for (Runnable work : due) {
+                try {
+                    work.run();
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Player sheet: work after the slide failed", ex);
+                }
+            }
+        });
     }
 }

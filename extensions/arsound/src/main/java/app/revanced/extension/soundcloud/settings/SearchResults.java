@@ -24,6 +24,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,8 +43,41 @@ import app.revanced.extension.soundcloud.shared.Colors;
  * What the search shows under the field: the found rows in a card (with the section's icon, the matched words
  * coloured and, when a row was found by meaning or despite a typo, a line saying why), chips with other things to
  * try, and the notes for an empty query or no result. Used by {@link SettingsSearch}.
+ * <p>
+ * The looking up ({@link #find}) is apart from the views ({@link #show}): it runs off the main thread, and a query
+ * that finds what is already on screen does not build the rows again.
  */
 final class SearchResults {
+    /** What a query finds: the rows, and the words to offer. Made off the main thread by {@link #find}. */
+    static final class Found {
+        final List<Hit> hits;
+        final List<String> related;
+        final List<String> didYouMean;
+        final List<Hit> partial;
+
+        Found(List<Hit> hits, List<String> related, List<String> didYouMean, List<Hit> partial) {
+            this.hits = hits;
+            this.related = related;
+            this.didYouMean = didYouMean;
+            this.partial = partial;
+        }
+
+        /** What is drawn from it, to tell that two answers would look the same. */
+        String look() {
+            StringBuilder look = new StringBuilder();
+            for (List<Hit> list : Arrays.asList(hits, partial)) {
+                look.append('|');
+                for (Hit hit : list) {
+                    look.append(System.identityHashCode(hit.entry)).append(hit.reason).append(hit.queryWord)
+                            .append(hit.matchedWord);
+                    for (int[] range : hit.titleRanges) look.append(range[0]).append('-').append(range[1]);
+                    look.append(';');
+                }
+            }
+            return look.append(related).append(didYouMean).toString();
+        }
+    }
+
     private static final int MAX_RESULTS = 30;
     private static final int PARTIAL_RESULTS = 8;
     private static final int ANIMATED_RESULTS = 8;
@@ -56,6 +91,12 @@ final class SearchResults {
     /** Runs before a result opens its screen (hides the keyboard). */
     private final Runnable beforeOpen;
     private Set<SearchEntry> shown = new HashSet<>();
+    /** The look of the answer on screen, null when something else is there. */
+    private String onScreen;
+    /** The icons of the sections, looked up once: by name, which is slow. */
+    private final Map<String, Drawable.ConstantState> icons = new HashMap<>();
+    /** The accent of the rows being built, read once per answer. */
+    private int accent;
 
     SearchResults(SettingsUi ui, Map<String, SectionScreen> sectionsById, Consumer<String> useQuery, Runnable beforeOpen) {
         this.ui = ui;
@@ -70,48 +111,83 @@ final class SearchResults {
         shown.clear();
     }
 
-    /** Fills {@code target} for the query: starting chips, results, or suggestions when nothing was found. */
-    void show(LinearLayout target, SearchIndex index, String query) {
-        target.removeAllViews();
-        if (query.trim().isEmpty() || index == null) {
-            reset();
-            target.addView(createNote(text("Название настройки или слово из описания. Можно искать по-своему: "
-                    + "«память», «фон», «звук».", "A setting's name or a word from its description. Search in your own "
-                    + "words: \"storage\", \"background\", \"sound\".")));
-            target.addView(createChips(popularQueries()));
-            return;
-        }
-        List<Hit> found = index.search(query, MAX_RESULTS);
-        if (found.isEmpty()) {
-            reset();
-            showNothing(target, index, query);
-            return;
-        }
-        target.addView(createResultsCard(found, true));
+    /**
+     * Looks a query up in a finished index. Any thread: the index is no longer changed once it is handed out, and
+     * the suggestions run a search of their own for each word they try, which is too much for the main thread on
+     * every key.
+     */
+    static Found find(SearchIndex index, String query) {
+        List<Hit> hits = index.search(query, MAX_RESULTS);
         List<String> related = Suggestions.related(index, query, MAX_CHIPS);
-        if (!related.isEmpty()) {
+        if (!hits.isEmpty()) return new Found(hits, related, Collections.emptyList(), Collections.emptyList());
+        return new Found(hits, related, Suggestions.didYouMean(index, query, 3), index.searchAny(query, PARTIAL_RESULTS));
+    }
+
+    /** The note and the chips for an empty query. */
+    void showStart(LinearLayout target) {
+        target.removeAllViews();
+        onScreen = null;
+        reset();
+        target.addView(createNote(text("Название настройки или слово из описания. Можно искать по-своему: "
+                + "«память», «фон», «звук».", "A setting's name or a word from its description. Search in your own "
+                + "words: \"storage\", \"background\", \"sound\".")));
+        target.addView(createChips(popularQueries()));
+    }
+
+    /** A query typed before the screens have all been read for the search; the answer follows when they are. */
+    void showPreparing(LinearLayout target) {
+        target.removeAllViews();
+        onScreen = null;
+        reset();
+        target.addView(createNote(text("Готовлю поиск…", "Getting the search ready…")));
+    }
+
+    /** Fills {@code target} with an answer: the results, or suggestions when nothing was found. */
+    void show(LinearLayout target, Found found) {
+        String look = found.look();
+        // The query grew by a letter and finds the same: the rows on screen stay as they are.
+        if (look.equals(onScreen) && target.getChildCount() > 0) return;
+        onScreen = look;
+        target.removeAllViews();
+        accent = ui.accent();
+        if (found.hits.isEmpty()) {
+            reset();
+            showNothing(target, found);
+            return;
+        }
+        target.addView(createResultsCard(found.hits, true));
+        if (!found.related.isEmpty()) {
             target.addView(createNote(text("Ещё варианты:", "More to try:")));
-            target.addView(createChips(related));
+            target.addView(createChips(found.related));
         }
     }
 
-    private void showNothing(LinearLayout target, SearchIndex index, String query) {
+    private void showNothing(LinearLayout target, Found found) {
         target.addView(createNote(text("Ничего не нашлось", "Nothing found")));
-        List<String> didYouMean = Suggestions.didYouMean(index, query, 3);
-        if (!didYouMean.isEmpty()) {
+        if (!found.didYouMean.isEmpty()) {
             target.addView(createNote(text("Возможно, вы искали:", "Did you mean:")));
-            target.addView(createChips(didYouMean));
+            target.addView(createChips(found.didYouMean));
         }
-        List<String> related = Suggestions.related(index, query, MAX_CHIPS);
-        if (!related.isEmpty()) {
+        if (!found.related.isEmpty()) {
             target.addView(createNote(text("Попробуйте:", "Try:")));
-            target.addView(createChips(related));
+            target.addView(createChips(found.related));
         }
-        List<Hit> partial = index.searchAny(query, PARTIAL_RESULTS);
-        if (!partial.isEmpty()) {
+        if (!found.partial.isEmpty()) {
             target.addView(ui.createSubHeading(text("Частично подходит", "Partly matches")));
-            target.addView(createResultsCard(partial, false));
+            target.addView(createResultsCard(found.partial, false));
         }
+    }
+
+    /** The icon of a section, a copy of its own for each row (rows tint it). */
+    private Drawable sectionIcon(SectionScreen section) {
+        String key = section.iconKey();
+        Drawable.ConstantState state = icons.get(key);
+        if (state == null && !icons.containsKey(key)) {
+            Drawable icon = SettingsIcons.icon(activity, key);
+            state = icon == null ? null : icon.getConstantState();
+            icons.put(key, state);
+        }
+        return state == null ? null : state.newDrawable(activity.getResources()).mutate();
     }
 
     private static List<String> popularQueries() {
@@ -151,7 +227,6 @@ final class SearchResults {
 
     private View createResult(Hit hit) {
         SearchEntry entry = hit.entry;
-        int accent = ui.accent();
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -159,7 +234,7 @@ final class SearchResults {
         row.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), ui.dp(10));
 
         SectionScreen section = sectionsById.get(entry.screen);
-        Drawable icon = section == null ? null : SettingsIcons.icon(activity, section.iconKey());
+        Drawable icon = section == null ? null : sectionIcon(section);
         if (icon != null) {
             ImageView tile = new ImageView(activity);
             tile.setImageDrawable(icon);

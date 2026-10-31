@@ -4,6 +4,7 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import android.graphics.Color;
 import android.os.Bundle;
+import android.view.Choreographer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -121,7 +122,7 @@ final class CustomThemeScreen extends SectionScreen {
         root.addView(applyBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        refreshEditor();
+        refreshNow();
         return root;
     }
 
@@ -150,7 +151,8 @@ final class CustomThemeScreen extends SectionScreen {
 
         View end = new View(activity);
         list.addView(end, new LinearLayout.LayoutParams(1, ui.dp(24)));
-        refreshEditor();
+        // Read for the search, the rows need no theme worked out for them.
+        if (!ui.search.isIndexing()) refreshNow();
     }
 
     // region Rows
@@ -230,6 +232,8 @@ final class CustomThemeScreen extends SectionScreen {
     private void addAnimationRows(LinearLayout list) {
         ui.recordForSearch(text("Анимация фона", "Background animation"), "");
         list.addView(ui.createSubHeading(text("Анимация фона", "Background animation")));
+        // Six live animations are not made for the search, which reads only the words.
+        if (ui.search.isIndexing()) return;
         ThemeEffectStrip strip = new ThemeEffectStrip(ui, effect -> {
             editing = editing.withEffect(effect);
             refreshEditor();
@@ -254,8 +258,24 @@ final class CustomThemeScreen extends SectionScreen {
         return !editing.equals(CustomTheme.load());
     }
 
-    /** Draws the editor again after a change of {@link #editing}. */
+    /**
+     * Draws the editor again after a change of {@link #editing}, once per frame: a drag of a slider or of the colour
+     * picker changes it on every move of the finger, several times a frame.
+     */
     private void refreshEditor() {
+        if (refreshPosted) return;
+        refreshPosted = true;
+        Choreographer.getInstance().postFrameCallback(refreshFrame);
+    }
+
+    private boolean refreshPosted;
+    private final Choreographer.FrameCallback refreshFrame = frameTimeNanos -> {
+        refreshPosted = false;
+        if (!activity.isFinishing()) refreshNow();
+    };
+
+    /** Draws the editor now. */
+    private void refreshNow() {
         ArsoundTheme.Theme theme = RuntimeThemes.custom(activity, editing);
         if (previewPair != null) previewPair.show(theme, editing.mode);
         for (java.util.function.Consumer<ArsoundTheme.Theme> view : editorViews) view.accept(theme);

@@ -79,9 +79,12 @@ public final class CustomTheme {
         }
     }
 
-    /** Written at once (not in the background): the app restarts right after it. */
+    /**
+     * Saved in the background like other settings. The app restarts right after it, and {@link ArsoundTheme#restartApp}
+     * waits for the write off the main thread before it ends the process.
+     */
     public void save() {
-        Settings.putStringNow(Settings.CUSTOM_THEME, toJson());
+        Settings.putString(Settings.CUSTOM_THEME, toJson());
     }
 
     /** The same text for the same colours; also the key of the built resource table. */

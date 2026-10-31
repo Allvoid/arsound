@@ -28,6 +28,8 @@ final class ThemeLoader {
     private volatile ResourcesLoader loader;
     /** The table the loader has now, to close it when the palette changes and a new one takes its place. */
     private ResourcesProvider loaded;
+    /** Held while a table is built, checked or read: {@link #prepare} builds off the main thread. */
+    private static final Object BUILD = new Object();
     /** The {@link Theme#key()} the loader's table was built for. */
     private volatile String loaderKey;
     private String failedKey;
@@ -85,26 +87,67 @@ final class ThemeLoader {
         resources.addLoaders(loader);
     }
 
-    private ResourcesProvider provider(Theme theme) throws Exception {
-        Context context = appContext;
-        // The colours of a runtime theme are part of the file name: the table of the old colours may still be
-        // mapped by the screens that were drawn with it, and rewriting a mapped file in place could crash them.
-        String suffix = theme.isRuntime() ? "-" + Integer.toHexString(theme.key().hashCode()) : "";
-        File file = new File(context.getCacheDir(), "arsound-theme-" + theme.id + suffix + ".arsc");
-        // The resource table and the files it names are the same until the app is updated (or the player skin is
-        // switched), so they are built once, not at every cold start. The stamp is written last: a build that
-        // stopped half way leaves no stamp, and its files are not trusted.
-        File stamp = new File(context.getFilesDir(), ThemeFiles.ROOT + "theme/" + theme.id + ".stamp");
-        String key = cacheKey(context);
-        if (key != null && theme.isRuntime()) key += "/" + theme.key();
-        if (key != null && file.isFile() && key.equals(ThemeFiles.readText(stamp))) {
-            try {
-                return load(context, file);
-            } catch (Exception ex) {
-                // A damaged table is built again, not refused at every start.
-                Logger.printException(() -> "Theme: the kept resource table was refused, building it again", ex);
-            }
+    /**
+     * Builds the table of a theme and the files it names, if they are not kept already, without reading it. Off the
+     * main thread, before the theme is needed (a theme chosen, a new palette): the next {@link #apply} then finds the
+     * table ready instead of building it in the frame of a start or of a screen made again.
+     */
+    void prepare(Theme theme) throws Exception {
+        synchronized (BUILD) {
+            if (!isKept(theme)) build(theme);
         }
+    }
+
+    private ResourcesProvider provider(Theme theme) throws Exception {
+        synchronized (BUILD) {
+            if (isKept(theme)) {
+                try {
+                    return load(appContext, tableOf(theme));
+                } catch (Exception ex) {
+                    // A damaged table is built again, not refused at every start.
+                    Logger.printException(() -> "Theme: the kept resource table was refused, building it again", ex);
+                }
+            }
+            return load(appContext, build(theme));
+        }
+    }
+
+    /**
+     * The file of a theme's table. The colours of a runtime theme are part of the name: the table of the old colours
+     * may still be mapped by the screens that were drawn with it, and rewriting a mapped file in place could crash them.
+     */
+    private File tableOf(Theme theme) {
+        String suffix = theme.isRuntime() ? "-" + Integer.toHexString(theme.key().hashCode()) : "";
+        return new File(appContext.getCacheDir(), "arsound-theme-" + theme.id + suffix + ".arsc");
+    }
+
+    /**
+     * The resource table and the files it names are the same until the app is updated (or the player skin is
+     * switched), so they are built once, not at every cold start. The stamp is written last: a build that stopped half
+     * way leaves no stamp, and its files are not trusted.
+     */
+    private File stampOf(Theme theme) {
+        return new File(appContext.getFilesDir(), ThemeFiles.ROOT + "theme/" + theme.id + ".stamp");
+    }
+
+    /** What the stamp of a theme's files says when they are up to date; null when it cannot be told. */
+    private String stampKey(Theme theme) {
+        String key = cacheKey(appContext);
+        return key != null && theme.isRuntime() ? key + "/" + theme.key() : key;
+    }
+
+    /** Whether the theme's table and files are on disk and up to date. */
+    private boolean isKept(Theme theme) {
+        String key = stampKey(theme);
+        return key != null && tableOf(theme).isFile() && key.equals(ThemeFiles.readText(stampOf(theme)));
+    }
+
+    /** Builds the theme's table and files, and stamps them. */
+    private File build(Theme theme) throws Exception {
+        Context context = appContext;
+        File file = tableOf(theme);
+        File stamp = stampOf(theme);
+        String key = stampKey(theme);
         stamp.delete();
         // No loader yet in this process: the resources still show the app's own files.
         new ThemeTableBuilder(context, theme, loader == null).build(file);
@@ -116,7 +159,7 @@ final class ThemeLoader {
                 Logger.printException(() -> "Theme: could not remember the built theme", ex);
             }
         }
-        return load(context, file);
+        return file;
     }
 
     /** Deletes the tables of the earlier colours of a runtime theme; a screen that still maps one keeps working. */

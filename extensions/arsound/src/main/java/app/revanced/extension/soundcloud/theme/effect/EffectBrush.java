@@ -21,6 +21,8 @@ public final class EffectBrush {
     /** Shapes filled with a gradient. */
     final Paint shaded = new Paint(Paint.ANTI_ALIAS_FLAG);
     private int alpha = 255;
+    /** Redraws the effect when a scene has something new that it made off the main thread; main thread only. */
+    private Runnable redraw;
 
     /**
      * @param dp     Pixels per design dp.
@@ -40,6 +42,16 @@ public final class EffectBrush {
 
     public int getAlpha() {
         return alpha;
+    }
+
+    /** What redraws the effect, for a scene whose picture arrives later. */
+    public void setRedraw(Runnable redraw) {
+        this.redraw = redraw;
+    }
+
+    /** Asks for a frame with what a scene has made meanwhile. Main thread only. */
+    void redraw() {
+        if (redraw != null) redraw.run();
     }
 
     /** The accent the effect is drawn in. */

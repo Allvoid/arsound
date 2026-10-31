@@ -2,6 +2,7 @@ package app.arsound.patches.soundcloud.misc.theme
 
 import app.arsound.patches.soundcloud.misc.applicationOnCreateMethod
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
+import app.arsound.patches.soundcloud.misc.manifest.addApplicationComponent
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstruction
@@ -69,6 +70,19 @@ private val themeResourcesPatch = resourcePatch {
         val themes = readThemes(String(json))
         writeThemeResources(themes)
         writeSplashScreens(themes)
+        // Wakes the app right after an update, so the theme's resource table is built then and not at the first start.
+        document("AndroidManifest.xml").use { document ->
+            val receiver = document.addApplicationComponent(
+                "receiver",
+                "android:name" to "app.revanced.extension.soundcloud.theme.ThemeUpdateReceiver",
+                "android:exported" to "false",
+            )
+            val filter = document.createElement("intent-filter")
+            filter.appendChild(document.createElement("action").apply {
+                setAttribute("android:name", "android.intent.action.MY_PACKAGE_REPLACED")
+            })
+            receiver.appendChild(filter)
+        }
     }
 }
 

@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.theme;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.Context;
 import android.content.res.Resources;
 import android.os.Bundle;
 
@@ -10,10 +11,10 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.player.PlayerSheet;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme.Theme;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperSurfaces;
-import app.revanced.extension.soundcloud.widget.WidgetHeart;
 
 /**
  * Applies the chosen theme to the app as it runs: at the start of the application and before each screen is created,
@@ -22,10 +23,16 @@ import app.revanced.extension.soundcloud.widget.WidgetHeart;
 final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
     private final Application application;
     private final ThemeLoader loader;
+    /** The one started for the process, for the work that prepares a theme before it is needed. */
+    private static volatile ThemeLifecycle started;
+
     /** The theme each live activity was given at its start, to tell one that missed a change of the palette. */
     private final Map<Activity, String> appliedKeys = Collections.synchronizedMap(new WeakHashMap<>());
-    /** The palette an activity was last recreated for, so a change is followed once and never in a loop. */
-    private String recreatedFor;
+    /**
+     * The palette each live activity was last recreated for, so a change is followed once per screen: with one mark
+     * for all of them, the second screen in the back stack kept the old colours when it came back.
+     */
+    private final Map<Activity, String> recreatedFor = Collections.synchronizedMap(new WeakHashMap<>());
 
     private ThemeLifecycle(Application application) {
         this.application = application;
@@ -45,9 +52,24 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
         } catch (Throwable ex) {
             Logger.printException(() -> "Theme: could not apply on start", ex);
         }
-        // The widget's heart is fitted to the card of the phone's day or night look; follow the look flipping.
-        WidgetHeart.watchLook(application);
         application.registerActivityLifecycleCallbacks(lifecycle);
+        started = lifecycle;
+    }
+
+    /**
+     * Builds the table of the chosen theme off the main thread, if it is not kept yet, so the start that follows (a
+     * restart after a theme was chosen) only reads it. Nothing before Android 11, which has no themes. Not on the main
+     * thread.
+     */
+    static void prepareChosen(Context context) {
+        ThemeLifecycle lifecycle = started;
+        if (lifecycle == null) return;
+        try {
+            Theme theme = ArsoundTheme.currentTheme(context);
+            if (theme != null) lifecycle.loader.prepare(theme);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not prepare the chosen theme", ex);
+        }
     }
 
     /** Adds the loader of the chosen theme to these resources; nothing for the original look. */
@@ -120,9 +142,30 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
             Theme theme = ArsoundTheme.currentTheme(application, activity.getResources());
             if (theme == null || !theme.isRuntime()) return;
             String applied = appliedKeys.get(activity);
-            if (applied == null || applied.equals(theme.key()) || theme.key().equals(recreatedFor)) return;
-            recreatedFor = theme.key();
+            if (applied == null || applied.equals(theme.key()) || theme.key().equals(recreatedFor.get(activity))) return;
+            recreatedFor.put(activity, theme.key());
+            // The table of the new colours is built off the main thread; the screen keeps the old ones until then.
+            Utils.runOnBackgroundThread(() -> {
+                try {
+                    loader.prepare(theme);
+                } catch (Throwable ex) {
+                    Logger.printException(() -> "Theme: could not build the new palette", ex);
+                    return;
+                }
+                Utils.runOnMainThread(() -> recreateWith(activity, theme));
+            });
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not follow the new palette", ex);
+        }
+    }
+
+    /** Puts the prepared table in place and draws the screen again with it. */
+    private void recreateWith(Activity activity, Theme theme) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
+        try {
             apply(activity.getResources());
+            // A table that could not be built leaves the loader as it was: recreating then would only loop.
+            if (!theme.key().equals(loader.key())) return;
             appliedKeys.put(activity, loader.key());
             activity.recreate();
         } catch (Throwable ex) {

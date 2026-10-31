@@ -7,8 +7,7 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.content.res.loader.ResourcesLoader;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 
 import org.json.JSONObject;
@@ -16,6 +15,7 @@ import org.json.JSONObject;
 import java.util.List;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.AppResources;
 import app.revanced.extension.soundcloud.shared.Lang;
@@ -316,14 +316,31 @@ public final class ArsoundTheme {
         Intent launch = activity.getPackageManager().getLaunchIntentForPackage(activity.getPackageName());
         if (launch == null) return;
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            activity.startActivity(launch);
-            Runtime.getRuntime().exit(0);
-        }, 400);
+        Context context = activity.getApplicationContext();
+        long asked = SystemClock.uptimeMillis();
+        Utils.runOnBackgroundThread(() -> {
+            // The new theme's table is built now, in the background, not in the first frame of the new start. And the
+            // choice must be on the disk before the process ends: it was saved in the background, and exit does not wait.
+            ThemeLifecycle.prepareChosen(context);
+            Settings.flush();
+            // The toast of the restart stays a moment, as before, when all of that took no time.
+            long wait = Math.max(0, 400 - (SystemClock.uptimeMillis() - asked));
+            Utils.runOnMainThreadDelayed(() -> {
+                activity.startActivity(launch);
+                Runtime.getRuntime().exit(0);
+            }, wait);
+        });
     }
 
     /** Injection point: the start of {@code Application.onCreate}. */
     public static void onApplicationCreate(Application application) {
+        // The widget's heart is fitted to the card of the phone's day or night look; it follows the look flipping on
+        // every Android, also those that have no themes.
+        try {
+            WidgetHeart.watchLook(application);
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not follow the day and night look", ex);
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
         appContext = application;
         ThemeLifecycle.start(application);

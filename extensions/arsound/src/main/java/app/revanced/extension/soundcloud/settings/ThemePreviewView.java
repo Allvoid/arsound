@@ -30,6 +30,12 @@ public final class ThemePreviewView extends View {
     private final Path glyph = new Path();
     private ArsoundTheme.Theme theme;
     private boolean night = true;
+    /** The colours of the look drawn, read from the theme once per {@link #setTheme}, not on every frame. */
+    private int bg, card, card2, accent, onAccent, muted, tabbar, text, border, text2, mini, miniBorder, pink;
+    private float radius;
+    /** The cover of the first track; made again only when its colours change. */
+    private LinearGradient cover;
+    private int coverFrom, coverTo;
 
     public ThemePreviewView(Context context) {
         super(context);
@@ -37,8 +43,25 @@ public final class ThemePreviewView extends View {
 
     /** @param night Which look of the theme to draw. */
     public void setTheme(ArsoundTheme.Theme theme, boolean night) {
+        if (theme == this.theme && night == this.night) return;
         this.theme = theme;
         this.night = night;
+        if (theme != null) {
+            bg = theme.token(night, "bg");
+            card = theme.token(night, "surface");
+            card2 = theme.token(night, "surface2");
+            accent = theme.token(night, "accent");
+            onAccent = theme.token(night, "onAccent");
+            muted = theme.token(night, "muted");
+            tabbar = theme.token(night, "tabbar");
+            text = theme.color(night, "primary");
+            border = theme.token(night, "border");
+            text2 = theme.token(night, "text2");
+            mini = theme.token(night, "mini");
+            miniBorder = theme.token(night, "miniBorder");
+            pink = theme.token(night, "pink");
+            radius = theme.cardRadius();
+        }
         invalidate();
     }
 
@@ -56,12 +79,7 @@ public final class ThemePreviewView extends View {
         canvas.save();
         canvas.scale(scale, scale);
 
-        int bg = theme.token(night, "bg"), card = theme.token(night, "surface"), card2 = theme.token(night, "surface2");
-        int accent = theme.token(night, "accent"), onAccent = theme.token(night, "onAccent");
-        int muted = theme.token(night, "muted"), tabbar = theme.token(night, "tabbar");
-        int text = theme.color(night, "primary");
         // The corners follow the slider over its whole range; the shapes are small, so the renderer limits a radius to half a side.
-        float radius = theme.cardRadius();
 
         // The screen, rounded like a phone's.
         rect.set(0, 0, W, H);
@@ -97,19 +115,19 @@ public final class ThemePreviewView extends View {
         rect.set(146, 168, 266, 202);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(1.5f);
-        paint.setColor(theme.token(night, "border"));
+        paint.setColor(border);
         canvas.drawRoundRect(rect, 17, 17, paint);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(theme.token(night, "text2"));
+        paint.setColor(text2);
         canvas.drawText(text("Вперемешку", "Shuffle"), 170, 189.5f, paint);
 
         // The mini player.
-        float miniRadius = theme.cardRadius() + 6;
-        fill(canvas, 10, 212, W - 10, 252, miniRadius, theme.token(night, "mini"));
+        float miniRadius = radius + 6;
+        fill(canvas, 10, 212, W - 10, 252, miniRadius, mini);
         rect.set(10, 212, W - 10, 252);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(1f);
-        paint.setColor(theme.token(night, "miniBorder"));
+        paint.setColor(miniBorder);
         canvas.drawRoundRect(rect, miniRadius, miniRadius, paint);
         paint.setStyle(Paint.Style.FILL);
         fill(canvas, 18, 218, 46, 246, radius, accent);
@@ -142,7 +160,12 @@ public final class ThemePreviewView extends View {
         float r = radius;
         if (gradient) {
             rect.set(24, top, 64, top + 40);
-            paint.setShader(new LinearGradient(24, top, 64, top + 40, cover, theme.token(night, "pink"), Shader.TileMode.CLAMP));
+            if (this.cover == null || coverFrom != cover || coverTo != pink) {
+                this.cover = new LinearGradient(24, top, 64, top + 40, cover, pink, Shader.TileMode.CLAMP);
+                coverFrom = cover;
+                coverTo = pink;
+            }
+            paint.setShader(this.cover);
             canvas.drawRoundRect(rect, r, r, paint);
             paint.setShader(null);
         } else {

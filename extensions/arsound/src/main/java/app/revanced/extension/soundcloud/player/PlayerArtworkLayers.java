@@ -3,6 +3,7 @@ package app.revanced.extension.soundcloud.player;
 import android.view.View;
 import android.view.ViewParent;
 
+import java.util.Iterator;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -22,8 +23,10 @@ import app.revanced.extension.shared.Utils;
  * Three things stop that. A corner that is already set is not set again. The layers are kept only while the corners
  * are really rounded: the full player has none, and a square image needs no layer. They are given back when the
  * player has opened fully, not on the way up: the sheet crosses the middle of its way in both directions, and a layer
- * given back there would be made and drawn again as soon as the finger turns. And the pages beside the one in view
- * take no part in the slide, they only get the final look when the sheet has arrived.
+ * given back there would be made and drawn again as soon as the finger turns. They are given back as well when the
+ * player has shut: the shut player hides the artwork, so the layers only held video memory (it grew by some 60 MB over
+ * two dozen slides); the next slide makes them again, as it would have had to anyway for a hidden view. And the pages
+ * beside the one in view take no part in the slide, they only get the final look when the sheet has arrived.
  * <p>
  * All of it is switched by the "Smooth player collapse" setting; off, SoundCloud's own behaviour comes back.
  */
@@ -82,10 +85,22 @@ public final class PlayerArtworkLayers {
      * corners, so the layers the slide kept for it are given back; the next way down makes them again.
      */
     static void sheetRested(int state) {
-        if (state != PlayerSheet.EXPANDED || !PlayerSheet.isSmoothEnabled()) return;
+        if (!PlayerSheet.isSmoothEnabled()) return;
         try {
-            for (Map.Entry<View, Integer> page : corners.entrySet()) {
-                if (page.getValue() == 0) setLayers(page.getKey(), View.LAYER_TYPE_NONE);
+            if (state == PlayerSheet.EXPANDED) {
+                for (Map.Entry<View, Integer> page : corners.entrySet()) {
+                    if (page.getValue() == 0) setLayers(page.getKey(), View.LAYER_TYPE_NONE);
+                }
+            } else if (state == PlayerSheet.COLLAPSED) {
+                Iterator<View> pages = corners.keySet().iterator();
+                while (pages.hasNext()) {
+                    View artwork = pages.next();
+                    // An artwork still on screen keeps the layer its round corners are cut in.
+                    if (artwork.isShown()) continue;
+                    setLayers(artwork, View.LAYER_TYPE_NONE);
+                    // Forgotten, so the next slide's first corner is not taken for one already set and makes the layer.
+                    pages.remove();
+                }
             }
         } catch (Exception ex) {
             Logger.printException(() -> "Player artwork: layers not given back", ex);
