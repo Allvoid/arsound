@@ -149,11 +149,19 @@ def original(name):
     return attrs, paths
 
 
+def is_transparent(color):
+    """A colour with no alpha: "@android:color/transparent", #00rrggbb or #0rgb."""
+    color = color.lower()
+    return "transparent" in color or re.fullmatch(r"#00[0-9a-f]{6}|#0[0-9a-f]{3}", color) is not None
+
+
 def path_color(path):
+    # An outline icon has a fill with no alpha ("#00000000") and its colour in the stroke: the fill's colour drew
+    # the Lucide icon invisible (thumbs_down, timer).
     fill = path.get("android:fillColor", "")
-    if fill and "transparent" not in fill:
+    if fill and not is_transparent(fill):
         return fill
-    return path.get("android:strokeColor", fill or "?colorDrawablePrimary")
+    return path.get("android:strokeColor", "?colorDrawablePrimary")
 
 
 def lucide_paths(shapes, color, fill, stroke_width=2):

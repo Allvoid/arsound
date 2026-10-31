@@ -113,9 +113,15 @@ public final class UpgradeTabPage {
                 return;
             }
             // The bar of tabs is built with the main screen: making the screen again is enough, and unlike a restart
-            // of the app it leaves the music and the downloads alone.
+            // of the app it leaves the music and the downloads alone. It is made again on the home tab: made again on
+            // this one, it kept showing this page under a bar that had no tab for it any more, with "Home" lit, and a
+            // tap on "Home" did not leave the page.
             Utils.showToastShort(text("Вкладка скрыта", "Tab hidden"));
-            activity.recreate();
+            View home = homeTab(activity);
+            if (home != null) home.performClick();
+            view.postDelayed(() -> {
+                if (!activity.isDestroyed()) activity.recreate();
+            }, home == null ? 0 : SWITCH_MS);
         });
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -127,6 +133,28 @@ public final class UpgradeTabPage {
                 "Вернуть её можно там же, выключив переключатель.",
                 "It comes back by turning the same switch off."), secondary, 12));
         return scroll;
+    }
+
+    /** The time the switch to the home tab is given before the screen is made again. */
+    private static final long SWITCH_MS = 300;
+
+    /** The first tab of SoundCloud's bar, "Home", or null when the bar cannot be found. */
+    private static View homeTab(Activity activity) {
+        int id = Utils.getResourceIdentifier(app.revanced.extension.shared.ResourceType.ID, "navigation_control_view");
+        View bar = id == 0 ? null : activity.findViewById(id);
+        return bar == null ? null : firstTab(bar, 0);
+    }
+
+    private static View firstTab(View view, int depth) {
+        String name = view.getClass().getName();
+        if (name.endsWith("NavigationBarItemView") || name.endsWith("BottomNavigationItemView")) return view;
+        if (depth >= 6 || !(view instanceof ViewGroup)) return null;
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View found = firstTab(group.getChildAt(i), depth + 1);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private static TextView paragraph(Context context, String value, int color, int topMarginDp) {
