@@ -105,7 +105,8 @@ public final class Rx {
                 .invoke(local, markLocal, ignore, noAction, noAction);
         Object empty = type(loader, "io.reactivex.rxjava3.internal.operators.observable.ObservableEmpty")
                 .getField("a").get(null);
-        Method error = find(observable, true, "Observable", Throwable.class);
+        // R8 narrowed the return type of Observable.error(Throwable) to the operator class.
+        Method error = find(observable, true, "ObservableError", Throwable.class);
         Object resume = function(loader, "Function", args -> {
             if (localShown.get()) return empty;
             try {
