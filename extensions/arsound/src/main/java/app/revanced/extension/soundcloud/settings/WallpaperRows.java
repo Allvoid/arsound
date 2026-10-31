@@ -283,10 +283,10 @@ final class WallpaperRows {
                         .setMessage(text("Картинка удаляется с телефона, фон снова как у темы.",
                                 "The picture is deleted from the phone and the background is the theme's again."))
                         .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
-                            WallpaperStore.remove();
-                            activity.recreate();
-                        })
+                        .setPositiveButton(text("Убрать", "Remove"), (dialog, which) ->
+                                WallpaperStore.removeInBackground(() -> {
+                                    if (!activity.isDestroyed()) activity.recreate();
+                                }))
                         .show()).icon("trash").danger());
     }
 

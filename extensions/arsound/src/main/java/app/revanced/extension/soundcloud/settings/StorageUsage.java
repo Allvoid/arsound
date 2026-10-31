@@ -72,7 +72,7 @@ final class StorageUsage {
         }
 
         ui.fillInBackground(() -> {
-            long[] parts = {StorageScreen.downloadsUsage()[1], StreamCache.usedBytes() + StreamCache.otherCachesBytes(),
+            long[] parts = {StorageScreen.downloadsUsage()[1], CacheSize.get(),
                     LyricsRepository.storedBytes()};
             long sum = parts[0] + parts[1] + parts[2];
             Utils.runOnMainThread(() -> {

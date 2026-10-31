@@ -189,7 +189,7 @@ final class WallhavenFilterSheet {
                         "The picture is deleted from the phone and the background is the theme's again."))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
-                    WallpaperStore.remove();
+                    WallpaperStore.removeInBackground(null);
                     Toast.makeText(ui.activity, text("Обои убраны", "Wallpaper removed"), Toast.LENGTH_SHORT).show();
                     sheet.dismiss();
                 })

@@ -45,6 +45,7 @@ final class AccountScreen extends SectionScreen {
     @Override
     void fill(LinearLayout list) {
         boolean signedIn = YouTubeAccount.isSignedIn();
+        shownSignedIn = signedIn;
         list.addView(ui.createSubHeading(text("YouTube Music", "YouTube Music")));
         list.addView(ui.createActionRow(
                 text("Аккаунт YouTube Music", "YouTube Music account"),
@@ -77,9 +78,13 @@ final class AccountScreen extends SectionScreen {
         ).icon("account").chevron());
     }
 
+    /** The state the rows were made for. */
+    private boolean shownSignedIn;
+
     @Override
     void onRestart() {
-        // The account screen shows the state after returning from the sign-in page.
-        activity.recreate();
+        // The screen is made again only when the sign-in page changed the state: a return from another app made the
+        // whole settings screen again each time.
+        if (YouTubeAccount.isSignedIn() != shownSignedIn) activity.recreate();
     }
 }

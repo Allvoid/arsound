@@ -110,11 +110,15 @@ final class RecommendationsScreen extends SectionScreen {
         refreshRow.setOnClickListener(v -> {
             if (ForYou.isRunning()) return;
             description.setText(text("Начинаю…", "Starting…"));
-            Utils.runOnBackgroundThread(() -> ForYou.refresh(message ->
-                    // While it runs: the step; at the end: the time and the result, as when the screen opens.
-                    description.setText(ForYou.isRunning() ? message
-                            : text("Последнее обновление: ", "Last update: ")
-                            + ForYou.status())));
+            // The update can take minutes: the listener holds the row weakly, so a closed screen is not kept for it.
+            java.lang.ref.WeakReference<TextView> row = new java.lang.ref.WeakReference<>(description);
+            Utils.runOnBackgroundThread(() -> ForYou.refresh(message -> {
+                TextView shown = row.get();
+                if (shown == null || activity.isDestroyed()) return;
+                // While it runs: the step; at the end: the time and the result, as when the screen opens.
+                shown.setText(ForYou.isRunning() ? message
+                        : text("Последнее обновление: ", "Last update: ") + ForYou.status());
+            }));
         });
         options.addView(refreshRow);
         list.addView(options);
@@ -142,21 +146,61 @@ final class RecommendationsScreen extends SectionScreen {
         showDisliked(disliked);
     }
 
+    /** Rows shown at once; the rest come with "Show more". */
+    private static final int DISLIKED_PAGE = 50;
+
     private void showDisliked(LinearLayout container) {
         container.removeAllViews();
+        // The marked tracks are not settings: the search index must not list them as rows.
+        if (ui.search.isIndexing()) return;
         Map<String, String> all = TrackDislikes.getAll();
-        container.addView(ui.createSubHeading(text("Список", "List") + " (" + all.size() + ")"));
+        container.addView(dislikedHeading(all.size()));
         if (all.isEmpty()) {
             TextView empty = ui.createText("Body.Secondary", text("Пока пусто.", "Nothing yet."));
             empty.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dimen("spacing_s"));
             container.addView(empty);
             return;
         }
-        for (Map.Entry<String, String> entry : all.entrySet()) {
-            container.addView(ui.createActionRow(entry.getValue(), text("Нажмите, чтобы вернуть в рекомендации", "Tap to allow in recommendations again"), v -> {
+        addDislikedRows(container, new java.util.ArrayList<>(all.entrySet()), 0);
+    }
+
+    private View dislikedHeading(int count) {
+        return ui.createSubHeading(text("Список", "List") + " (" + count + ")");
+    }
+
+    /**
+     * Adds a page of rows from {@code from}, and a "Show more" row when more are left. A row taken back goes alone:
+     * the whole list was made again after each one.
+     */
+    private void addDislikedRows(LinearLayout container, java.util.List<Map.Entry<String, String>> entries, int from) {
+        int to = Math.min(entries.size(), from + DISLIKED_PAGE);
+        for (int i = from; i < to; i++) {
+            Map.Entry<String, String> entry = entries.get(i);
+            View[] row = new View[1];
+            row[0] = ui.createActionRow(entry.getValue(), text("Нажмите, чтобы вернуть в рекомендации", "Tap to allow in recommendations again"), v -> {
                 TrackDislikes.remove(entry.getKey());
-                showDisliked(container);
-            }));
+                int left = TrackDislikes.getAll().size();
+                if (left == 0) {
+                    showDisliked(container);
+                    return;
+                }
+                // The page put the row into a card: it is taken out of that.
+                removeFromParent(row[0]);
+                container.removeViewAt(0);
+                container.addView(dislikedHeading(left), 0);
+            });
+            container.addView(row[0]);
         }
+        if (to >= entries.size()) return;
+        View[] more = new View[1];
+        more[0] = ui.createActionRow(text("Показать ещё", "Show more") + " (" + (entries.size() - to) + ")", "", v -> {
+            removeFromParent(more[0]);
+            addDislikedRows(container, entries, to);
+        });
+        container.addView(more[0]);
+    }
+
+    private static void removeFromParent(View view) {
+        if (view.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) view.getParent()).removeView(view);
     }
 }

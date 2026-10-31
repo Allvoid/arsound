@@ -102,22 +102,90 @@ final class AppIconScreen extends SectionScreen {
     }
 
     /**
-     * Puts the pictures into the grid one variant at a time, off the main thread. The bitmap variants are large
-     * images: all of them read at once freeze the screen for a while and take over a hundred megabytes.
+     * The pictures are made only for the cells on the screen and a screen above and below it, one variant at a time,
+     * off the main thread; the cells further away give theirs back. The bitmap variants are large images, and all of
+     * them held at once took tens of megabytes while the picker stayed open.
      */
     private void loadIconPictures(List<View> cells, List<String> ids) {
-        int size = ui.dp(60);
-        List<ImageView> images = new ArrayList<>();
+        images.clear();
         for (View cell : cells) images.add((ImageView) ((ViewGroup) cell).getChildAt(0));
-        Utils.runOnBackgroundThread(() -> {
-            for (int i = 0; i < images.size(); i++) {
-                if (activity.isFinishing() || activity.isDestroyed()) return;
-                Drawable picture = AppIcons.thumbnail(activity, ids.get(i), size);
-                if (picture == null) continue;
-                ImageView image = images.get(i);
-                Utils.runOnMainThread(() -> image.setImageDrawable(picture));
-            }
+        this.ids = ids;
+        scrollListener = this::requestBind;
+        activity.getWindow().getDecorView().getViewTreeObserver().addOnScrollChangedListener(scrollListener);
+        requestBind();
+    }
+
+    /** The size the pictures are made in. */
+    private int pictureSize() {
+        return ui.dp(60);
+    }
+
+    private final List<ImageView> images = new ArrayList<>();
+    private List<String> ids = new ArrayList<>();
+    /** Set when the screen goes: the pictures still to come are not made any more. */
+    private volatile boolean left;
+    /** The pictures made lately, by variant: scrolling back does not make them again. */
+    private final android.util.LruCache<String, Drawable> pictures = new android.util.LruCache<>(48);
+    /** The variants waiting for the worker, so a cell is not asked for twice. */
+    private final java.util.Set<String> pending = new java.util.HashSet<>();
+    private final app.revanced.extension.soundcloud.shared.SerialWork worker =
+            new app.revanced.extension.soundcloud.shared.SerialWork("arsound-icon-pictures");
+    private android.view.ViewTreeObserver.OnScrollChangedListener scrollListener;
+    private boolean bindPosted;
+
+    /** Binds once per frame at most: a fling sends many scroll events. */
+    private void requestBind() {
+        if (bindPosted || left) return;
+        bindPosted = true;
+        activity.getWindow().getDecorView().postOnAnimation(() -> {
+            bindPosted = false;
+            bindVisible();
         });
+    }
+
+    private void bindVisible() {
+        int screen = activity.getWindow().getDecorView().getHeight();
+        if (screen == 0) return;
+        int[] location = new int[2];
+        for (int i = 0; i < images.size(); i++) {
+            ImageView image = images.get(i);
+            String id = ids.get(i);
+            image.getLocationInWindow(location);
+            boolean near = image.isAttachedToWindow()
+                    && location[1] + image.getHeight() > -screen && location[1] < 2 * screen;
+            if (!near) {
+                if (image.getDrawable() != null) image.setImageDrawable(null);
+                continue;
+            }
+            if (image.getDrawable() != null) continue;
+            Drawable cached = pictures.get(id);
+            if (cached != null) {
+                image.setImageDrawable(cached);
+                continue;
+            }
+            if (!pending.add(id)) continue;
+            int size = pictureSize();
+            worker.execute(() -> {
+                Drawable picture = left || activity.isDestroyed() ? null : AppIcons.thumbnail(activity, id, size);
+                Utils.runOnMainThread(() -> {
+                    pending.remove(id);
+                    if (picture == null || left) return;
+                    pictures.put(id, picture);
+                    // Bound now if the cell is still near the screen; otherwise it waits in the cache.
+                    requestBind();
+                });
+            });
+        }
+    }
+
+    @Override
+    void onDestroy() {
+        left = true;
+        if (scrollListener != null) {
+            android.view.ViewTreeObserver observer = activity.getWindow().getDecorView().getViewTreeObserver();
+            if (observer.isAlive()) observer.removeOnScrollChangedListener(scrollListener);
+        }
+        pictures.evictAll();
     }
 
     /** Empty cells keep the last row of a group aligned with the full rows. */

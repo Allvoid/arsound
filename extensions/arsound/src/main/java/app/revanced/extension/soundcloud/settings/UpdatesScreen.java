@@ -90,12 +90,15 @@ final class UpdatesScreen extends SectionScreen {
                         "Removes the SoundCloud cache, track database and settings, like \"Clear data\" in Android. Helps when "
                                 + "a track says it is not available in your country. Needs a connection. Login, Arsound settings, "
                                 + "downloaded tracks and order are kept."),
-                v -> confirmReset()
+                this::confirmReset
         ).icon("reset").danger().brief(text("Как «Очистить данные» в Android, вход и настройки Arsound сохранятся.",
                 "Like \"Clear data\" in Android; login and Arsound settings are kept.")));
     }
 
-    private void confirmReset() {
+    /** Set while the data is being removed: a second tap does not start another reset. */
+    private static boolean resetting;
+
+    private void confirmReset(android.view.View row) {
         new ArsoundDialog(activity)
                 .setTitle(text("Сбросить данные?", "Reset data?"))
                 .setMessage(text("SoundCloud перезапустится и заново загрузит библиотеку с сервера — нужен рабочий интернет. "
@@ -106,8 +109,21 @@ final class UpdatesScreen extends SectionScreen {
                                 + "settings, downloaded tracks, playlist order and imported music are kept."))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Сбросить", "Reset"), (dialog, which) -> {
-                    DataReset.resetKeepingLogin(activity);
-                    Utils.restartApp(activity);
+                    if (resetting) return;
+                    resetting = true;
+                    // A big library takes seconds to delete: off the main thread, which froze until Android offered
+                    // to close the app. The app restarts when it is done.
+                    row.setEnabled(false);
+                    Toast.makeText(activity, text("Сбрасываю данные…", "Resetting data…"), Toast.LENGTH_LONG).show();
+                    android.content.Context context = activity.getApplicationContext();
+                    Settings.flush();
+                    Utils.runOnBackgroundThread(() -> {
+                        try {
+                            DataReset.resetKeepingLogin(context);
+                        } finally {
+                            Utils.runOnMainThread(() -> Utils.restartApp(context));
+                        }
+                    });
                 })
                 .show();
     }

@@ -52,8 +52,28 @@ final class TopBarPreview extends View {
         this.accent = accent;
         Drawable picture = WallpaperStore.background(context);
         this.wallpaper = picture;
+        // The wallpaper redraws itself when the dim, the blur or the picture changes: without a callback the previews
+        // kept the old look until the screen was opened again.
+        if (picture != null) picture.setCallback(this);
         label.setColor(0xD9FFFFFF);
         setContentDescription(style.label());
+    }
+
+    @Override
+    protected boolean verifyDrawable(Drawable who) {
+        return who == wallpaper || super.verifyDrawable(who);
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (wallpaper != null) wallpaper.setCallback(this);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (wallpaper != null && wallpaper.getCallback() == this) wallpaper.setCallback(null);
+        super.onDetachedFromWindow();
     }
 
     void setChosen(boolean chosen) {

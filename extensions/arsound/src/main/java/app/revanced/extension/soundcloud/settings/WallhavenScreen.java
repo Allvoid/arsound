@@ -520,8 +520,25 @@ final class WallhavenScreen extends SettingsScreen {
         hideProblems();
         showLoading();
         grid.setLoadingMore(true);
-        loadPage(1);
+        // Taps on the chips or searches in a row ask the service once, for the last choice, after a short pause: each
+        // tap was a call of its own, and the service refuses after 45 calls a minute. A single change goes at once.
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean inARow = now - lastReloadAt < RELOAD_GAP_MS;
+        lastReloadAt = now;
+        if (!inARow) {
+            loadPage(1);
+            return;
+        }
+        int mine = generation;
+        Utils.runOnMainThreadDelayed(() -> {
+            if (mine == generation) loadPage(1);
+        }, RELOAD_PAUSE_MS);
     }
+
+    /** Changes closer together than this are a series; the series asks once, this long after its last change. */
+    private static final long RELOAD_GAP_MS = 1_000;
+    private static final long RELOAD_PAUSE_MS = 300;
+    private long lastReloadAt;
 
     private void loadPage(int number) {
         if (loading || isGone()) return;

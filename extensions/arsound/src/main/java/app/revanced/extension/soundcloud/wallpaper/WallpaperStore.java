@@ -219,7 +219,23 @@ public final class WallpaperStore {
         return true;
     }
 
-    /** Removes the wallpaper and switches it off. Waits for a bake that is running, a fraction of a second. */
+    /**
+     * Switches the wallpaper off at once and deletes its files off the main thread, then runs {@code after} on it. The
+     * files wait for a bake that is running, and the main thread waited with them when "Remove" was pressed right
+     * after a change of the blur.
+     *
+     * @param after Run on the main thread once the files are gone; may be null.
+     */
+    public static void removeInBackground(Runnable after) {
+        Settings.putBoolean(Settings.WALLPAPER_ENABLED, false);
+        refresh();
+        Utils.runOnBackgroundThread(() -> {
+            remove();
+            if (after != null) Utils.runOnMainThread(after);
+        });
+    }
+
+    /** Removes the wallpaper and switches it off. Waits for a bake that is running: call it off the main thread. */
     public static void remove() {
         synchronized (WRITE) {
             File folder = folder();
@@ -230,18 +246,41 @@ public final class WallpaperStore {
         refresh();
     }
 
-    /** Bakes the picture again after the blur changed, and draws it. Blocks: call it off the main thread. */
+    /** A bake was asked for since the running one started. */
+    private static final java.util.concurrent.atomic.AtomicBoolean bakeWanted = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.atomic.AtomicBoolean baking = new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * Bakes the picture again after the blur changed, and draws it. Blocks: call it off the main thread. Releases of
+     * the slider in a row bake once more after the running bake, with the last blur, instead of once per release:
+     * the bakes queued up behind the lock. A call that finds a bake running returns at once; that bake does its work.
+     */
     public static void rebake(Context context) {
+        bakeWanted.set(true);
+        if (!baking.compareAndSet(false, true)) return;
+        try {
+            while (bakeWanted.getAndSet(false)) {
+                if (bakeKept(context)) refresh();
+            }
+        } finally {
+            baking.set(false);
+        }
+        // Asked for between the end of the loop and the reset of the flag: nobody else bakes it.
+        if (bakeWanted.get()) rebake(context);
+    }
+
+    /** @return Whether the kept picture was baked; false when there is none (removed) or it failed. */
+    private static boolean bakeKept(Context context) {
         synchronized (WRITE) {
             try {
-                if (file(ORIGINAL) == null || !file(ORIGINAL).isFile()) return;
+                if (file(ORIGINAL) == null || !file(ORIGINAL).isFile()) return false;
                 bake(context);
+                return true;
             } catch (Exception | OutOfMemoryError ex) {
                 Logger.printException(() -> "Wallpaper: could not blur the picture", ex);
-                return;
+                return false;
             }
         }
-        refresh();
     }
 
     // endregion

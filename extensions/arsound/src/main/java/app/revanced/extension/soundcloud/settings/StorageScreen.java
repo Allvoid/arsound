@@ -74,7 +74,7 @@ final class StorageScreen extends SectionScreen {
     void loadSummary(TextView summary) {
         Utils.runOnBackgroundThread(() -> {
             long[] usage = downloadsUsage();
-            long cache = StreamCache.usedBytes();
+            long cache = CacheSize.get();
             String line = text("Скачано ", "Downloaded ") + Formatter.formatShortFileSize(activity, usage[1])
                     + text(" · кэш ", " · cache ") + Formatter.formatShortFileSize(activity, cache);
             Utils.runOnMainThread(() -> summary.setText(line));
@@ -209,15 +209,14 @@ final class StorageScreen extends SectionScreen {
     /** The folder new tracks go to, and a warning under it when that folder cannot be used right now. */
     private void showDownloadFolder() {
         String folder = DownloadIndex.label();
-        downloadFolderDescription.setText(folder + "\n" + downloadFolderExplanation());
-        ui.fillInBackground(() -> {
-            if (DownloadFolder.isAvailable(activity)) return;
-            Utils.runOnMainThread(() -> downloadFolderDescription.setText(folder + "\n" + text(
-                    "Сейчас эта папка недоступна: карта извлечена, папка удалена или доступ отозван. Новые треки "
-                            + "сохраняются в «" + DownloadFolder.defaultLabel() + "», пока вы не выберете папку заново.",
-                    "This folder is not available now: the card is out, the folder is gone or its access was taken back. "
-                            + "New tracks are saved to " + DownloadFolder.defaultLabel() + " until you pick the folder again.")));
-        });
+        String shown = folder + "\n" + downloadFolderExplanation();
+        downloadFolderDescription.setText(shown);
+        // Through the counts: a check of the folder picked before must not land after the new one.
+        count(downloadFolderDescription, () -> DownloadFolder.isAvailable(activity) ? shown : folder + "\n" + text(
+                "Сейчас эта папка недоступна: карта извлечена, папка удалена или доступ отозван. Новые треки "
+                        + "сохраняются в «" + DownloadFolder.defaultLabel() + "», пока вы не выберете папку заново.",
+                "This folder is not available now: the card is out, the folder is gone or its access was taken back. "
+                        + "New tracks are saved to " + DownloadFolder.defaultLabel() + " until you pick the folder again."));
     }
 
     private void chooseDownloadFolder() {
@@ -281,21 +280,45 @@ final class StorageScreen extends SectionScreen {
         });
     }
 
+    /**
+     * The counts of the screen run one after another on one thread, and a count shows only if no newer one for the
+     * same row was started: counts started together landed in any order, and an old number came last after
+     * "Delete all".
+     */
+    private final app.revanced.extension.soundcloud.shared.SerialWork counts =
+            new app.revanced.extension.soundcloud.shared.SerialWork("arsound-storage-counts");
+    private final java.util.Map<TextView, Integer> countGenerations = new java.util.HashMap<>();
+
+    /** Counts off the main thread and puts the line into the row, unless a newer count for it was started. */
+    private void count(TextView row, java.util.function.Supplier<String> line) {
+        if (ui.search.isIndexing()) return;
+        Integer last = countGenerations.get(row);
+        int generation = last == null ? 1 : last + 1;
+        countGenerations.put(row, generation);
+        counts.execute(() -> {
+            String shown = line.get();
+            Utils.runOnMainThread(() -> {
+                Integer newest = countGenerations.get(row);
+                if (newest != null && newest == generation) row.setText(shown);
+            });
+        });
+    }
+
     /** The chosen period and how many tracks fall under it now. */
     private void countUnplayed(TextView description) {
         String period = Numerals.days(UnplayedDownloads.days());
         description.setText(period);
-        ui.fillInBackground(() -> {
+        count(description, () -> {
             List<UnplayedDownloads.Unplayed> tracks = UnplayedDownloads.unplayed();
             long bytes = 0;
             for (UnplayedDownloads.Unplayed track : tracks) {
                 bytes += track.size;
             }
             String size = Formatter.formatShortFileSize(activity, bytes);
-            Utils.runOnMainThread(() -> description.setText(period + "\n" + (tracks.isEmpty()
+            return period + "\n" + (tracks.isEmpty()
                     ? text("Сейчас под это не попадает ни один трек.", "No track falls under it now.")
                     : text("Сейчас под это попадает: " + Numerals.russianTracks(tracks.size()) + ", " + size + ".",
-                    "Falls under it now: " + tracks.size() + (tracks.size() == 1 ? " track, " : " tracks, ") + size + "."))));
+                    "Falls under it now: " + tracks.size() + (tracks.size() == 1 ? " track, " : " tracks, ") + size + "."));
         });
     }
 
@@ -362,17 +385,17 @@ final class StorageScreen extends SectionScreen {
 
     private void countDownloads() {
         downloadsDescription.setText(text("Считаю…", "Counting…"));
-        ui.fillInBackground(() -> {
+        count(downloadsDescription, () -> {
             long[] usage = downloadsUsage();
             String size = Formatter.formatShortFileSize(activity, usage[1]);
             String place = DownloadIndex.downloadsPlace();
-            Utils.runOnMainThread(() -> downloadsDescription.setText(usage[0] == 0
+            return usage[0] == 0
                     ? text("Скачанных треков нет.", "No downloaded tracks.")
                     : text("Сейчас: " + Numerals.russianTracks(usage[0]) + ", " + size + " в «" + place + "». Треки останутся в "
                                     + "SoundCloud: их можно слушать из сети и скачать снова.",
                             "Now: " + usage[0] + (usage[0] == 1 ? " track, " : " tracks, ") + size
                                     + " in " + place + ". The tracks stay in SoundCloud: they can be streamed and "
-                                    + "downloaded again.")));
+                                    + "downloaded again.");
         });
     }
 
@@ -396,10 +419,29 @@ final class StorageScreen extends SectionScreen {
     }
 
     /**
-     * Downloads whose files the app could not remove and handed to Android's confirmation. Static, so the answer is
-     * still matched with them if the screen is recreated while that dialog is open.
+     * Downloads whose files the app could not remove and handed to Android's confirmation. Kept on the phone before
+     * the dialog opens: the process can be ended while it is open, and a static list was lost then, so the tracks
+     * whose files Android removed stayed in the list as downloaded.
      */
-    private static List<String> undeletedDownloadIds = new ArrayList<>();
+    private static final String PENDING_DELETES = "arsound_pending_deletes";
+    private static final String PENDING_IDS = "ids";
+
+    private void rememberUndeleted(List<String> ids) {
+        android.content.SharedPreferences.Editor editor =
+                activity.getSharedPreferences(PENDING_DELETES, android.content.Context.MODE_PRIVATE).edit();
+        if (ids.isEmpty()) editor.remove(PENDING_IDS);
+        else editor.putStringSet(PENDING_IDS, new java.util.HashSet<>(ids));
+        // On disk before Android's dialog shows: commit, not apply.
+        editor.commit();
+    }
+
+    private List<String> takeUndeleted() {
+        android.content.SharedPreferences preferences =
+                activity.getSharedPreferences(PENDING_DELETES, android.content.Context.MODE_PRIVATE);
+        List<String> ids = new ArrayList<>(preferences.getStringSet(PENDING_IDS, java.util.Collections.emptySet()));
+        if (!ids.isEmpty()) preferences.edit().remove(PENDING_IDS).apply();
+        return ids;
+    }
 
     /**
      * Removes every downloaded file. Files made before a reinstall belong to the old install for Android, so the app
@@ -441,10 +483,10 @@ final class StorageScreen extends SectionScreen {
                 }
                 boolean asked = false;
                 if (MediaDeleteConsent.canAsk(uris)) {
-                    undeletedDownloadIds = keptIds;
+                    rememberUndeleted(keptIds);
                     asked = MediaDeleteConsent.ask(activity, uris, REQUEST_DELETE_DOWNLOADS,
                             "Could not ask to delete the old downloads");
-                    if (!asked) undeletedDownloadIds = new ArrayList<>();
+                    if (!asked) rememberUndeleted(java.util.Collections.emptyList());
                 }
                 if (!asked && keptIds.size() > unreachable) {
                     int remaining = keptIds.size() - unreachable;
@@ -495,24 +537,24 @@ final class StorageScreen extends SectionScreen {
     private void countDuplicates() {
         if (duplicatesDescription == null) return;
         duplicatesDescription.setText(text("Считаю…", "Counting…"));
-        ui.fillInBackground(() -> {
+        count(duplicatesDescription, () -> {
             DownloadIndex.Duplicates duplicates = DownloadIndex.duplicates();
             String size = Formatter.formatShortFileSize(activity, duplicates.bytes);
-            Utils.runOnMainThread(() -> duplicatesDescription.setText(duplicates.files == 0
+            return duplicates.files == 0
                     ? text("Лишних копий нет.", "No extra copies.")
                     : text("Файлов: " + duplicates.files + ", " + size + ". Повторные копии уже скачанных треков: остались от "
                                     + "скачивания одних и тех же треков снова и снова. Сами треки остаются.",
                             "Files: " + duplicates.files + ", " + size + ". Repeated copies of tracks that are already "
-                                    + "downloaded, left by downloading the same tracks again and again. The tracks stay.")));
+                                    + "downloaded, left by downloading the same tracks again and again. The tracks stay.");
         });
     }
 
     private void countLost() {
         if (lostDescription == null) return;
         lostDescription.setText(text("Считаю…", "Counting…"));
-        ui.fillInBackground(() -> {
+        count(lostDescription, () -> {
             DownloadIndex.Lost lost = DownloadIndex.lost(activity);
-            Utils.runOnMainThread(() -> lostDescription.setText(lost.tracks == 0
+            return lost.tracks == 0
                     ? text("Таких треков нет: все папки скачанных треков доступны.",
                     "No such tracks: every folder of downloaded tracks is available.")
                     : text("Треков: " + lost.tracks + " в «" + lost.places + "». Папка недоступна: карта извлечена, папка "
@@ -521,7 +563,7 @@ final class StorageScreen extends SectionScreen {
                             "Tracks: " + lost.tracks + " in " + lost.places + ". The folder is not available: the card is "
                                     + "out, the folder is gone or its access was taken back. These tracks do not play without "
                                     + "a connection until it is back. If the folder is gone for good, tap to forget these "
-                                    + "tracks.")));
+                                    + "tracks.");
         });
     }
 
@@ -590,7 +632,7 @@ final class StorageScreen extends SectionScreen {
                 boolean asked = false;
                 if (MediaDeleteConsent.canAsk(needsConsent)) {
                     // No track is waiting for the answer: the copies are not what the tracks play from.
-                    undeletedDownloadIds = new ArrayList<>();
+                    rememberUndeleted(java.util.Collections.emptyList());
                     asked = MediaDeleteConsent.ask(activity, needsConsent, REQUEST_DELETE_DOWNLOADS,
                             "Could not ask to delete the extra copies");
                 }
@@ -610,8 +652,7 @@ final class StorageScreen extends SectionScreen {
 
     /** After Android's delete dialog: tracks whose files are gone are forgotten, the others stay in the list. */
     private void forgetRemovedDownloads() {
-        List<String> ids = undeletedDownloadIds;
-        undeletedDownloadIds = new ArrayList<>();
+        List<String> ids = takeUndeleted();
         DownloadIndex.refreshAsync();
         if (ids.isEmpty()) {
             if (downloadsDescription != null) countDownloads();

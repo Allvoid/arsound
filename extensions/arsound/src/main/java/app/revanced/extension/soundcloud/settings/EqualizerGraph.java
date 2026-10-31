@@ -42,6 +42,11 @@ final class EqualizerGraph extends View {
     private final Path curve = new Path();
     private final Path area = new Path();
     private final RectF rect = new RectF();
+    /** Made once: a drag draws up to 120 frames a second, and each frame made them again. */
+    private final DashPathEffect dash;
+    /** The level each value label was made for, in tenths of a decibel, and the label. */
+    private final int[] valueTenths;
+    private final String[] values;
     private ValueAnimator morph, grow, shrink;
     private int dragging = -1;
     private float dragGrow;
@@ -74,6 +79,9 @@ final class EqualizerGraph extends View {
         grid.setStrokeWidth(Math.max(1, density));
         label.setTextAlign(Paint.Align.CENTER);
         background.setColor(card);
+        dash = new DashPathEffect(new float[]{4 * density, 4 * density}, 0);
+        valueTenths = new int[centerFrequenciesHz.length];
+        values = new String[centerFrequenciesHz.length];
         setContentDescription(russian ? "Кривая эквалайзера" : "Equalizer curve");
     }
 
@@ -133,6 +141,25 @@ final class EqualizerGraph extends View {
     }
 
     @Override
+    protected void onSizeChanged(int w, int h, int oldWidth, int oldHeight) {
+        super.onSizeChanged(w, h, oldWidth, oldHeight);
+        // The fill's gradient depends only on the height: made when it changes, not each frame.
+        fill.setShader(new LinearGradient(0, top(), 0, bottom(),
+                (accent & 0x00FFFFFF) | 0x59000000, accent & 0x00FFFFFF, Shader.TileMode.CLAMP));
+    }
+
+    /** The label of a band's level, "+1.5" say, made again only when its tenth of a decibel changes. */
+    private String valueOf(int band) {
+        int tenths = Math.round(shown[band] / 10f);
+        if (values[band] == null || valueTenths[band] != tenths) {
+            int magnitude = Math.abs(tenths);
+            values[band] = (tenths < 0 ? "-" : "+") + magnitude / 10 + "." + magnitude % 10;
+            valueTenths[band] = tenths;
+        }
+        return values[band];
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         float w = getWidth(), h = getHeight();
         rect.set(0, 0, w, h);
@@ -143,7 +170,7 @@ final class EqualizerGraph extends View {
         grid.setPathEffect(null);
         canvas.drawLine(16 * density, yOf(max), w - 16 * density, yOf(max), grid);
         canvas.drawLine(16 * density, yOf(min), w - 16 * density, yOf(min), grid);
-        grid.setPathEffect(new DashPathEffect(new float[]{4 * density, 4 * density}, 0));
+        grid.setPathEffect(dash);
         grid.setColor((text & 0x00FFFFFF) | 0x40000000);
         canvas.drawLine(16 * density, yOf(0), w - 16 * density, yOf(0), grid);
         for (int i = 0; i < shown.length; i++) {
@@ -173,8 +200,6 @@ final class EqualizerGraph extends View {
         area.lineTo(w - 16 * density, yOf(min));
         area.lineTo(16 * density, yOf(min));
         area.close();
-        fill.setShader(new LinearGradient(0, top(), 0, bottom(),
-                (accent & 0x00FFFFFF) | 0x59000000, accent & 0x00FFFFFF, Shader.TileMode.CLAMP));
         canvas.drawPath(area, fill);
         canvas.drawPath(curve, line);
 
@@ -194,8 +219,7 @@ final class EqualizerGraph extends View {
 
             label.setColor(active ? accent : (text & 0x00FFFFFF) | 0xB3000000);
             label.setFakeBoldText(active);
-            String value = String.format(Locale.US, "%+.1f", shown[i] / 100f);
-            canvas.drawText(value, x, Math.max(top() - 12 * density, y - radius - 8 * density), label);
+            canvas.drawText(valueOf(i), x, Math.max(top() - 12 * density, y - radius - 8 * density), label);
             label.setFakeBoldText(false);
             label.setColor((text & 0x00FFFFFF) | 0x99000000);
             canvas.drawText(labels[i], x, h - 12 * density, label);
