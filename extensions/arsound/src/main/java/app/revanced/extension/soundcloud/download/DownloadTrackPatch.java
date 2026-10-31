@@ -241,15 +241,29 @@ public final class DownloadTrackPatch {
         hide(row, "action_list_selectable_check_icon");
 
         boolean downloaded = getDownloadedTracks().contains(trackId);
-        title.setText(downloaded
+        // A track waiting in SoundCloud's own offline download (a DRM one) can be taken back: SoundCloud never gives
+        // up on such a request by itself, and its spinner turned for hours.
+        boolean nativeWaiting = !downloaded && app.revanced.extension.soundcloud.offline.NativeOffline.isDownloading(trackId);
+        title.setText(nativeWaiting
+                ? text("Отменить скачивание", "Cancel the download")
+                : downloaded
                 ? text("Скачать файл ещё раз", "Download file again")
                 : text("Скачать файл", "Download file"));
-        icon.setImageResource(arsoundIcon(downloaded ? "ic_actions_downloaded" : "ic_actions_download_initial"));
+        icon.setImageResource(arsoundIcon(nativeWaiting ? "ic_actions_close"
+                : downloaded ? "ic_actions_downloaded" : "ic_actions_download_initial"));
 
         row.setBackgroundResource(selectableBackground(context));
         row.setOnClickListener(v -> {
             dialog.dismiss();
-            requestDownload(context.getApplicationContext(), trackId);
+            Context appContext = context.getApplicationContext();
+            if (nativeWaiting) {
+                Utils.runOnBackgroundThread(() -> {
+                    app.revanced.extension.soundcloud.offline.NativeOffline.cancel(appContext, trackId);
+                    showToast(appContext, text("Скачивание отменено", "The download is cancelled"));
+                });
+                return;
+            }
+            requestDownload(appContext, trackId);
         });
 
         parent.addView(row, parent.indexOfChild(menuItems) + 1, new LinearLayout.LayoutParams(

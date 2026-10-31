@@ -106,6 +106,7 @@ public final class NativeOffline {
                         });
                     }
                     queued++;
+                    watch(context, trackId);
                     Logger.printInfo(() -> "DRM track " + trackId + " requested for the native offline download");
                 } catch (Throwable ex) {
                     requested.remove(trackId);
@@ -119,10 +120,129 @@ public final class NativeOffline {
                 Logger.printException(() -> "Could not start the native offline worker", ex);
             }
             DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
-                    "Скачиваю в офлайн-библиотеку SoundCloud (слушать можно в приложении)",
-                    "Saving to SoundCloud's offline library (plays in the app)"));
+                    "Трек защищён (DRM): передаю его в офлайн-библиотеку SoundCloud, слушать можно будет в приложении",
+                    "The track is protected (DRM): handing it to SoundCloud's offline library, it will play in the app"));
         });
     }
+
+    // region Watching the requests
+
+    /**
+     * The requests of the native download, by track id, with the time each was made, kept over a restart. SoundCloud
+     * itself never gives up on a request: when its downloader fails (the offline licence of a DRM track is refused to an
+     * account without Go+, a server error) it puts the track back to "requested", and the spinner turned for good.
+     */
+    private static final String PREFERENCES = "arsound_native_offline";
+    /** A request still only "requested" this long after it was made, on a network SoundCloud downloads on, has failed. */
+    private static final long FAIL_AFTER_MS = 2 * 60_000;
+    private static final long CHECK_EVERY_MS = 30_000;
+    private static volatile boolean checking;
+    /** Tracks the user was told wait for Wi-Fi, so it is said once. */
+    private static final Set<String> toldWifi = Collections.synchronizedSet(new HashSet<>());
+
+    private static android.content.SharedPreferences preferences(Context context) {
+        return context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
+    }
+
+    private static void watch(Context context, String trackId) {
+        preferences(context).edit().putLong(trackId, System.currentTimeMillis()).apply();
+        scheduleCheck(context.getApplicationContext());
+    }
+
+    /** Called when the app starts: requests of an earlier run are followed again. */
+    public static void onAppStart(Context context) {
+        if (!preferences(context).getAll().isEmpty()) scheduleCheck(context.getApplicationContext());
+    }
+
+    private static void scheduleCheck(Context context) {
+        if (checking) return;
+        checking = true;
+        Utils.runOnMainThreadDelayed(() -> Utils.runOnBackgroundThread(() -> check(context)), CHECK_EVERY_MS);
+    }
+
+    private static void check(Context context) {
+        checking = false;
+        if (offlineOperations.get() == null) {
+            // SoundCloud's offline part is not made yet this run: asked again later.
+            scheduleCheck(context);
+            return;
+        }
+        Map<String, ?> watched = preferences(context).getAll();
+        boolean metered = isMetered(context);
+        for (Map.Entry<String, ?> entry : watched.entrySet()) {
+            String trackId = entry.getKey();
+            long requestedAt = entry.getValue() instanceof Long ? (Long) entry.getValue() : 0;
+            String state = offlineState(trackId);
+            if ("DOWNLOADING".equals(state)) continue;
+            if (!"REQUESTED".equals(state)) {
+                // Downloaded, or gone from the library (removed in SoundCloud): nothing more to follow.
+                forget(context, trackId);
+                if ("UNAVAILABLE".equals(state)) {
+                    DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
+                            "SoundCloud не даёт сохранить этот трек офлайн", "SoundCloud does not let this track be saved offline"));
+                }
+                continue;
+            }
+            if (metered) {
+                // SoundCloud downloads only over Wi-Fi unless told otherwise in its settings: the request waits for it.
+                if (toldWifi.add(trackId)) {
+                    DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
+                            "Защищённый трек SoundCloud скачает по Wi-Fi", "SoundCloud downloads the protected track over Wi-Fi"));
+                }
+                continue;
+            }
+            if (System.currentTimeMillis() - requestedAt < FAIL_AFTER_MS) continue;
+            Logger.printInfo(() -> "The native offline download of " + trackId + " is still requested after "
+                    + (System.currentTimeMillis() - requestedAt) / 1000 + " s on Wi-Fi: it failed, the request is taken back");
+            cancel(context, trackId);
+            DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
+                    "Не удалось сохранить защищённый трек: SoundCloud отдаёт такие треки для офлайна только с подпиской Go+",
+                    "Could not save the protected track: SoundCloud gives such tracks for offline only with Go+"));
+        }
+        if (!preferences(context).getAll().isEmpty()) scheduleCheck(context);
+    }
+
+    private static void forget(Context context, String trackId) {
+        preferences(context).edit().remove(trackId).apply();
+        toldWifi.remove(trackId);
+    }
+
+    private static boolean isMetered(Context context) {
+        try {
+            android.net.ConnectivityManager manager =
+                    (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            return manager != null && manager.isActiveNetworkMetered();
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Takes the track out of SoundCloud's offline library request: the spinner stops, and a tap on "Download" asks
+     * again. SoundCloud forgets the request, and its worker, started here, takes the track's "requested" state away.
+     * Never throws; may block briefly.
+     */
+    public static void cancel(Context context, String trackId) {
+        forget(context, trackId);
+        requested.remove(trackId);
+        Object operations = offlineOperations.get();
+        if (operations == null) return;
+        try {
+            Method take = operations.getClass().getMethod("makeTrackNotAvailableOffline",
+                    Reflect.type(operations.getClass().getClassLoader(), URN_CLASS));
+            Object completable = take.invoke(operations, urn(operations, trackId));
+            if (completable != null) {
+                Rx.subscribeIgnoringErrors(completable, error ->
+                        Logger.printInfo(() -> "Could not take back the native offline request of " + trackId + ": " + error));
+            }
+            startWorker(operations);
+            Logger.printInfo(() -> "The native offline request of " + trackId + " is taken back");
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Could not take back the native offline request of " + trackId, ex);
+        }
+    }
+
+    // endregion
 
     /**
      * SoundCloud's own offline state of the track, as the name of its {@code OfflineState} enum value
