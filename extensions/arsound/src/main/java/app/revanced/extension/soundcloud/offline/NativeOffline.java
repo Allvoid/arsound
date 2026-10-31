@@ -133,10 +133,18 @@ public final class NativeOffline {
      * account without Go+, a server error) it puts the track back to "requested", and the spinner turned for good.
      */
     private static final String PREFERENCES = "arsound_native_offline";
-    /** A request still only "requested" this long after it was made, on a network SoundCloud downloads on, has failed. */
+    /**
+     * A request still only "requested" this long after it was made and after the downloader last worked, on a network
+     * SoundCloud downloads on, has failed.
+     */
     private static final long FAIL_AFTER_MS = 2 * 60_000;
     private static final long CHECK_EVERY_MS = 30_000;
     private static volatile boolean checking;
+    /**
+     * The last time SoundCloud's downloader was seen at work (a track of its library downloading). A request waits in
+     * its queue while other tracks download; it has failed only when the downloader stood still that long.
+     */
+    private static volatile long busyAt;
     /** Tracks the user was told wait for Wi-Fi, so it is said once. */
     private static final Set<String> toldWifi = Collections.synchronizedSet(new HashSet<>());
 
@@ -169,6 +177,7 @@ public final class NativeOffline {
         }
         Map<String, ?> watched = preferences(context).getAll();
         boolean metered = isMetered(context);
+        if (isDownloaderBusy()) busyAt = System.currentTimeMillis();
         for (Map.Entry<String, ?> entry : watched.entrySet()) {
             String trackId = entry.getKey();
             long requestedAt = entry.getValue() instanceof Long ? (Long) entry.getValue() : 0;
@@ -191,7 +200,7 @@ public final class NativeOffline {
                 }
                 continue;
             }
-            if (System.currentTimeMillis() - requestedAt < FAIL_AFTER_MS) continue;
+            if (System.currentTimeMillis() - Math.max(requestedAt, busyAt) < FAIL_AFTER_MS) continue;
             Logger.printInfo(() -> "The native offline download of " + trackId + " is still requested after "
                     + (System.currentTimeMillis() - requestedAt) / 1000 + " s on Wi-Fi: it failed, the request is taken back");
             cancel(context, trackId);
@@ -200,6 +209,23 @@ public final class NativeOffline {
                     "Could not save the protected track: SoundCloud gives such tracks for offline only with Go+"));
         }
         if (!preferences(context).getAll().isEmpty()) scheduleCheck(context);
+    }
+
+    /** Whether any track of SoundCloud's offline library is being downloaded now. */
+    private static boolean isDownloaderBusy() {
+        Object operations = offlineOperations.get();
+        if (operations == null) return false;
+        try {
+            Object provider = offlineStateProviderField(operations).get(operations);
+            Object mapValue = provider == null ? null : offlineStateMapField(provider).get(provider);
+            if (!(mapValue instanceof Map)) return false;
+            for (Object state : ((Map<?, ?>) mapValue).values()) {
+                if (state instanceof Enum && "DOWNLOADING".equals(((Enum<?>) state).name())) return true;
+            }
+        } catch (Throwable ex) {
+            return false;
+        }
+        return false;
     }
 
     private static void forget(Context context, String trackId) {
