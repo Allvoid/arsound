@@ -357,19 +357,79 @@ public final class DownloadTrackPatch {
 
     private static final int RATE_LIMIT_RETRIES = 3;
     /** The shortest pause between two API requests of the app, whichever threads send them. */
-    private static final long API_GAP_MS = 120;
+    private static final long API_GAP_MIN_MS = 120;
+    /** The longest the pause grows to while the server or the network pushes back. */
+    private static final long API_GAP_MAX_MS = 2_000;
+    private static final long HOLD_MAX_MS = 60_000;
+    private static final int NETWORK_RETRIES = 4;
     private static long nextApiSlot;
+    /** The pause between requests now: it grows on every refusal and falls back while the answers are good. */
+    private static long apiGap = API_GAP_MIN_MS;
+    /** No request is sent before this time: the server asked for a pause, or the network gave no answer. */
+    private static long holdUntil;
+    private static int networkFailures;
 
-    /** Spaces the requests out, so a playlist of hundreds of tracks does not hit the server all at once. */
+    /**
+     * Spaces the requests out, so a playlist of hundreds of tracks does not hit the server all at once. A pause the
+     * server or the network forced holds every thread: one waiting while the three others keep sending only brought
+     * more refusals, and a flood of new connections is what a VPN's resolver stops answering.
+     */
     private static void waitForApiSlot() throws InterruptedException {
         long wait;
         synchronized (DownloadTrackPatch.class) {
             long now = System.currentTimeMillis();
-            long slot = Math.max(now, nextApiSlot);
-            nextApiSlot = slot + API_GAP_MS;
+            long slot = Math.max(Math.max(now, nextApiSlot), holdUntil);
+            nextApiSlot = slot + apiGap;
             wait = slot - now;
         }
         if (wait > 0) Thread.sleep(wait);
+    }
+
+    /** The server refused with HTTP 429: all requests wait, and the gap between them grows. */
+    private static void onRateLimited(long pauseMs) {
+        synchronized (DownloadTrackPatch.class) {
+            holdUntil = Math.max(holdUntil, System.currentTimeMillis() + pauseMs);
+            apiGap = Math.min(apiGap * 2, API_GAP_MAX_MS);
+        }
+    }
+
+    /** No answer from the network: all requests wait, longer each time in a row, and the gap between them grows. */
+    private static void onNetworkFailure() {
+        synchronized (DownloadTrackPatch.class) {
+            long now = System.currentTimeMillis();
+            // Threads that failed together count as one failure.
+            if (now < holdUntil) return;
+            networkFailures++;
+            holdUntil = now + Math.min(3_000L << Math.min(networkFailures - 1, 5), HOLD_MAX_MS);
+            apiGap = Math.min(apiGap * 2, API_GAP_MAX_MS);
+        }
+    }
+
+    /** The server answered: the gap between requests shortens again. */
+    private static void onApiAnswered() {
+        synchronized (DownloadTrackPatch.class) {
+            networkFailures = 0;
+            apiGap = Math.max(API_GAP_MIN_MS, apiGap - apiGap / 20 - 1);
+        }
+    }
+
+    /**
+     * Lets the connection go back to the pool instead of closing it: closing it made the next request open a new
+     * connection, which looks the host name up again, and a long list sent hundreds of lookups in a minute.
+     */
+    private static void release(HttpURLConnection connection) {
+        try {
+            java.io.InputStream errors = connection.getErrorStream();
+            if (errors != null) {
+                byte[] buffer = new byte[2048];
+                while (errors.read(buffer) >= 0) {
+                    // Only read to the end: an answer left unread keeps the connection from being reused.
+                }
+                errors.close();
+            }
+        } catch (java.io.IOException ex) {
+            connection.disconnect();
+        }
     }
 
     /** The pause the server asked for in Retry-After, or a growing one when it did not say. */
@@ -385,13 +445,10 @@ public final class DownloadTrackPatch {
         return Math.min(pause, 15_000);
     }
 
-    /** Pauses before the tries that follow a network failure (no DNS answer, no connection, a timeout). */
-    private static final long[] NETWORK_RETRY_PAUSES_MS = {1_500, 4_000};
-
     /**
      * Opens the connection and reads its response (the code is then kept by the connection). A request the network did
-     * not carry (a VPN that restarts, a DNS that gives no answer for a moment) is sent again after a short pause, as that
-     * says nothing about the track. The last failure is thrown.
+     * not carry (a VPN that restarts, a DNS that gives no answer) is sent again once every thread has waited for the
+     * network, as that says nothing about the track. The last failure is thrown.
      */
     private static HttpURLConnection connectWithRetry(String url) throws Exception {
         for (int attempt = 0; ; attempt++) {
@@ -401,11 +458,10 @@ public final class DownloadTrackPatch {
                 return connection;
             } catch (java.net.UnknownHostException | java.net.ConnectException | java.net.SocketTimeoutException ex) {
                 connection.disconnect();
-                if (attempt >= NETWORK_RETRY_PAUSES_MS.length) throw ex;
-                long pause = NETWORK_RETRY_PAUSES_MS[attempt];
+                onNetworkFailure();
+                if (attempt >= NETWORK_RETRIES) throw ex;
                 Logger.printInfo(() -> "No network answer for " + url + " (" + ex.getClass().getSimpleName()
-                        + "), trying again in " + pause + " ms");
-                Thread.sleep(pause);
+                        + "), every request waits and tries again");
                 waitForApiSlot();
             }
         }
@@ -425,14 +481,15 @@ public final class DownloadTrackPatch {
             code = connection.getResponseCode();
             if (code != 429 || attempt == RATE_LIMIT_RETRIES) break;
             long pause = retryAfterMs(connection, attempt);
-            connection.disconnect();
-            Logger.printInfo(() -> "API rate limit for " + url + ", waiting " + pause + " ms");
-            Thread.sleep(pause);
+            release(connection);
+            onRateLimited(pause);
+            Logger.printInfo(() -> "API rate limit for " + url + ", every request waits " + pause + " ms");
         }
+        if (code != 429) onApiAnswered();
         if (code != HttpURLConnection.HTTP_OK) {
             int failed = code;
             Logger.printInfo(() -> "API request failed, HTTP " + failed + " for " + url);
-            connection.disconnect();
+            release(connection);
             return new String[]{String.valueOf(code), null};
         }
 

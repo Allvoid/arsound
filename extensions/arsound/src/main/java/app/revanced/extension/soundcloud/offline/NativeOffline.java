@@ -59,6 +59,11 @@ public final class NativeOffline {
         offlineOperations = new WeakReference<>(operations);
     }
 
+    /** Injection point: SoundCloud's downloader reports a failed download of one track. Only logs it. */
+    public static void onDownloadError(Object error) {
+        Logger.printInfo(() -> "SoundCloud's offline download failed: " + error);
+    }
+
     /** Whether SoundCloud's offline operations have been seen yet, so a DRM track can be handed to them. */
     public static boolean isAvailable() {
         return offlineOperations.get() != null;
