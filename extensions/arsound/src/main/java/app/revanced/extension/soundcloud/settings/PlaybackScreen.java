@@ -5,6 +5,7 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.player.MixWithOtherApps;
 import app.revanced.extension.soundcloud.player.NextTrackPreload;
 import app.revanced.extension.soundcloud.player.PlayerComments;
@@ -150,7 +151,13 @@ final class PlaybackScreen extends SectionScreen {
                 new long[]{NextTrackPreload.OFF, NextTrackPreload.UNMETERED, NextTrackPreload.ALWAYS},
                 new String[]{text("Никогда", "Never"), text("Только по Wi-Fi", "Wi-Fi only"),
                         text("Wi-Fi и мобильная сеть", "Wi-Fi and mobile data")},
-                null).icon("offline").brief(text("Следующий трек из облака скачивается, пока играет текущий.",
+                () -> {
+                    // Switched off: the copies made ahead are not needed any more and go now.
+                    if (NextTrackPreload.mode() != NextTrackPreload.OFF) return;
+                    android.content.Context context = activity.getApplicationContext();
+                    Utils.runOnBackgroundThread(() -> app.revanced.extension.soundcloud.download.PrefetchedTracks
+                            .keepOnly(context, java.util.Collections.emptyList()));
+                }).icon("offline").brief(text("Следующий трек из облака скачивается, пока играет текущий.",
                 "The next track from the cloud is fetched while the current one plays.")));
     }
 

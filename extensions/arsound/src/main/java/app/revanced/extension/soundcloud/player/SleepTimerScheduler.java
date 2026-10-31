@@ -28,6 +28,8 @@ final class SleepTimerScheduler {
             return;
         }
         stopAt = 0;
+        Context context = Utils.getContext();
+        if (context != null) save(context, 0);
         pauseMusic();
     };
 
@@ -43,8 +45,33 @@ final class SleepTimerScheduler {
         return stopAt;
     }
 
+    /** The time the music stops, kept on the phone: the timer outlives the process (a firmware that ends it in the background). */
+    private static final String PREFERENCES_NAME = "arsound_sleep_timer";
+    private static final String STOP_AT = "stop_at";
+
+    private static void save(Context context, long at) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().putLong(STOP_AT, at).apply();
+    }
+
+    /**
+     * Called when the app starts: a timer set before the process was ended goes on, if its time has not passed. A time
+     * that passed while the app was gone is dropped: the music did not play then.
+     */
+    static void restore(Context context) {
+        long at = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).getLong(STOP_AT, 0);
+        if (at <= System.currentTimeMillis()) {
+            if (at != 0) save(context, 0);
+            return;
+        }
+        stopAt = at;
+        handler.removeCallbacks(onTimerFired);
+        handler.postDelayed(onTimerFired, at - System.currentTimeMillis());
+        Logger.printInfo(() -> "Sleep timer: restored, music stops at " + TimerFormat.clock(at));
+    }
+
     static void start(Context context, long at) {
         stopAt = at;
+        save(context, at);
         handler.removeCallbacks(onTimerFired);
         handler.postDelayed(onTimerFired, Math.max(0, at - System.currentTimeMillis()));
         Logger.printInfo(() -> "Sleep timer: music stops at " + TimerFormat.clock(at));
@@ -55,6 +82,7 @@ final class SleepTimerScheduler {
 
     static void cancel(Context context) {
         stopAt = 0;
+        save(context, 0);
         handler.removeCallbacks(onTimerFired);
         Logger.printInfo(() -> "Sleep timer: off");
         Toast.makeText(context, text("Таймер сна выключен", "Sleep timer is off"), Toast.LENGTH_SHORT).show();

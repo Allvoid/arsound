@@ -76,11 +76,16 @@ final class DuplicatePass {
             return false;
         }
         kept.add(song);
+        keptByKey.computeIfAbsent(song.key, key -> new java.util.ArrayList<>()).add(song);
         return true;
     }
 
-    /** Whether the song is a copy of one that stays. */
+    /** Whether the song is a copy of one that stays: only songs of the same key can be. */
     private boolean isCopy(SongFingerprint song) {
-        return SongFingerprint.containsSame(kept, song);
+        List<SongFingerprint> sameKey = keptByKey.get(song.key);
+        return sameKey != null && SongFingerprint.containsSame(sameKey, song);
     }
+
+    /** The songs that stay, by their key: a list of hundreds was gone through for every entry. */
+    private final java.util.Map<String, List<SongFingerprint>> keptByKey = new java.util.HashMap<>();
 }

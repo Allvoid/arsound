@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.shared.Getters;
 
 /**
  * SoundCloud's play queue as autoplay sees it: which tracks stay in it when recommendations are added, and the
@@ -56,7 +57,8 @@ public final class AutoplayQueue {
             synchronized (entries) {
                 for (int index = entries.size() - 1; index > position; index--) {
                     Object entry = entries.get(index);
-                    Object item = entry.getClass().getMethod("getPlayQueueItem").invoke(entry);
+                    // The getters looked up once per class, not per entry while the queue's lock is held.
+                    Object item = Getters.get(entry, "getPlayQueueItem");
                     if (isRecommendation(item)) {
                         entries.remove(index);
                         removed++;
@@ -109,9 +111,9 @@ public final class AutoplayQueue {
 
     /** A {@code PlayQueueItem} that autoplay added, as SoundCloud's {@code PlayQueueItemKt.isRecommendation} decides. */
     private static boolean isRecommendation(Object item) throws Exception {
-        Object context = item.getClass().getMethod("getPlaybackContext").invoke(item);
+        Object context = Getters.get(item, "getPlaybackContext");
         if (context == null) return false;
-        Object kind = context.getClass().getMethod("getKind").invoke(context);
+        Object kind = Getters.get(context, "getKind");
         return AUTO_PLAY.equals(String.valueOf(kind));
     }
 }

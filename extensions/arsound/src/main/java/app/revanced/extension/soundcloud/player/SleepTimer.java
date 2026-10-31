@@ -39,6 +39,15 @@ public final class SleepTimer {
     }
 
     /** The timer window: "In time" or "At a time", the wheels to set it, and when the music stops. */
+    /** Called when the app starts: a timer set before the process was ended goes on. */
+    public static void onAppStart(Context context) {
+        try {
+            SleepTimerScheduler.restore(context);
+        } catch (Exception ex) {
+            app.revanced.extension.shared.Logger.printException(() -> "Sleep timer: could not restore", ex);
+        }
+    }
+
     public static void show(Context context) {
         SleepTimerDialog.show(context);
     }

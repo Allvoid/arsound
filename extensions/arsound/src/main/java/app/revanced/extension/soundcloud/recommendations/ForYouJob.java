@@ -22,6 +22,12 @@ public final class ForYouJob extends JobService {
     private static final long RETRY_MS = 30 * 60 * 1000L;
 
     /** Plans the next run: right away if today's playlist is still missing, otherwise at the next midnight. */
+    /** Whether the app may be told of a restart: a persisted job needs it, and asking without it throws. */
+    private static boolean hasBootPermission(Context context) {
+        return context.checkSelfPermission(android.Manifest.permission.RECEIVE_BOOT_COMPLETED)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
     static void schedule(Context context, long lastRefresh) {
         try {
             JobScheduler scheduler = context.getSystemService(JobScheduler.class);
@@ -33,6 +39,9 @@ public final class ForYouJob extends JobService {
                     .setRequiresBatteryNotLow(true)
                     .setMinimumLatency(Math.max(0, due - now))
                     .setBackoffCriteria(RETRY_MS, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
+                    // Kept over a restart of the phone (the manifest asks for RECEIVE_BOOT_COMPLETED), so the night's
+                    // update comes without the app being opened first.
+                    .setPersisted(hasBootPermission(context))
                     .build();
             scheduler.schedule(job);
             Logger.printInfo(() -> "For you: next update in " + Math.max(0, due - now) / 60000 + " min");

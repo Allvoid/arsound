@@ -19,16 +19,19 @@ final class KnownTracks {
     private KnownTracks() {
     }
 
-    /** @param urn The key as it was given, not normalized. */
+    /**
+     * Kept under the normalized urn ("soundcloud:sounds:" read as "soundcloud:tracks:"), as every reader asks: a key
+     * written as SoundCloud gave it was missed by the readers, and a duplicate went through.
+     */
     static void remember(String urn, SongRef song) {
         synchronized (tracks) {
-            tracks.put(urn, song);
+            tracks.put(TrackUrn.normalize(urn), song);
         }
     }
 
     static SongRef get(String urn) {
         synchronized (tracks) {
-            return tracks.get(urn);
+            return tracks.get(TrackUrn.normalize(urn));
         }
     }
 
@@ -37,7 +40,7 @@ final class KnownTracks {
         List<String> missing = new ArrayList<>();
         synchronized (tracks) {
             for (Object urn : urns) {
-                String value = String.valueOf(urn);
+                String value = TrackUrn.normalize(urn);
                 if (!tracks.containsKey(value) && value.startsWith(TrackUrn.TRACKS)) {
                     missing.add(value.substring(TrackUrn.TRACKS.length()));
                 }

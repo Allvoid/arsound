@@ -2,6 +2,7 @@ package app.arsound.patches.soundcloud.recommendations
 
 import app.arsound.patches.soundcloud.misc.manifest.addApplicationComponent
 import app.arsound.patches.soundcloud.misc.manifest.declaresApplicationComponent
+import app.arsound.util.getNode
 import app.revanced.patcher.patch.resourcePatch
 
 private const val JOB_SERVICE = "app.revanced.extension.soundcloud.recommendations.ForYouJob"
@@ -20,6 +21,12 @@ val forYouPatch = resourcePatch {
                     "android:exported" to "false",
                 )
             }
+            // A persisted job (kept over a restart of the phone) needs to be told of the restart; SoundCloud does not ask.
+            document.getNode("manifest").appendChild(
+                document.createElement("uses-permission").apply {
+                    setAttribute("android:name", "android.permission.RECEIVE_BOOT_COMPLETED")
+                },
+            )
         }
     }
 }

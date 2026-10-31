@@ -36,7 +36,15 @@ final class DislikeStore {
     private static Map<String, String> titles() {
         Map<String, String> result = titles;
         if (result != null) return result;
-        result = new ConcurrentHashMap<>();
+        // Made once, under the lock: two first callers each made a map, and what one added the other never saw.
+        synchronized (DislikeStore.class) {
+            if (titles != null) return titles;
+            return loadTitles();
+        }
+    }
+
+    private static Map<String, String> loadTitles() {
+        Map<String, String> result = new ConcurrentHashMap<>();
         SharedPreferences preferences = preferences(PREFERENCES_NAME);
         if (preferences != null) {
             for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) result.put(entry.getKey(), String.valueOf(entry.getValue()));

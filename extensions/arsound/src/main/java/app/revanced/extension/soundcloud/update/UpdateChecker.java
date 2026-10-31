@@ -106,6 +106,7 @@ public final class UpdateChecker {
     public static void onApplicationCreate(Application application) {
         // First, so a crash anywhere after this is written down.
         CrashLog.install(application);
+        app.revanced.extension.soundcloud.player.SleepTimer.onAppStart(application);
         ScreenHooks hooks = screenHooks();
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override

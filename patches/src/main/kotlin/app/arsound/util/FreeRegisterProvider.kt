@@ -511,9 +511,24 @@ private fun Method.findInstructionIndexByOffset(
 }
 
 /**
- * @return The registers used by this instruction.
+ * @return The registers used by this instruction. A long or a double takes a pair of registers, and the instruction
+ *         names only the first: for an instruction on such values both halves are counted, or the live high half of
+ *         a pair could be handed out as free. Counting both for every operand of such an instruction is more than is
+ *         used (the int operand of long-to-int), which only makes fewer registers free.
  */
 val Instruction.registersUsed: List<Int>
+    get() {
+        val named = namedRegisters
+        if (!opcode.isWideOperation) return named
+        return named.flatMap { listOf(it, it + 1) }.distinct()
+    }
+
+/** Whether the instruction works on longs or doubles, whose values take two registers each. */
+private val Opcode.isWideOperation: Boolean
+    get() = setsWideRegister() || name.contains("WIDE") || name.contains("LONG") || name.contains("DOUBLE")
+
+/** The registers the instruction names. */
+private val Instruction.namedRegisters: List<Int>
     get() = when (this) {
         is FiveRegisterInstruction -> {
             when (registerCount) {
@@ -542,6 +557,8 @@ val Instruction.writeRegister: Int?
         if (this.opcode !in writeOpcodes) {
             return null
         }
+        // Two- and three-register forms are one-register instructions too (their interfaces extend it), and their
+        // destination is registerA as well.
         if (this !is OneRegisterInstruction) {
             throw IllegalStateException("Not a write instruction: $this")
         }

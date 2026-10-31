@@ -72,7 +72,8 @@ final class StorageUsage {
         }
 
         ui.fillInBackground(() -> {
-            long[] parts = {StorageScreen.downloadsUsage()[1], StreamCache.usedBytes(), LyricsRepository.storedBytes()};
+            long[] parts = {StorageScreen.downloadsUsage()[1], StreamCache.usedBytes() + StreamCache.otherCachesBytes(),
+                    LyricsRepository.storedBytes()};
             long sum = parts[0] + parts[1] + parts[2];
             Utils.runOnMainThread(() -> {
                 if (ui.activity.isFinishing() || ui.activity.isDestroyed()) return;

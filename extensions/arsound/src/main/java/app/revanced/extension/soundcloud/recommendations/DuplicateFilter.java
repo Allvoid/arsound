@@ -123,7 +123,7 @@ public final class DuplicateFilter {
         boolean duplicates = Settings.isDuplicateFilterEnabled();
         if (!playlistUrn.contains(SYSTEM_PLAYLIST_MARK) || !isActive(duplicates)) return;
         try {
-            if (duplicates) SystemPlaylistTitles.learn(urns);
+            if (duplicates) SystemPlaylistTitles.learn(playlistUrn, urns);
             DuplicatePass pass = new DuplicatePass();
             int before = urns.size();
             for (Iterator<Object> iterator = urns.iterator(); iterator.hasNext(); ) {

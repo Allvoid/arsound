@@ -12,9 +12,15 @@ final class SongRef {
         this.durationMs = durationMs;
     }
 
+    /** The fingerprint without merging edited versions, made once: a song is compared with many. */
+    private SongFingerprint plain;
+
     /** How this song is compared with others. */
     SongFingerprint fingerprint(boolean mergeEdited) {
-        return new SongFingerprint(SongKeys.key(title, mergeEdited), durationMs, SongKeys.isEdited(title), mergeEdited);
+        if (!mergeEdited && plain != null) return plain;
+        SongFingerprint made = new SongFingerprint(SongKeys.key(title, mergeEdited), durationMs, SongKeys.isEdited(title), mergeEdited);
+        if (!mergeEdited) plain = made;
+        return made;
     }
 
     /**

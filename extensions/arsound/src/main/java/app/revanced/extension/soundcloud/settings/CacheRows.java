@@ -45,6 +45,8 @@ final class CacheRows {
         TextView[] used = new TextView[1];
         ActionRow clearRow = ui.createActionRow(text("Очистить кэш", "Clear cache"), "", v -> {
             Settings.putBoolean(StreamCache.CLEAR_REQUESTED, true);
+            // The next track fetched ahead and the catalogue's pictures go at once: nothing waits for them.
+            StreamCache.clearOtherCaches();
             used[0].setText(text("Кэш очистится при следующем запуске SoundCloud.",
                     "The cache is cleared the next time SoundCloud starts."));
         });
@@ -52,7 +54,7 @@ final class CacheRows {
         used[0] = clearRow.description();
         used[0].setText(text("Считаю…", "Counting…"));
         ui.fillInBackground(() -> {
-            long bytes = StreamCache.usedBytes();
+            long bytes = StreamCache.usedBytes() + StreamCache.otherCachesBytes();
             boolean pending = Settings.getBoolean(StreamCache.CLEAR_REQUESTED, false);
             String size = Formatter.formatShortFileSize(ui.activity, bytes);
             Utils.runOnMainThread(() -> used[0].setText(pending

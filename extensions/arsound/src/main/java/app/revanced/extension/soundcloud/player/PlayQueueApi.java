@@ -92,15 +92,34 @@ final class PlayQueueApi {
      */
     static void keepAddedItems(Object shuffled) throws Exception {
         Object original = shuffled.getClass().getMethod("getOriginalQueue").invoke(shuffled);
-        Method indexOf = original.getClass().getMethod("indexOfPlayQueueItem", Class.forName(PLAY_QUEUE_ITEM));
+        // The original queue read once into a set: asking it about each track copied the whole queue every time.
+        // Played items are told apart by identity, as SoundCloud's own indexOfUnique does; the rest by equals.
+        List<?> originalItems = (List<?>) original.getClass().getMethod("items").invoke(original);
+        java.util.Set<Object> byIdentity = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        java.util.Set<Object> byValue = new java.util.HashSet<>();
+        Class<?> playable = playableItemClass(original.getClass().getClassLoader());
+        for (Object item : originalItems) {
+            if (playable != null && playable.isInstance(item)) byIdentity.add(item);
+            else byValue.add(item);
+        }
         List<Object> added = new ArrayList<>();
         for (Object item : (List<?>) shuffled.getClass().getMethod("items").invoke(shuffled)) {
-            if ((int) indexOf.invoke(original, item) < 0) added.add(item);
+            boolean known = playable != null && playable.isInstance(item) ? byIdentity.contains(item) : byValue.contains(item);
+            if (!known) added.add(item);
         }
         if (added.isEmpty()) return;
         original.getClass().getMethod("addAllPlayQueueItems", List.class, String.class)
                 .invoke(original, added, "reco");
         Logger.printDebug(() -> "Play mode: kept " + added.size() + " tracks added after shuffling");
+    }
+
+    /** SoundCloud's playable queue item, which its queue tells apart by identity; null if it cannot be found. */
+    private static Class<?> playableItemClass(ClassLoader loader) {
+        try {
+            return Class.forName(PLAY_QUEUE_ITEM + "$Playable", false, loader);
+        } catch (ClassNotFoundException ex) {
+            return null;
+        }
     }
 
     // endregion

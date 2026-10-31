@@ -54,10 +54,19 @@ public final class WelcomePermissions {
         return WelcomeContent.createDialogContent(context, paragraphs);
     }
 
+    /** The screen the greeting was shown on in this run. */
+    private static java.lang.ref.WeakReference<Activity> greetingActivity = new java.lang.ref.WeakReference<>(null);
+
     /** Called when an activity comes to the screen. Shows the greeting once, on the main screen. */
     public static void onActivityResumed(Activity activity) {
         boolean mainScreen = Screens.isMainActivity(activity);
         if (mainScreen && LanguageChange.revealIfPending(activity)) return;
+        // The greeting went away with its screen (a turn, a switch of the dark look) before a button was pressed: the
+        // screen made again shows it again, instead of it coming back only at a later start.
+        Activity greeted = greetingActivity.get();
+        if (shownThisLaunch && mainScreen && greeted != activity && (greeted == null || greeted.isDestroyed())) {
+            shownThisLaunch = false;
+        }
         if (shownThisLaunch || !mainScreen) return;
         SharedPreferences preferences = activity.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
         if (preferences.getBoolean(SHOWN, false)) return;
@@ -66,6 +75,7 @@ public final class WelcomePermissions {
         List<String> missing = new ArrayList<>();
         for (WelcomeItem item : items) if (!item.isGranted(activity)) missing.add(item.permission);
         shownThisLaunch = true;
+        greetingActivity = new java.lang.ref.WeakReference<>(activity);
         // The greeting starts in English; its switch turns it and then the whole app to Russian.
         WelcomeLanguage.begin();
         boolean askPermissions = !missing.isEmpty();

@@ -206,4 +206,32 @@ public final class StreamCache {
     public static long usedBytes() {
         return FileTree.size(directory());
     }
+
+    /**
+     * The other caches of Arsound: the next track fetched ahead and the pictures of the wallpaper catalogue. They are
+     * counted with the stream cache and go with it: they were neither shown in the storage nor cleared.
+     */
+    private static final String[] OTHER_CACHES = {"arsound-next", "wallhaven-grid"};
+
+    /** Space the other caches take, in bytes. Blocks. */
+    public static long otherCachesBytes() {
+        android.content.Context context = Utils.getContext();
+        if (context == null) return 0;
+        long total = 0;
+        for (String name : OTHER_CACHES) total += FileTree.size(new File(context.getCacheDir(), name));
+        return total;
+    }
+
+    /** Empties the other caches now, off the main thread: nothing keeps their files open for long. */
+    public static void clearOtherCaches() {
+        android.content.Context context = Utils.getContext();
+        if (context == null) return;
+        runInBackground("arsound-cache-other", () -> {
+            for (String name : OTHER_CACHES) {
+                File[] files = new File(context.getCacheDir(), name).listFiles();
+                if (files == null) continue;
+                for (File file : files) FileTree.deleteAll(file);
+            }
+        });
+    }
 }
