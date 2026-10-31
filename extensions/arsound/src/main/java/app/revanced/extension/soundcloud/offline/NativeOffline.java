@@ -15,6 +15,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.shared.Reflect;
+import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
  * Hands a DRM-protected track to SoundCloud's own offline download, which Arsound's own downloader cannot save
@@ -87,16 +88,23 @@ public final class NativeOffline {
             }
             int queued = 0;
             for (String trackId : trackIds) {
-                // The track may already be in SoundCloud's offline library, or queued earlier this run.
-                if (!requested.add(trackId)) continue;
+                // The track may already be in SoundCloud's offline library. A request of this run that is not there
+                // any more (it failed, or the copy was removed in SoundCloud) is made again, not skipped until a restart.
                 String state = offlineState(trackId);
                 if ("DOWNLOADED".equals(state) || "REQUESTED".equals(state) || "DOWNLOADING".equals(state)) continue;
+                requested.add(trackId);
                 try {
                     Object urn = urn(operations, trackId);
                     Method make = operations.getClass().getMethod("makeTrackAvailableOffline",
                             Reflect.type(operations.getClass().getClassLoader(), URN_CLASS));
                     Object completable = make.invoke(operations, urn);
-                    if (completable != null) completable.getClass().getMethod("subscribe").invoke(completable);
+                    // A failure that comes later lets the track be asked for again.
+                    if (completable != null) {
+                        Rx.subscribeIgnoringErrors(completable, error -> {
+                            requested.remove(trackId);
+                            Logger.printInfo(() -> "The native offline request of " + trackId + " failed: " + error);
+                        });
+                    }
                     queued++;
                     Logger.printInfo(() -> "DRM track " + trackId + " requested for the native offline download");
                 } catch (Throwable ex) {

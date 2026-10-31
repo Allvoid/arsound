@@ -145,7 +145,7 @@ public final class PlaylistPreloader {
         List<String> urns = libraryPlaylists(operations, loader);
         Class<?> urnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.Urn");
 
-        int synced = 0, skipped = 0;
+        int synced = 0, skipped = 0, failedInRow = 0;
         for (String urn : urns) {
             if (!Settings.isPlaylistPreloadEnabled()) return;
             long last = preferences.getLong(urn, 0);
@@ -153,17 +153,41 @@ public final class PlaylistPreloader {
                 skipped++;
                 continue;
             }
+            // A playlist that failed waits longer after each failure (a day, two, four, up to a week): one the server
+            // does not give was asked for, with its wait, at every start.
+            int failures = preferences.getInt(FAILURES_PREFIX + urn, 0);
+            long failedAt = preferences.getLong(FAILED_AT_PREFIX + urn, 0);
+            if (failures > 0 && System.currentTimeMillis() - failedAt < Math.min(MAX_BACKOFF_MS, BACKOFF_MS << Math.min(failures - 1, 3))) {
+                skipped++;
+                continue;
+            }
             String id = urn.substring(urn.lastIndexOf(':') + 1);
             Object playlistUrn = urnClass.getMethod("forPlaylist", String.class).invoke(null, id);
             if (syncAndWait(playlistOperations, playlistUrn)) {
-                preferences.edit().putLong(urn, System.currentTimeMillis()).apply();
+                preferences.edit().putLong(urn, System.currentTimeMillis())
+                        .remove(FAILURES_PREFIX + urn).remove(FAILED_AT_PREFIX + urn).apply();
                 synced++;
+                failedInRow = 0;
+            } else {
+                preferences.edit().putInt(FAILURES_PREFIX + urn, failures + 1)
+                        .putLong(FAILED_AT_PREFIX + urn, System.currentTimeMillis()).apply();
+                // Failures one after another mean the network or the server is down: the rest waits for the next start.
+                if (++failedInRow >= MAX_FAILED_IN_ROW) {
+                    Logger.printInfo(() -> "Playlist preload: stopped after " + MAX_FAILED_IN_ROW + " failures in a row");
+                    break;
+                }
             }
             Thread.sleep(PAUSE_MS);
         }
         int total = urns.size(), done = synced, fresh = skipped;
         Logger.printInfo(() -> "Playlist preload: " + total + " in library, saved " + done + ", already fresh " + fresh);
     }
+
+    /** The failures of a playlist in a row and the time of the last one, by urn. */
+    private static final String FAILURES_PREFIX = "failures:", FAILED_AT_PREFIX = "failed_at:";
+    private static final long BACKOFF_MS = 24L * 60 * 60 * 1000;
+    private static final long MAX_BACKOFF_MS = 7 * BACKOFF_MS;
+    private static final int MAX_FAILED_IN_ROW = 5;
 
     /** Urns of the playlists and albums in the library, as SoundCloud lists them (liked and own). */
     private static List<String> libraryPlaylists(Object operations, ClassLoader loader) throws Exception {

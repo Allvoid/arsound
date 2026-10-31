@@ -109,7 +109,8 @@ public final class OfflineFirstPatch {
             Class<?> repositoryClass = Reflect.type(loader, repositoryName);
             Method method = repositoryClass.getMethod(methodName, urnsType, strategyClass);
             Object local = method.invoke(repository, urns, strategyClass.getField("LOCAL_ONLY").get(null));
-            return Rx.localUntilRemote(local, syncIfMissing);
+            // A failing server after the stored data was shown keeps the stored data on screen.
+            return Rx.localUntilRemoteKeepingLocal(local, syncIfMissing);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not show stored " + methodName + " first", ex);
             return syncIfMissing;

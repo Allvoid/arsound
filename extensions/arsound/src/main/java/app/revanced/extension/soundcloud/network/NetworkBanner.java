@@ -43,6 +43,11 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 public final class NetworkBanner {
     private static final String TAG = "arsound_network_banner";
     private static final long REFRESH_MS = 5_000;
+    /**
+     * While all is well the state is asked for rarely: a lost or found network is told by the callback, and only a
+     * country that became blocked under the same network needs the look now and then.
+     */
+    private static final long ONLINE_REFRESH_MS = 30_000;
     private static final long MESSAGE_MS = 3_500;
     private static final long CONNECTED_MS = 1_800;
 
@@ -80,7 +85,7 @@ public final class NetworkBanner {
         @Override
         public void run() {
             update(false);
-            handler.postDelayed(this, REFRESH_MS);
+            handler.postDelayed(this, shown == State.ONLINE ? ONLINE_REFRESH_MS : REFRESH_MS);
         }
     };
 

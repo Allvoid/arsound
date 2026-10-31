@@ -40,6 +40,9 @@ final class RegionState {
         checkedAt = time;
     }
 
+    /** Background checks failed in a row on an allowed network; guarded by the lock. */
+    private int failedChecks;
+
     int generation() {
         synchronized (lock) {
             return generation;
@@ -48,9 +51,12 @@ final class RegionState {
 
     /** The user is told once for each country; true for the caller who has to show the toast. */
     boolean claimNotice() {
-        if (noticeShown) return false;
-        noticeShown = true;
-        return true;
+        // In one step: several requests refused at once each showed the toast.
+        synchronized (lock) {
+            if (noticeShown) return false;
+            noticeShown = true;
+            return true;
+        }
     }
 
     /** Forgets a failed check, so the next request checks at once, and lets the toast show again. */
@@ -100,10 +106,14 @@ final class RegionState {
             if (started != generation) return;
             if (fresh != null) {
                 country = fresh;
+                failedChecks = 0;
                 if (!fresh.equals(previous)) noticeShown = false;
             } else if (previous != null && !isBlocked.test(previous)) {
-                // A failed check on an allowed network means the route is unstable, and a VPN may be
-                // reconnecting. Requests wait for a successful check instead of trusting the old answer.
+                // A failed check on an allowed network may be one lost answer: the allowed country stays for it. Two in a
+                // row mean the route is unstable, and a VPN may be reconnecting: requests then wait for a successful
+                // check instead of trusting the old answer (one failure made the requests refused and the toast show).
+                if (++failedChecks < 2) return;
+                failedChecks = 0;
                 country = null;
                 lastFailedCheck = System.currentTimeMillis();
                 noticeShown = false;

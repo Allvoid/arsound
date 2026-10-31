@@ -70,8 +70,36 @@ public final class CustomDns {
     /**
      * @return The addresses of the host, or null to use the system resolver.
      */
+    /** The lookups under way, by host: connections to a new host at once wait for one query, not one each. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.FutureTask<List<InetAddress>>> inFlight =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     public static List<InetAddress> lookup(String host) {
         if (!Settings.isCustomDnsEnabled() || host == null) return null;
+        if (host.matches("[0-9.]+") || host.contains(":")) return null;
+        Entry known = cache.get(host);
+        if (known != null && known.expiresAt > System.currentTimeMillis()) return known.addresses;
+        java.util.concurrent.FutureTask<List<InetAddress>> mine = new java.util.concurrent.FutureTask<>(() -> resolveNow(host));
+        java.util.concurrent.FutureTask<List<InetAddress>> running = inFlight.putIfAbsent(host, mine);
+        if (running == null) {
+            try {
+                mine.run();
+            } finally {
+                inFlight.remove(host, mine);
+            }
+            running = mine;
+        }
+        try {
+            return running.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private static List<InetAddress> resolveNow(String host) {
         // Literal addresses need no resolving.
         if (host.matches("[0-9.]+") || host.contains(":")) return null;
 

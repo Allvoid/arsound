@@ -45,7 +45,19 @@ final class PlainDnsResolver extends DnsResolver {
                     socket.send(new DatagramPacket(query, query.length, serverAddress, DNS_PORT));
                     byte[] buffer = new byte[1500];
                     DatagramPacket response = new DatagramPacket(buffer, buffer.length);
-                    socket.receive(response);
+                    // Only the answer to this query, from the server asked: a stray or forged packet that reached the
+                    // port first is skipped, and the wait goes on for the rest of the time.
+                    while (true) {
+                        socket.receive(response);
+                        if (serverAddress.equals(response.getAddress()) && response.getLength() >= 2
+                                && buffer[0] == query[0] && buffer[1] == query[1]) {
+                            break;
+                        }
+                        int left = (int) (deadline - System.currentTimeMillis());
+                        if (left <= 0) throw new SocketTimeoutException("No answer to the query");
+                        socket.setSoTimeout(left);
+                        response.setLength(buffer.length);
+                    }
                     answered = true;
                     byte[] data = new byte[response.getLength()];
                     System.arraycopy(buffer, 0, data, 0, data.length);

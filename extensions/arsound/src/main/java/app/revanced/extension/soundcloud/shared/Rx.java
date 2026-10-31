@@ -84,6 +84,41 @@ public final class Rx {
         return mergeMethod(loader, observable, source).invoke(null, filteredLocal, markedRemote);
     }
 
+    /**
+     * The same as {@link #localUntilRemote}, but a failure of {@code remote} after {@code local} has shown something
+     * ends the list quietly with what is on screen: the stored list stays instead of turning into an error. With
+     * nothing stored, the failure goes on to the screen, which then says so.
+     */
+    public static Object localUntilRemoteKeepingLocal(Object local, Object remote) throws Exception {
+        ClassLoader loader = remote.getClass().getClassLoader();
+        Class<?> observable = type(loader, CORE + "Observable");
+        Class<?> consumer = type(loader, FUNCTIONS + "Consumer");
+        Class<?> action = type(loader, FUNCTIONS + "Action");
+        java.util.concurrent.atomic.AtomicBoolean localShown = new java.util.concurrent.atomic.AtomicBoolean();
+        Object markLocal = function(loader, "Consumer", args -> {
+            localShown.set(true);
+            return null;
+        });
+        Object ignore = function(loader, "Consumer", args -> null);
+        Object noAction = function(loader, "Action", args -> null);
+        Object markedLocal = find(observable, false, "ObservableDoOnEach", consumer, consumer, action, action)
+                .invoke(local, markLocal, ignore, noAction, noAction);
+        Object empty = type(loader, "io.reactivex.rxjava3.internal.operators.observable.ObservableEmpty")
+                .getField("a").get(null);
+        Method error = find(observable, true, "Observable", Throwable.class);
+        Object resume = function(loader, "Function", args -> {
+            if (localShown.get()) return empty;
+            try {
+                return error.invoke(null, args[0]);
+            } catch (ReflectiveOperationException ex) {
+                return empty;
+            }
+        });
+        Object quietRemote = find(observable, false, "ObservableOnErrorNext", type(loader, FUNCTIONS + "Function"))
+                .invoke(remote, resume);
+        return localUntilRemote(markedLocal, quietRemote);
+    }
+
     /** {@code Observable.merge(first, second)}: both sources at once, items in the order they come. */
     public static Object merge(Object first, Object second) throws Exception {
         ClassLoader loader = second.getClass().getClassLoader();

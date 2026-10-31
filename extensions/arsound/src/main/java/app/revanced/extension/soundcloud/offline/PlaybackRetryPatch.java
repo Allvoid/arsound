@@ -37,6 +37,8 @@ public final class PlaybackRetryPatch {
 
     private static Object retriedItem;
     private static int attempts;
+    /** A retry is posted and has not run yet; main thread only. */
+    private static boolean retryPending;
     private static long lastErrorAt;
 
     private PlaybackRetryPatch() {
@@ -67,10 +69,17 @@ public final class PlaybackRetryPatch {
                 return true;
             }
 
+            // A retry already waits: a state reported again meanwhile (a tap on pause) spends no attempt and queues no
+            // second prepare.
+            if (retryPending) return false;
             attempts++;
             int attempt = attempts;
             Logger.printInfo(() -> "Retrying playback, attempt " + attempt);
-            handler.postDelayed(() -> retry(player, item), RETRY_DELAY_MS * attempt);
+            retryPending = true;
+            handler.postDelayed(() -> {
+                retryPending = false;
+                retry(player, item);
+            }, RETRY_DELAY_MS * attempt);
             return false;
         } catch (Exception ex) {
             Logger.printException(() -> "Could not schedule playback retry", ex);
@@ -87,13 +96,26 @@ public final class PlaybackRetryPatch {
                     && method.getReturnType().getName().equals("androidx.media3.exoplayer.ExoPlayer")
                     && !java.lang.reflect.Modifier.isAbstract(method.getModifiers()));
             Object exoPlayer = exoPlayerGetter == null ? null : exoPlayerGetter.invoke(player);
-            if (exoPlayer == null) return;
+            if (exoPlayer == null) {
+                giveUp(player);
+                return;
+            }
 
             Class<?> playerInterface = Class.forName("androidx.media3.common.Player", false, exoPlayer.getClass().getClassLoader());
             playerInterface.getMethod("prepare").invoke(exoPlayer);
         } catch (Exception ex) {
             Logger.printException(() -> "Playback retry failed", ex);
+            giveUp(player);
         }
+    }
+
+    /**
+     * The retry could not be made. The budget is spent, so the next report of the error (the player reports its error
+     * state again on the next change, a tap included) goes through to SoundCloud as fatal instead of waiting again.
+     */
+    private static void giveUp(Object player) {
+        attempts = MAX_ATTEMPTS;
+        Logger.printInfo(() -> "Playback retry not possible, the next error report is shown");
     }
 
     /**

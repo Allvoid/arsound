@@ -23,6 +23,9 @@ final class CountryTrace {
                     new URL("https://www.cloudflare.com/cdn-cgi/trace").openConnection();
             connection.setConnectTimeout(TIMEOUT_MS);
             connection.setReadTimeout(TIMEOUT_MS);
+            // A new connection for every check: one kept alive from before a VPN was switched would answer with the
+            // country of the old route.
+            connection.setRequestProperty("Connection", "close");
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -32,6 +35,8 @@ final class CountryTrace {
                         return found;
                     }
                 }
+            } finally {
+                connection.disconnect();
             }
         } catch (Exception ex) {
             Logger.printInfo(() -> "Region guard: country check failed: " + ex);

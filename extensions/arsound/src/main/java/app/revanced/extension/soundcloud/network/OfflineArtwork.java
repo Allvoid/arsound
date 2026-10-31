@@ -80,7 +80,16 @@ final class OfflineArtwork {
             trim = ++savedSinceTrim >= TRIM_EVERY;
             if (trim) savedSinceTrim = 0;
         }
-        if (trim) trim(folder);
+        if (trim) {
+            // Off the request: the cover is answered without waiting for the folder to be sorted and cut.
+            Utils.runOnBackgroundThread(() -> {
+                try {
+                    trim(folder);
+                } catch (RuntimeException ex) {
+                    Logger.printException(() -> "Offline covers: could not trim the folder", ex);
+                }
+            });
+        }
     }
 
     /** The kept cover for this address, the same size if there is one, else the biggest other size. Null if none. */
@@ -172,7 +181,18 @@ final class OfflineArtwork {
         long total = 0;
         for (File file : files) total += file.length();
         if (total <= MAX_BYTES) return;
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+        // The times are read once: another thread touches covers it answers from disk, and a key that changes during
+        // the sort breaks its contract ("Comparison method violates its general contract"), which killed the process.
+        long[] times = new long[files.length];
+        Integer[] order = new Integer[files.length];
+        for (int i = 0; i < files.length; i++) {
+            times[i] = files[i].lastModified();
+            order[i] = i;
+        }
+        Arrays.sort(order, (a, b) -> Long.compare(times[a], times[b]));
+        File[] sorted = new File[files.length];
+        for (int i = 0; i < order.length; i++) sorted[i] = files[order[i]];
+        files = sorted;
         int deleted = 0;
         for (File file : files) {
             if (total <= MAX_BYTES * 9 / 10) break;

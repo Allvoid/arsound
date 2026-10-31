@@ -134,7 +134,8 @@ public final class LyricsRepository {
                     result = lookUp(info, request);
                 } catch (Throwable ex) {
                     Logger.printInfo(() -> "Lyrics: the search failed: " + ex.getMessage());
-                    result = LyricsResult.error();
+                    // Words the network recognised are on the phone: they stand in for the failed search too.
+                    result = orRecognised(info, LyricsResult.error());
                 }
                 final LyricsResult answer = result;
                 // LRCLIB never answers with recognised words: such an answer stands in for "no lyrics" or "no connection".
@@ -209,7 +210,10 @@ public final class LyricsRepository {
      * is better than this one.
      */
     private static LyricsResult orRecognised(TrackInfo info, LyricsResult result) {
-        if (result.status != LyricsResult.Status.MISSING && result.status != LyricsResult.Status.OFFLINE) return result;
+        if (result.status != LyricsResult.Status.MISSING && result.status != LyricsResult.Status.OFFLINE
+                && result.status != LyricsResult.Status.ERROR) {
+            return result;
+        }
         Lyrics recognised = AiTranscripts.lookUp(info);
         return recognised == null ? result : LyricsResult.found(recognised);
     }
