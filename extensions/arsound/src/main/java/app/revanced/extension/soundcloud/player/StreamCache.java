@@ -24,6 +24,8 @@ public final class StreamCache {
      * space, so their sum is what the cache can grow to, whatever it held when it was measured.
      */
     private static final String AVAILABLE_BYTES = "stream_cache_available";
+    /** The size of the cache as last counted, in bytes; the free space beside it is read when the cache opens. */
+    private static final String USED_BYTES = "stream_cache_used";
     /** Next to the cache folder, not inside it: the cache would read it. */
     private static final String TRASH = "exocache-trash";
     private static final long DAY_MS = 24L * 60 * 60 * 1000;
@@ -50,9 +52,18 @@ public final class StreamCache {
         long chosen = Settings.getLong(Settings.STREAM_CACHE_SIZE, 0);
         if (chosen <= 0) return chosen;
         try {
-            // Not measured yet (the first start with this): the chosen size stays.
-            long available = Settings.getLong(AVAILABLE_BYTES, -1);
-            if (available < 0) return chosen;
+            // The free space now (one call to the file system), with the cache as last counted (that count walks
+            // every part, so it is done in the background): the space of the last start could be long gone.
+            File directory = directory();
+            long free = directory == null ? -1 : (directory.isDirectory() ? directory : directory.getParentFile()).getUsableSpace();
+            if (free <= 0) {
+                long available = Settings.getLong(AVAILABLE_BYTES, -1);
+                if (available < 0) return chosen;
+                free = available;
+            } else {
+                free += Math.max(0, Settings.getLong(USED_BYTES, 0));
+            }
+            long available = free;
             long limit = Math.max(MIN_SIZE, available - FREE_SPACE_RESERVE);
             if (limit < chosen) Logger.printInfo(() -> "Stream cache size " + chosen + " is limited by free space to " + limit);
             return Math.min(chosen, limit);
@@ -74,17 +85,21 @@ public final class StreamCache {
             if (directory == null || !directory.isDirectory()) return;
             File trash = trashOf(directory);
             if (Settings.getBoolean(CLEAR_REQUESTED, false)) {
-                int removed = clear(directory, trash);
+                boolean moved = clear(directory, trash);
                 Settings.putBoolean(CLEAR_REQUESTED, false);
-                Logger.printInfo(() -> "Stream cache cleared: " + removed + " files deleted at once, the rest in the background");
+                Logger.printInfo(() -> "Stream cache cleared: " + (moved ? "moved to the trash at once" : "could not be moved"));
+                deleteInBackground(trash);
             } else {
                 long days = Settings.getLong(Settings.STREAM_CACHE_DAYS, 0);
-                int removed = days <= 0 ? 0 : removeOlderThan(directory, System.currentTimeMillis() - days * DAY_MS);
                 Logger.printInfo(() -> "Stream cache opens, size " + (hasCustomSize() ? customSize() : "default")
-                        + ", keep days " + days + ", removed " + removed + " parts");
+                        + ", keep days " + days);
+                // The old parts are found and moved to the trash in the background, not while SoundCloud waits for the
+                // cache: walking thousands of parts took seconds. A part moved away under the open cache is one it
+                // forgets when it misses it, and these were not played for days.
+                if (days > 0) removeOldInBackground(directory, trash, System.currentTimeMillis() - days * DAY_MS);
+                // Also what an earlier run did not finish deleting.
+                else deleteInBackground(trash);
             }
-            // Also what an earlier run did not finish deleting.
-            deleteInBackground(trash);
             if (hasCustomSize()) measureInBackground(directory);
         } catch (Exception ex) {
             Logger.printException(() -> "Stream cache cleanup failure", ex);
@@ -97,27 +112,30 @@ public final class StreamCache {
     }
 
     /**
-     * Empties the cache. This runs while SoundCloud waits for the cache to open, and deleting
-     * thousands of parts takes seconds, so each part folder is moved out of the cache with one
-     * rename and deleted later in the background. A folder that cannot be moved is emptied here.
-     * The index files of the cache stay.
+     * Empties the cache. This runs while SoundCloud waits for the cache to open, so nothing is deleted here: the whole
+     * folder, parts and index, is moved to the trash with one rename and an empty one takes its place; the cache starts
+     * anew, and the trash is emptied in the background.
      *
-     * @return The number of parts deleted here.
+     * @return Whether the folder was moved.
      */
-    private static int clear(File directory, File trash) {
-        File[] files = directory.listFiles();
-        if (files == null) return 0;
-        boolean trashReady = trash != null && (trash.isDirectory() || trash.mkdirs());
-        int removed = 0;
-        for (File file : files) {
-            if (file.isDirectory()) {
-                if (trashReady && file.renameTo(new File(trash, System.nanoTime() + "-" + file.getName()))) continue;
-                removed += removeOlderThan(file, Long.MAX_VALUE);
-            } else if (file.getName().endsWith(".exo") && file.delete()) {
-                removed++;
+    private static boolean clear(File directory, File trash) {
+        if (trash == null || !(trash.isDirectory() || trash.mkdirs())) return false;
+        if (!directory.renameTo(new File(trash, System.nanoTime() + "-" + directory.getName()))) return false;
+        if (!directory.mkdirs()) Logger.printInfo(() -> "Stream cache: could not make the empty folder again");
+        return true;
+    }
+
+    /** Deletes the parts last used before the time, and what is left in the trash, off the opening of the cache. */
+    private static void removeOldInBackground(File directory, File trash, long before) {
+        runInBackground("arsound-cache-old", () -> {
+            try {
+                int removed = removeOlderThan(directory, before);
+                Logger.printInfo(() -> "Stream cache: " + removed + " old parts removed");
+                if (trash != null && trash.exists()) FileTree.deleteAll(trash);
+            } catch (Throwable t) {
+                Logger.printException(() -> "Could not remove the old parts of the stream cache", t);
             }
-        }
-        return removed;
+        });
     }
 
     /** Empties the trash, also what an earlier run did not finish deleting. */
@@ -138,6 +156,7 @@ public final class StreamCache {
         runInBackground("arsound-cache-size", () -> {
             try {
                 long used = FileTree.size(directory);
+                Settings.putLong(USED_BYTES, used);
                 Settings.putLong(AVAILABLE_BYTES, used + directory.getUsableSpace());
             } catch (Throwable t) {
                 Logger.printException(() -> "Could not measure the stream cache", t);

@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
+import app.revanced.extension.shared.Utils;
+
 /**
  * An order the user arranged by dragging, kept on this phone as one preferences value: the urns from first to
  * last, one per line. {@link TrackOrder} keeps one for every playlist, {@link PlaylistOrder} one for the library.
@@ -26,6 +28,15 @@ final class ManualOrder {
         }
     }
 
+    /**
+     * Orders saved while a drag goes on, by key: a drag saves at every step (so the lists SoundCloud diffs against
+     * stay in the order on screen), and each save wrote the whole file. They are read from here and written to the
+     * file together a moment after the last step.
+     */
+    private static final Map<String, String> pending = new HashMap<>();
+    private static boolean flushPosted;
+    private static final long FLUSH_MS = 500;
+
     private final String key;
     private final Unknown unknown;
 
@@ -36,6 +47,9 @@ final class ManualOrder {
 
     /** Forgets every saved order whose key starts with the prefix. */
     static void forgetAll(String keyPrefix) {
+        synchronized (pending) {
+            pending.keySet().removeIf(name -> name.startsWith(keyPrefix));
+        }
         SharedPreferences preferences = LocalPrefs.open();
         if (preferences == null) return;
         SharedPreferences.Editor editor = preferences.edit();
@@ -45,10 +59,32 @@ final class ManualOrder {
         editor.apply();
     }
 
+    /** Writes the orders that wait to the file. */
+    private static void flush() {
+        Map<String, String> due;
+        synchronized (pending) {
+            flushPosted = false;
+            if (pending.isEmpty()) return;
+            due = new HashMap<>(pending);
+            pending.clear();
+        }
+        SharedPreferences preferences = LocalPrefs.open();
+        if (preferences == null) return;
+        SharedPreferences.Editor editor = preferences.edit();
+        for (Map.Entry<String, String> order : due.entrySet()) editor.putString(order.getKey(), order.getValue());
+        editor.apply();
+    }
+
     /** The saved urns, first to last; empty if nothing is saved. */
     List<String> read() {
-        SharedPreferences preferences = LocalPrefs.open();
-        String value = preferences == null ? "" : preferences.getString(key, "");
+        String value;
+        synchronized (pending) {
+            value = pending.get(key);
+        }
+        if (value == null) {
+            SharedPreferences preferences = LocalPrefs.open();
+            value = preferences == null ? "" : preferences.getString(key, "");
+        }
         List<String> order = new ArrayList<>();
         for (String urn : value.split("\n")) if (!urn.isEmpty()) order.add(urn);
         return order;
@@ -56,15 +92,21 @@ final class ManualOrder {
 
     /** Saves the urns as the order, first to last. */
     void save(List<?> urns) {
-        SharedPreferences preferences = LocalPrefs.open();
-        if (preferences == null) return;
         StringBuilder order = new StringBuilder();
         for (Object urn : urns) order.append(urn).append('\n');
-        preferences.edit().putString(key, order.toString()).apply();
+        synchronized (pending) {
+            pending.put(key, order.toString());
+            if (flushPosted) return;
+            flushPosted = true;
+        }
+        Utils.runOnMainThreadDelayed(() -> Utils.runOnBackgroundThread(ManualOrder::flush), FLUSH_MS);
     }
 
     /** Forgets the order: the items follow their natural order again. */
     void clear() {
+        synchronized (pending) {
+            pending.remove(key);
+        }
         SharedPreferences preferences = LocalPrefs.open();
         if (preferences != null) preferences.edit().remove(key).apply();
     }

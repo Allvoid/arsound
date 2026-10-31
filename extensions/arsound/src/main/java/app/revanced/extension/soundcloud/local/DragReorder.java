@@ -285,8 +285,17 @@ public final class DragReorder {
         for (int i = 0; i < recycler.getChildCount(); i++) {
             View child = recycler.getChildAt(i);
             Object running = child.getTag(TAG_WIGGLE);
+            if (!isMovable(child)) {
+                // A row reused for one that does not move (a suggested track) keeps no wiggle of its former self.
+                if (running instanceof ObjectAnimator) {
+                    ((ObjectAnimator) running).cancel();
+                    wiggles.remove(running);
+                    child.setTag(TAG_WIGGLE, null);
+                }
+                child.setRotation(0);
+                continue;
+            }
             if (running instanceof ObjectAnimator && ((ObjectAnimator) running).isRunning()) continue;
-            if (!isMovable(child)) continue;
             float angle = (i % 2 == 0) ? 0.8f : -0.8f;
             ObjectAnimator animator = ObjectAnimator.ofFloat(child, View.ROTATION, -angle, angle);
             animator.setDuration(120 + (i % 3) * 15L);

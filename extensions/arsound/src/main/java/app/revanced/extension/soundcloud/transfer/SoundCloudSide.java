@@ -119,6 +119,7 @@ final class SoundCloudSide {
         Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
         String urn = String.valueOf(playlist.getClass().getMethod("getUrn").invoke(playlist));
         Logger.printInfo(() -> "Transfer: made the playlist " + urn + " with " + urns.size() + " tracks");
+        app.revanced.extension.soundcloud.shared.OwnPlaylists.remember(urn);
         return urn;
     }
 

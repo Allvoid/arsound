@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.shared.OwnPlaylists;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.offline.PlaylistPreloader;
 import app.revanced.extension.soundcloud.settings.Settings;
@@ -120,9 +121,10 @@ final class SavedPlaylistSync {
     }
 
     /**
-     * Older versions created a new playlist after each reinstall; the empty copies stayed on the profile.
-     * Each copy is deleted on SoundCloud once it is confirmed to be one: a known title, no tracks on the
-     * server and none added on this phone, and not the playlist in use.
+     * Older versions created a new playlist after each reinstall; the empty copies stayed on the profile. A copy
+     * looks like one: a known title, no tracks on the server and none added on this phone, and not the playlist in
+     * use. It is deleted on SoundCloud only if the app remembers making it ({@link OwnPlaylists}); otherwise it may be
+     * the user's own playlist with the same title, and it is only hidden in the app.
      */
     private static void deleteEmptyCopies(SharedPreferences preferences, String urn) {
         if (preferences.getBoolean(COPIES_DELETED, false)) return;
@@ -157,6 +159,10 @@ final class SavedPlaylistSync {
                 Logger.printInfo(() -> "Own playlist " + copy + " \"" + title + "\", " + tracks + " tracks, a copy: " + isCopy);
                 if (!isCopy) continue;
                 copies.add(copy);
+                if (!OwnPlaylists.isOwn(copy)) {
+                    Logger.printInfo(() -> "Hidden, not deleted: " + copy + " was not made by this app");
+                    continue;
+                }
                 int code = DownloadTrackPatch.apiDelete(API + "playlists/" + playlist.getLong("id"));
                 Logger.printInfo(() -> "Deleted the empty copy " + copy + " of the saved tracks playlist: HTTP " + code);
                 if (code / 100 == 2 || code == 404) deleted++; else failed++;
@@ -250,6 +256,7 @@ final class SavedPlaylistSync {
 
         Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
         String urn = Urns.textOf(playlist);
+        OwnPlaylists.remember(urn);
         preferences.edit().putString(SavedPlaylist.PLAYLIST_URN, urn).putString(PLAYLIST_TITLE, SavedPlaylist.title()).apply();
         Logger.printInfo(() -> "Created the saved tracks playlist " + urn);
     }

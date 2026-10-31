@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.shared.OwnPlaylists;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.SavedPlaylist;
@@ -71,20 +72,27 @@ final class ForYouPlaylist {
         }
         if (copies.isEmpty()) return null;
         copies.sort((a, b) -> Long.compare(a.id, b.id));
-        // Ours is empty on the server, so the oldest empty one is taken before a playlist with tracks of someone's own.
-        ServerCopy adopted = copies.get(0);
+        // Ours is empty on the server (its tracks live on the phone): a playlist with tracks there is someone's own,
+        // and is never taken.
+        ServerCopy adopted = null;
         for (ServerCopy copy : copies) {
             if (copy.trackCount == 0) {
                 adopted = copy;
                 break;
             }
         }
+        if (adopted == null) return null;
         for (ServerCopy copy : copies) {
             if (copy == adopted) continue;
-            // Tracks of this playlist exist only on the phone; a copy with tracks on the server is someone's own.
             if (copy.trackCount != 0) continue;
+            String copyUrn = "soundcloud:playlists:" + copy.id;
             // Tracks added on this phone mean an older version used the copy.
-            if (!LocalAdditions.getEntries("soundcloud:playlists:" + copy.id).isEmpty()) continue;
+            if (!LocalAdditions.getEntries(copyUrn).isEmpty()) continue;
+            // Only a playlist the app remembers making is deleted; one with the title alone may be the user's.
+            if (!OwnPlaylists.isOwn(copyUrn)) {
+                Logger.printInfo(() -> "For you: left the empty playlist " + copy.id + ", not made by this app");
+                continue;
+            }
             int code = DownloadTrackPatch.apiDelete("https://api-v2.soundcloud.com/playlists/" + copy.id);
             Logger.printInfo(() -> "For you: deleted the extra copy " + copy.id + ", HTTP " + code);
         }
@@ -139,6 +147,7 @@ final class ForYouPlaylist {
         }
         Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
         String created = String.valueOf(playlist.getClass().getMethod("getUrn").invoke(playlist));
+        OwnPlaylists.remember(created);
         ForYouPrefs.storePlaylistUrn(created);
         Logger.printInfo(() -> "For you: created the playlist " + created);
         return created;
