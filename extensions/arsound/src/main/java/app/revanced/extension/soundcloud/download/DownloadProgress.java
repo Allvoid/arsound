@@ -45,7 +45,10 @@ public final class DownloadProgress {
      * that something changed: the download manager knows nothing about them, and nothing else says when their icon
      * turns from the spinner into the downloaded one.
      */
-    private static volatile Set<String> nativeActive = Collections.emptySet();
+    private static volatile Map<String, String> nativeStates = Collections.emptyMap();
+    /** SoundCloud's library changes its state a moment after it is asked: the polling goes on until this time. */
+    private static volatile long nativeWatchUntil;
+    private static final long NATIVE_WATCH_MS = 20_000;
     /** Playlist id to the track ids started from its "Check track downloads" dialog. */
     private static final Map<String, Set<String>> playlistTracks = new HashMap<>();
     /** Set while a redraw waits for the rest of a playlist that is being queued. */
@@ -57,6 +60,8 @@ public final class DownloadProgress {
     private static final AtomicBoolean recountQueued = new AtomicBoolean();
     /** A count is run at most this often; the last change of a batch is always counted. */
     private static final long RECOUNT_MS = 3_000;
+    /** The count after the user deleted downloads. */
+    private static final long DELETE_RECOUNT_MS = 300;
 
     private static WeakReference<Activity> resumed = new WeakReference<>(null);
     private static boolean polling;
@@ -181,12 +186,16 @@ public final class DownloadProgress {
      * changes, and the state of the library is followed from now on.
      */
     public static void onNativeChanged() {
+        nativeWatchUntil = android.os.SystemClock.elapsedRealtime() + NATIVE_WATCH_MS;
         redrawSoon();
+        ProgressPill.onDownloadsChanged();
     }
 
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
     static void onDownloadsDeleted() {
-        recountAndRedraw();
+        // The user is looking at the list: the icons and the numbers go at once, not after the pause of a batch.
+        redrawSoon();
+        recountAndRedraw(DELETE_RECOUNT_MS);
     }
 
     /**
@@ -207,14 +216,25 @@ public final class DownloadProgress {
      * close together are counted once, at most every {@link #RECOUNT_MS}.
      */
     private static void recountAndRedraw() {
-        if (!recountQueued.compareAndSet(false, true)) return;
-        handler.postDelayed(() -> Utils.runOnBackgroundThread(() -> {
-            // Cleared first: a change made while this counts asks for another count.
-            recountQueued.set(false);
-            app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
-            DownloadsScreen.refresh();
-            Utils.runOnMainThread(() -> redrawLists(resumed.get()));
-        }), RECOUNT_MS);
+        recountAndRedraw(RECOUNT_MS);
+    }
+
+    private static final Runnable RECOUNT = () -> Utils.runOnBackgroundThread(() -> {
+        // Cleared first: a change made while this counts asks for another count.
+        recountQueued.set(false);
+        app.revanced.extension.soundcloud.local.PlaylistTracks.recountAll();
+        DownloadsScreen.refresh();
+        Utils.runOnMainThread(() -> redrawLists(resumed.get()));
+    });
+
+    /** A count that is waiting for a longer pause is brought forward by a shorter one. */
+    private static void recountAndRedraw(long delayMs) {
+        if (recountQueued.compareAndSet(false, true)) {
+            handler.postDelayed(RECOUNT, delayMs);
+        } else if (delayMs < RECOUNT_MS) {
+            handler.removeCallbacks(RECOUNT);
+            handler.postDelayed(RECOUNT, delayMs);
+        }
     }
 
     public static void onActivityResumed(Activity activity) {
@@ -250,9 +270,13 @@ public final class DownloadProgress {
                 downloading = current;
             }
             // SoundCloud's own offline library: the DRM tracks change their icon when its state of them does.
-            Set<String> nativeNow = app.revanced.extension.soundcloud.offline.NativeOffline.inProgressIds();
-            boolean nativeChanged = !nativeNow.equals(nativeActive);
-            nativeActive = nativeNow;
+            Map<String, String> nativeNow = app.revanced.extension.soundcloud.offline.NativeOffline.libraryStates();
+            boolean nativeChanged = !nativeNow.equals(nativeStates);
+            nativeStates = nativeNow;
+            boolean nativeBusy = nativeNow.containsValue("REQUESTED") || nativeNow.containsValue("DOWNLOADING")
+                    || android.os.SystemClock.elapsedRealtime() < nativeWatchUntil;
+            // The numbers of the playlists count the tracks of the library too.
+            if (nativeChanged) recountAndRedraw();
             // A finished download changes the numbers of files in the playlists; a failed one is forgotten.
             if (changed || !settledOnce) {
                 settledOnce = true;
@@ -265,8 +289,8 @@ public final class DownloadProgress {
             }
             Utils.runOnMainThread(() -> {
                 if (changed || nativeChanged) redrawLists(resumed.get());
-                if (changed) ProgressPill.onDownloadsChanged();
-                if (!current.isEmpty() || !nativeNow.isEmpty()) startPolling();
+                if (changed || nativeChanged) ProgressPill.onDownloadsChanged();
+                if (!current.isEmpty() || nativeBusy) startPolling();
             });
         });
     }

@@ -318,28 +318,29 @@ public final class NativeOffline {
     }
 
     /**
-     * The ids of the tracks that wait in SoundCloud's offline library or are downloaded by it now: the ones whose icon
-     * is a spinner. Empty when the library cannot be read.
+     * The state of every track in SoundCloud's offline library that counts as a download ({@code DOWNLOADED},
+     * {@code REQUESTED}, {@code DOWNLOADING}), by track id. Empty when the library cannot be read. Compared with the
+     * last answer to tell that an icon has to change: a request turns into a download, or a download is removed.
      */
-    public static Set<String> inProgressIds() {
+    public static Map<String, String> libraryStates() {
         Object operations = offlineOperations.get();
-        if (operations == null) return Collections.emptySet();
+        if (operations == null) return Collections.emptyMap();
         try {
             Object provider = offlineStateProviderField(operations).get(operations);
             Object mapValue = provider == null ? null : offlineStateMapField(provider).get(provider);
-            if (!(mapValue instanceof Map)) return Collections.emptySet();
-            Set<String> ids = new HashSet<>();
+            if (!(mapValue instanceof Map)) return Collections.emptyMap();
+            Map<String, String> states = new java.util.HashMap<>();
             for (Map.Entry<?, ?> entry : ((Map<?, ?>) mapValue).entrySet()) {
                 Object state = entry.getValue();
                 if (!(state instanceof Enum)) continue;
                 String name = ((Enum<?>) state).name();
-                if (!"REQUESTED".equals(name) && !"DOWNLOADING".equals(name)) continue;
+                if (!"DOWNLOADED".equals(name) && !"REQUESTED".equals(name) && !"DOWNLOADING".equals(name)) continue;
                 String id = DownloadTrackPatch.parseTrackId(entry.getKey());
-                if (id != null) ids.add(id);
+                if (id != null) states.put(id, name);
             }
-            return ids;
+            return states;
         } catch (Throwable ex) {
-            return Collections.emptySet();
+            return Collections.emptyMap();
         }
     }
 

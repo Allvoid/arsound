@@ -630,6 +630,8 @@ public final class DownloadPlaylistPatch {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(text("Скачать " + toStart, "Download " + toStart),
                         (d, which) -> {
+                            // The counter covers the protected tracks too: "0 of 15", not of the 12 that are files.
+                            if (!drmIds.isEmpty()) ProgressPill.onNativeQueued(drmIds);
                             if (!downloadable.isEmpty()) downloadAll(context, playlistId, downloadable);
                             // DRM tracks go to SoundCloud's own offline download, queued as one batch so the native
                             // service starts once instead of spamming a notification per track.

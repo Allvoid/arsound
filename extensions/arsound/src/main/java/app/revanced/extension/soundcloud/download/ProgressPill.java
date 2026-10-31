@@ -18,6 +18,7 @@ import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.offline.NativeOffline;
 import app.revanced.extension.soundcloud.shared.Lang;
 import app.revanced.extension.soundcloud.shared.Screens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
@@ -95,6 +96,18 @@ public final class ProgressPill {
         });
     }
 
+    /**
+     * Called when protected tracks are handed to SoundCloud's own offline library: they are part of the count like the
+     * files Arsound downloads, and are done when that library has them.
+     */
+    static void onNativeQueued(Iterable<String> trackIds) {
+        Utils.runOnMainThread(() -> {
+            if (batch.isEmpty()) pending.clear();
+            for (String id : trackIds) batch.add(id);
+            refresh();
+        });
+    }
+
     /** Called when a download of the batch was started, or could not start at all. */
     static void onDownloadStarted(String trackId, boolean started) {
         Utils.runOnMainThread(() -> {
@@ -113,7 +126,8 @@ public final class ProgressPill {
     private static int downloadedOfBatch() {
         int done = 0;
         for (String id : batch) {
-            if (!pending.contains(id) && !DownloadProgress.isDownloading(id)) done++;
+            if (!pending.contains(id) && !DownloadProgress.isDownloading(id)
+                    && !NativeOffline.isDownloading(id) && !NativeOffline.isJustRequested(id)) done++;
         }
         return done;
     }
