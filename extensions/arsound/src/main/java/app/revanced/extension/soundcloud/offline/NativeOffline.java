@@ -135,9 +135,6 @@ public final class NativeOffline {
             } catch (Throwable ex) {
                 Logger.printException(() -> "Could not start the native offline worker", ex);
             }
-            DownloadTrackPatch.showToast(context, DownloadTrackPatch.text(
-                    "Трек защищён (DRM): передаю его в офлайн-библиотеку SoundCloud, слушать можно будет в приложении",
-                    "The track is protected (DRM): handing it to SoundCloud's offline library, it will play in the app"));
         });
     }
 
