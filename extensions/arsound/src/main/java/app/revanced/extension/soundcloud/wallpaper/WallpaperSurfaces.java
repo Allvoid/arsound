@@ -209,6 +209,7 @@ public final class WallpaperSurfaces {
      * has nothing to blur; the header's fades are clear there too ({@link #screenSurface}).
      */
     public static Modifier headerBackdrop(Modifier modifier, Composer composer) {
+        if (active && !onWallpaperScreen(composer)) logMissed("headerBackdrop", composer);
         return active && onWallpaperScreen(composer) ? AlphaKt.alpha(modifier, 0f) : modifier;
     }
 
@@ -221,6 +222,7 @@ public final class WallpaperSurfaces {
      * @param plain   The same modifier without it.
      */
     public static Modifier headerHaze(Modifier blurred, Modifier plain, Composer composer) {
+        if (active && !onWallpaperScreen(composer)) logMissed("headerHaze", composer);
         return active && onWallpaperScreen(composer) ? plain : blurred;
     }
 
@@ -230,6 +232,7 @@ public final class WallpaperSurfaces {
      * both ends, so the header has no edge.
      */
     public static Object headerShade(Object brush, Composer composer) {
+        if (active && !onWallpaperScreen(composer)) logMissed("headerShade", composer);
         if (!active || !onWallpaperScreen(composer)) return brush;
         try {
             return HeaderShade.brush(brush.getClass().getClassLoader(), Colors.j(composer));
@@ -303,6 +306,31 @@ public final class WallpaperSurfaces {
     }
 
     // endregion
+
+    private static volatile long lastMissLogged;
+
+    /**
+     * A header hook that ran with the wallpaper on but outside a screen that shows it: the header then keeps its blur,
+     * which is the light patch behind the cover. Logged, at most twice a second, with what the screen check saw.
+     */
+    private static void logMissed(String hook, Composer composer) {
+        long now = System.currentTimeMillis();
+        if (now - lastMissLogged < 500) return;
+        lastMissLogged = now;
+        try {
+            Object host = composer.D(AndroidCompositionLocals_androidKt.getLocalView());
+            View view = host instanceof View ? (View) host : null;
+            MainScreen screen = view == null ? null : MainScreen.of(view.getContext());
+            boolean attached = view != null && view.isAttachedToWindow();
+            boolean wallpaper = screen != null && screen.hasWallpaper();
+            boolean contains = screen != null && screen.contains(view);
+            Logger.printInfo(() -> "Wallpaper: " + hook + " outside a wallpaper screen: host "
+                    + (view == null ? "none" : view.getClass().getSimpleName() + (attached ? "" : ", detached"))
+                    + ", screen " + (screen != null) + ", wallpaper " + wallpaper + ", inside " + contains);
+        } catch (Throwable ex) {
+            Logger.printInfo(() -> "Wallpaper: " + hook + " outside a wallpaper screen: " + ex);
+        }
+    }
 
     /** True if the Compose content belongs to a main screen that shows the wallpaper. */
     private static boolean onWallpaperScreen(Composer composer) {

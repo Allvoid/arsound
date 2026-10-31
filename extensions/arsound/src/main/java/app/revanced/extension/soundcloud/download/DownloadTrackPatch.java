@@ -244,18 +244,31 @@ public final class DownloadTrackPatch {
         // A track waiting in SoundCloud's own offline download (a DRM one) can be taken back: SoundCloud never gives
         // up on such a request by itself, and its spinner turned for hours.
         boolean nativeWaiting = !downloaded && app.revanced.extension.soundcloud.offline.NativeOffline.isDownloading(trackId);
-        title.setText(nativeWaiting
+        // A DRM track downloaded by SoundCloud's own offline download has its file there, not in Arsound's folder: the row
+        // deletes it, as it does for any other downloaded track.
+        boolean nativeDownloaded = !downloaded && !nativeWaiting
+                && app.revanced.extension.soundcloud.offline.NativeOffline.isDownloaded(trackId);
+        title.setText(nativeDownloaded
+                ? text("Удалить скачанный файл", "Delete the downloaded file")
+                : nativeWaiting
                 ? text("Отменить скачивание", "Cancel the download")
                 : downloaded
                 ? text("Скачать файл ещё раз", "Download file again")
                 : text("Скачать файл", "Download file"));
-        icon.setImageResource(arsoundIcon(nativeWaiting ? "ic_actions_close"
+        icon.setImageResource(arsoundIcon(nativeDownloaded ? "ic_actions_delete" : nativeWaiting ? "ic_actions_close"
                 : downloaded ? "ic_actions_downloaded" : "ic_actions_download_initial"));
 
         row.setBackgroundResource(selectableBackground(context));
         row.setOnClickListener(v -> {
             dialog.dismiss();
             Context appContext = context.getApplicationContext();
+            if (nativeDownloaded) {
+                Utils.runOnBackgroundThread(() -> {
+                    app.revanced.extension.soundcloud.offline.NativeOffline.cancel(appContext, trackId);
+                    showToast(appContext, text("Файл удалён", "The file is deleted"));
+                });
+                return;
+            }
             if (nativeWaiting) {
                 Utils.runOnBackgroundThread(() -> {
                     app.revanced.extension.soundcloud.offline.NativeOffline.cancel(appContext, trackId);
