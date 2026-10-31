@@ -56,7 +56,18 @@ final class ResumableDownload {
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final String USER_AGENT = "Arsound";
 
+    /** The connection reading now, so a cancel can close it: a read waits for the network and asks nothing meanwhile. */
+    private static volatile HttpURLConnection active;
+
     private ResumableDownload() {
+    }
+
+    /** Closes the connection that reads now, if any: the blocked read ends at once, and the cancel is seen. */
+    static void abortActive() {
+        HttpURLConnection connection = active;
+        if (connection == null) return;
+        // Off the caller's thread: closing a socket can block for a moment.
+        new Thread(connection::disconnect, "Arsound download abort").start();
     }
 
     /**
@@ -81,6 +92,8 @@ final class ResumableDownload {
             } catch (Cancelled | Final ex) {
                 throw ex;
             } catch (IOException ex) {
+                // A full storage stays full: no tries again, and the user is told to free some space.
+                if (DiskErrors.isNoSpace(ex)) throw new AsrInstaller.NoSpace(Math.max(0, expectedSize - partial.length()));
                 if (attempt == ATTEMPTS - 1) throw ex;
                 pause(1500L << attempt, cancel);
             }
@@ -130,6 +143,7 @@ final class ResumableDownload {
             }
             // A server that ignores the range sends the whole file with 200: start the file again.
             if (code == 200) have = 0;
+            active = connection;
             try (InputStream input = connection.getInputStream();
                  RandomAccessFile output = new RandomAccessFile(partial, "rw")) {
                 output.setLength(have);
@@ -149,8 +163,13 @@ final class ResumableDownload {
                     }
                 }
                 progress.onBytes(done, expectedSize);
+            } catch (IOException ex) {
+                // A read cut by a cancel is the cancel, not a failure to try again.
+                if (cancel.isCancelled()) throw new Cancelled();
+                throw ex;
             }
         } finally {
+            if (active == connection) active = null;
             connection.disconnect();
         }
     }

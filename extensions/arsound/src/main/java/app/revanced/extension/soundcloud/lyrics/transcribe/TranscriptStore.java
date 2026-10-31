@@ -86,11 +86,17 @@ final class TranscriptStore {
         file(urn, modelId).delete();
     }
 
-    /** How many finished transcripts are stored (those with words). */
-    synchronized int doneCount() {
-        int count = 0;
-        File[] files = directory.listFiles();
+    /**
+     * How many finished transcripts are stored (those with words). The files are read without the lock of the store:
+     * each is replaced whole by a rename, and a page opening a text must not wait for all of them to be decoded.
+     */
+    int doneCount() {
+        File[] files;
+        synchronized (this) {
+            files = directory.listFiles();
+        }
         if (files == null) return 0;
+        int count = 0;
         for (File file : files) {
             Transcript transcript = readFile(file);
             if (transcript != null && transcript.isDone()) count++;
@@ -122,12 +128,17 @@ final class TranscriptStore {
         long total = 0;
         for (File file : files) total += file.length();
         if (files.length <= MAX_FILES && total <= MAX_BYTES) return;
-        Arrays.sort(files, new Comparator<File>() {
-            @Override
-            public int compare(File a, File b) {
-                return Long.compare(a.lastModified(), b.lastModified());
-            }
-        });
+        // The time of each file is read once, not twice per comparison of the sort.
+        long[] times = new long[files.length];
+        Integer[] order = new Integer[files.length];
+        for (int i = 0; i < files.length; i++) {
+            times[i] = files[i].lastModified();
+            order[i] = i;
+        }
+        Arrays.sort(order, (a, b) -> Long.compare(times[a], times[b]));
+        File[] sorted = new File[files.length];
+        for (int i = 0; i < order.length; i++) sorted[i] = files[order[i]];
+        files = sorted;
         int count = files.length;
         for (File file : files) {
             if (count <= MAX_FILES * 9 / 10 && total <= MAX_BYTES * 9 / 10) break;

@@ -50,6 +50,17 @@ public final class TranscriptionManager {
         void onFailed(Failure failure);
 
         void onCancelled();
+
+        /**
+         * The user stopped the work, and it stops at the next point it can: a piece of the separation or a window of
+         * listening runs to its end first.
+         */
+        default void onStopping() {
+        }
+
+        /** This song waits for the recognition of another one to stop: one song is listened to at a time. */
+        default void onWaiting() {
+        }
     }
 
     /** What a download of a model tells the settings screen. All calls are on the main thread. */
@@ -176,7 +187,8 @@ public final class TranscriptionManager {
         if (remembered == null || key == null) return;
         SharedPreferences.Editor editor = remembered.edit().putString(key, System.currentTimeMillis() + "|" + language.name());
         java.util.Map<String, ?> all = remembered.getAll();
-        if (all.size() >= MAX_ARTISTS) {
+        // An artist already known only gets a new answer: the list does not grow, nobody else is pushed out.
+        if (!all.containsKey(key) && all.size() >= MAX_ARTISTS) {
             String oldest = null;
             long oldestAt = Long.MAX_VALUE;
             for (java.util.Map.Entry<String, ?> entry : all.entrySet()) {
@@ -224,7 +236,9 @@ public final class TranscriptionManager {
      * to listening (not a preview, not protected) is found out when the work starts.
      */
     public static boolean canOffer(String urn, long durationMs) {
-        return isSupportedDevice() && TrackAudio.isCandidate(urn)
+        Context context = Utils.getContext();
+        // A phone that refused the library is not offered what it cannot run (until the app is updated).
+        return isSupportedDevice() && TrackAudio.isCandidate(urn) && (context == null || !NativeLibs.isRefused(context))
                 && durationMs >= TranscriptionJob.MIN_TRACK_MS && durationMs <= TranscriptionJob.MAX_TRACK_MS;
     }
 
@@ -306,14 +320,25 @@ public final class TranscriptionManager {
             listener.onFailed(Failure.MODEL);
             return;
         }
+        boolean waits = running != null || installing != null;
         if (running != null) {
             running.listener = null;
             running.cancelled = true;
         }
         if (installing != null) installing.cancelled = true;
+        if (waits) ResumableDownload.abortActive();
         final Run run = new Run(urn, durationMs);
         run.listener = listener;
         running = run;
+        // The one thread finishes the work before; the page says so instead of sitting on "preparing".
+        if (waits) {
+            tell(run, new Event() {
+                @Override
+                public void deliver(Listener l) {
+                    l.onWaiting();
+                }
+            });
+        }
         WORKER.execute(new Runnable() {
             @Override
             public void run() {
@@ -443,7 +468,17 @@ public final class TranscriptionManager {
 
     /** Stops the recognition in progress. Its progress stays on the phone. */
     public static void cancel() {
-        if (running != null) running.cancelled = true;
+        Run run = running;
+        if (run == null) return;
+        run.cancelled = true;
+        // A download waiting for the network ends now; the page shows the stop at once.
+        ResumableDownload.abortActive();
+        tell(run, new Event() {
+            @Override
+            public void deliver(Listener listener) {
+                listener.onStopping();
+            }
+        });
     }
 
     // endregion
@@ -576,8 +611,14 @@ public final class TranscriptionManager {
     }
 
     /** Removes every recognised text and unfinished work. Not on the main thread. */
-    public static void clearTranscripts() {
+    /**
+     * Deletes the recognised texts. @return False while a song is being recognised: the work would write its text
+     * back right after.
+     */
+    public static boolean clearTranscripts() {
+        if (running != null) return false;
         store().clear();
+        return true;
     }
 
     private static synchronized TranscriptStore store() {

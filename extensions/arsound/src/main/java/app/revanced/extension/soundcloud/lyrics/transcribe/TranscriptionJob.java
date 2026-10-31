@@ -75,18 +75,26 @@ final class TranscriptionJob {
      * @throws JobFailed                    If the job could not be done.
      * @throws ResumableDownload.Cancelled  If it was cancelled; the progress so far is kept.
      */
+    /** The finished text of a song heard again, kept until the new try finishes; null otherwise. */
+    private Transcript keep;
+
     Transcript run() throws JobFailed, ResumableDownload.Cancelled {
-        Transcript earlier = again ? null : store.read(urn, model.id);
+        Transcript stored = store.read(urn, model.id);
+        Transcript earlier = again ? null : stored;
         if (earlier != null && earlier.isDone()) return earlier;
+        // Heard again ("another language"): the finished text stays in place until the new one is finished too.
+        keep = again && stored != null && stored.isDone() ? stored : null;
         // A try cut short goes on only in the same language: an answer changed in between starts the song anew.
         Transcript partial = earlier != null && earlier.state == Transcript.State.PARTIAL && language.matches(earlier.language)
                 ? earlier : null;
 
+        // A library the phone refused is not downloaded again for nothing.
+        if (NativeLibs.isRefused(context)) throw new JobFailed(Failure.MODEL, null);
         PowerManager.WakeLock wake = acquireWakeLock();
         try {
             install();
             if (!NativeLibs.load(context)) throw new JobFailed(Failure.MODEL, null);
-            float[] pcm = decode();
+            Samples pcm = decode();
             long start = System.nanoTime();
             Transcript transcript = listen(pcm, partial);
             String seconds = secondsSince(start);
@@ -112,21 +120,31 @@ final class TranscriptionJob {
         } catch (ResumableDownload.BadChecksum ex) {
             throw new JobFailed(Failure.BAD_DOWNLOAD, ex);
         } catch (IOException ex) {
-            throw new JobFailed(Failure.NETWORK, ex);
+            throw new JobFailed(DiskErrors.isNoSpace(ex) ? Failure.NO_SPACE : Failure.NETWORK, ex);
         }
     }
 
-    private float[] decode() throws JobFailed, ResumableDownload.Cancelled {
+    private Samples decode() throws JobFailed, ResumableDownload.Cancelled {
         long start = System.nanoTime();
         try (TrackAudio.Prepared audio = TrackAudio.prepare(context, urn, cancel)) {
             String fetched = secondsSince(start);
             Logger.printInfo(() -> "Transcribe: the audio is ready in " + fetched + " s");
             start = System.nanoTime();
-            if (!separate) return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel);
+            // Room for the whole song is made at once: a buffer grown half again at a time held up to two and a half
+            // songs of samples while it grew.
+            int expected = Samples.expectedFor(durationMs);
+            if (!separate) return AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel, expected);
             // Shown already while the model opens: the first time on a neural processor it is compiled for it.
             sink.separating(0);
-            try (MdxSeparator separator = MdxSeparator.open(AsrInstaller.voiceModelFile(context), DeviceState.threads())) {
-                float[] voice = AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel,
+            MdxSeparator opened;
+            try {
+                opened = MdxSeparator.open(AsrInstaller.voiceModelFile(context), DeviceState.threads());
+            } catch (IOException ex) {
+                // The model did not open: told as the model's failure, not as sound the phone cannot read.
+                throw new JobFailed(DiskErrors.isNoSpace(ex) ? Failure.NO_SPACE : Failure.MODEL, ex);
+            }
+            try (MdxSeparator separator = opened) {
+                Samples voice = AudioDecoder.decode(audio.file, MAX_TRACK_MS + 30_000L, cancel,
                         new VocalsTarget(separator, new VocalsTarget.Progress() {
                             @Override
                             public void beforePiece() throws IOException {
@@ -138,7 +156,7 @@ final class TranscriptionJob {
                             public void separatedMs(long ms) {
                                 sink.separating((int) Math.min(99, ms * 100 / Math.max(1, durationMs)));
                             }
-                        }));
+                        }, expected));
                 String separated = secondsSince(start);
                 Logger.printInfo(() -> "Transcribe: the voice is separated in " + separated + " s");
                 return voice;
@@ -147,7 +165,11 @@ final class TranscriptionJob {
             throw ex;
         } catch (TrackAudio.Unavailable ex) {
             throw new JobFailed(Failure.UNAVAILABLE, ex);
+        } catch (VocalsTarget.SeparationFailed ex) {
+            throw new JobFailed(Failure.MODEL, ex);
         } catch (IOException ex) {
+            // The song copied into a file on a full storage: that is no fault of the sound or of the network.
+            if (DiskErrors.isNoSpace(ex)) throw new JobFailed(Failure.NO_SPACE, ex);
             // The network failing while the stream is fetched is told apart from a file the phone cannot decode.
             boolean network = ex instanceof java.net.SocketException || ex instanceof java.net.UnknownHostException
                     || ex instanceof java.net.SocketTimeoutException || String.valueOf(ex.getMessage()).startsWith("HTTP ");
@@ -157,7 +179,9 @@ final class TranscriptionJob {
         }
     }
 
-    private Transcript listen(float[] pcm, Transcript partial) throws JobFailed, ResumableDownload.Cancelled {
+    private Transcript listen(Samples samples, Transcript partial) throws JobFailed, ResumableDownload.Cancelled {
+        float[] pcm = samples.data;
+        int length = samples.length;
         List<String> lines = new ArrayList<>();
         List<Long> times = new ArrayList<>();
         int start = 0;
@@ -168,7 +192,7 @@ final class TranscriptionJob {
                 lines.add(partial.lines[i]);
                 times.add(partial.times[i]);
             }
-            start = (int) Math.min(pcm.length, partial.resumeMs * Chunker.RATE / 1000);
+            start = (int) Math.min(length, partial.resumeMs * Chunker.RATE / 1000);
             done = partial.windowsDone;
             // The language found in the windows before is the song's (the partial text matched the answer).
             if (heardIn.isEmpty()) heardIn = partial.language;
@@ -179,19 +203,19 @@ final class TranscriptionJob {
             SongListener ear = new SongListener(runner, heardIn, autoLanguage, language == SongLanguage.OTHER,
                     Locale.getDefault().getLanguage(),
                     Lang.russian(), lines, times);
-            while (start < pcm.length) {
+            while (start < length) {
                 if (cancel.isCancelled()) throw new ResumableDownload.Cancelled();
                 restIfHot();
-                int end = Chunker.windowEnd(pcm, start);
-                int total = done + windowsLeft(pcm, start);
+                int end = Chunker.windowEnd(pcm, length, start);
+                int total = done + windowsLeft(length, start);
                 sink.listening(done + 1, Math.max(total, done + 1));
                 ear.listen(pcm, start, end);
                 done++;
                 start = end;
-                save(lines, times, ear.language(), done, done + windowsLeft(pcm, start), Chunker.toMs(start),
+                save(lines, times, ear.language(), done, done + windowsLeft(length, start), Chunker.toMs(start),
                         Transcript.State.PARTIAL);
             }
-            return save(lines, times, ear.language(), done, done, Chunker.toMs(pcm.length),
+            return save(lines, times, ear.language(), done, done, Chunker.toMs(length),
                     lines.isEmpty() ? Transcript.State.FAILED : Transcript.State.DONE);
         } catch (ResumableDownload.Cancelled ex) {
             throw ex;
@@ -213,6 +237,9 @@ final class TranscriptionJob {
         for (int i = 0; i < stamps.length; i++) stamps[i] = times.get(i);
         Transcript transcript = new Transcript(urn, model.id, state, language, durationMs, System.currentTimeMillis(),
                 done, total, resumeMs, lines.toArray(new String[0]), stamps);
+        // A song heard again overwrote its finished text with the first window of the new try; a try cut short or
+        // failed then left nothing. Only a finished new text replaces the old one.
+        if (keep != null && state != Transcript.State.DONE) return transcript;
         try {
             store.write(transcript);
         } catch (IOException ex) {
@@ -227,8 +254,8 @@ final class TranscriptionJob {
     }
 
     /** About how many windows the rest of the song needs, counting from a sample. */
-    private static int windowsLeft(float[] pcm, int start) {
-        return (int) Math.ceil((pcm.length - start) / (double) WINDOW_ESTIMATE);
+    private static int windowsLeft(int length, int start) {
+        return (int) Math.ceil((length - start) / (double) WINDOW_ESTIMATE);
     }
 
     /** When the phone is hot the job waits, a little when warm and long when hot, telling the page. */
@@ -253,7 +280,10 @@ final class TranscriptionJob {
             PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
             if (power == null) return null;
             PowerManager.WakeLock lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Arsound:lyrics-recognition");
-            lock.acquire(20 * 60_000L);
+            lock.setReferenceCounted(false);
+            // No time limit: the first install of the models over a slow network, or the voice of a long song on a slow
+            // phone, takes longer than any fixed one. It is released in the finally of run(), whatever happens.
+            lock.acquire();
             return lock;
         } catch (RuntimeException ex) {
             // No permission or no service: the work goes on without keeping the processor awake.

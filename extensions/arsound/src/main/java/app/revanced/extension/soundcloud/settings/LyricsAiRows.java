@@ -289,8 +289,12 @@ final class LyricsAiRows {
         ActionRow row = ui.createActionRow(text("Очистить распознанные тексты", "Clear recognised lyrics"), "", v -> {
             clearStatus.setText(text("Очищаю…", "Clearing…"));
             ui.fillInBackground(() -> {
-                TranscriptionManager.clearTranscripts();
+                boolean cleared = TranscriptionManager.clearTranscripts();
                 Utils.runOnMainThread(() -> {
+                    if (!cleared) {
+                        clearStatus.setText(text("Сначала остановите распознавание песни", "Stop the recognition of the song first"));
+                        return;
+                    }
                     LyricsRepository.forgetRecognised();
                     refreshClearStatus();
                 });

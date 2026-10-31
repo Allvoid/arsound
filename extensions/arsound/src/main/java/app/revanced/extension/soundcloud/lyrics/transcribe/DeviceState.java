@@ -21,7 +21,8 @@ final class DeviceState {
     }
 
     static boolean isSupportedDevice() {
-        if (Build.VERSION.SDK_INT < 24) return false;
+        // Android 8 and later: the recognition uses java.util.Base64 and String.join, which Android 7 does not have.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
         // The libraries exist for 64-bit ARM phones, and for x86-64 (emulators, Chromebooks).
         return NativeArchive.abi() != null;
     }

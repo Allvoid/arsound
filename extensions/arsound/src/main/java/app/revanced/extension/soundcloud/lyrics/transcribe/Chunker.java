@@ -26,7 +26,12 @@ final class Chunker {
      * middle of the quietest 200 ms between 24 and 30 seconds, preferring the later of two equally quiet places.
      */
     static int windowEnd(float[] pcm, int start) {
-        if (pcm.length - start <= MAX_WINDOW) return pcm.length;
+        return windowEnd(pcm, pcm.length, start);
+    }
+
+    /** The same for the first {@code length} samples of the array. */
+    static int windowEnd(float[] pcm, int length, int start) {
+        if (length - start <= MAX_WINDOW) return length;
         int bestCentre = start + MAX_WINDOW;
         double best = Double.MAX_VALUE;
         for (int from = start + CUT_FROM; from + FRAME <= start + MAX_WINDOW; from += HOP) {

@@ -44,4 +44,9 @@ final class GrowableFloats {
     float[] toArray() {
         return Arrays.copyOf(data, size);
     }
+
+    /** The samples as they are, without a copy; the list must not be added to afterwards. */
+    Samples samples() {
+        return new Samples(data, size);
+    }
 }

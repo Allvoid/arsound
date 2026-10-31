@@ -67,13 +67,11 @@ final class Npu {
         return generation() != null && !isRefused(context);
     }
 
+    /** The processor failed since the app was installed or updated, for this version of its libraries. */
+    private static final UntilUpdate REFUSED = new UntilUpdate("npu-refused-" + NativeArchive.QNN_HTP.version);
+
     private static boolean isRefused(Context context) {
-        File refused = refusedFile(context);
-        if (!refused.isFile()) return false;
-        if (readNumbers(refused)[0] == installed(context)) return true;
-        //noinspection ResultOfMethodCallIgnored
-        refused.delete();
-        return false;
+        return REFUSED.isSet(context);
     }
 
     /**
@@ -118,6 +116,7 @@ final class Npu {
             }
             long seconds = (System.nanoTime() - start) / 1_000_000_000L;
             Logger.printInfo(() -> "Transcribe: the model is compiled for the neural processor in " + seconds + " s");
+            removeOtherCompiled(compiled);
             return session;
         } catch (OrtException | RuntimeException | UnsatisfiedLinkError ex) {
             //noinspection ResultOfMethodCallIgnored
@@ -189,21 +188,33 @@ final class Npu {
      */
     private static void refuse(Context context, String why) {
         Logger.printInfo(() -> "Transcribe: the neural processor is not used until the app is updated: " + why);
-        write(refusedFile(context), installed(context) + " " + why.replace('\n', ' '));
+        REFUSED.set(context, why);
         AsrInstaller.removeLibraries(context, NativeArchive.QNN_HTP);
     }
 
-    /** When the app was installed or last updated. */
+    /** When the app was installed or last updated; asked of the system once per process. */
     private static long installed(Context context) {
-        try {
-            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).lastUpdateTime;
-        } catch (PackageManager.NameNotFoundException ex) {
-            return 0;
-        }
+        return UntilUpdate.installed(context);
     }
 
-    private static File refusedFile(Context context) {
-        return new File(AsrInstaller.root(context), "npu-refused-" + NativeArchive.QNN_HTP.version);
+    /**
+     * Removes the models compiled for another generation or another version of the libraries: each is as big as the
+     * model, and a new version of the libraries compiles a new one beside it.
+     */
+    private static void removeOtherCompiled(File compiled) {
+        String name = compiled.getName();
+        int at = name.indexOf(".v");
+        if (at <= 0) return;
+        String model = name.substring(0, at);
+        File[] files = compiled.getParentFile() == null ? null : compiled.getParentFile().listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            String other = file.getName();
+            if (other.startsWith(model + ".v") && other.contains(".qnn-") && other.endsWith(".onnx") && !other.equals(name)) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+        }
     }
 
     private static File attemptsFile(Context context) {

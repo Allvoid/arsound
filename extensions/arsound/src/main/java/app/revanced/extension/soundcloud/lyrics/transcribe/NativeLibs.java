@@ -24,9 +24,17 @@ final class NativeLibs {
      * @return Whether the library is loaded now. False when it is not installed or the system refused it (a damaged
      * file, an unfit phone); in the second case the file is removed so that the next install starts clean.
      */
+    /** The system refused the library since the app was installed or updated: it is not downloaded again until then. */
+    private static final UntilUpdate REFUSED = new UntilUpdate("sherpa-refused-" + NativeArchive.SHERPA.version);
+
+    /** Whether the phone refused the library for this install of the app. */
+    static boolean isRefused(Context context) {
+        return REFUSED.isSet(context);
+    }
+
     static synchronized boolean load(Context context) {
         if (loaded) return true;
-        if (!DeviceState.isSupportedDevice() || !AsrInstaller.isLibraryInstalled(context)) return false;
+        if (!DeviceState.isSupportedDevice() || isRefused(context) || !AsrInstaller.isLibraryInstalled(context)) return false;
         File library = AsrInstaller.libraryFile(context);
         try {
             LibraryLoader.setAutoLoadEnabled(false);
@@ -35,6 +43,7 @@ final class NativeLibs {
             Logger.printInfo(() -> "Transcribe: the native library is loaded");
         } catch (UnsatisfiedLinkError | SecurityException ex) {
             Logger.printException(() -> "Transcribe: the native library could not be loaded", ex);
+            REFUSED.set(context, ex.toString());
             //noinspection ResultOfMethodCallIgnored
             library.setWritable(true);
             //noinspection ResultOfMethodCallIgnored

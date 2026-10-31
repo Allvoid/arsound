@@ -14,5 +14,5 @@ interface PcmTarget {
     void push(float[] interleaved, int frames) throws IOException;
 
     /** The end of the song. @return Mono samples at {@link Chunker#RATE}. */
-    float[] finish() throws IOException;
+    Samples finish() throws IOException;
 }

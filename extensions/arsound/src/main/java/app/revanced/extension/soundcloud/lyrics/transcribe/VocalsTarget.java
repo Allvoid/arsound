@@ -16,10 +16,17 @@ final class VocalsTarget implements PcmTarget {
         void separatedMs(long ms);
     }
 
+    /** The separation model failed on a piece: the model's fault, not the sound's or the network's. */
+    static final class SeparationFailed extends IOException {
+        SeparationFailed(IOException cause) {
+            super("The voice could not be separated: " + cause.getMessage(), cause);
+        }
+    }
+
     /** The length of a piece: 15 seconds, as sherpa-onnx does it. */
     private static final int CHUNK = 15 * MdxSeparator.RATE;
 
-    private final GrowableFloats output = new GrowableFloats(Chunker.RATE * 60);
+    private final GrowableFloats output;
     private final StreamResampler toSpeech = new StreamResampler(MdxSeparator.RATE, Chunker.RATE);
     private final VocalsStream stream;
     private int channels;
@@ -30,10 +37,18 @@ final class VocalsTarget implements PcmTarget {
     private float[] leftIn = new float[0];
     private float[] rightIn = new float[0];
 
-    VocalsTarget(MdxSeparator separator, Progress progress) {
+    /** @param expected The samples the voice of the song is expected to take at 16 kHz, made room for at once. */
+    VocalsTarget(MdxSeparator separator, Progress progress, int expected) {
+        output = new GrowableFloats(expected);
         stream = new VocalsStream(CHUNK, separator.margin(), (pieceLeft, pieceRight, first, last) -> {
             progress.beforePiece();
-            return separator.separate(pieceLeft, pieceRight, first, last);
+            try {
+                return separator.separate(pieceLeft, pieceRight, first, last);
+            } catch (ResumableDownload.Cancelled ex) {
+                throw ex;
+            } catch (IOException ex) {
+                throw new SeparationFailed(ex);
+            }
         }, (mono, count) -> {
             toSpeech.push(mono, count, output);
             progress.separatedMs(output.size() * 1000L / Chunker.RATE);
@@ -80,7 +95,7 @@ final class VocalsTarget implements PcmTarget {
     }
 
     @Override
-    public float[] finish() throws IOException {
+    public Samples finish() throws IOException {
         if (leftRate != null) {
             leftRate.finish(left);
             rightRate.finish(right);
@@ -88,6 +103,6 @@ final class VocalsTarget implements PcmTarget {
         }
         stream.finish();
         toSpeech.finish(output);
-        return output.toArray();
+        return output.samples();
     }
 }

@@ -71,6 +71,26 @@ public class VoiceSeparationMathTest {
         for (int i = 0; i < length; i++) assertEquals(signal[i], back[i], 1e-3);
     }
 
+    /** The buffers kept between calls start clean: a second signal comes back as itself, not mixed with the first. */
+    @Test
+    public void theInverseKeepsNoTraceOfTheCallBefore() {
+        int nFft = 96;
+        int hop = 16;
+        MdxStft stft = new MdxStft(nFft, hop);
+        int length = hop * 40;
+        int frames = stft.frames(length);
+        Random random = new Random(5);
+        for (int round = 0; round < 2; round++) {
+            float[] signal = new float[length];
+            for (int i = 0; i < length; i++) signal[i] = random.nextFloat() * 2 - 1;
+            float[] re = new float[frames * stft.bins()];
+            float[] im = new float[frames * stft.bins()];
+            stft.forward(signal, 0, length, re, im);
+            float[] back = stft.inverse(re, im, frames);
+            for (int i = 0; i < length; i++) assertEquals(signal[i], back[i], 1e-3);
+        }
+    }
+
     /** The pieces of a song cover it once, in order, each with the margins its neighbours give. */
     @Test
     public void thePiecesCoverTheSongOnce() throws Exception {

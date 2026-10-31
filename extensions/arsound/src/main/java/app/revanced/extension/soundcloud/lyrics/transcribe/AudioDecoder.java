@@ -19,6 +19,11 @@ import java.nio.ByteOrder;
  */
 final class AudioDecoder {
     private static final long TIMEOUT_US = 10_000;
+    /**
+     * After the end of the input, this many polls in a row without output end the decoding: a decoder that never
+     * marks its last buffer would otherwise be asked for ever, holding the one thread of the recognition.
+     */
+    private static final int MAX_IDLE_POLLS_AFTER_END = 300;
 
     private AudioDecoder() {
     }
@@ -27,12 +32,12 @@ final class AudioDecoder {
      * @param maxMs The decoding stops after this much sound.
      * @throws IOException If the file has no audio or the phone cannot decode it.
      */
-    static float[] decode(File file, long maxMs, ResumableDownload.Cancel cancel) throws IOException {
-        return decode(file, maxMs, cancel, new MonoTarget());
+    static Samples decode(File file, long maxMs, ResumableDownload.Cancel cancel, int expected) throws IOException {
+        return decode(file, maxMs, cancel, new MonoTarget(expected));
     }
 
     /** The same into another target. */
-    static float[] decode(File file, long maxMs, ResumableDownload.Cancel cancel, PcmTarget target) throws IOException {
+    static Samples decode(File file, long maxMs, ResumableDownload.Cancel cancel, PcmTarget target) throws IOException {
         MediaExtractor extractor = new MediaExtractor();
         MediaCodec codec = null;
         try {
@@ -68,8 +73,9 @@ final class AudioDecoder {
         }
     }
 
-    private static float[] run(MediaExtractor extractor, MediaCodec codec, MediaFormat inputFormat, long maxMs,
+    private static Samples run(MediaExtractor extractor, MediaCodec codec, MediaFormat inputFormat, long maxMs,
                                PcmTarget target, ResumableDownload.Cancel cancel) throws IOException {
+        int idleAfterEnd = 0;
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         int rate = 0;
         int channels = inputFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)
@@ -98,11 +104,21 @@ final class AudioDecoder {
                 }
             }
             int index = codec.dequeueOutputBuffer(info, TIMEOUT_US);
+            if (inputDone && index < 0 && index != MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                if (++idleAfterEnd >= MAX_IDLE_POLLS_AFTER_END) {
+                    // The sound so far is the song; a decoder that gave nothing at all is an error.
+                    if (frames == 0) throw new IOException("The decoder " + codec.getName() + " gave no end of the sound");
+                    break;
+                }
+            } else {
+                idleAfterEnd = 0;
+            }
             if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 MediaFormat out = codec.getOutputFormat();
                 if (rate == 0) {
-                    rate = out.getInteger(MediaFormat.KEY_SAMPLE_RATE);
-                    channels = out.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                    // A vendor decoder may leave out a key: the input format tells it then.
+                    rate = intOf(out, MediaFormat.KEY_SAMPLE_RATE, intOf(inputFormat, MediaFormat.KEY_SAMPLE_RATE, 44_100));
+                    channels = intOf(out, MediaFormat.KEY_CHANNEL_COUNT, channels);
                     floatPcm = out.containsKey(MediaFormat.KEY_PCM_ENCODING)
                             && out.getInteger(MediaFormat.KEY_PCM_ENCODING) == AudioFormat.ENCODING_PCM_FLOAT;
                     target.start(rate, channels);
@@ -111,7 +127,7 @@ final class AudioDecoder {
             } else if (index >= 0) {
                 if (rate == 0) {
                     // A decoder that never announced its format: the input format is what there is.
-                    rate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    rate = intOf(inputFormat, MediaFormat.KEY_SAMPLE_RATE, 44_100);
                     target.start(rate, channels);
                     maxFrames = maxMs * rate / 1000;
                 }
@@ -139,5 +155,10 @@ final class AudioDecoder {
         }
         if (frames == 0) throw new IOException("The decoder produced no sound");
         return target.finish();
+    }
+
+    /** A number of the format, or the fallback when the format does not have it. */
+    private static int intOf(MediaFormat format, String key, int fallback) {
+        return format.containsKey(key) ? format.getInteger(key) : fallback;
     }
 }

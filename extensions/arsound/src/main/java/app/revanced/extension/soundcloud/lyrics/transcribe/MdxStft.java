@@ -58,26 +58,40 @@ final class MdxStft {
 
     /**
      * The signal of a spectrum made by {@link #forward}: {@code (frames - 1) * hop} samples, the half frames of
-     * padding taken off.
+     * padding taken off. The array is the object's own and holds until the next call: copy what is kept.
      */
     float[] inverse(float[] re, float[] im, int frames) {
         int total = nFft + (frames - 1) * hop;
-        double[] sum = new double[total];
-        double[] weight = new double[total];
+        // The buffers are kept between calls: a song made some ten megabytes of them per segment for the collector.
+        // The weights depend on the number of frames alone, so they are summed once.
+        if (inverseSum == null || inverseSum.length != total) {
+            inverseSum = new double[total];
+            inverseWeight = new double[total];
+            inverseOut = new float[total - nFft];
+            for (int t = 0; t < frames; t++) {
+                int start = t * hop;
+                for (int i = 0; i < nFft; i++) inverseWeight[start + i] += window[i] * window[i];
+            }
+        } else {
+            java.util.Arrays.fill(inverseSum, 0);
+        }
+        double[] sum = inverseSum;
+        double[] weight = inverseWeight;
         for (int t = 0; t < frames; t++) {
             fft.inverse(re, im, t * bins, frame);
             int start = t * hop;
-            for (int i = 0; i < nFft; i++) {
-                sum[start + i] += frame[i] * window[i];
-                weight[start + i] += window[i] * window[i];
-            }
+            for (int i = 0; i < nFft; i++) sum[start + i] += frame[i] * window[i];
         }
         int pad = nFft / 2;
-        float[] out = new float[total - nFft];
+        float[] out = inverseOut;
         for (int i = 0; i < out.length; i++) {
             double w = weight[pad + i];
             out[i] = (float) (w == 0 ? sum[pad + i] : sum[pad + i] / w);
         }
         return out;
     }
+
+    /** The buffers of {@link #inverse}, kept for the next call; one caller at a time. */
+    private double[] inverseSum, inverseWeight;
+    private float[] inverseOut;
 }

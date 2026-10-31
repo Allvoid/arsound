@@ -2,10 +2,15 @@ package app.revanced.extension.soundcloud.lyrics.transcribe;
 
 /** The whole song for the speech model: the channels averaged and resampled to 16 kHz. */
 final class MonoTarget implements PcmTarget {
-    private final GrowableFloats output = new GrowableFloats(Chunker.RATE * 60);
+    private final GrowableFloats output;
     private StreamResampler resampler;
     private int channels;
     private float[] mono = new float[0];
+
+    /** @param expected The samples the song is expected to take: room for them is made at once, not by growing. */
+    MonoTarget(int expected) {
+        output = new GrowableFloats(expected);
+    }
 
     @Override
     public void start(int rate, int channels) {
@@ -21,8 +26,8 @@ final class MonoTarget implements PcmTarget {
     }
 
     @Override
-    public float[] finish() {
+    public Samples finish() {
         if (resampler != null) resampler.finish(output);
-        return output.toArray();
+        return output.samples();
     }
 }

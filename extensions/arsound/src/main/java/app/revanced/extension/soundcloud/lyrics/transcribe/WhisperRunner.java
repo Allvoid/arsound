@@ -80,7 +80,10 @@ final class WhisperRunner implements Recognizer {
             recognizer.setConfig(config(language));
         } catch (RuntimeException ex) {
             Logger.printInfo(() -> "Transcribe: the language could not be changed in place, loading again: " + ex);
-            recognizer.release();
+            OfflineRecognizer old = recognizer;
+            // Let go of first: if loading again fails, close() must not release the old one a second time.
+            recognizer = null;
+            old.release();
             recognizer = create(language);
         }
     }

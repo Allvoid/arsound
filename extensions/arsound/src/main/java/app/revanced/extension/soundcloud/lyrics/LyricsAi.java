@@ -61,17 +61,29 @@ final class LyricsAi implements TranscriptionManager.Listener {
     boolean offerFor(TrackInfo track) {
         if (!TranscriptionManager.canOffer(track.urn, track.durationMs)) return false;
         info = track;
-        // A recognition that finished while this page was elsewhere: the words are on the phone already.
-        Lyrics ready = AiTranscripts.lookUp(track);
-        if (ready != null) {
-            LyricsRepository.rememberRecognised(track, ready);
-            host.showAiWords(ready);
-            return true;
-        }
         panel.showProgress(preparing(), cancel);
-        if (!TranscriptionManager.attach(track.urn, this)) showOffer();
         host.showAiPanel();
+        // A recognition that finished while this page was elsewhere: the words are on the phone already. They are read
+        // from the files off the main thread; the panel says "preparing" for that moment.
+        lookUpThen(track, ready -> {
+            if (ready != null) {
+                LyricsRepository.rememberRecognised(track, ready);
+                host.showAiWords(ready);
+                return;
+            }
+            if (!TranscriptionManager.attach(track.urn, this)) showOffer();
+        });
         return true;
+    }
+
+    /** Reads the stored words of the song off the main thread, then answers there, if the panel is still about it. */
+    private void lookUpThen(TrackInfo track, java.util.function.Consumer<Lyrics> then) {
+        Utils.runOnBackgroundThread(() -> {
+            Lyrics ready = AiTranscripts.lookUp(track);
+            Utils.runOnMainThread(() -> {
+                if (info == track) then.accept(ready);
+            });
+        });
     }
 
     /** The page lets go of the song (another track, or the page closes): the work goes on, but nobody is told. */
@@ -308,17 +320,32 @@ final class LyricsAi implements TranscriptionManager.Listener {
     }
 
     @Override
+    public void onStopping() {
+        if (info == null) return;
+        // The piece being worked on runs to its end: a few seconds, during which the button would seem to do nothing.
+        panel.showProgress(text("Останавливаю…", "Stopping…"), null);
+    }
+
+    @Override
+    public void onWaiting() {
+        if (info == null) return;
+        panel.showProgress(text("Жду, пока остановится прошлое распознавание…",
+                "Waiting for the earlier recognition to stop…"), cancel);
+    }
+
+    @Override
     public void onFinished(Transcript transcript) {
         if (info == null) return;
         if (!transcript.isDone()) {
-            Lyrics earlier = AiTranscripts.lookUp(info);
-            if (earlier == null) {
-                showOffer();
-            } else {
-                Utils.showToastLong(text("Нейросеть не разобрала слова на этом языке: оставлен прежний текст.",
-                        "The network could not make out the words in this language: the earlier text stays."));
-                host.showAiWords(earlier);
-            }
+            lookUpThen(info, earlier -> {
+                if (earlier == null) {
+                    showOffer();
+                } else {
+                    Utils.showToastLong(text("Нейросеть не разобрала слова на этом языке: оставлен прежний текст.",
+                            "The network could not make out the words in this language: the earlier text stays."));
+                    host.showAiWords(earlier);
+                }
+            });
             return;
         }
         Lyrics lyrics = AiTranscripts.toLyrics(transcript);
@@ -340,9 +367,10 @@ final class LyricsAi implements TranscriptionManager.Listener {
     public void onCancelled() {
         if (info == null) return;
         // A text heard again and stopped: the earlier words are still there.
-        Lyrics earlier = AiTranscripts.lookUp(info);
-        if (earlier != null) host.showAiWords(earlier);
-        else showOffer();
+        lookUpThen(info, earlier -> {
+            if (earlier != null) host.showAiWords(earlier);
+            else showOffer();
+        });
     }
 
     // endregion
