@@ -12,6 +12,7 @@ import app.revanced.patcher.name
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.patch.resourcePatch
 import app.arsound.util.getNode
+import app.arsound.patches.soundcloud.misc.manifest.addApplicationComponent
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.arsound.util.indexOfFirstInstructionReversedOrThrow
@@ -50,6 +51,14 @@ private val downloadPermissionPatch = resourcePatch {
                     setAttribute("android:name", "android.permission.WRITE_EXTERNAL_STORAGE")
                     setAttribute("android:maxSdkVersion", "28")
                 },
+            )
+            // The screenless activity that opens Android's own question before the files of an earlier install are removed.
+            document.addApplicationComponent(
+                "activity",
+                "android:name" to "app.revanced.extension.soundcloud.download.DeleteConsentActivity",
+                "android:exported" to "false",
+                "android:theme" to "@android:style/Theme.Translucent.NoTitleBar",
+                "android:excludeFromRecents" to "true",
             )
         }
     }

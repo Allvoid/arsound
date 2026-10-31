@@ -247,8 +247,9 @@ public final class DownloadPlaylistPatch {
         if (ids == null) return null;
         List<String> downloaded = new ArrayList<>();
         for (String id : ids) {
-            // A track still being assembled has no record yet, but would get one once packed.
-            if (DownloadTrackPatch.isDownloaded(id) || DownloadProgress.isAssembling(id)) downloaded.add(id);
+            // A track still being assembled has no record yet, but would get one once packed. A protected track in
+            // SoundCloud's own offline library is a download to the user as much as a file.
+            if (DeleteDownloads.has(id)) downloaded.add(id);
         }
         return downloaded;
     }
@@ -316,19 +317,11 @@ public final class DownloadPlaylistPatch {
 
     private static void deleteAll(Context context, String playlistId, List<String> trackIds) {
         setPlaylistDownloaded(playlistId, false);
-        Utils.runOnBackgroundThread(() -> {
-            int deleted = 0;
-            for (String trackId : trackIds) {
-                if (DownloadTrackPatch.deleteDownload(context, trackId)) deleted++;
-            }
-            int count = deleted;
-            int failed = trackIds.size() - deleted;
-            DownloadTrackPatch.showToast(context, failed == 0
-                    ? text("Удалено треков: " + count, "Deleted " + count + " tracks")
-                    : text("Удалено: " + count + ", не удалось: " + failed,
-                    "Deleted " + count + ", could not delete " + failed));
-            DownloadProgress.onDownloadsDeleted();
-        });
+        Context app = context.getApplicationContext();
+        Utils.runOnBackgroundThread(() -> DeleteDownloads.run(context, trackIds, (removed, stayed) ->
+                DownloadTrackPatch.showToast(app, stayed == 0
+                        ? text("Удалено треков: " + removed, "Deleted " + removed + " tracks")
+                        : DeleteDownloads.stayedMessage(removed, stayed))));
     }
 
     static void checkPlaylist(Context context, String playlistId) {

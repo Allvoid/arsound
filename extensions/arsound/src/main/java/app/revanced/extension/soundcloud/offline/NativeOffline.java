@@ -343,6 +343,12 @@ public final class NativeOffline {
         }
     }
 
+    /** Whether the track is in SoundCloud's offline library: downloaded, waiting for its turn, or downloading. */
+    public static boolean isInLibrary(String trackId) {
+        String state = offlineState(trackId);
+        return "DOWNLOADED".equals(state) || "REQUESTED".equals(state) || "DOWNLOADING".equals(state);
+    }
+
     /** Whether the track is fully downloaded in SoundCloud's offline library. */
     public static boolean isDownloaded(String trackId) {
         return "DOWNLOADED".equals(offlineState(trackId));

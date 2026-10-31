@@ -294,20 +294,20 @@ public final class DownloadTrackPatch {
                 "ic_actions_delete", v -> {
                     dialog.dismiss();
                     Context appContext = context.getApplicationContext();
-                    Utils.runOnBackgroundThread(() -> {
-                        boolean deleted = deleteDownload(appContext, trackId);
-                        // A file in a folder that is gone (a card taken out) is not "left by an earlier install".
-                        String folder = deleted ? null : DownloadIndex.unreachableFolder(appContext, trackId);
-                        showToast(appContext, deleted
-                                ? text("Файл удалён", "The file is deleted")
-                                : folder != null
-                                ? text("Папка «" + folder + "» недоступна. Верните карту или забудьте такие треки в настройках, "
-                                        + "в разделе «Память».",
-                                "The folder " + folder + " is not available. Put the card back, or forget such tracks in the "
-                                        + "settings, in Storage.")
-                                : text("Не удалось удалить файл", "Could not delete the file"));
-                        DownloadProgress.onDownloadsDeleted();
-                    });
+                    Context owner = dialog.getOwnerActivity() != null ? dialog.getOwnerActivity() : context;
+                    Utils.runOnBackgroundThread(() -> DeleteDownloads.run(owner, java.util.Collections.singletonList(trackId),
+                            (removed, stayed) -> {
+                                // A file in a folder that is gone (a card taken out) is not "left by an earlier install".
+                                String folder = stayed == 0 ? null : DownloadIndex.unreachableFolder(appContext, trackId);
+                                showToast(appContext, stayed == 0
+                                        ? text("Файл удалён", "The file is deleted")
+                                        : folder != null
+                                        ? text("Папка «" + folder + "» недоступна. Верните карту или забудьте такие треки в настройках, "
+                                                + "в разделе «Память».",
+                                        "The folder " + folder + " is not available. Put the card back, or forget such tracks in the "
+                                                + "settings, in Storage.")
+                                        : text("Не удалось удалить файл", "Could not delete the file"));
+                            }));
                 });
         deleteRow.setTag(DELETE_ROW_TAG);
         parent.addView(deleteRow, parent.indexOfChild(row) + 1, new LinearLayout.LayoutParams(
