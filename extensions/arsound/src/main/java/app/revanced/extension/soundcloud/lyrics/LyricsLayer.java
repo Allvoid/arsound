@@ -690,7 +690,15 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         }
         if (result.status == LyricsResult.Status.FOUND) showWords(result.lyrics);
         else if (result.status == LyricsResult.Status.MISSING && ai.offerFor(info)) return;
+        // A failed search offers the network as well, the message keeps "tap to try again".
+        else if (result.status == LyricsResult.Status.ERROR && ai.offerFor(info, this::searchAgain)) return;
         else showMessage(result.status.message(), result.status.retryable);
+    }
+
+    /** Looks the track up again, as a tap on a failure message does. */
+    private void searchAgain() {
+        loadedSignature = null;
+        refresh();
     }
 
     @Override
@@ -767,8 +775,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         status.setOnClickListener(retry ? new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                loadedSignature = null;
-                refresh();
+                searchAgain();
             }
         } : null);
         status.setClickable(retry);

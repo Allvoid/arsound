@@ -59,7 +59,19 @@ final class LyricsAi implements TranscriptionManager.Listener {
      * page shows its plain message then.
      */
     boolean offerFor(TrackInfo track) {
+        return offerFor(track, null);
+    }
+
+    /**
+     * The same, after a search that failed (LRCLIB busy, a server that did not answer): the recognition is offered too,
+     * and a tap on the message looks the song up again. Only "Could not load" was shown before, with no way to the
+     * network, although LRCLIB is often busy for long.
+     *
+     * @param retry Looks the song up again; null when the search answered that there is no text.
+     */
+    boolean offerFor(TrackInfo track, Runnable retry) {
         if (!TranscriptionManager.canOffer(track.urn, track.durationMs)) return false;
+        retrySearch = retry;
         info = track;
         panel.showProgress(preparing(), cancel);
         host.showAiPanel();
@@ -112,11 +124,16 @@ final class LyricsAi implements TranscriptionManager.Listener {
         if (info == null) return;
         if (TranscriptionManager.isEnabled() && TranscriptionManager.failedBefore(info.urn)) {
             panel.show(text("Нейросеть не разобрала слова этой песни", "The network could not make out the words of this song"),
-                    null, text("Попробовать ещё раз", "Try again"), ask);
+                    retrySearch, text("Попробовать ещё раз", "Try again"), ask);
+        } else if (retrySearch != null) {
+            panel.show(LyricsResult.Status.ERROR.message(), retrySearch, text("Распознать нейросетью", "Recognise with AI"), ask);
         } else {
             panel.show(LyricsResult.Status.MISSING.message(), ask, text("Распознать нейросетью", "Recognise with AI"), ask);
         }
     }
+
+    /** Looks the song up again; set while the offer follows a failed search, null after "no text". */
+    private Runnable retrySearch;
 
     /**
      * The words on screen are in the wrong language, the user says: asks the language again and hears the song anew.
@@ -184,10 +201,12 @@ final class LyricsAi implements TranscriptionManager.Listener {
 
     private void showOfferDialog(final Request request, final Advice advice) {
         StringBuilder body = new StringBuilder();
-        body.append(text("Текст этой песни не нашёлся. Нейросеть может послушать песню на вашем телефоне и записать "
-                + "слова. Это тяжёлая работа для телефона, почти как тяжёлая игра.\n\n", "No lyrics were found for this "
-                + "song. A neural network can listen to the song on your phone and write down the words. It is heavy "
-                + "work for a phone, almost like a heavy game.\n\n"));
+        body.append(retrySearch != null
+                ? text("Текст этой песни сейчас не загрузился. ", "The lyrics of this song did not load now. ")
+                : text("Текст этой песни не нашёлся. ", "No lyrics were found for this song. "));
+        body.append(text("Нейросеть может послушать песню на вашем телефоне и записать слова. Это тяжёлая работа для "
+                + "телефона, почти как тяжёлая игра.\n\n", "A neural network can listen to the song on your phone and "
+                + "write down the words. It is heavy work for a phone, almost like a heavy game.\n\n"));
         body.append(HeavyNotice.points(panel.getContext())).append("\n");
         if (request.language == SongLanguage.RUSSIAN) {
             body.append(text("• Текст приблизительный: на русских песнях в нашей проверке верно около шести слов из десяти, в "

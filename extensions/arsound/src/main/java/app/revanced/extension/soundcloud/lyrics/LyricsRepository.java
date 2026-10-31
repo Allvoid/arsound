@@ -181,16 +181,25 @@ public final class LyricsRepository {
      * LRCLIB first: its texts are written for lyrics apps and timed for the track. NetEase when LRCLIB has nothing or
      * cannot be reached (it is often busy). When neither answers, LRCLIB's failure is thrown: nothing is stored then.
      */
+    private static final int LRCLIB_ATTEMPTS = 2;
+    private static final long LRCLIB_RETRY_MS = 1_500;
+
     private static LyricsResult find(TrackInfo info, TrackQuery query, LyricsHttp http, Request request) throws IOException {
         LyricsResult result = null;
         IOException failure = null;
-        try {
-            Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
-            result = new LyricsFinder(new LrclibClient(http), request).find(query);
-            if (result.status != LyricsResult.Status.MISSING) return result;
-        } catch (IOException ex) {
-            if (request.isCancelled()) throw ex;
-            failure = ex;
+        for (int attempt = 0; attempt < LRCLIB_ATTEMPTS; attempt++) {
+            try {
+                Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
+                result = new LyricsFinder(new LrclibClient(http), request).find(query);
+                failure = null;
+                if (result.status != LyricsResult.Status.MISSING) return result;
+                break;
+            } catch (IOException ex) {
+                if (request.isCancelled()) throw ex;
+                failure = ex;
+                // LRCLIB is often busy for a moment (503): asked once more after a short wait before giving up on it.
+                if (attempt + 1 < LRCLIB_ATTEMPTS) Pause.cancellable(LRCLIB_RETRY_MS, request);
+            }
         }
         try {
             Logger.printInfo(() -> "Lyrics: asking NetEase for " + info.urn);
