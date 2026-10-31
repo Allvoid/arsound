@@ -45,6 +45,9 @@ public final class DownloadPlaylistPatch {
     private static final int TRACKS_PER_REQUEST = 50;
     /** File links resolved at the same time during a check. */
     private static final int PARALLEL_CHECKS = 4;
+    /** Tracks without an answer are asked again this many times, after these pauses, and then a few at a time. */
+    private static final long[] RETRY_PAUSES_MS = {15_000, 45_000, 90_000};
+    private static final int RETRY_PARALLEL_CHECKS = 2;
     private static final String PREFERENCES_NAME = "arsound_downloaded_playlists";
 
     private static final class TrackInfo {
@@ -453,51 +456,70 @@ public final class DownloadPlaylistPatch {
             // Each track's data is let go once its link is resolved: a long list kept all of it to the end.
             JSONObject[] pending = toResolve.toArray(new JSONObject[0]);
             toResolve.clear();
-            ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL_CHECKS, found.length)));
-            try {
-                for (int i = 0; i < pending.length; i++) {
-                    int index = i;
-                    pool.execute(() -> {
-                        JSONObject track = pending[index];
-                        pending[index] = null;
-                        String id = String.valueOf(track.optLong("id"));
-                        String title = track.optString("title");
-                        TrackSource source = UnavailableTracks.get(id);
-                        boolean failed = false;
-                        if (source == null) {
-                            try {
-                                source = DownloadTrackPatch.resolveSource(id, track);
-                                if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
-                            } catch (Exception ex) {
-                                // A network or server failure says nothing about the track: it is not remembered.
-                                failed = true;
-                                Logger.printInfo(() -> "No file link for " + id + ": " + ex);
-                            }
-                        }
-                        if (source != null && source.isDownloadable()) {
-                            found[index] = new TrackInfo(id, title, source);
-                        } else if (source != null && DownloadTrackPatch.goesToNativeOffline(source.status)) {
-                            drm[index] = id;
-                        } else if (!failed) {
-                            unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
-                            if (source != null && RestrictionNote.isRestriction(source.status)) {
-                                synchronized (checked) {
-                                    if (source.status == TrackSource.Status.REGION_BLOCKED) restricted[1] = true;
-                                    else restricted[0] = true;
+            // A network that drops (a VPN that restarts, a DNS that does not answer) fails many tracks at once, and says
+            // nothing about them: they are asked again after a pause, a few at a time, before they count as unchecked.
+            List<Integer> todo = new ArrayList<>();
+            for (int i = 0; i < pending.length; i++) todo.add(i);
+            for (int round = 0; round <= RETRY_PAUSES_MS.length && !todo.isEmpty(); round++) {
+                boolean last = round == RETRY_PAUSES_MS.length;
+                if (round > 0) {
+                    int waiting = todo.size();
+                    long pause = RETRY_PAUSES_MS[round - 1];
+                    Logger.printInfo(() -> "Check: " + waiting + " tracks without an answer, asked again in " + pause / 1000 + " s");
+                    Thread.sleep(pause);
+                }
+                boolean[] failedNow = new boolean[pending.length];
+                int threads = round == 0 ? PARALLEL_CHECKS : RETRY_PARALLEL_CHECKS;
+                ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(threads, todo.size())));
+                try {
+                    for (int index : todo) {
+                        pool.execute(() -> {
+                            JSONObject track = pending[index];
+                            String id = String.valueOf(track.optLong("id"));
+                            String title = track.optString("title");
+                            TrackSource source = UnavailableTracks.get(id);
+                            boolean failed = false;
+                            if (source == null) {
+                                try {
+                                    source = DownloadTrackPatch.resolveSource(id, track);
+                                    if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
+                                } catch (Exception ex) {
+                                    // A network or server failure says nothing about the track: it is not remembered.
+                                    failed = true;
+                                    Logger.printInfo(() -> "No file link for " + id + ": " + ex);
                                 }
                             }
-                        }
-                        synchronized (checked) {
-                            if (failed) unchecked[0]++;
-                            ProgressPill.onChecked(++checked[0]);
-                        }
-                    });
+                            failedNow[index] = failed;
+                            if (!failed) pending[index] = null;
+                            if (source != null && source.isDownloadable()) {
+                                found[index] = new TrackInfo(id, title, source);
+                            } else if (source != null && DownloadTrackPatch.goesToNativeOffline(source.status)) {
+                                drm[index] = id;
+                            } else if (!failed) {
+                                unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
+                                if (source != null && RestrictionNote.isRestriction(source.status)) {
+                                    synchronized (checked) {
+                                        if (source.status == TrackSource.Status.REGION_BLOCKED) restricted[1] = true;
+                                        else restricted[0] = true;
+                                    }
+                                }
+                            }
+                            synchronized (checked) {
+                                // A track that failed is counted once its last try is made.
+                                if (failed && last) unchecked[0]++;
+                                if (!failed || last) ProgressPill.onChecked(++checked[0]);
+                            }
+                        });
+                    }
+                    pool.shutdown();
+                    if (!pool.awaitTermination(1, TimeUnit.HOURS)) Logger.printInfo(() -> "Playlist check timed out");
+                } finally {
+                    // Stops the checks still waiting (also their pauses for the rate limit) if this one was cut short.
+                    pool.shutdownNow();
                 }
-                pool.shutdown();
-                if (!pool.awaitTermination(1, TimeUnit.HOURS)) Logger.printInfo(() -> "Playlist check timed out");
-            } finally {
-                // Stops the checks still waiting (also their pauses for the rate limit) if this one was cut short.
-                pool.shutdownNow();
+                List<Integer> again = new ArrayList<>();
+                for (int index : todo) if (failedNow[index]) again.add(index);
+                todo = again;
             }
             synchronized (checked) {
                 for (int i = 0; i < found.length; i++) {

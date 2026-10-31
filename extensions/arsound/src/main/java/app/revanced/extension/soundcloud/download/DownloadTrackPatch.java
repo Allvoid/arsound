@@ -385,6 +385,32 @@ public final class DownloadTrackPatch {
         return Math.min(pause, 15_000);
     }
 
+    /** Pauses before the tries that follow a network failure (no DNS answer, no connection, a timeout). */
+    private static final long[] NETWORK_RETRY_PAUSES_MS = {1_500, 4_000};
+
+    /**
+     * Opens the connection and reads its response (the code is then kept by the connection). A request the network did
+     * not carry (a VPN that restarts, a DNS that gives no answer for a moment) is sent again after a short pause, as that
+     * says nothing about the track. The last failure is thrown.
+     */
+    private static HttpURLConnection connectWithRetry(String url) throws Exception {
+        for (int attempt = 0; ; attempt++) {
+            HttpURLConnection connection = openApiConnection(url);
+            try {
+                connection.getResponseCode();
+                return connection;
+            } catch (java.net.UnknownHostException | java.net.ConnectException | java.net.SocketTimeoutException ex) {
+                connection.disconnect();
+                if (attempt >= NETWORK_RETRY_PAUSES_MS.length) throw ex;
+                long pause = NETWORK_RETRY_PAUSES_MS[attempt];
+                Logger.printInfo(() -> "No network answer for " + url + " (" + ex.getClass().getSimpleName()
+                        + "), trying again in " + pause + " ms");
+                Thread.sleep(pause);
+                waitForApiSlot();
+            }
+        }
+    }
+
     /**
      * @return The response code and body of an authorized GET request to the SoundCloud API.
      */
@@ -395,7 +421,7 @@ public final class DownloadTrackPatch {
         // reading it as "this track has no such file".
         for (int attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt++) {
             waitForApiSlot();
-            connection = openApiConnection(url);
+            connection = connectWithRetry(url);
             code = connection.getResponseCode();
             if (code != 429 || attempt == RATE_LIMIT_RETRIES) break;
             long pause = retryAfterMs(connection, attempt);
