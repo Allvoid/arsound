@@ -16,16 +16,19 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.ClientProfiles;
+import app.revanced.extension.soundcloud.shared.ForegroundWork;
 
 /**
  * One transfer at a time, from a Yandex Music collection to private SoundCloud playlists: the tracks are read, each
  * is looked up on SoundCloud (a few at once, remembered in {@link TransferStore}), and the ones found become the
- * playlist in the same order. It runs on while the settings are closed; the screen follows it through a listener.
+ * playlist in the same order. It runs on while the settings are closed, in a foreground service with a notification
+ * ({@link ForegroundWork}), so a phone that ends apps in the background does not end it; the screen follows it
+ * through a listener. A transfer the app was closed in the middle of is remembered and can be gone on with.
  */
 public final class TransferJob {
     public interface Listener {
@@ -36,9 +39,13 @@ public final class TransferJob {
     public enum Phase {IDLE, READING, SEARCHING, CREATING, DONE, FAILED}
 
     private static final int SEARCH_THREADS = 3;
-    /** This many failed searches in a row, with nothing found, mean SoundCloud is out of reach. */
+    /** This many failed searches in a row mean SoundCloud is out of reach: the connection is gone, not the songs. */
     private static final int UNREACHABLE_FAILURES = 8;
-    private static final int SAVE_EVERY = 25;
+    /** The matches are saved this often while the search runs; the whole file is written each time. */
+    private static final long SAVE_EVERY_MS = 15_000;
+    /** The screen is told of the progress at most this often: a list with known matches goes by in a moment. */
+    private static final long CHANGED_MS = 150;
+    private static final AtomicBoolean changePosted = new AtomicBoolean();
 
     private static final List<Listener> LISTENERS = new CopyOnWriteArrayList<>();
     private static volatile Phase phase = Phase.IDLE;
@@ -114,10 +121,35 @@ public final class TransferJob {
         result = null;
         phase = Phase.READING;
         changed();
+        Context context = Utils.getContext();
+        if (context != null) {
+            ForegroundWork.begin(context, text("Перенос из Яндекс Музыки", "Transfer from Yandex Music"), status());
+        }
         Thread thread = new Thread(() -> run(link), "Arsound transfer");
         worker = thread;
         thread.start();
         return true;
+    }
+
+    /**
+     * The collection of a transfer that the app was closed in the middle of, with its title, or null. Not one that
+     * runs now.
+     */
+    public static String[] interrupted() {
+        if (isRunning()) return null;
+        String[] marked = TransferStore.interrupted();
+        return marked == null || YandexLink.fromKey(marked[0]) == null ? null : marked;
+    }
+
+    /** Goes on with a transfer the app was closed in the middle of. @return False if it cannot. */
+    public static boolean resume(String key) {
+        YandexLink link = YandexLink.fromKey(key);
+        return link != null && start(link);
+    }
+
+    /** Forgets a transfer the app was closed in the middle of: the user does not want to go on with it. */
+    public static void forgetInterrupted() {
+        if (!isRunning()) TransferStore.clearRunning();
     }
 
     /** Stops the transfer; the tracks looked up so far are kept, so starting it again goes quicker. */
@@ -128,9 +160,12 @@ public final class TransferJob {
 
     private static void run(YandexLink link) {
         try {
+            // Remembered first: a transfer the app is closed in the middle of can be gone on with.
+            TransferStore.markRunning(link.key(), "");
             YandexMusic.Collection collection = read(link);
             title = collection.title;
             total = collection.tracks.size();
+            TransferStore.markRunning(link.key(), collection.title);
             phase = Phase.SEARCHING;
             changed();
             List<String> missing = new ArrayList<>();
@@ -141,10 +176,11 @@ public final class TransferJob {
             }
             phase = Phase.CREATING;
             changed();
-            List<String> playlists = SoundCloudSide.createPlaylists(collection.title, urns);
+            List<String> playlists = SoundCloudSide.createPlaylists(link.key(), collection.title, urns);
             TransferRecord entry = new TransferRecord(link.key(), collection.title, System.currentTimeMillis(),
                     total, urns.size(), playlists, missing);
             TransferStore.addToHistory(entry);
+            TransferStore.clearRunning();
             result = entry;
             phase = Phase.DONE;
             Logger.printInfo(() -> "Transfer done: " + entry.found + " of " + entry.total + " from " + link);
@@ -161,13 +197,27 @@ public final class TransferJob {
         } catch (SoundCloudSide.NotReadyException ex) {
             fail(text("SoundCloud ещё не готов: откройте библиотеку и попробуйте снова",
                     "SoundCloud is not ready yet: open the library and try again"));
+        } catch (SoundCloudSide.PartlyMadeException ex) {
+            Logger.printException(() -> "Transfer: playlists made in part", ex);
+            fail(text("Создано плейлистов: " + ex.made + " из " + ex.parts + ", дальше не вышло. Они в вашей библиотеке; "
+                            + "повтор продолжит с того же места и не создаст их снова.",
+                    "Playlists made: " + ex.made + " of " + ex.parts + ", then it failed. They are in your library; "
+                            + "a new try goes on from there and does not make them again."));
+        } catch (SoundCloudSide.UnknownOutcomeException ex) {
+            fail(text("SoundCloud не ответил, создан ли плейлист «" + ex.name + "». Посмотрите библиотеку, прежде чем повторять.",
+                    "SoundCloud did not say whether it made the playlist \"" + ex.name + "\". Look at your library before trying again."));
         } catch (Exception ex) {
             Logger.printException(() -> "Transfer failed", ex);
             fail(ex instanceof IOException
                     ? text("Нет связи: проверьте интернет и попробуйте снова", "No connection: check the internet and try again")
                     : text("Перенос не удался: ", "The transfer failed: ") + ex);
         } finally {
-            worker = null;
+            synchronized (TransferJob.class) {
+                // A new transfer may have started in the moment since the phase was set: its thread stays known.
+                if (worker == Thread.currentThread()) worker = null;
+            }
+            Context context = Utils.getContext();
+            if (context != null && !isRunning()) ForegroundWork.end(context);
         }
     }
 
@@ -209,6 +259,7 @@ public final class TransferJob {
         ExecutorService pool = Executors.newFixedThreadPool(SEARCH_THREADS);
         Set<String> urns = new LinkedHashSet<>();
         int failuresInRow = 0;
+        long savedAt = System.currentTimeMillis();
         try {
             List<Future<String>> answers = new ArrayList<>();
             for (YandexTrack track : tracks) {
@@ -228,17 +279,19 @@ public final class TransferJob {
                 YandexTrack track = tracks.get(i);
                 String urn;
                 try {
-                    urn = answers.get(i).get(90, TimeUnit.SECONDS);
+                    // No time limit here: the search has its own (connect and read, three tries), and a limit shorter
+                    // than its worst case only called a slow track "not found" while the search went on.
+                    urn = answers.get(i).get();
                     failuresInRow = 0;
                 } catch (InterruptedException ex) {
                     throw ex;
                 } catch (Exception ex) {
                     Logger.printInfo(() -> "Transfer: search failed for " + track.label() + ": " + ex);
-                    // Every search failing means SoundCloud is out of reach, not that the songs are missing.
-                    if (++failuresInRow >= UNREACHABLE_FAILURES && urns.isEmpty()) {
-                        throw new IOException("SoundCloud search unreachable");
-                    }
-                    missing.add(track.label());
+                    // Searches failing one after another mean the connection is gone, found tracks or not: the
+                    // transfer stops (what was found is kept) instead of calling the rest of the list "not found".
+                    if (++failuresInRow >= UNREACHABLE_FAILURES) throw new IOException("SoundCloud search unreachable");
+                    // Not looked at, not missing: it is not remembered, so a new try searches for it again.
+                    missing.add(track.label() + text(" (не проверен: ошибка сети)", " (not checked: network error)"));
                     checked++;
                     changed();
                     continue;
@@ -250,7 +303,10 @@ public final class TransferJob {
                 else urns.add(urn);
                 checked++;
                 found = urns.size();
-                if (checked % SAVE_EVERY == 0) TransferStore.saveMatches(matches);
+                if (System.currentTimeMillis() - savedAt >= SAVE_EVERY_MS) {
+                    TransferStore.saveMatches(matches);
+                    savedAt = System.currentTimeMillis();
+                }
                 changed();
             }
         } finally {
@@ -267,10 +323,15 @@ public final class TransferJob {
         if (LISTENERS.isEmpty()) toast(message);
     }
 
+    /** Tells the screen and the notification, at most once per {@link #CHANGED_MS}; the last state always arrives. */
     private static void changed() {
-        Utils.runOnMainThread(() -> {
+        if (!changePosted.compareAndSet(false, true)) return;
+        Utils.runOnMainThreadDelayed(() -> {
+            changePosted.set(false);
+            Context context = Utils.getContext();
+            if (context != null && isRunning()) ForegroundWork.update(context, status());
             for (Listener listener : LISTENERS) listener.onChanged();
-        });
+        }, CHANGED_MS);
     }
 
     private static void toast(String message) {

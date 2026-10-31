@@ -64,6 +64,19 @@ public final class YandexLink {
         }
     }
 
+    /** The link of a {@link #key}, or null for a key that is not one. */
+    public static YandexLink fromKey(String key) {
+        if (key == null) return null;
+        String[] parts = key.split(":", 3);
+        if (parts.length != 3) return null;
+        try {
+            Kind kind = Kind.valueOf(parts[0]);
+            return new YandexLink(kind, parts[1].isEmpty() ? null : parts[1], parts[2].isEmpty() ? null : parts[2]);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
     /** One key per collection, to tell a collection transferred before. */
     public String key() {
         return kind + ":" + (owner == null ? "" : owner) + ":" + (id == null ? "" : id);

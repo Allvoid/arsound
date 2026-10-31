@@ -34,6 +34,14 @@ private val importActivityPatch = resourcePatch {
                 "android:theme" to "@android:style/Theme.Material.NoActionBar",
                 "android:configChanges" to "orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|fontScale",
             )
+            // Keeps the app alive with a notification while a long transfer from Yandex Music runs. SoundCloud's own
+            // manifest already asks for FOREGROUND_SERVICE and FOREGROUND_SERVICE_DATA_SYNC.
+            document.addApplicationComponent(
+                "service",
+                "android:name" to "app.revanced.extension.soundcloud.shared.ForegroundWork",
+                "android:exported" to "false",
+                "android:foregroundServiceType" to "dataSync",
+            )
             // Batch downloads started from a computer over adb; reads lists from the app's own folder only.
             // Only a sender holding DUMP itself (the adb shell) may start it; the app never starts it.
             document.addApplicationComponent(

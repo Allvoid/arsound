@@ -56,37 +56,79 @@ final class SoundCloudSide {
         }
     }
 
+    /** The playlists a transfer made before it failed, for the message: the user should know they exist. */
+    static final class PartlyMadeException extends IOException {
+        final int made;
+        final int parts;
+
+        PartlyMadeException(int made, int parts, Exception cause) {
+            super("Made " + made + " of " + parts + " playlists", cause);
+            this.made = made;
+            this.parts = parts;
+        }
+    }
+
     /**
      * Private playlists with the tracks, in their order: one per {@link #PLAYLIST_LIMIT} tracks, the second and later
-     * ones numbered ("Title (2)").
+     * ones numbered ("Title (2)"). Each playlist is remembered by {@link TransferStore} the moment it is made: a try
+     * that failed half way leaves them in the account, and the next try of the same collection goes on from there
+     * instead of making them again.
      *
-     * @return The urns of the playlists made.
+     * @param key The collection's key, under which the playlists made are remembered.
+     * @return The urns of the playlists.
      */
-    static List<String> createPlaylists(String title, List<String> trackUrns) throws Exception {
+    static List<String> createPlaylists(String key, String title, List<String> trackUrns) throws Exception {
         Object operations = SavedPlaylist.getPlaylistOperations();
         if (operations == null) throw new NotReadyException();
         ClassLoader loader = operations.getClass().getClassLoader();
         Class<?> urnClass = Class.forName("com.soundcloud.android.foundation.domain.Urn", false, loader);
-        List<String> made = new ArrayList<>();
+        List<String> made = new ArrayList<>(TransferStore.madePlaylists(key));
         int parts = (trackUrns.size() + PLAYLIST_LIMIT - 1) / PLAYLIST_LIMIT;
-        for (int part = 0; part < parts; part++) {
-            List<Object> urns = new ArrayList<>();
-            for (String urn : trackUrns.subList(part * PLAYLIST_LIMIT, Math.min(trackUrns.size(), (part + 1) * PLAYLIST_LIMIT))) {
-                urns.add(urnClass.getMethod("forTrack", String.class).invoke(null, urn.substring(urn.lastIndexOf(':') + 1)));
+        if (made.size() > parts) made = new ArrayList<>(made.subList(0, parts));
+        for (int part = made.size(); part < parts; part++) {
+            try {
+                String urn = createPart(operations, urnClass, part == 0 ? title : title + " (" + (part + 1) + ")",
+                        trackUrns.subList(part * PLAYLIST_LIMIT, Math.min(trackUrns.size(), (part + 1) * PLAYLIST_LIMIT)));
+                TransferStore.addMadePlaylist(key, urn);
+                made.add(urn);
+            } catch (Exception ex) {
+                if (made.isEmpty()) throw ex;
+                throw new PartlyMadeException(made.size(), parts, ex);
             }
-            String name = part == 0 ? title : title + " (" + (part + 1) + ")";
-            // false: not public, the playlist is private.
-            Object single = operations.getClass().getMethod("createNewPlaylist", String.class, boolean.class, List.class)
-                    .invoke(operations, name, false, urns);
-            Object result = Rx.blockingFirst(single, 60, TimeUnit.SECONDS);
-            if (result == null || !result.getClass().getName().endsWith("PlaylistCreationResult$Success")) {
-                throw new IOException("SoundCloud did not make the playlist: " + result);
-            }
-            Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
-            String urn = String.valueOf(playlist.getClass().getMethod("getUrn").invoke(playlist));
-            Logger.printInfo(() -> "Transfer: made the playlist " + urn + " with " + urns.size() + " tracks");
-            made.add(urn);
         }
         return made;
+    }
+
+    /** One private playlist with these tracks; its urn. */
+    private static String createPart(Object operations, Class<?> urnClass, String name, List<String> trackUrns) throws Exception {
+        List<Object> urns = new ArrayList<>();
+        for (String urn : trackUrns) {
+            urns.add(urnClass.getMethod("forTrack", String.class).invoke(null, urn.substring(urn.lastIndexOf(':') + 1)));
+        }
+        // false: not public, the playlist is private.
+        Object single = operations.getClass().getMethod("createNewPlaylist", String.class, boolean.class, List.class)
+                .invoke(operations, name, false, urns);
+        Object result = Rx.blockingFirst(single, 60, TimeUnit.SECONDS);
+        if (result == null) {
+            // No answer in time: the playlist may still be made by SoundCloud. The user is told to look.
+            throw new UnknownOutcomeException(name);
+        }
+        if (!result.getClass().getName().endsWith("PlaylistCreationResult$Success")) {
+            throw new IOException("SoundCloud did not make the playlist: " + result);
+        }
+        Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
+        String urn = String.valueOf(playlist.getClass().getMethod("getUrn").invoke(playlist));
+        Logger.printInfo(() -> "Transfer: made the playlist " + urn + " with " + urns.size() + " tracks");
+        return urn;
+    }
+
+    /** SoundCloud did not answer in time whether it made the playlist; it may have. */
+    static final class UnknownOutcomeException extends IOException {
+        final String name;
+
+        UnknownOutcomeException(String name) {
+            super("No answer about the playlist " + name);
+            this.name = name;
+        }
     }
 }

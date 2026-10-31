@@ -44,6 +44,14 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     private TransferJob.Phase shownPhase;
     /** The sign-in page was opened: the account part is filled again when the screen comes back. */
     private boolean signingIn;
+    /** The row of the transfer under way, kept so a step of the progress only changes its text. */
+    private ActionRow progressRow;
+    /** Whether that row is of a running transfer (a failed one has another text and tap). */
+    private boolean progressRowRunning;
+    /** A transfer the app was closed in the middle of, key and title; read with the history, off the main thread. */
+    private String[] interrupted;
+    /** Bumped by every read of the history, so an older read that finishes late is dropped. */
+    private int historyGeneration;
 
     TransferScreen(SettingsUi ui) {
         super(ui);
@@ -168,15 +176,27 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
     // region Progress
 
-    /** The transfer running, or the one that failed; a finished one is the first row of "Transferred". */
+    /**
+     * The transfer running, or the one that failed, or the one the app was closed in the middle of; a finished one is
+     * the first row of "Transferred". A step of a running transfer changes only the text of its row.
+     */
     private void fillProgress() {
-        progressPart.removeAllViews();
         boolean running = TransferJob.isRunning();
-        if (!running && TransferJob.phase() != TransferJob.Phase.FAILED) return;
-        progressPart.addView(ui.createSubHeading(text("Сейчас", "Now")));
         String title = TransferJob.title().isEmpty() ? text("Перенос", "Transfer") : TransferJob.title();
-        ActionRow row = ui.createActionRow(title, TransferJob.status()
-                + (running ? text(". Нажмите, чтобы остановить.", ". Tap to stop.") : ""), v -> {
+        String status = TransferJob.status() + (running ? text(". Нажмите, чтобы остановить.", ". Tap to stop.") : "");
+        if (running && progressRow != null && progressRowRunning && progressRow.getParent() == progressPart) {
+            progressRow.title().setText(title);
+            progressRow.description().setText(status);
+            return;
+        }
+        progressPart.removeAllViews();
+        progressRow = null;
+        if (!running && TransferJob.phase() != TransferJob.Phase.FAILED) {
+            if (TransferJob.phase() == TransferJob.Phase.IDLE && interrupted != null) fillInterrupted();
+            return;
+        }
+        progressPart.addView(ui.createSubHeading(text("Сейчас", "Now")));
+        ActionRow row = ui.createActionRow(title, status, v -> {
             if (!TransferJob.isRunning()) return;
             new ArsoundDialog(activity)
                     .setTitle(text("Остановить перенос?", "Stop the transfer?"))
@@ -188,6 +208,33 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         });
         row.icon(running ? "import" : "info");
         progressPart.addView(row);
+        progressRow = row;
+        progressRowRunning = running;
+    }
+
+    /** A transfer the app was closed in the middle of: a tap goes on with it, the playlists made are reused. */
+    private void fillInterrupted() {
+        String key = interrupted[0];
+        String title = interrupted[1].isEmpty() ? text("Перенос", "Transfer") : interrupted[1];
+        progressPart.addView(ui.createSubHeading(text("Сейчас", "Now")));
+        ActionRow row = ui.createActionRow(title, text("Прерван: приложение закрылось во время переноса. Нажмите, чтобы "
+                + "продолжить; найденное и созданные плейлисты не повторятся.", "Interrupted: the app was closed during "
+                + "the transfer. Tap to go on; what was found and the playlists made are not done again."), v ->
+                new ArsoundDialog(activity)
+                        .setTitle(text("Продолжить перенос?", "Go on with the transfer?"))
+                        .setMessage(title)
+                        .setPositiveButton(text("Продолжить", "Go on"), (dialog, which) -> {
+                            interrupted = null;
+                            if (!TransferJob.resume(key)) refuseWhileRunning();
+                        })
+                        .setNeutralButton(text("Забыть", "Forget it"), (dialog, which) -> {
+                            interrupted = null;
+                            Utils.runOnBackgroundThread(TransferJob::forgetInterrupted);
+                            fillProgress();
+                        })
+                        .setNegativeButton(text("Отмена", "Cancel"), null)
+                        .show());
+        progressPart.addView(row.icon("info"));
     }
 
     // endregion
@@ -290,9 +337,24 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
     // region History
 
+    /** Reads the history (and a transfer left in the middle) off the main thread, then shows it. */
     private void fillHistory() {
+        int generation = ++historyGeneration;
+        Utils.runOnBackgroundThread(() -> {
+            List<TransferRecord> history = TransferJob.history();
+            String[] left = TransferJob.interrupted();
+            Utils.runOnMainThread(() -> {
+                if (generation != historyGeneration || activity.isFinishing()) return;
+                boolean leftChanged = (left == null) != (interrupted == null);
+                interrupted = left;
+                showHistory(history);
+                if (leftChanged) fillProgress();
+            });
+        });
+    }
+
+    private void showHistory(List<TransferRecord> history) {
         historyPart.removeAllViews();
-        List<TransferRecord> history = TransferJob.history();
         if (history.isEmpty()) return;
         historyPart.addView(ui.createSubHeading(text("Уже перенесено", "Transferred")));
         DateFormat format = DateFormat.getDateInstance(DateFormat.SHORT);
@@ -317,10 +379,11 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                 .setTitle(text("Убрать «", "Remove \"") + record.title + text("» из списка?", "\" from the list?"))
                 .setMessage(text("Пропадёт только эта строка. Плейлист в SoundCloud останется.",
                         "Only this line goes. The playlist on SoundCloud stays."))
-                .setPositiveButton(text("Убрать", "Remove"), (dialog, which) -> {
-                    TransferJob.forget(record);
-                    fillHistory();
-                })
+                .setPositiveButton(text("Убрать", "Remove"), (dialog, which) ->
+                        Utils.runOnBackgroundThread(() -> {
+                            TransferJob.forget(record);
+                            Utils.runOnMainThread(this::fillHistory);
+                        }))
                 .setNegativeButton(text("Отмена", "Cancel"), null)
                 .show();
     }

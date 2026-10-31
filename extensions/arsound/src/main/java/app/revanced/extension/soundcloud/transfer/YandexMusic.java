@@ -228,6 +228,8 @@ final class YandexMusic {
     private static String request(String path, String token, String form) throws IOException {
         IOException failure = null;
         for (int attempt = 0; attempt < 3; attempt++) {
+            // "Stop" works between the requests: a long list is read in dozens of them, and a request ignores it.
+            if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Transfer stopped");
             if (attempt > 0) pause(attempt * 1_500L);
             HttpURLConnection connection = (HttpURLConnection) new URL(API + path).openConnection();
             try {
