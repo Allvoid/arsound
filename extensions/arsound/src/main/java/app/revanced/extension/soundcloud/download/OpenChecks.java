@@ -68,8 +68,9 @@ final class OpenChecks {
         } catch (Exception ex) {
             Logger.printInfo(() -> "Download index: cannot open " + uri + ": " + ex);
             ok = false;
-            // The listing may be out of date: the file can have been removed in a file manager.
-            DownloadIndex.refreshAsync();
+            // The listing may be out of date: the file can have been removed in a file manager. Not more often than a
+            // listing is made anyway: each failed file of a list asked for a full listing of the folder.
+            DownloadIndex.refreshAsyncIfStale();
         }
         openChecks.put(uri.toString(), new long[]{SystemClock.elapsedRealtime(), ok ? 1 : 0});
         return ok;

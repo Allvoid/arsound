@@ -56,6 +56,9 @@ final class TreeFolder extends DownloadLocation {
     private static final long AVAILABLE_CHECK_MS = 5_000;
 
     private static final Map<String, String> LABELS = new ConcurrentHashMap<>();
+    /** The names by id of cards that are out, with the time they were made: {label, time}. */
+    private static final Map<String, Object[]> UNNAMED = new ConcurrentHashMap<>();
+    private static final long UNNAMED_KEPT_MS = 60_000;
 
     /** The last answer of {@link #isAvailable}, kept as one value so that a reader never sees half of a newer one. */
     private static final class Checked {
@@ -126,6 +129,10 @@ final class TreeFolder extends DownloadLocation {
         String key = tree.toString();
         String label = LABELS.get(key);
         if (label != null) return label;
+        Object[] unnamed = UNNAMED.get(key);
+        if (unnamed != null && android.os.SystemClock.elapsedRealtime() - (Long) unnamed[1] < UNNAMED_KEPT_MS) {
+            return (String) unnamed[0];
+        }
 
         // The document id of the folder is "volume:path": "primary:Music/Foo", "1A2B-3C4D:Podcasts".
         int colon = rootDocumentId.indexOf(':');
@@ -144,8 +151,10 @@ final class TreeFolder extends DownloadLocation {
         String storage = storageName(volume);
         label = (storage != null ? storage : Lang.text("SD-карта", "SD card") + " " + volume)
                 + (path.isEmpty() ? "" : "/" + path);
-        // A card the system does not name now (it is out) is named by its id; the real name is looked for again later.
+        // A card the system does not name now (it is out) is named by its id; the real name is looked for again, but
+        // not for every track of a list in a row: the name by id is kept for a minute.
         if (storage != null) LABELS.put(key, label);
+        else UNNAMED.put(key, new Object[]{label, android.os.SystemClock.elapsedRealtime()});
         return label;
     }
 

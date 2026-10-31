@@ -86,6 +86,7 @@ public final class LogExport {
                 composer.write(activity, out);
             }
             android.net.Uri saved = destination.finish();
+            destination.removeEarlier();
             Utils.runOnMainThread(() -> showSaved(activity, destination.shownPath(), saved));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not save the logs", ex);

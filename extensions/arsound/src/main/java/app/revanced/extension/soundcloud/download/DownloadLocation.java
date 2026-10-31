@@ -279,7 +279,8 @@ abstract class DownloadLocation {
     }
 
     static void copy(File source, OutputStream output) throws IOException {
-        try (InputStream input = new FileInputStream(source); OutputStream target = output) {
+        // The output first: it is closed also when the source cannot be opened.
+        try (OutputStream target = output; InputStream input = new FileInputStream(source)) {
             byte[] buffer = new byte[64 * 1024];
             int read;
             while ((read = input.read(buffer)) > 0) target.write(buffer, 0, read);

@@ -53,6 +53,10 @@ public final class ClientProfiles {
     private static final int SCRIPT_OVERLAP_CHARS = 512;
 
     private static final Object CLIENT_ID_LOCK = new Object();
+    /** The lookup of the client id under way, which the threads that need the id wait for; null when none runs. */
+    private static java.util.concurrent.FutureTask<String> clientIdLookup;
+    /** How long a thread waits for another one's lookup of the client id. */
+    private static final long CLIENT_ID_WAIT_MS = 20_000;
     private static volatile String cachedClientId;
     private static volatile long cachedAt;
     /** No new lookup of the client id before this time. */
@@ -164,34 +168,65 @@ public final class ClientProfiles {
         String cached = cachedClientId;
         if (isFresh(cached) || System.currentTimeMillis() < nextLookupAt) return cached;
 
-        // One thread reads the scripts while the others wait for its answer, instead of each downloading them.
+        // One thread reads the scripts while the others wait for its answer, instead of each downloading them. The lock
+        // is held only to pick that thread: the others wait for the answer with a time limit, not for the network.
+        java.util.concurrent.FutureTask<String> task;
+        boolean mine = false;
         synchronized (CLIENT_ID_LOCK) {
             cached = cachedClientId;
             if (isFresh(cached) || System.currentTimeMillis() < nextLookupAt) return cached;
-
-            long backoff = ERROR_BACKOFF_MS;
-            try {
-                String found = readClientId();
-                if (found != null) {
-                    cachedClientId = found;
-                    cachedAt = System.currentTimeMillis();
-                    nextLookupAt = 0;
-                    Logger.printInfo(() -> "Web client id found");
-                    return found;
-                }
-                backoff = NOT_FOUND_BACKOFF_MS;
-            } catch (RegionGuard.BlockedException ex) {
-                // Nothing was sent, and the user may switch a VPN on at any moment: tried again soon, but the threads
-                // waiting for this lock do not each sit out the guard's pause.
-                Logger.printInfo(() -> "Could not read the web client id: " + ex);
-                nextLookupAt = System.currentTimeMillis() + BLOCKED_BACKOFF_MS;
-                return cached;
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Could not read the web client id: " + ex);
+            if (clientIdLookup == null) {
+                clientIdLookup = new java.util.concurrent.FutureTask<>(ClientProfiles::lookUpClientId);
+                mine = true;
             }
-            nextLookupAt = System.currentTimeMillis() + backoff;
-            return cached;
+            task = clientIdLookup;
         }
+        if (mine) {
+            try {
+                task.run();
+            } finally {
+                synchronized (CLIENT_ID_LOCK) {
+                    if (clientIdLookup == task) clientIdLookup = null;
+                }
+            }
+        }
+        try {
+            String found = task.get(CLIENT_ID_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return found != null ? found : cachedClientId;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return cachedClientId;
+        } catch (Exception ex) {
+            // Still reading after the time limit, or failed: the id there is, if any.
+            return cachedClientId;
+        }
+    }
+
+    /** Reads the client id from the site; run by one thread at a time (see {@link #clientId}). */
+    private static String lookUpClientId() {
+        String cached = cachedClientId;
+        long backoff = ERROR_BACKOFF_MS;
+        try {
+            String found = readClientId();
+            if (found != null) {
+                cachedClientId = found;
+                cachedAt = System.currentTimeMillis();
+                nextLookupAt = 0;
+                Logger.printInfo(() -> "Web client id found");
+                return found;
+            }
+            backoff = NOT_FOUND_BACKOFF_MS;
+        } catch (RegionGuard.BlockedException ex) {
+            // Nothing was sent, and the user may switch a VPN on at any moment: tried again soon, but the threads
+            // waiting for this lookup do not each sit out the guard's pause.
+            Logger.printInfo(() -> "Could not read the web client id: " + ex);
+            nextLookupAt = System.currentTimeMillis() + BLOCKED_BACKOFF_MS;
+            return cached;
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not read the web client id: " + ex);
+        }
+        nextLookupAt = System.currentTimeMillis() + backoff;
+        return cached;
     }
 
     /**

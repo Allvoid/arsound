@@ -30,6 +30,8 @@ public final class PrefetchedTracks {
     private static final String USER_AGENT = "Arsound";
     /** A longer track (a DJ set, a podcast) is streamed as usual: its copy would cost a lot of data and room. */
     private static final long MAX_BYTES = 60L * 1024 * 1024;
+    /** Tracks found too long to fetch ahead, for this run of the app: they are not tried again. */
+    private static final java.util.Set<String> tooLong = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** The same for HLS: segments are about ten seconds, so this is about half an hour. */
     private static final int MAX_SEGMENTS = 180;
 
@@ -67,6 +69,7 @@ public final class PrefetchedTracks {
      */
     public static boolean fetch(Context context, String trackId, BooleanSupplier cancelled) throws Exception {
         if (copyOf(context, trackId) != null) return true;
+        if (tooLong.contains(trackId)) return false;
         File folder = folder(context);
         if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("No folder " + folder);
         HlsDownloader.requireFreeSpace(folder, HlsDownloader.MIN_FREE_BYTES);
@@ -94,12 +97,19 @@ public final class PrefetchedTracks {
                 long length = connection.getContentLengthLong();
                 if (length > MAX_BYTES) {
                     Logger.printInfo(() -> "Next track " + trackId + " is too long to fetch ahead: " + length + " bytes");
+                    tooLong.add(trackId);
                     return false;
                 }
                 byte[] buffer = new byte[64 * 1024];
                 long total = 0;
                 for (int read; (read = input.read(buffer)) >= 0; ) {
-                    if (cancelled.getAsBoolean() || (total += read) > MAX_BYTES) return false;
+                    if (cancelled.getAsBoolean()) return false;
+                    if ((total += read) > MAX_BYTES) {
+                        // Without a length up front the size shows only here: remembered, so the track is not fetched
+                        // up to the limit again every few minutes while the one before it plays.
+                        tooLong.add(trackId);
+                        return false;
+                    }
                     output.write(buffer, 0, read);
                 }
             } finally {

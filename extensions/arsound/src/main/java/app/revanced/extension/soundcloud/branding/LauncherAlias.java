@@ -22,9 +22,44 @@ final class LauncherAlias {
         return new ComponentName(context.getPackageName(), ALIAS_PREFIX + id);
     }
 
+    /** The variant chosen last, remembered so the picker does not ask the system about some 155 entries each time. */
+    private static final String PREFERENCES_NAME = "arsound_app_icon";
+    private static final String CHOSEN = "chosen";
+
+    private static android.content.SharedPreferences preferences(Context context) {
+        return context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+    }
+
+    /** Whether the launcher entry of the variant is on: switched on, or the default one never switched. */
+    private static boolean isOn(PackageManager manager, Context context, String id) {
+        int state = manager.getComponentEnabledSetting(component(context, id));
+        return state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                || (state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT && id.equals(IconCatalog.defaultId()));
+    }
+
     /** The variant whose launcher entry is enabled; the default one if the user never changed it. */
     static String current(Context context) {
         PackageManager manager = context.getPackageManager();
+        String chosen = preferences(context).getString(CHOSEN, null);
+        try {
+            // The remembered one, checked with one question to the system.
+            if (chosen != null && isOn(manager, context, chosen)) return chosen;
+            // Never changed: the default entry is on as the manifest made it.
+            if (chosen == null && isOn(manager, context, IconCatalog.defaultId())
+                    && manager.getComponentEnabledSetting(component(context, IconCatalog.defaultId()))
+                    == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+                return IconCatalog.defaultId();
+            }
+        } catch (Exception ignored) {
+            // An alias missing from the manifest: the whole list is asked.
+        }
+        String found = scan(context, manager);
+        preferences(context).edit().putString(CHOSEN, found).apply();
+        return found;
+    }
+
+    /** Asks the system about every entry: for an install that changed the icon before it was remembered. */
+    private static String scan(Context context, PackageManager manager) {
         for (String[] row : IconCatalog.rows()) {
             try {
                 if (manager.getComponentEnabledSetting(component(context, row[0]))
@@ -45,8 +80,21 @@ final class LauncherAlias {
     static boolean apply(Context context, String id) {
         try {
             PackageManager manager = context.getPackageManager();
+            String before = preferences(context).getString(CHOSEN, null);
             manager.setComponentEnabledSetting(component(context, id),
                     PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+            if (before != null) {
+                // The one shown so far and the default one are all there is to switch off.
+                for (String other : new String[]{before, IconCatalog.defaultId()}) {
+                    if (!other.equals(id) && isOn(manager, context, other)) {
+                        manager.setComponentEnabledSetting(component(context, other),
+                                PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+                    }
+                }
+                preferences(context).edit().putString(CHOSEN, id).apply();
+                Logger.printInfo(() -> "App icon changed to " + id);
+                return true;
+            }
             for (String[] row : IconCatalog.rows()) {
                 if (row[0].equals(id)) continue;
                 ComponentName other = component(context, row[0]);
@@ -59,6 +107,7 @@ final class LauncherAlias {
                             PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
                 }
             }
+            preferences(context).edit().putString(CHOSEN, id).apply();
             Logger.printInfo(() -> "App icon changed to " + id);
             return true;
         } catch (Exception ex) {

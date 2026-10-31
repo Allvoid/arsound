@@ -275,6 +275,9 @@ public final class HlsDownloader {
         if (file.exists() && !file.delete()) Logger.printInfo(() -> "Could not delete " + file);
     }
 
+    /** The free space is checked after this many segments of the stream are written. */
+    private static final int SPACE_CHECK_EVERY = 20;
+
     static void requireFreeSpace(File folder, long bytes) throws NoSpaceException {
         long free = folder.getUsableSpace();
         if (free < bytes) {
@@ -507,13 +510,23 @@ public final class HlsDownloader {
             // submitted ahead of the one being written, so a slow first segment cannot pile up the rest in memory.
             java.util.ArrayDeque<java.util.concurrent.Future<byte[]>> pending = new java.util.ArrayDeque<>();
             int next = 0;
+            int written = 0;
+            long bytes = 0;
             while (next < segments.size() || !pending.isEmpty()) {
                 if (cancelled.getAsBoolean()) throw new CancelledException();
                 while (next < segments.size() && pending.size() < SEGMENTS_AHEAD) {
                     Segment segment = segments.get(next++);
                     pending.add(pool.submit(() -> decrypt(segment, keys)));
                 }
-                output.write(pending.poll().get());
+                byte[] data = pending.poll().get();
+                output.write(data);
+                bytes += data.length;
+                // The room for the rest of the stream and for the two copies packing makes is checked as it goes, from
+                // the size so far: an hour-long mix filled the storage before the check after the whole stream.
+                if (++written % SPACE_CHECK_EVERY == 0) {
+                    long expected = bytes * segments.size() / written;
+                    requireFreeSpace(target.getParentFile(), (expected - bytes) + 2 * expected + MIN_FREE_BYTES);
+                }
             }
         } finally {
             pool.shutdownNow();

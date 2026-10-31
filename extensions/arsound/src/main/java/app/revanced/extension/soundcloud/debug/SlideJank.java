@@ -53,10 +53,23 @@ public final class SlideJank {
     private SlideJank() {
     }
 
+    /**
+     * Starts the thread the frames are told on, without waiting for it: the first slide asked for its looper and made
+     * the main thread wait for the thread to come up. Called at every state of the sheet (the first ones come when the
+     * screen opens, long before a finger drags it).
+     */
+    private static void prepareWorker() {
+        if (thread != null) return;
+        thread = new HandlerThread("arsound-slide-jank", android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     /** Called by {@link PlayerSheet} for every state of the sheet, on the main thread. */
     public static void onSheetState(int state, Object sheet) {
         if (!PlaybackLog.enabled) return;
         try {
+            prepareWorker();
             if (state == PlayerSheet.DRAGGING || state == PlayerSheet.SETTLING) {
                 if (current != null && current.ending) finish(current);
                 // A slide of another window is over: its screen was rebuilt (a turn, a fold) and this sheet is new.
@@ -126,9 +139,8 @@ public final class SlideJank {
         }
         Slide slide = new Slide(window, rest, PlayerSheet.isSmoothEnabled(), rate, lowest, highest);
         if (worker == null) {
-            thread = new HandlerThread("arsound-slide-jank", android.os.Process.THREAD_PRIORITY_BACKGROUND);
-            thread.setDaemon(true);
-            thread.start();
+            prepareWorker();
+            // Started at an earlier state of the sheet, so its looper is ready by now.
             worker = new Handler(thread.getLooper());
         }
         window.addOnFrameMetricsAvailableListener(slide, worker);
@@ -174,6 +186,8 @@ public final class SlideJank {
         private final float[][] parts = new float[NAMES.length][MAX_FRAMES];
         private final long[] vsync = new long[MAX_FRAMES];
         private int frames;
+        /** Every frame of the slide, also those past {@link #MAX_FRAMES}. */
+        private int seen;
         private boolean done;
 
         Slide(Window window, int from, boolean smooth, float displayRate, float lowestRate, float highestRate) {
@@ -187,7 +201,10 @@ public final class SlideJank {
 
         @Override
         public synchronized void onFrameMetricsAvailable(Window ignored, FrameMetrics metrics, int dropCount) {
-            if (done || frames >= MAX_FRAMES) return;
+            if (done) return;
+            seen++;
+            // The frames past the room for them are counted, so the line says it describes only the first ones.
+            if (frames >= MAX_FRAMES) return;
             int frame = frames++;
             total[frame] = ms(metrics, FrameMetrics.TOTAL_DURATION);
             parts[0][frame] = ms(metrics, FrameMetrics.ANIMATION_DURATION);
@@ -221,12 +238,16 @@ public final class SlideJank {
                 if (gap > 0) shortest = Math.min(shortest, gap);
             }
             boolean fromFrames = shortest != Long.MAX_VALUE;
-            long interval = Math.round(1_000_000_000d / displayRate);
+            // The steps of the frames, which may be every second refresh (60 frames a second on a 120 Hz screen)...
+            long cadence = Math.round(1_000_000_000d / displayRate);
             if (fromFrames) {
-                interval = Math.max(Math.round(1_000_000_000d / highestRate),
+                cadence = Math.max(Math.round(1_000_000_000d / highestRate),
                         Math.min(Math.round(1_000_000_000d / lowestRate), shortest));
             }
-            float rate = (float) (1_000_000_000d / interval);
+            float rate = (float) (1_000_000_000d / cadence);
+            // ...and the screen's own interval, which the frames over the budget and the missed ones are counted
+            // against: a slide held at 60 frames on a 120 Hz screen misses every other refresh.
+            long interval = Math.round(1_000_000_000d / displayRate);
             float budget = interval / 1_000_000f;
 
             float[] sorted = Arrays.copyOf(total, frames);
@@ -261,13 +282,14 @@ public final class SlideJank {
                 detail.append(String.format(Locale.US, " %s %.1f/%.1f", NAMES[part], sum / frames, max));
             }
 
+            String counted = seen > frames ? frames + " of " + seen + " frames (the first ones)" : frames + " frames";
             return String.format(Locale.US,
-                    "slide %s -> %s, smooth %s, %.0f Hz (%s, display %.0f), %d ms: %d frames, %d over %.1f ms,"
+                    "slide %s -> %s, smooth %s, cadence %.0f fps (%s), display %.0f Hz, %d ms: %s, %d over %.1f ms,"
                             + " missed %d, about %.0f fps; total median %.1f, p90 %.1f, max %.1f ms;"
                             + " average/max ms:%s; worst: %s",
                     stateName(from), stateName(to), smooth ? "on" : "off", rate,
                     fromFrames ? "frames" : "display", displayRate,
-                    android.os.SystemClock.uptimeMillis() - startedAt, frames, slow, budget, missed, fps,
+                    android.os.SystemClock.uptimeMillis() - startedAt, counted, slow, budget, missed, fps,
                     sorted[frames / 2], sorted[Math.min(frames - 1, (int) (frames * 0.9f))], sorted[frames - 1],
                     detail, NAMES[worst]);
         }

@@ -30,7 +30,8 @@ final class NetworkWatcher {
     }
 
     /** Starts listening, once. Does nothing until the app has a context. */
-    void start() {
+    synchronized void start() {
+        // Synchronized: the first requests come on several threads at once, and each registered a callback of its own.
         if (listening) return;
         Context context = Utils.getContext();
         if (context == null) return;

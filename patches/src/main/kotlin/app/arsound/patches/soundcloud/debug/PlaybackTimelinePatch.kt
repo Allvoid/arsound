@@ -10,7 +10,7 @@ private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/debug/PlaybackTimeline;"
 
 /**
- * Playback timeline (off by default, switched in the developer settings): Catches SoundCloud's own playback log and writes it to a file
+ * Playback timeline (on by default, switched in the developer settings): Catches SoundCloud's own playback log and writes it to a file
  * kept for two days, with the delay of every track start and its cause.
  * Part of the "Arsound" patch, not shown on its own.
  */

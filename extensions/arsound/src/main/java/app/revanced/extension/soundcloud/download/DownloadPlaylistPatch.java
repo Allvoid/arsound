@@ -115,8 +115,13 @@ public final class DownloadPlaylistPatch {
 
             // The menu items are recreated right after this call, so add the row once they are in place.
             dialog.getWindow().getDecorView().post(() -> {
-                addRow(dialog, playlistId);
-                app.revanced.extension.soundcloud.local.LocalAdditions.addPlaylistMenuRow(dialog, "soundcloud:playlists:" + playlistId, menuData);
+                // Run later, outside the try above: a failure here must not reach SoundCloud's menu.
+                try {
+                    addRow(dialog, playlistId);
+                    app.revanced.extension.soundcloud.local.LocalAdditions.addPlaylistMenuRow(dialog, "soundcloud:playlists:" + playlistId, menuData);
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Could not add the rows to the playlist menu", ex);
+                }
             });
         } catch (Exception ex) {
             Logger.printException(() -> "onPlaylistMenu failure", ex);
@@ -343,166 +348,209 @@ public final class DownloadPlaylistPatch {
      * @param imported   Receives the number of imported files the list has.
      */
     private static void check(Context context, String playlistId, TrackIds trackIds, int[] imported) {
+        // One check at a time: a second tap started a second full check of the same tracks, and the two shared the
+        // one progress counter at the bottom.
+        if (!checking.compareAndSet(false, true)) {
+            DownloadTrackPatch.showToast(context, text("Проверка уже идёт", "A check is already running"));
+            return;
+        }
         // The progress counter at the bottom shows the check, a toast would cover it.
         ProgressPill.onCheckLoading();
 
         Utils.runOnBackgroundThread(() -> {
             try {
-                List<String> ids = trackIds.get();
-                if (ids == null) {
-                    ProgressPill.onCheckFinished();
-                    DownloadTrackPatch.showToast(context, text("Не удалось получить треки, ошибка " + lastError,
-                            "Could not load the tracks, error " + lastError));
-                    return;
-                }
-
-                // The playlist only contains the ids of most tracks, so the track details are requested separately.
-
-                List<TrackInfo> downloadable = new ArrayList<>();
-                List<String> unavailableTitles = new ArrayList<>();
-                // DRM tracks Arsound cannot save as files; they go to SoundCloud's own offline download.
-                List<String> drmIds = new ArrayList<>();
-                int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
-                // Without the listing of the files every track would count as not downloaded, as the paths of the
-                // files are closed to the app since Android 10.
-                DownloadIndex.awaitListing();
-                ProgressPill.onCheckStarted(ids.size());
-
-                // Tracks on the phone are counted at once; the rest wait for their file links below.
-                List<JSONObject> toResolve = new ArrayList<>();
-                int[] checked = {0};
-                // Whether a Go+ track [0] or a track blocked in the region [1] is among the unavailable ones; guarded by checked.
-                boolean[] restricted = {false, false};
-                // Tracks of requests the server did not answer: unknown, not "unavailable".
-                int[] unchecked = {0};
-                for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
-                    List<String> chunk = ids.subList(start, Math.min(ids.size(), start + TRACKS_PER_REQUEST));
-                    String chunkUrl = "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", chunk);
-                    String[] tracks = DownloadTrackPatch.apiGet(chunkUrl);
-                    // One more try for a server error: a whole chunk of 50 tracks is worth it.
-                    if (tracks[1] == null && tracks[0].startsWith("5")) {
-                        Thread.sleep(2_000);
-                        tracks = DownloadTrackPatch.apiGet(chunkUrl);
-                    }
-                    if (tracks[1] == null) {
-                        lastError = tracks[0];
-                        unchecked[0] += chunk.size();
-                    }
-                    int answered = 0;
-                    if (tracks[1] != null) {
-                        JSONArray array = new JSONArray(tracks[1]);
-                        answered = array.length();
-                        for (int i = 0; i < array.length(); i++) {
-                            JSONObject track = array.getJSONObject(i);
-                            // Metadata flags can be stale or overly broad. Resolve the actual stream for
-                            // every track and let the authorized stream endpoint decide availability.
-                            if (!track.optBoolean("streamable", true)) {
-                                checked[0]++;
-                                continue;
-                            }
-                            String id = String.valueOf(track.getLong("id"));
-                            switch (DownloadTrackPatch.getDownloadState(context, id)) {
-                                case DOWNLOADED:
-                                    alreadyDownloaded[0]++;
-                                    checked[0]++;
-                                    break;
-                                case IN_PROGRESS:
-                                    alreadyDownloaded[1]++;
-                                    checked[0]++;
-                                    break;
-                                default:
-                                    toResolve.add(track);
-                            }
-                        }
-                    }
-                    // Tracks missing from the answer (deleted on the server) count as checked.
-                    if (tracks[1] != null) checked[0] += chunk.size() - answered;
-                    else checked[0] += chunk.size();
-                    ProgressPill.onChecked(checked[0]);
-                }
-
-                // The track data does not show region blocks: only the file link does. The check asks for
-                // it now, so "can be downloaded" means the download will really start. One link can take
-                // many requests, so a few tracks are asked at once.
-                TrackInfo[] found = new TrackInfo[toResolve.size()];
-                String[] unavailable = new String[toResolve.size()];
-                String[] drm = new String[toResolve.size()];
-                ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL_CHECKS, toResolve.size())));
-                try {
-                    for (int i = 0; i < toResolve.size(); i++) {
-                        int index = i;
-                        pool.execute(() -> {
-                            JSONObject track = toResolve.get(index);
-                            String id = String.valueOf(track.optLong("id"));
-                            String title = track.optString("title");
-                            TrackSource source = UnavailableTracks.get(id);
-                            boolean failed = false;
-                            if (source == null) {
-                                try {
-                                    source = DownloadTrackPatch.resolveSource(id, track);
-                                    if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
-                                } catch (Exception ex) {
-                                    // A network or server failure says nothing about the track: it is not remembered.
-                                    failed = true;
-                                    Logger.printInfo(() -> "No file link for " + id + ": " + ex);
-                                }
-                            }
-                            if (source != null && source.isDownloadable()) {
-                                found[index] = new TrackInfo(id, title, source);
-                            } else if (source != null && DownloadTrackPatch.goesToNativeOffline(source.status)) {
-                                drm[index] = id;
-                            } else if (!failed) {
-                                unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
-                                if (source != null && RestrictionNote.isRestriction(source.status)) {
-                                    synchronized (checked) {
-                                        if (source.status == TrackSource.Status.REGION_BLOCKED) restricted[1] = true;
-                                        else restricted[0] = true;
-                                    }
-                                }
-                            }
-                            synchronized (checked) {
-                                if (failed) unchecked[0]++;
-                                ProgressPill.onChecked(++checked[0]);
-                            }
-                        });
-                    }
-                    pool.shutdown();
-                    if (!pool.awaitTermination(1, TimeUnit.HOURS)) Logger.printInfo(() -> "Playlist check timed out");
-                } finally {
-                    // Stops the checks still waiting (also their pauses for the rate limit) if this one was cut short.
-                    pool.shutdownNow();
-                }
-                synchronized (checked) {
-                    for (int i = 0; i < found.length; i++) {
-                        if (found[i] != null) downloadable.add(found[i]);
-                        else if (drm[i] != null) drmIds.add(drm[i]);
-                        else if (unavailable[i] != null) unavailableTitles.add(unavailable[i]);
-                    }
-                }
-                ProgressPill.onCheckFinished();
-
-                int notChecked = unchecked[0];
-                Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, imported " + imported[0]
-                        + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download "
-                        + downloadable.size() + ", DRM " + drmIds.size() + ", not checked " + notChecked);
-                String footnote = RestrictionNote.footnote(restricted[0], restricted[1]);
-                Utils.runOnMainThread(() -> showResult(context, playlistId, ids.size(), imported[0], alreadyDownloaded[0], alreadyDownloaded[1],
-                        notChecked, downloadable, unavailableTitles, drmIds, footnote));
-            } catch (Exception ex) {
-                Logger.printException(() -> "Playlist check failure", ex);
-                ProgressPill.onCheckFinished();
-                DownloadTrackPatch.showToast(context, text("Не удалось проверить треки", "Could not check the tracks"));
+                checkNow(context, playlistId, trackIds, imported);
+            } finally {
+                checking.set(false);
             }
         });
+    }
+
+    /** Set while a check runs. */
+    private static final java.util.concurrent.atomic.AtomicBoolean checking = new java.util.concurrent.atomic.AtomicBoolean();
+
+    private static void checkNow(Context context, String playlistId, TrackIds trackIds, int[] imported) {
+        try {
+            List<String> ids = trackIds.get();
+            if (ids == null) {
+                ProgressPill.onCheckFinished();
+                DownloadTrackPatch.showToast(context, text("Не удалось получить треки, ошибка " + lastError,
+                        "Could not load the tracks, error " + lastError));
+                return;
+            }
+
+            // The playlist only contains the ids of most tracks, so the track details are requested separately.
+
+            List<TrackInfo> downloadable = new ArrayList<>();
+            List<String> unavailableTitles = new ArrayList<>();
+            // DRM tracks Arsound cannot save as files; they go to SoundCloud's own offline download.
+            List<String> drmIds = new ArrayList<>();
+            int[] alreadyDownloaded = {0, 0}; // downloaded, still downloading
+            // Without the listing of the files every track would count as not downloaded, as the paths of the
+            // files are closed to the app since Android 10.
+            DownloadIndex.awaitListing();
+            ProgressPill.onCheckStarted(ids.size());
+
+            // Tracks on the phone are counted at once; the rest wait for their file links below.
+            List<JSONObject> toResolve = new ArrayList<>();
+            int[] checked = {0};
+            // Whether a Go+ track [0] or a track blocked in the region [1] is among the unavailable ones; guarded by checked.
+            boolean[] restricted = {false, false};
+            // Tracks of requests the server did not answer: unknown, not "unavailable".
+            int[] unchecked = {0};
+            for (int start = 0; start < ids.size(); start += TRACKS_PER_REQUEST) {
+                List<String> chunk = ids.subList(start, Math.min(ids.size(), start + TRACKS_PER_REQUEST));
+                String chunkUrl = "https://api-v2.soundcloud.com/tracks?ids=" + String.join(",", chunk);
+                String[] tracks = DownloadTrackPatch.apiGet(chunkUrl);
+                // One more try for a server error: a whole chunk of 50 tracks is worth it.
+                if (tracks[1] == null && tracks[0].startsWith("5")) {
+                    Thread.sleep(2_000);
+                    tracks = DownloadTrackPatch.apiGet(chunkUrl);
+                }
+                if (tracks[1] == null) {
+                    lastError = tracks[0];
+                    unchecked[0] += chunk.size();
+                }
+                int answered = 0;
+                if (tracks[1] != null) {
+                    JSONArray array = new JSONArray(tracks[1]);
+                    answered = array.length();
+                    for (int i = 0; i < array.length(); i++) {
+                        JSONObject track = array.getJSONObject(i);
+                        // Metadata flags can be stale or overly broad. Resolve the actual stream for
+                        // every track and let the authorized stream endpoint decide availability.
+                        if (!track.optBoolean("streamable", true)) {
+                            checked[0]++;
+                            continue;
+                        }
+                        String id = String.valueOf(track.getLong("id"));
+                        switch (DownloadTrackPatch.getDownloadState(context, id)) {
+                            case DOWNLOADED:
+                                alreadyDownloaded[0]++;
+                                checked[0]++;
+                                break;
+                            case IN_PROGRESS:
+                                alreadyDownloaded[1]++;
+                                checked[0]++;
+                                break;
+                            default:
+                                toResolve.add(track);
+                        }
+                    }
+                }
+                // Tracks missing from the answer (deleted on the server) count as checked.
+                if (tracks[1] != null) checked[0] += chunk.size() - answered;
+                else checked[0] += chunk.size();
+                ProgressPill.onChecked(checked[0]);
+            }
+
+            // The track data does not show region blocks: only the file link does. The check asks for
+            // it now, so "can be downloaded" means the download will really start. One link can take
+            // many requests, so a few tracks are asked at once.
+            TrackInfo[] found = new TrackInfo[toResolve.size()];
+            String[] unavailable = new String[toResolve.size()];
+            String[] drm = new String[toResolve.size()];
+            // Each track's data is let go once its link is resolved: a long list kept all of it to the end.
+            JSONObject[] pending = toResolve.toArray(new JSONObject[0]);
+            toResolve.clear();
+            ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL_CHECKS, found.length)));
+            try {
+                for (int i = 0; i < pending.length; i++) {
+                    int index = i;
+                    pool.execute(() -> {
+                        JSONObject track = pending[index];
+                        pending[index] = null;
+                        String id = String.valueOf(track.optLong("id"));
+                        String title = track.optString("title");
+                        TrackSource source = UnavailableTracks.get(id);
+                        boolean failed = false;
+                        if (source == null) {
+                            try {
+                                source = DownloadTrackPatch.resolveSource(id, track);
+                                if (!source.isDownloadable()) UnavailableTracks.put(id, source.status);
+                            } catch (Exception ex) {
+                                // A network or server failure says nothing about the track: it is not remembered.
+                                failed = true;
+                                Logger.printInfo(() -> "No file link for " + id + ": " + ex);
+                            }
+                        }
+                        if (source != null && source.isDownloadable()) {
+                            found[index] = new TrackInfo(id, title, source);
+                        } else if (source != null && DownloadTrackPatch.goesToNativeOffline(source.status)) {
+                            drm[index] = id;
+                        } else if (!failed) {
+                            unavailable[index] = title + (source == null ? "" : " (" + source.reason() + ")");
+                            if (source != null && RestrictionNote.isRestriction(source.status)) {
+                                synchronized (checked) {
+                                    if (source.status == TrackSource.Status.REGION_BLOCKED) restricted[1] = true;
+                                    else restricted[0] = true;
+                                }
+                            }
+                        }
+                        synchronized (checked) {
+                            if (failed) unchecked[0]++;
+                            ProgressPill.onChecked(++checked[0]);
+                        }
+                    });
+                }
+                pool.shutdown();
+                if (!pool.awaitTermination(1, TimeUnit.HOURS)) Logger.printInfo(() -> "Playlist check timed out");
+            } finally {
+                // Stops the checks still waiting (also their pauses for the rate limit) if this one was cut short.
+                pool.shutdownNow();
+            }
+            synchronized (checked) {
+                for (int i = 0; i < found.length; i++) {
+                    if (found[i] != null) downloadable.add(found[i]);
+                    else if (drm[i] != null) drmIds.add(drm[i]);
+                    else if (unavailable[i] != null) unavailableTitles.add(unavailable[i]);
+                }
+            }
+            ProgressPill.onCheckFinished();
+
+            int notChecked = unchecked[0];
+            Logger.printInfo(() -> "Playlist " + playlistId + ": " + ids.size() + " tracks, imported " + imported[0]
+                    + ", downloaded " + alreadyDownloaded[0] + ", downloading " + alreadyDownloaded[1] + ", can download "
+                    + downloadable.size() + ", DRM " + drmIds.size() + ", not checked " + notChecked);
+            String footnote = RestrictionNote.footnote(restricted[0], restricted[1]);
+            Utils.runOnMainThread(() -> showResult(context, playlistId, ids.size(), imported[0], alreadyDownloaded[0], alreadyDownloaded[1],
+                    notChecked, downloadable, unavailableTitles, drmIds, footnote));
+        } catch (Exception ex) {
+            Logger.printException(() -> "Playlist check failure", ex);
+            ProgressPill.onCheckFinished();
+            DownloadTrackPatch.showToast(context, text("Не удалось проверить треки", "Could not check the tracks"));
+        }
+    }
+
+    /**
+     * The screen to show the result on: the one on top now, not the one the check was started from, which may have been
+     * made again (a turn) or closed meanwhile. Null when no screen is on top.
+     */
+    private static Context resultScreen(Context started) {
+        android.app.Activity resumed = app.revanced.extension.soundcloud.update.UpdateChecker.resumedActivity();
+        if (resumed != null && !resumed.isFinishing() && !resumed.isDestroyed()) return resumed;
+        if (started instanceof android.app.Activity) {
+            android.app.Activity activity = (android.app.Activity) started;
+            if (!activity.isFinishing() && !activity.isDestroyed()) return activity;
+        }
+        return null;
     }
 
     /**
      * @param notChecked Tracks the server gave no answer about (network, rate limit or server error).
      * @param footnote   The note about Go+ and region-blocked tracks among the unavailable ones, or empty.
      */
-    private static void showResult(Context context, String playlistId, int total, int imported, int downloaded, int downloading,
+    private static void showResult(Context started, String playlistId, int total, int imported, int downloaded, int downloading,
                                    int notChecked, List<TrackInfo> downloadable, List<String> unavailableTitles, List<String> drmIds,
                                    String footnote) {
+        Context context = resultScreen(started);
+        if (context == null) {
+            // No screen to ask on: the result is told, and the download button can be pressed again.
+            DownloadTrackPatch.showToast(started.getApplicationContext(), text("Проверка готова: можно скачать "
+                    + downloadable.size() + ". Нажмите кнопку скачивания ещё раз, чтобы выбрать.", "The check is done: "
+                    + downloadable.size() + " can be downloaded. Press the download button again to choose."));
+            return;
+        }
         int unavailable = total - downloaded - downloading - downloadable.size() - drmIds.size() - notChecked;
         StringBuilder summary = new StringBuilder();
         summary.append(playlistId == null

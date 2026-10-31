@@ -433,8 +433,9 @@ public final class DownloadTrackPatch {
      * @param source A source resolved moments ago, or null to resolve it now.
      */
     static boolean downloadSilently(Context context, String trackId, TrackSource source, String playlistId) throws Exception {
-        // Started from the track menu at the same moment: that start downloads it.
-        if (!starting.add(trackId)) return true;
+        // Started from the track menu at the same moment: that start downloads it, and its outcome is this one's. Taken
+        // for started before it ended, a start that then failed marked the playlist downloaded.
+        if (!starting.add(trackId)) return awaitOtherStart(trackId);
         try {
             if (source == null || !source.isFresh()) source = resolveSource(trackId);
             // A DRM or subscription track is handed to SoundCloud's own offline download; Arsound cannot save it.
@@ -448,6 +449,13 @@ public final class DownloadTrackPatch {
         } finally {
             starting.remove(trackId);
         }
+    }
+
+    /** Waits for the start of the track made elsewhere; whether the track is downloading or downloaded after it. */
+    private static boolean awaitOtherStart(String trackId) throws InterruptedException {
+        long until = android.os.SystemClock.elapsedRealtime() + 60_000;
+        while (starting.contains(trackId) && android.os.SystemClock.elapsedRealtime() < until) Thread.sleep(200);
+        return isDownloaded(trackId) || DownloadProgress.isDownloading(trackId) || DownloadProgress.isAssembling(trackId);
     }
 
     /**
@@ -582,7 +590,10 @@ public final class DownloadTrackPatch {
             android.net.ConnectivityManager manager = context.getApplicationContext()
                     .getSystemService(android.net.ConnectivityManager.class);
             android.net.NetworkCapabilities capabilities = manager.getNetworkCapabilities(manager.getActiveNetwork());
-            return capabilities != null && capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            boolean online = capabilities != null && capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            // The network is back: the next outage gets a wait of its own, not what is left of the last one's.
+            if (online) networkWaitUntil = 0;
+            return online;
         } catch (Exception ex) {
             // Unknown: the assembly goes ahead and finds out.
             return true;
@@ -606,7 +617,9 @@ public final class DownloadTrackPatch {
             if (cancelledAssemblies.contains(trackId)) return false;
             long now = android.os.SystemClock.elapsedRealtime();
             synchronized (DownloadTrackPatch.class) {
-                if (networkWaitUntil == 0) networkWaitUntil = now + NETWORK_WAIT_MS;
+                // A deadline that ran out longer ago than a whole wait belongs to an outage that ended since, while no
+                // assembly was there to see the network come back.
+                if (networkWaitUntil == 0 || now - networkWaitUntil > NETWORK_WAIT_MS) networkWaitUntil = now + NETWORK_WAIT_MS;
             }
             if (now >= networkWaitUntil) break;
             Thread.sleep(2_000);

@@ -439,6 +439,11 @@ public final class DownloadIndex {
     }
 
     /** Lists the media store again in the background. Requests made while one is waiting to start share it. */
+    /** The same, unless a listing was made or tried within {@link #REFRESH_INTERVAL_MS}. */
+    static void refreshAsyncIfStale() {
+        if (isStale()) refreshAsync();
+    }
+
     public static void refreshAsync() {
         if (!refreshQueued.compareAndSet(false, true)) return;
         Utils.runOnBackgroundThread(() -> {

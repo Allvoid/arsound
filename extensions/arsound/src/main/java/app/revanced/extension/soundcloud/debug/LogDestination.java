@@ -22,6 +22,12 @@ interface LogDestination {
     /** Removes a half-written file, so failed attempts do not pile up. */
     void discard();
 
+    /**
+     * Removes the log files saved before this one ({@code arsound-logs-*.txt}), once this one is whole: every save made
+     * a new file of its own, and they piled up in Downloads.
+     */
+    void removeEarlier();
+
     static LogDestination create(Context context, String fileName) {
         return Build.VERSION.SDK_INT >= 29
                 ? new DownloadsDestination(context, fileName)
@@ -76,6 +82,19 @@ interface LogDestination {
                 app.revanced.extension.shared.Logger.printInfo(() -> "Could not remove the unfinished log file: " + ex);
             }
         }
+
+        @Override
+        public void removeEarlier() {
+            // The media store lets the app see and remove only the files it made itself.
+            try {
+                context.getContentResolver().delete(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        android.provider.MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? AND "
+                                + android.provider.MediaStore.MediaColumns.DISPLAY_NAME + " != ?",
+                        new String[]{"arsound-logs-%.txt", fileName});
+            } catch (Exception ex) {
+                app.revanced.extension.shared.Logger.printInfo(() -> "Could not remove the earlier log files: " + ex);
+            }
+        }
     }
 
     /** The app's own folder: before Android 10 the app cannot write to Downloads without a permission. */
@@ -106,6 +125,17 @@ interface LogDestination {
         public void discard() {
             if (file.exists() && !file.delete()) {
                 app.revanced.extension.shared.Logger.printInfo(() -> "Could not remove " + file);
+            }
+        }
+
+        @Override
+        public void removeEarlier() {
+            java.io.File[] earlier = file.getParentFile() == null ? null : file.getParentFile().listFiles(
+                    (folder, name) -> name.startsWith("arsound-logs-") && name.endsWith(".txt") && !name.equals(file.getName()));
+            if (earlier == null) return;
+            for (java.io.File old : earlier) {
+                //noinspection ResultOfMethodCallIgnored
+                old.delete();
             }
         }
     }
