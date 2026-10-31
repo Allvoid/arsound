@@ -7,6 +7,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
+import app.revanced.extension.shared.Logger;
+
 /**
  * The way to the lyrics services (LRCLIB, NetEase): one GET at a time, kept to a gap after the last request, tried
  * again when the server is busy or the connection drops, and cut short when the lookup is not wanted any more. Knows
@@ -70,8 +72,10 @@ final class LyricsHttp {
                     return null;
                 }
                 if (code == 200) return read(connection.getInputStream());
-                drain(connection.getErrorStream());
+                String refusal = sample(connection.getErrorStream());
                 if (code == 429 || code / 100 == 5) {
+                    Logger.printInfo(() -> "Lyrics: HTTP " + code + " from " + url + ", server "
+                            + connection.getHeaderField("Server") + ", body: " + refusal);
                     failure = new Busy("LRCLIB is busy, HTTP " + code, retryAfter(connection));
                     continue;
                 }
@@ -146,6 +150,17 @@ final class LyricsHttp {
             int count;
             while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
             return output.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    /** The start of what an error reply says, for the log. */
+    private static String sample(InputStream stream) {
+        if (stream == null) return "";
+        try {
+            String body = read(stream).replaceAll("\\s+", " ").trim();
+            return body.length() > 200 ? body.substring(0, 200) : body;
+        } catch (IOException ex) {
+            return "";
         }
     }
 

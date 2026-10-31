@@ -178,39 +178,81 @@ public final class LyricsRepository {
     }
 
     /**
-     * LRCLIB first: its texts are written for lyrics apps and timed for the track. NetEase when LRCLIB has nothing or
-     * cannot be reached (it is often busy). When neither answers, LRCLIB's failure is thrown: nothing is stored then.
+     * LRCLIB first: its texts are written for lyrics apps and timed for the track. Then NetEase, Kugou and lyrics.ovh
+     * when LRCLIB has nothing or cannot be reached (it is often busy). When none answers, LRCLIB's failure is thrown:
+     * nothing is stored then.
      */
-    private static final int LRCLIB_ATTEMPTS = 2;
     private static final long LRCLIB_RETRY_MS = 1_500;
 
     private static LyricsResult find(TrackInfo info, TrackQuery query, LyricsHttp http, Request request) throws IOException {
         LyricsResult result = null;
         IOException failure = null;
-        for (int attempt = 0; attempt < LRCLIB_ATTEMPTS; attempt++) {
-            try {
-                Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
-                result = new LyricsFinder(new LrclibClient(http), request).find(query);
-                failure = null;
-                if (result.status != LyricsResult.Status.MISSING) return result;
-                break;
-            } catch (IOException ex) {
-                if (request.isCancelled()) throw ex;
-                failure = ex;
-                // LRCLIB is often busy for a moment (503): asked once more after a short wait before giving up on it.
-                if (attempt + 1 < LRCLIB_ATTEMPTS) Pause.cancellable(LRCLIB_RETRY_MS, request);
-            }
-        }
         try {
-            Logger.printInfo(() -> "Lyrics: asking NetEase for " + info.urn);
-            LyricsResult other = new NeteaseFinder(new NeteaseClient(http), request).find(query);
-            if (other.status != LyricsResult.Status.MISSING) return other;
+            Logger.printInfo(() -> "Lyrics: asking LRCLIB for " + info.urn);
+            result = new LyricsFinder(new LrclibClient(http), request).find(query);
+            if (result.status != LyricsResult.Status.MISSING) return result;
         } catch (IOException ex) {
             if (request.isCancelled()) throw ex;
-            Logger.printInfo(() -> "Lyrics: NetEase failed: " + ex.getMessage());
+            failure = ex;
         }
-        if (failure != null) throw failure;
-        return result;
+        // The other places, one after another, until one has the words. One that cannot be reached is skipped. Asked
+        // while LRCLIB, which is often busy (503), has time to recover.
+        LyricsResult other = askOthers(info, query, http, request);
+        if (other != null) return other;
+        if (failure == null) return result;
+        // Nobody has the track and LRCLIB did not answer: once more, before the lookup is called failed.
+        Pause.cancellable(LRCLIB_RETRY_MS, request);
+        try {
+            Logger.printInfo(() -> "Lyrics: asking LRCLIB again for " + info.urn);
+            result = new LyricsFinder(new LrclibClient(http), request).find(query);
+            return result;
+        } catch (IOException ex) {
+            if (request.isCancelled()) throw ex;
+            throw failure;
+        }
+    }
+
+    /** One place that has lyrics, asked for the track. */
+    private interface Place {
+        LyricsResult find() throws IOException;
+    }
+
+    /** The answer of the first of the other places that has the track, or null when none has it. */
+    private static LyricsResult askOthers(final TrackInfo info, final TrackQuery query, final LyricsHttp http,
+                                          final Request request) throws IOException {
+        String[] names = {"NetEase", "Kugou", "lyrics.ovh"};
+        Place[] places = {
+                new Place() {
+                    @Override
+                    public LyricsResult find() throws IOException {
+                        return new NeteaseFinder(new NeteaseClient(http), request).find(query);
+                    }
+                },
+                new Place() {
+                    @Override
+                    public LyricsResult find() throws IOException {
+                        return new KugouFinder(new KugouClient(http), request).find(query);
+                    }
+                },
+                new Place() {
+                    @Override
+                    public LyricsResult find() throws IOException {
+                        return new OvhFinder(http, request).find(query);
+                    }
+                },
+        };
+        for (int i = 0; i < places.length; i++) {
+            final String name = names[i];
+            try {
+                Logger.printInfo(() -> "Lyrics: asking " + name + " for " + info.urn);
+                LyricsResult answer = places[i].find();
+                if (answer.status != LyricsResult.Status.MISSING) return answer;
+            } catch (IOException ex) {
+                if (request.isCancelled()) throw ex;
+                Logger.printInfo(() -> "Lyrics: " + name + " failed: " + ex.getMessage());
+            }
+        }
+        return null;
     }
 
     /**

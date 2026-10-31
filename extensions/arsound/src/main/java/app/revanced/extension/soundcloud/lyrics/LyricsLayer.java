@@ -117,6 +117,10 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
     private boolean predrawing;
     /** Whether the lyrics should be doing something now; worked out by {@link #refresh}, read by the frame loop. */
     private boolean active;
+    /** How far the messages are raised above the middle of the page, as a part of its height. */
+    private static final float MESSAGE_RISE = 0.2f;
+    /** The same in pixels, worked out with the page's geometry. */
+    private int lift;
     /** The old words fade out until then; the new ones wait for it. */
     private long fadeOutUntil;
     /** Words that came in the middle of a slide and wait for its end to be laid out; null when none wait. */
@@ -293,9 +297,10 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         status.setVisibility(GONE);
         content.addView(status, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
-        // Only as big as its text and button, so the rest of the page still passes taps to the cover.
+        // Only as big as its text and button, so the rest of the page still passes taps to the cover. Beside the
+        // content, not in it: the dim of a pause is the words', and the button must not look switched off.
         ai = new LyricsAi(context, LyricsManager.accent(context), this);
-        content.addView(ai.view(), new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        addView(ai.view(), new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
         shimmer = new LyricsShimmer(context);
         shimmer.setVisibility(GONE);
@@ -583,7 +588,9 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         if (getVisibility() != visibility) setVisibility(visibility);
         if (visible) {
             setAlpha(alpha);
-            content.setTranslationY((1f - clamp((shownNow - 0.3f) / 0.7f)) * dp(14));
+            float slide = (1f - clamp((shownNow - 0.3f) / 0.7f)) * dp(14);
+            content.setTranslationY(slide);
+            ai.view().setTranslationY(slide - lift);
         }
         float radius = visible ? dp(BLUR_DP) * (float) Math.ceil(alpha * BLUR_STEPS) / BLUR_STEPS : 0f;
         if (radius != blur) {
@@ -632,6 +639,20 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
             params.topMargin = Math.max(0, top);
             params.bottomMargin = Math.max(0, bottom);
             content.setLayoutParams(params);
+            FrameLayout.LayoutParams aiParams = (FrameLayout.LayoutParams) ai.view().getLayoutParams();
+            aiParams.topMargin = params.topMargin;
+            aiParams.bottomMargin = params.bottomMargin;
+            ai.view().setLayoutParams(aiParams);
+        }
+        // The messages stand above the middle of the page: the play button of the cover is there, and a button or a
+        // line of text under it cannot be pressed or read.
+        int height = Math.max(0, artwork.getHeight() - top - bottom);
+        int rise = Math.round(height * MESSAGE_RISE);
+        if (rise != lift) {
+            lift = rise;
+            ai.view().setTranslationY(content.getTranslationY() - lift);
+            status.setPadding(status.getPaddingLeft(), status.getPaddingTop(), status.getPaddingRight(),
+                    Math.round(dp(16)) + 2 * lift);
         }
         if (room != fits) {
             fits = room;

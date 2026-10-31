@@ -13,6 +13,10 @@ final class Lyrics {
         LRCLIB("Тексты: LRCLIB", "Lyrics: LRCLIB"),
         /** Found on NetEase Cloud Music when LRCLIB had none or could not be reached. */
         NETEASE("Тексты: NetEase Cloud Music", "Lyrics: NetEase Cloud Music"),
+        /** Found on Kugou when LRCLIB and NetEase had none. */
+        KUGOU("Тексты: Kugou", "Lyrics: Kugou"),
+        /** Found on lyrics.ovh, the last place asked: plain words without timings. */
+        OVH("Тексты: lyrics.ovh", "Lyrics: lyrics.ovh"),
         /** Heard by the neural network on the phone, so it may be wrong. */
         NEURAL("Распознано нейросетью · возможны ошибки", "Recognised by a neural network · may contain errors");
 

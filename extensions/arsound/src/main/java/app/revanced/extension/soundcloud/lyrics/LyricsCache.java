@@ -60,8 +60,11 @@ final class LyricsCache {
                 for (int i = 0; i < times.length; i++) times[i] = stamps.getLong(i);
             }
             // Files written before the source was kept are LRCLIB's: it was the only one.
-            Lyrics.Source source = json.optString("source").equals(Lyrics.Source.NETEASE.name())
-                    ? Lyrics.Source.NETEASE : Lyrics.Source.LRCLIB;
+            Lyrics.Source source = Lyrics.Source.LRCLIB;
+            String stored = json.optString("source");
+            for (Lyrics.Source other : new Lyrics.Source[]{Lyrics.Source.NETEASE, Lyrics.Source.KUGOU, Lyrics.Source.OVH}) {
+                if (other.name().equals(stored)) source = other;
+            }
             return text.length == 0 ? null : LyricsResult.found(new Lyrics(text, times, source));
         } catch (IOException | JSONException ex) {
             // A broken file is no answer; the next lookup replaces it.

@@ -1,6 +1,5 @@
 package app.revanced.extension.soundcloud.search;
 
-import static app.revanced.extension.soundcloud.shared.Colors.inverse;
 import static app.revanced.extension.soundcloud.shared.Colors.withAlpha;
 import static app.revanced.extension.soundcloud.shared.Dimens.dpTruncated;
 import static app.revanced.extension.soundcloud.shared.Lang.text;
@@ -102,15 +101,15 @@ final class SourceToggle {
     void showSelection(boolean arsound) {
         style(soundCloudButton, soundCloudButton, !arsound);
         style(arsoundSegment, arsoundButton, arsound);
-        HelpBadge.setColor(help, arsound ? inverse(textColor) : withAlpha(textColor, 0xB0));
+        HelpBadge.setColor(help, arsound ? textColor : withAlpha(textColor, 0xB0));
     }
 
     private void style(View segment, TextView label, boolean selected) {
         GradientDrawable fill = new GradientDrawable();
         fill.setCornerRadius(dpTruncated(context, 10));
-        fill.setColor(selected ? withAlpha(textColor, 0xFF) : Color.TRANSPARENT);
+        // A soft tint of the text color: filled solid it was a white bar that dazzled over a dark page and a wallpaper.
+        fill.setColor(selected ? withAlpha(textColor, 0x38) : Color.TRANSPARENT);
         segment.setBackground(fill);
-        // The selected half is filled with the text color, so its label takes the page color.
-        label.setTextColor(selected ? inverse(textColor) : withAlpha(textColor, 0xB0));
+        label.setTextColor(selected ? textColor : withAlpha(textColor, 0xB0));
     }
 }
