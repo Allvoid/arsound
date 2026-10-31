@@ -2,8 +2,11 @@ package app.revanced.extension.soundcloud.theme;
 
 import android.accounts.Account;
 import android.accounts.AccountManager;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.util.AttributeSet;
@@ -16,6 +19,9 @@ import android.widget.TextView;
 
 import org.json.JSONObject;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 import app.revanced.extension.shared.Logger;
@@ -179,36 +185,134 @@ public final class HomeGreeting extends LinearLayout {
     /** Folds the greeting once the list below has left its top, unfolds it back at the top. */
     private void onScroll() {
         if (!(getParent() instanceof ViewGroup)) return;
-        ViewGroup parent = (ViewGroup) getParent();
-        boolean fold = false;
-        for (int i = parent.indexOfChild(this) + 1; i < parent.getChildCount() && !fold; i++) {
-            fold = scrolledDown(parent.getChildAt(i), 0);
-        }
+        boolean fold = listScrolledDown((ViewGroup) getParent());
         if (fold == folded) return;
         folded = fold;
         if (fullHeight < 0) fullHeight = getHeight();
-        int from = getLayoutParams().height >= 0 ? getLayoutParams().height : getHeight();
-        int to = fold ? 0 : fullHeight;
-        if (animator != null) animator.cancel();
-        animator = ValueAnimator.ofInt(from, to).setDuration(FOLD_MS);
-        animator.addUpdateListener(animation -> {
-            ViewGroup.LayoutParams params = getLayoutParams();
-            params.height = (int) animation.getAnimatedValue();
-            setAlpha(fullHeight > 0 ? params.height / (float) fullHeight : 1f);
-            setLayoutParams(params);
+        // A fold still running jumps to its end, so the next one starts from a laid-out state.
+        if (animator != null) animator.end();
+        startFold(fold);
+    }
+
+    // region Looking at the list
+
+    /** The whole list below is walked again at most this often; in between only the lists it found are asked. */
+    private static final long WALK_EVERY_MS = 1_000;
+    /** The views below that can scroll vertically, found by the last walk. */
+    private final List<WeakReference<View>> scrollables = new ArrayList<>();
+    private long walkedAt = -WALK_EVERY_MS;
+
+    /**
+     * True if a list below the greeting has left its top. The walk through the views below, up to eight levels deep,
+     * ran after every drawn frame of the home screen, and the theme effect draws frames all the time: now the lists
+     * it finds are kept, and only they are asked between two walks.
+     */
+    private boolean listScrolledDown(ViewGroup parent) {
+        long now = SystemClock.uptimeMillis();
+        if (now - walkedAt >= WALK_EVERY_MS) {
+            walkedAt = now;
+            scrollables.clear();
+            for (int i = parent.indexOfChild(this) + 1; i < parent.getChildCount(); i++) {
+                findScrollables(parent.getChildAt(i), 0);
+            }
+        }
+        for (WeakReference<View> reference : scrollables) {
+            View list = reference.get();
+            if (list != null && list.isShown() && list.canScrollVertically(-1)) return true;
+        }
+        return false;
+    }
+
+    /** Keeps this view, or the views inside it a few levels deep, that scroll vertically; a list is not looked into. */
+    private void findScrollables(View view, int depth) {
+        if (!view.isShown()) return;
+        if (view.canScrollVertically(-1) || view.canScrollVertically(1)) {
+            scrollables.add(new WeakReference<>(view));
+            return;
+        }
+        if (depth >= 8 || !(view instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) findScrollables(group.getChildAt(i), depth + 1);
+    }
+
+    // endregion
+
+    // region Folding
+
+    private final Rect clip = new Rect();
+
+    /**
+     * Folds or unfolds with two layouts, one at the start and one at the end. In between the views below slide with
+     * a translation over the greeting, which is cut at their top edge and fades. The greeting's height changed on
+     * every frame before, and the whole home list below was laid out again with it each frame.
+     * <p>
+     * For the slide the views below get a fixed height that keeps their bottom edge below the screen's, so no gap
+     * opens under them; their own height comes back with the last layout.
+     */
+    private void startFold(boolean fold) {
+        ViewGroup parent = (ViewGroup) getParent();
+        int full = fullHeight;
+        if (full <= 0 || parent == null) {
+            setHeight(fold ? 0 : ViewGroup.LayoutParams.WRAP_CONTENT);
+            return;
+        }
+        List<View> below = new ArrayList<>();
+        for (int i = parent.indexOfChild(this) + 1; i < parent.getChildCount(); i++) below.add(parent.getChildAt(i));
+        int[] heights = new int[below.size()];
+        for (int i = 0; i < below.size(); i++) {
+            View view = below.get(i);
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            heights[i] = params.height;
+            // Folding: the views keep their place and grow by the greeting, then slide up over it.
+            // Unfolding: the greeting takes its room, and the views slide down from where they were.
+            params.height = fold ? view.getHeight() + full : view.getHeight();
+            view.setLayoutParams(params);
+        }
+        if (!fold) setHeight(full);
+        float start = fold ? 0 : -full;
+        float end = fold ? -full : 0;
+        slide(below, full, start);
+        animator = ValueAnimator.ofFloat(start, end).setDuration(FOLD_MS);
+        animator.addUpdateListener(animation -> slide(below, full, (float) animation.getAnimatedValue()));
+        animator.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                for (int i = 0; i < below.size(); i++) {
+                    View view = below.get(i);
+                    view.setTranslationY(0);
+                    ViewGroup.LayoutParams params = view.getLayoutParams();
+                    params.height = heights[i];
+                    view.setLayoutParams(params);
+                }
+                setClipBounds(null);
+                setAlpha(fold ? 0f : 1f);
+                if (fold) setHeight(0);
+            }
         });
         animator.start();
     }
 
-    /** True if this view or one inside it (a few levels deep) is a vertical list that has left its top. */
-    private static boolean scrolledDown(View view, int depth) {
-        if (!view.isShown()) return false;
-        if (view.canScrollVertically(-1)) return true;
-        if (depth >= 8 || !(view instanceof ViewGroup)) return false;
-        ViewGroup group = (ViewGroup) view;
-        for (int i = 0; i < group.getChildCount(); i++) {
-            if (scrolledDown(group.getChildAt(i), depth + 1)) return true;
-        }
+    /** One frame of the slide: no layout, only translations, the greeting's cut and its fade. */
+    private void slide(List<View> below, int full, float shift) {
+        for (View view : below) view.setTranslationY(shift);
+        int visible = Math.max(0, Math.round(full + shift));
+        clip.set(0, 0, getWidth(), visible);
+        setClipBounds(clip);
+        setAlpha(visible / (float) full);
+    }
+
+    private void setHeight(int height) {
+        ViewGroup.LayoutParams params = getLayoutParams();
+        if (params.height == height) return;
+        params.height = height;
+        setLayoutParams(params);
+    }
+
+    /** The two lines do not overlap: a fade is drawn on each of them, without a layer for the whole greeting. */
+    @Override
+    public boolean hasOverlappingRendering() {
         return false;
     }
+
+    // endregion
 }

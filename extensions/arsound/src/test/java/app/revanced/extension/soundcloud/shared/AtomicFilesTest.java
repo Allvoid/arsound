@@ -81,4 +81,17 @@ public class AtomicFilesTest {
             assertTrue(expected.getMessage().contains("missing"));
         }
     }
+
+    @Test
+    public void replaceKeepsTheTargetWhenThereIsNothingToMove() throws IOException {
+        File to = folder.newFile("kept");
+        Files.write(to.toPath(), bytes("kept in place"));
+        try {
+            AtomicFiles.replace(new File(folder.getRoot(), "missing"), to);
+            fail("a missing source cannot be moved");
+        } catch (IOException expected) {
+            // The file kept in place stays as it was.
+        }
+        assertEquals("kept in place", text(to));
+    }
 }

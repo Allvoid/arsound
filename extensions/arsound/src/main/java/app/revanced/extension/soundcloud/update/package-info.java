@@ -13,7 +13,8 @@
  *
  * <p>Main classes:
  * <ul>
- * <li>{@code UpdateChecker} - the release check ({@code check}, {@code compareVersions}), the update sheet and the
+ * <li>{@code UpdateChecker} - the release check ({@code check}, {@code compareVersions}
+ * through {@code ReleaseVersion}), the update sheet and the
  * lifecycle callback; {@code resumedActivity()} gives other code the screen that is in front.</li>
  * <li>{@code ScreenHooks} - an ordered list of {@code onActivityResumed}/{@code onActivityPaused} reactions; one
  * failing hook is logged and does not stop the ones after it.</li>

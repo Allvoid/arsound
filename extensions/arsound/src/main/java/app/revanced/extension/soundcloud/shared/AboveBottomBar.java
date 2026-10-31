@@ -129,6 +129,12 @@ public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener 
     private final class Lookup {
         private final int id;
         private WeakReference<View> view = new WeakReference<>(null);
+        /**
+         * The last search found nothing, and the window has not been laid out since. A miss was searched for again on
+         * every frame, a walk of the whole window, for as long as the banner showed without a player.
+         */
+        private boolean missed;
+        private boolean listening;
 
         Lookup(int id) {
             this.id = id;
@@ -139,10 +145,17 @@ public final class AboveBottomBar implements ViewTreeObserver.OnPreDrawListener 
             if (!PlayerSheet.isSmoothEnabled()) return content.getRootView().findViewById(id);
             View found = view.get();
             if (found != null && found.isAttachedToWindow()) return found;
-            // A view that is gone, or was never there, is searched for again at once: a player that has just
-            // appeared must not be missed for a moment, or the element would be put in the wrong place first.
+            if (!listening) {
+                // A view that appears comes with a layout of the window, which comes before the frame is drawn: a
+                // player that has just appeared is found in time, so the element is not put in the wrong place first.
+                content.getViewTreeObserver().addOnGlobalLayoutListener(() -> missed = false);
+                listening = true;
+            } else if (missed && found == null) {
+                return null;
+            }
             found = content.getRootView().findViewById(id);
             view = new WeakReference<>(found);
+            missed = found == null;
             return found;
         }
     }

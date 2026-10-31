@@ -207,16 +207,9 @@ public final class UpdateChecker {
         }
     }
 
-    /** Compares dotted numeric versions, ignoring any suffix such as "-beta". */
+    /** See {@link ReleaseVersion#compare}. */
     static int compareVersions(String first, String second) {
-        String[] a = first.split("[^0-9]+");
-        String[] b = second.split("[^0-9]+");
-        for (int i = 0; i < Math.max(a.length, b.length); i++) {
-            int x = i < a.length && !a[i].isEmpty() ? Integer.parseInt(a[i]) : 0;
-            int y = i < b.length && !b[i].isEmpty() ? Integer.parseInt(b[i]) : 0;
-            if (x != y) return Integer.compare(x, y);
-        }
-        return 0;
+        return ReleaseVersion.compare(first, second);
     }
 
     /**

@@ -30,8 +30,22 @@ public final class AtomicFiles {
         }
     }
 
-    /** Puts a finished file in place of the old one in one step. Where a rename does not replace a file, the old one is removed first. */
+    /**
+     * Puts a finished file in place of the old one in one step. Where a rename does not replace a file, the old one is
+     * removed first, but only once the new one is known to be there: a missing source removed the target and then
+     * failed, and the file kept in place was lost.
+     */
     public static void replace(File from, File to) throws IOException {
+        if (!from.isFile()) throw new IOException("Nothing to move: " + from.getName());
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            try {
+                java.nio.file.Files.move(from.toPath(), to.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                return;
+            } catch (IOException | UnsupportedOperationException ex) {
+                // A file system without an atomic move: the rename below.
+            }
+        }
         if (from.renameTo(to)) return;
         //noinspection ResultOfMethodCallIgnored
         to.delete();

@@ -171,7 +171,13 @@ public final class ArsoundDialog {
 
     /** True while an Arsound dialog is on screen, so a prompt that can wait does not cover it. Main thread only. */
     public static boolean isAnyShown() {
-        for (Dialog dialog : SHOWN) if (dialog.isShowing()) return true;
+        // A dialog whose screen was destroyed (a turn, a switch of the dark look) still says it is showing: only one
+        // whose window is on the screen counts, or a prompt waited for a dialog nobody could see.
+        for (Dialog dialog : SHOWN) {
+            if (dialog.isShowing() && dialog.getWindow() != null && dialog.getWindow().getDecorView().isAttachedToWindow()) {
+                return true;
+            }
+        }
         return false;
     }
 
