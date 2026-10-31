@@ -477,6 +477,16 @@ public class Utils {
         return context;
     }
 
+    /**
+     * The context, or null before the hook set it, without the error {@link #getContext()} logs. For code that is
+     * itself part of logging (the log file): asking with getContext() there made every cold start log the error,
+     * because {@link #setContext} logs on purpose before it sets the context.
+     */
+    @Nullable
+    public static Context peekContext() {
+        return context;
+    }
+
     public static void setContext(Context appContext) {
         // Intentionally use logger before context is set,
         // to expose any bugs in the 'no context available' logger code.

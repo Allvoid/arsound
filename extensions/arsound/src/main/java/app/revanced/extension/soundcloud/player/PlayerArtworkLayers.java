@@ -73,6 +73,7 @@ public final class PlayerArtworkLayers {
      * layers: a page made while the player is open would otherwise keep two screen-sized layers until the next slide.
      */
     public static void created(View artwork) {
+        PlayerStatusBar.remember(artwork);
         try {
             if (PlayerSheet.isSmoothEnabled()) setLayers(artwork, View.LAYER_TYPE_NONE);
         } catch (Exception ex) {

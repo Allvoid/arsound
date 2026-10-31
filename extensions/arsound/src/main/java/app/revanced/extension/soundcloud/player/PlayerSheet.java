@@ -117,6 +117,7 @@ public final class PlayerSheet {
             PlayerSheet.state = state;
             setMoving(slides);
             PlayerArtworkLayers.sheetRested(state);
+            PlayerStatusBar.onSheet(state);
             // Also at rest, where the moving flag does not change: the theme animation waits out the open player too.
             ThemeBackdrop.onSheet(isBusy(), isExpanded());
         } catch (Exception ex) {

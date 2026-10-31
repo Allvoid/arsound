@@ -28,6 +28,7 @@ import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/player/PlayModeButton;"
+private const val PACE_CLASS_DESCRIPTOR = "Lapp/revanced/extension/soundcloud/player/NotificationPace;"
 private const val QUEUE_MANAGER_DESCRIPTOR = "Lcom/soundcloud/android/features/playqueue/PlayQueueManager;"
 
 private const val PLAY_QUEUE = "Lcom/soundcloud/android/foundation/playqueue/PlayQueue;"
@@ -123,6 +124,22 @@ private val BytecodePatchContext.notificationManagerUpdateMethod by gettingFirst
     parameterTypes()
 }
 
+// Posts the notification afresh and makes the service a foreground one.
+private val BytecodePatchContext.notificationManagerStartMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/playback/players/MediaNotificationManager;")
+    name("b")
+    returnType("V")
+    parameterTypes()
+}
+
+// Takes the notification away.
+private val BytecodePatchContext.notificationManagerStopMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/playback/players/MediaNotificationManager;")
+    name("c")
+    returnType("V")
+    parameterTypes()
+}
+
 /** Handles the custom actions of the media session: the like and the end of casting. */
 private val BytecodePatchContext.notificationCustomActionMethod by gettingFirstMethodDeclaratively(
     "com.soundcloud.android.playback.action.ACTION_LIKE_TRACK",
@@ -189,6 +206,15 @@ val playModePatch = bytecodePatch {
         }
 
         notificationManagerConstructorMethod.hookConstructorEnd("$EXTENSION_CLASS_DESCRIPTOR->setNotificationManager(Ljava/lang/Object;)V")
+
+        // The updates of the notification are paced under Android's limit of five a second, the last one always made:
+        // skipping tracks quickly asked for about sixteen, and the dropped last update left another track shown.
+        notificationManagerUpdateMethod.insertGuard(
+            "invoke-static/range { p0 .. p0 }, $PACE_CLASS_DESCRIPTOR->defer(Ljava/lang/Object;)Z",
+            GuardExit.ReturnVoid,
+        )
+        notificationManagerStartMethod.addInstructions(0, "invoke-static { }, $PACE_CLASS_DESCRIPTOR->onStart()V")
+        notificationManagerStopMethod.addInstructions(0, "invoke-static { }, $PACE_CLASS_DESCRIPTOR->onStop()V")
         queueManagerConstructorMethod.hookConstructorEnd("$EXTENSION_CLASS_DESCRIPTOR->setQueueManager(Ljava/lang/Object;)V")
 
         // Android 13 and later: a custom action of the playback state. The state goes through the extension where it

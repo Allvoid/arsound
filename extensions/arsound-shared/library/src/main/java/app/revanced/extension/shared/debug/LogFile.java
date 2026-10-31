@@ -165,12 +165,12 @@ public final class LogFile {
     }
 
     private static File getFile(String name) {
-        Context context = Utils.getContext();
+        Context context = Utils.peekContext();
         return context == null ? null : new File(context.getFilesDir(), name);
     }
 
     private static SharedPreferences getPreferences() {
-        Context context = Utils.getContext();
+        Context context = Utils.peekContext();
         return context == null ? null : context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
     }
 }
