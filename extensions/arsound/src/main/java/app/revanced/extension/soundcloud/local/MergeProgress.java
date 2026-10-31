@@ -50,9 +50,8 @@ final class MergeProgress {
         box.setPadding(Dimens.dp(context, 24), Dimens.dp(context, 8), Dimens.dp(context, 24), Dimens.dp(context, 8));
         // The colours are set here, so the dialog leaves the texts alone.
         box.setTag(ArsoundDialog.KEEP_COLORS);
-        ProgressBar bar = new ProgressBar(context);
-        bar.setIndeterminate(true);
-        bar.setIndeterminateTintList(ColorStateList.valueOf(accent));
+        // The А9 mark drawing itself, as on every loading screen of the app.
+        app.revanced.extension.soundcloud.shared.A9Loader bar = new app.revanced.extension.soundcloud.shared.A9Loader(context, ArsoundTheme.palette(context, "primary"));
         box.addView(bar, new LinearLayout.LayoutParams(Dimens.dp(context, 32), Dimens.dp(context, 32)));
         label = new TextView(context);
         int style = Utils.getResourceIdentifier(ResourceType.STYLE, "Body.Secondary");

@@ -10,7 +10,6 @@ import org.w3c.dom.Element
 import org.w3c.dom.Node
 import java.io.File
 
-private const val SPLASH_FRAMES = 25
 private val DENSITIES = listOf("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")
 private val ARTWORK_PLACEHOLDER_NAMES = listOf("ic_default_playable_artwork_placeholder", "ic_default_playable_artwork_placeholder_dark")
 private val LOGO_NAMES = listOf("ic_logo_cloud", "ic_logo_cloud_active", "ic_logo_cloud_dark", "ic_logo_cloud_light", "ic_logo_cloud_launcher")
@@ -62,11 +61,10 @@ val brandingPatch = resourcePatch {
     }
 }
 
-/** The Arsound launcher foreground, the frames of the start animation and the icon of every density. */
+/** The Arsound launcher foreground, the start animation (an animated vector) and the icon of every density. */
 private fun ResourcePatchContext.copyArsoundFiles() = copyResources(
     "soundcloud/branding",
     ResourceGroup("drawable-nodpi", "arsound_launcher_foreground.png"),
-    ResourceGroup("drawable-nodpi", *Array(SPLASH_FRAMES) { "arsound_splash_%02d.png".format(it) }),
     ResourceGroup("drawable", "arsound_splash.xml"),
     *DENSITIES
         .map { ResourceGroup("drawable-$it", "arsound_icon.png") }
@@ -209,7 +207,7 @@ private fun Document.addLauncherAliases(soundCloudIcons: List<String>) {
     }
 }
 
-/** The start screen shows the drawing animation of the letter instead of the orange cloud. */
+/** The start screen shows the А9 mark drawing itself instead of the orange cloud; the drawing takes 1.5 s. */
 private fun ResourcePatchContext.showDrawingLetterAtStart(res: File) {
     res.resFolders("values")
         .filter { it.resolve("styles.xml").exists() }
@@ -222,7 +220,7 @@ private fun ResourcePatchContext.showDrawingLetterAtStart(res: File) {
                                 item.textContent = "@drawable/arsound_splash"
                             }
                         "windowSplashScreenAnimationDuration" ->
-                            if (item.textContent == "0") item.textContent = "1000"
+                            if (item.textContent == "0") item.textContent = "1500"
                     }
                 }
             }

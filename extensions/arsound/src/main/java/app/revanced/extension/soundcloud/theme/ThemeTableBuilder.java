@@ -180,14 +180,15 @@ final class ThemeTableBuilder {
         }
     }
 
-    /** The loading animation: the drawing letter in the accent. */
+    /** The loading animation: the А9 mark drawing itself, the letter line in the theme's text colour. */
     private void addLoadingAnimation(OriginalAssets originals) throws Exception {
         int animation = resources.getIdentifier("loading_animation", "raw", packageName);
         if (animation == 0) return;
         byte[] original = originals.loadingAnimation(resources, animation);
         String day = ThemeFiles.ROOT + "theme/" + theme.id + "-loading.json";
         String night = ThemeFiles.ROOT + "theme/" + theme.id + "-loading-night.json";
-        byte[][] looks = LoadingAnimation.tint(original, new int[]{theme.accent(false), theme.accent(true)});
+        byte[][] looks = LoadingAnimation.recolor(original, new int[]{theme.color(false, "primary"), theme.color(true, "primary")},
+                new int[]{LoadingAnimation.AZURE_DEEP, LoadingAnimation.AZURE});
         ThemeFiles.write(new File(context.getFilesDir(), day), looks[0]);
         ThemeFiles.write(new File(context.getFilesDir(), night), looks[1]);
         table.put(animation, "raw", "loading_animation", ArscWriter.Value.file(day), false);

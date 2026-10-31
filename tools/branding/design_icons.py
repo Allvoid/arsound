@@ -23,6 +23,8 @@ import pathlib
 import re
 import xml.etree.ElementTree as ET
 
+import a9_android
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "tools/branding/design-icons"
 THEMES = ROOT / "patches/src/main/resources/soundcloud/theme/themes.json"
@@ -46,6 +48,18 @@ GROUPS = {
     "sakura": ("Розовые", "Pink"), "lime": ("Лаймовые", "Lime"),
     "winter": ("Зимние", "Winter"),
 }
+# The accent line of the А9 mark in each design, in the scarlet the designs are drawn in: turned to each theme's hue
+# with the rest of the drawing. A colour the design already has where one fits (the flowers, the glow).
+ACCENTS = {
+    "alaya": "#ffb3b8", "noir": "#ffd6d8", "glow": "#ff5a64", "blood": "#ff3d47",
+    "sakura": "#ffb8d2", "kawaii": "#ff9ec4", "night": "#ff2b6e", "sticker": "#ffd0d6",
+}
+# The designer's letter: a group placed on the tile, drawn through a mask (the counter of the A).
+LETTER_GROUP = re.compile(r'<g transform="translate\(107\.52 136\.66\) scale\(0\.5800\)">.*?</g></g>', re.S)
+LETTER_PAINT = re.compile(r'<g fill="none" stroke="([^"]+)"')
+# Where the А9 mark goes on the 512 tile, and how big.
+MARK_FIT, MARK_X, MARK_Y = 300, 256, 262
+
 START, END = "// region design icons (tools/branding/design_icons.py)", "// endregion design icons"
 
 
@@ -83,6 +97,24 @@ def recolor(hex_, base, target):
 
 def recolored(svg, base, target):
     return re.sub(r"#[0-9a-fA-F]{6}\b", lambda m: recolor(m.group(0), base, target), svg)
+
+
+def with_a9(svg, design):
+    """
+    The design with the А9 mark in place of its old letter: the letter line in the colour (or gradient) the letter
+    had, the accent line in the design's accent. A second letter under the first (a sticker's shadow) is drawn in one
+    colour, as a shadow is.
+    """
+    groups = LETTER_GROUP.findall(svg)
+    if not groups:
+        raise SystemExit(f"{design}: the letter group was not found")
+    for index, group in enumerate(groups):
+        paint = LETTER_PAINT.search(group).group(1)
+        shadow = len(groups) > 1 and index < len(groups) - 1
+        mark = a9_android.a9.mark(paint, paint if shadow else ACCENTS[design], MARK_FIT, MARK_X, MARK_Y)
+        # The mask of the old letter is not needed; the group keeps a mask attribute so layers() still finds it.
+        svg = svg.replace(group, f'<g mask="none">{mark}</g>', 1)
+    return svg
 
 
 def is_letter(element):
@@ -155,7 +187,7 @@ def write_layers():
         old.unlink()
     result = items()
     for item in result:
-        svg = (SOURCE / f"{item['design']}.svg").read_text(encoding="utf-8")
+        svg = with_a9((SOURCE / f"{item['design']}.svg").read_text(encoding="utf-8"), item["design"])
         if item["theme"]["id"] != BASE:
             svg = recolored(svg, base, hls(item["theme"]["dark"]["special"]))
         background, foreground = layers(svg)

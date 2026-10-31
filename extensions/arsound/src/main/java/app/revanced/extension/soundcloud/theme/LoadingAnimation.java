@@ -1,75 +1,61 @@
 package app.revanced.extension.soundcloud.theme;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffColorFilter;
-import android.util.Base64;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.shared.Reflect;
 
-/** SoundCloud's loading animation (a Lottie file, the drawing letter): recoloured to a theme's accent. */
+/**
+ * SoundCloud's loading animation (a Lottie file): the А9 mark drawing itself, as stroked shapes. A theme gives the
+ * letter line its text colour; the accent line keeps the logo's azure.
+ */
 final class LoadingAnimation {
+    /** The accent line of the mark on light and on dark (a9.py AZURE_DEEP and AZURE). */
+    static final int AZURE_DEEP = 0xFF1A66D9;
+    static final int AZURE = 0xFF4C9BFF;
+
     private LoadingAnimation() {
     }
 
     /**
-     * The animation shows the letter as white image frames; each frame is recoloured, keeping its transparency.
+     * The animation in each pair of colours. The shapes are groups named "letter" and "accent" (tools/branding,
+     * a9_android.lottie_loading), each holding a stroke; the colour of the stroke is set, the rest stays.
      *
-     * @param json The animation as the app ships it.
-     * @return The animation file with the frames in this colour.
+     * @return The animation files, in the order of the pairs.
      */
-    static byte[] tint(byte[] json, int color) throws Exception {
-        return tint(json, new int[]{color})[0];
+    static byte[][] recolor(byte[] json, int[] letters, int[] accents) throws Exception {
+        String text = new String(json, "UTF-8");
+        byte[][] result = new byte[letters.length][];
+        for (int c = 0; c < letters.length; c++) {
+            JSONObject animation = new JSONObject(text);
+            JSONArray layers = animation.optJSONArray("layers");
+            for (int i = 0; layers != null && i < layers.length(); i++) {
+                recolor(layers.getJSONObject(i).optJSONArray("shapes"), letters[c], accents[c]);
+            }
+            result[c] = animation.toString().getBytes("UTF-8");
+        }
+        return result;
     }
 
-    /**
-     * The animation in each of the colours, every frame read once for all of them: the day and the night look of a
-     * theme come from one decoding of the frames instead of two.
-     *
-     * @return The animation files in the order of the colours.
-     */
-    static byte[][] tint(byte[] json, int[] colors) throws Exception {
-        String text = new String(json, "UTF-8");
-        JSONObject[] animations = new JSONObject[colors.length];
-        Paint[] paints = new Paint[colors.length];
-        for (int c = 0; c < colors.length; c++) {
-            animations[c] = new JSONObject(text);
-            paints[c] = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-            paints[c].setColorFilter(new PorterDuffColorFilter(colors[c], PorterDuff.Mode.SRC_IN));
-        }
-        JSONArray assets = animations[0].optJSONArray("assets");
-        String prefix = "data:image/png;base64,";
-        for (int i = 0; assets != null && i < assets.length(); i++) {
-            String data = assets.getJSONObject(i).optString("p");
-            if (!data.startsWith(prefix)) continue;
-            byte[] png = Base64.decode(data.substring(prefix.length()), Base64.DEFAULT);
-            Bitmap frame = BitmapFactory.decodeByteArray(png, 0, png.length);
-            if (frame == null) continue;
-            for (int c = 0; c < colors.length; c++) {
-                Bitmap tinted = Bitmap.createBitmap(frame.getWidth(), frame.getHeight(), Bitmap.Config.ARGB_8888);
-                new Canvas(tinted).drawBitmap(frame, 0, 0, paints[c]);
-                ByteArrayOutputStream output = new ByteArrayOutputStream();
-                tinted.compress(Bitmap.CompressFormat.PNG, 100, output);
-                tinted.recycle();
-                animations[c].getJSONArray("assets").getJSONObject(i)
-                        .put("p", prefix + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+    private static void recolor(JSONArray shapes, int letter, int accent) throws Exception {
+        for (int i = 0; shapes != null && i < shapes.length(); i++) {
+            JSONObject shape = shapes.getJSONObject(i);
+            String role = shape.optString("nm");
+            if (!"gr".equals(shape.optString("ty")) || !("letter".equals(role) || "accent".equals(role))) continue;
+            JSONArray items = shape.optJSONArray("it");
+            for (int j = 0; items != null && j < items.length(); j++) {
+                JSONObject item = items.getJSONObject(j);
+                if (!"st".equals(item.optString("ty"))) continue;
+                int color = "letter".equals(role) ? letter : accent;
+                item.put("c", new JSONObject().put("a", 0).put("k", new JSONArray()
+                        .put(((color >> 16) & 0xFF) / 255.0).put(((color >> 8) & 0xFF) / 255.0)
+                        .put((color & 0xFF) / 255.0).put(1)));
             }
-            frame.recycle();
         }
-        byte[][] result = new byte[colors.length][];
-        for (int c = 0; c < colors.length; c++) result[c] = animations[c].toString().getBytes("UTF-8");
-        return result;
     }
 
     /**

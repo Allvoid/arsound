@@ -62,7 +62,7 @@ final class SearchScreen {
     private final FrameLayout results;
     private final LinearLayout list;
     private final TextView status;
-    private final ProgressBar spinner;
+    private final View spinner;
     private final Map<String, ResultRow> rows = new HashMap<>();
     private final Runnable searchLater = this::search;
     private String shownQuery;
@@ -103,8 +103,7 @@ final class SearchScreen {
         status.setPadding(dpTruncated(context, 32), dpTruncated(context, 48), dpTruncated(context, 32), 0);
         results.addView(status, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
-        spinner = new ProgressBar(context);
-        spinner.setIndeterminateTintList(ColorStateList.valueOf(accent(context)));
+        spinner = new app.revanced.extension.soundcloud.shared.A9Loader(context, look.primary);
         FrameLayout.LayoutParams spinnerParams = new FrameLayout.LayoutParams(dpTruncated(context, 36), dpTruncated(context, 36),
                 Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         spinnerParams.topMargin = dpTruncated(context, 48);

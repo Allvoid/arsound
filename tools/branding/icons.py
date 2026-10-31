@@ -18,6 +18,8 @@ import math
 import pathlib
 import sys
 
+import a9_android
+
 if len(sys.argv) < 2:
     sys.exit("Usage: python tools/branding/icons.py <path to palettes.json>")
 SOURCE = pathlib.Path(sys.argv[1])
@@ -34,6 +36,8 @@ LETTER_PATH = data["letterPath"]
 PALETTES = data["palettes"]
 FANCY = data.get("fancy", [])
 FANCY_FOLDER = SOURCE.parent / "fancy"
+# The А9 mark on a layer: inside the circle every launcher mask keeps.
+MARK_FIT = CANVAS * a9_android.safe_fit()
 
 
 def android_color(color):
@@ -97,14 +101,37 @@ def background(item):
     return vector("".join(path(square, layer, (0, 0, CANVAS, CANVAS)) for layer in item["background"]))
 
 
+def colours(spec):
+    """The colours of a fill: one for a solid, the stops of a gradient."""
+    return [spec["color"]] if spec["type"] == "solid" else [color for _, color in spec["stops"]]
+
+
+def background_colour(item):
+    """A rough picture of the tile: the average of its colours."""
+    return a9_android.mix([c[:7] for layer in item["background"] for c in colours(layer)])
+
+
+def accent(item):
+    """The accent line of the variant: the tile's own hue, apart from the tile and the letter line."""
+    return a9_android.accent_for(background_colour(item), a9_android.mix([c[:7] for c in colours(item["letter"])]))
+
+
 def foreground(item):
-    scale = LETTER_BOX / LETTER_VIEWPORT
-    # The letter path and its gradient are in the letter's own box; the group places and scales it.
-    letter = path(LETTER_PATH, item["letter"], (0, 0, LETTER_VIEWPORT, LETTER_VIEWPORT), "        ")
-    return vector(
-        f'    <group android:translateX="{LETTER_X:.2f}" android:translateY="{LETTER_Y:.2f}" '
-        f'android:scaleX="{scale:.6f}" android:scaleY="{scale:.6f}">\n{letter}    </group>\n'
-    )
+    """
+    The А9 mark: the letter line in the variant's letter colour (a gradient too), the accent line in a colour of the
+    tile's hue. The mark takes the old letter's box.
+    """
+    spec = item["letter"]
+    block = None
+    if spec["type"] != "solid":
+        x0, y0, x1, y1 = a9_android.a9.bbox()
+
+        def block(indent):
+            # The gradient over the mark's own box, in the lines' coordinates.
+            _, gradient = fill(spec, (x0, y0, x1 - x0, y1 - y0), indent)
+            return gradient.replace('name="android:fillColor"', 'name="android:strokeColor"')
+    return vector(a9_android.vector_group(spec.get("color", "#ffffff"), accent(item), MARK_FIT,
+                                          CANVAS / 2, CANVAS / 2, letter_block=block))
 
 
 def adaptive(item):
@@ -124,13 +151,38 @@ def monet_background(mode):
 
 
 def monet_foreground(mode):
-    color = "@android:color/system_accent1_700" if mode == "light" else "@android:color/system_accent1_200"
-    scale = LETTER_BOX / LETTER_VIEWPORT
-    return vector(
-        f'    <group android:translateX="{LETTER_X:.2f}" android:translateY="{LETTER_Y:.2f}" '
-        f'android:scaleX="{scale:.6f}" android:scaleY="{scale:.6f}">\n'
-        f'        <path android:pathData="{LETTER_PATH}" android:fillColor="{color}" />\n    </group>\n'
-    )
+    """The mark in the wallpaper's colours: the letter line in the main accent, the accent line in the third one."""
+    letter = "@android:color/system_accent1_700" if mode == "light" else "@android:color/system_accent1_200"
+    second = "@android:color/system_accent3_500" if mode == "light" else "@android:color/system_accent3_300"
+    return vector(a9_android.vector_group(letter, second, MARK_FIT, CANVAS / 2, CANVAS / 2))
+
+
+def average_colour(image, opaque_only):
+    """The average colour of a bitmap: of its drawn pixels, or of its middle."""
+    from PIL import Image
+    image = image.convert("RGBA").resize((64, 64), Image.LANCZOS)
+    pixels = [p for p in image.getdata() if (p[3] > 200 if opaque_only else True)]
+    if not pixels:
+        return "#ffffff"
+    return a9_android.hex_of(*(sum(p[i] for p in pixels) / len(pixels) / 255 for i in range(3)))
+
+
+def fancy_foreground(item, target):
+    """
+    The А9 mark over a decorated tile: the letter line in the colour the old letter had, the accent line in the tile's
+    hue, and for the glowing ones a soft glow of the accent under the lines.
+    """
+    from PIL import Image
+    letter = average_colour(Image.open(FANCY_FOLDER / f"{item['id']}_fg.png"), True)
+    tile = average_colour(Image.open(FANCY_FOLDER / f"{item['id']}_bg.png"), False)
+    accent_line = a9_android.accent_for(tile, letter)
+    fit = 512 * a9_android.safe_fit()
+    glow = ""
+    if item["id"].startswith(("glow", "neon")):
+        glow = (f'<filter id="g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>'
+                f'<g filter="url(#g)" opacity="0.8">{a9_android.a9.mark(accent_line, accent_line, fit)}</g>')
+    svg = a9_android.a9.svg(glow + a9_android.a9.mark(letter, accent_line, fit))
+    a9_android.png(svg, 432).save(target, "WEBP", quality=90, method=6)
 
 
 def webp(source, target):
@@ -160,7 +212,7 @@ def main():
             (RES / f"drawable/arsound_icon_fg_{item['id']}.xml").write_text(monet_foreground(item["monet"]), encoding="utf-8")
         else:
             webp(FANCY_FOLDER / f"{item['id']}_bg.png", RES / f"drawable-nodpi/arsound_icon_bg_{item['id']}.webp")
-            webp(FANCY_FOLDER / f"{item['id']}_fg.png", RES / f"drawable-nodpi/arsound_icon_fg_{item['id']}.webp")
+            fancy_foreground(item, RES / f"drawable-nodpi/arsound_icon_fg_{item['id']}.webp")
             bitmaps.append(item["id"])
         (RES / f"mipmap-anydpi/arsound_icon_{item['id']}.xml").write_text(adaptive(item), encoding="utf-8")
     everything = PALETTES + FANCY

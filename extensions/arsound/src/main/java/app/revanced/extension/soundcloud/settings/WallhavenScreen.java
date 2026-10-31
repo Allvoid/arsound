@@ -70,7 +70,7 @@ final class WallhavenScreen extends SettingsScreen {
     private TextView filterBadge;
     private LinearLayout state;
     private TextView stateText;
-    private ProgressBar spinner;
+    private View spinner;
     private LinearLayout stateAction;
     /** What the button of the message says and does now. */
     private String stateActionLabel;
@@ -441,9 +441,7 @@ final class WallhavenScreen extends SettingsScreen {
         // The grid below shows its empty cells while the first page loads; the state takes the touches only when it shows a message.
         state.setClickable(false);
 
-        spinner = new ProgressBar(activity);
-        spinner.setIndeterminate(true);
-        spinner.setIndeterminateTintList(ColorStateList.valueOf(accent));
+        spinner = new app.revanced.extension.soundcloud.shared.A9Loader(activity, ArsoundTheme.palette(activity, "primary"));
         state.addView(spinner, new LinearLayout.LayoutParams(dp(36), dp(36)));
 
         stateText = ui.createText("Body.Secondary", "");

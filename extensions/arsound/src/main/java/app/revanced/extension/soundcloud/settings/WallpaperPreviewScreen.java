@@ -63,7 +63,7 @@ final class WallpaperPreviewScreen {
     private View topBar;
     private View panel;
     private ProgressBar bar;
-    private ProgressBar spinner;
+    private View spinner;
     private TextView setButton;
     private View fullNote;
     private WallpaperDownload download;
@@ -149,9 +149,8 @@ final class WallpaperPreviewScreen {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         root.addView(sample, sampleParams);
 
-        spinner = new ProgressBar(ui.activity);
-        spinner.setIndeterminate(true);
-        spinner.setIndeterminateTintList(ColorStateList.valueOf(ArsoundTheme.palette(ui.activity, "special")));
+        // Over the picture: the letter line white, as the logo on a dark tile.
+        spinner = new app.revanced.extension.soundcloud.shared.A9Loader(ui.activity, 0xFFFFFFFF);
         root.addView(spinner, new FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER));
 
         topBar = createTopBar();

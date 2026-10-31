@@ -8,7 +8,7 @@ import org.w3c.dom.Element
 private const val LAUNCH_BACKGROUND = "arsound_launch_background"
 
 /**
- * A start screen per theme: the drawing letter in the theme's accent on the theme's background (see [SplashLook]).
+ * A start screen per theme: the А9 mark drawing itself on the theme's background (see [SplashLook]).
  * Android shows the start screen before the app runs, so it cannot be recoloured at run time; the app picks one of
  * these with SplashScreen.setSplashScreenTheme.
  */
@@ -36,17 +36,15 @@ private fun ResourcePatchContext.writeSplashColors(looks: List<SplashLook>) {
     }
 }
 
-/** The drawing letter (white frames from the branding patch) tinted with each look's colours. */
+/**
+ * The animation of each look. The mark is drawn in its own two colours, the letter line white and the accent line
+ * azure, on every theme's dark start screen (the branding patch's animated vector), so each look's animation is a copy.
+ * The names stay per look: the styles and the app refer to them.
+ */
 private fun ResourcePatchContext.writeSplashAnimations(looks: List<SplashLook>) {
     val splash = get("res").resolve("drawable/arsound_splash.xml").readText()
-    val frame = Regex("<item android:drawable=\"@drawable/(arsound_splash_\\d+)\" android:duration=\"(\\d+)\" />")
     for (animation in looks.flatMap { it.animations }) {
-        val tinted = frame.replace(splash) { match ->
-            "<item android:duration=\"${match.groupValues[2]}\">" +
-                "<bitmap android:src=\"@drawable/${match.groupValues[1]}\" " +
-                "android:tint=\"@color/${animation.tint}\" /></item>"
-        }
-        get("res").resolve("drawable/${animation.name}.xml").writeText(tinted)
+        get("res").resolve("drawable/${animation.name}.xml").writeText(splash)
     }
 }
 

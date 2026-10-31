@@ -1,42 +1,39 @@
 """
-Generates the Arsound branding resources bundled with the patches.
+Generates the Arsound branding resources bundled with the patches: the А9 mark (letter-a-icon project, a9.py).
 
-Source: the exported "letter A" icon set (PNG glyphs and the drawing animation).
 Output: patches/src/main/resources/soundcloud/branding/...
+- the launcher foreground and the small icons as bitmaps, the SoundCloud logo spots as vectors;
+- the start screen: the mark drawing itself, an animated vector (the logo's "meet" without its settle);
+- the loading animation of the app (Lottie): the same drawing as stroked shapes, over and over.
 
-Run: python tools/branding/generate.py <path to the export folder>
-Needs: pip install pillow picosvg skia-pathops resvg-py
+Run: python tools/branding/generate.py [<path to the letter-a-icon folder>]
+Needs: pip install pillow resvg-py
 """
+import json
 import pathlib
 import sys
 
 from PIL import Image
 
-if len(sys.argv) < 2:
-    sys.exit("Usage: python tools/branding/generate.py <path to the icon export folder>")
-EXPORT = pathlib.Path(sys.argv[1])
+import a9_android
+from a9_android import AZURE, AZURE_DEEP, INK, WHITE
+
+if len(sys.argv) > 1:
+    a9_android.a9 = a9_android.load_a9(sys.argv[1])
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "patches/src/main/resources/soundcloud/branding"
 
 DENSITIES = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
 
-# Adaptive icons are 108dp; the launcher mask keeps the central 72dp, the splash screen 160/240 of the icon.
+# Adaptive icons are 108dp; the launcher mask keeps the central 72dp.
 ADAPTIVE_PX = 432  # 108dp at xxxhdpi
-LAUNCHER_GLYPH_PX = 200
-SPLASH_GLYPH_PX = 230
-SPLASH_FRAME_STEP = 2  # the source is 60 fps, two frames per step keep 30 fps
-SPLASH_LAST_DRAW_FRAME = 48  # the letter is fully drawn by then; the last frame is held
+LAUNCHER_FIT = a9_android.safe_fit()
 
 
-def glyph(size: int) -> Image.Image:
-    source = Image.open(EXPORT / "png/glyph-white/glyph-white-1024.png").convert("RGBA")
-    return source.resize((size, size), Image.LANCZOS)
-
-
-def centered(image: Image.Image, canvas: int) -> Image.Image:
-    result = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
-    result.alpha_composite(image, ((canvas - image.width) // 2, (canvas - image.height) // 2))
-    return result
+def mark_png(size, fit_part, letter=WHITE, accent=AZURE):
+    """The mark on a transparent square; lines that touch below 48 px, or they blur into one."""
+    small = size * fit_part < 48
+    return a9_android.png(a9_android.svg_mark(letter, accent, size, fit_part, small), size)
 
 
 def save(image: Image.Image, relative: str) -> None:
@@ -45,7 +42,7 @@ def save(image: Image.Image, relative: str) -> None:
     image.save(path, optimize=True)
 
 
-# Name, size in dp and fill colour of SoundCloud's own logo vectors, kept as they were.
+# Name, size in dp and colour of SoundCloud's own logo vectors: one colour for both lines, as SoundCloud tints them.
 LOGO_VECTORS = {
     "ic_logo_cloud": (24, "?colorDrawableSecondary"),
     "ic_logo_cloud_active": (24, "?colorDrawablePrimaryActive"),
@@ -55,74 +52,15 @@ LOGO_VECTORS = {
 }
 
 
-def vector_glyph_path() -> str:
-    """The glyph SVG as one filled path: strokes outlined (picosvg), the counter mask subtracted (skia-pathops)."""
-    import re
-
-    import pathops
-    from picosvg.svg import SVG
-    from picosvg.svg_pathops import skia_path, svg_commands
-    from picosvg.svg_transform import Affine2D
-    from picosvg.svg_types import SVGPath
-
-    source = (EXPORT / "svg/glyph-white.svg").read_text(encoding="utf-8")
-    counter = re.search(r'<mask.*?<path d="([^"]+)"', source).group(1)
-    tx, ty, scale = map(float, re.search(r"translate\(([-\d.]+) ([-\d.]+)\) scale\(([\d.]+)\)", source).groups())
-    without_mask = re.sub(r"<mask.*?</mask>", "", source).replace(' mask="url(#counter)"', "")
-    shapes = SVG.fromstring(without_mask).topicosvg().shapes()
-
-    glyph_outline = pathops.Path()
-    for shape in shapes:
-        glyph_outline = pathops.op(glyph_outline, skia_path(shape.as_cmd_seq(), shape.fill_rule), pathops.PathOp.UNION)
-    hole = SVGPath(d=counter).apply_transform(Affine2D(scale, 0, 0, scale, tx, ty))
-    result = pathops.op(glyph_outline, skia_path(hole.as_cmd_seq(), "nonzero"), pathops.PathOp.DIFFERENCE)
-    return SVGPath.from_commands(svg_commands(result)).round_floats(2).d
-
-
-def vector_drawable(path: str, size: int, color: str) -> str:
-    # The glyph fills 84% of the icon, like the PNG icons; the source viewport is 512.
-    inset = 512 * 0.08 / 0.84
-    viewport = 512 + inset * 2
-    return (
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        f'<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="{size}dp" android:height="{size}dp" '
-        f'android:viewportWidth="{viewport:.2f}" android:viewportHeight="{viewport:.2f}">\n'
-        f'    <group android:translateX="{inset:.2f}" android:translateY="{inset:.2f}">\n'
-        f'        <path android:fillColor="{color}" android:pathData="{path}" />\n'
-        "    </group>\n"
-        "</vector>\n"
-    )
+def logo_vector(size, colour):
+    # The mark fills 84% of the icon, like the small bitmaps.
+    viewport = 512
+    body = a9_android.vector_group(colour, colour, viewport * 0.84, viewport / 2, viewport / 2)
+    return a9_android.vector(size, viewport, body)
 
 
 LOGO_NAMES = list(LOGO_VECTORS)
 LAUNCHER_FOREGROUND_NAMES = ["ic_launcher_foreground", "ic_launcher_foreground_black", "ic_launcher_foreground_orange", "ic_launcher_foreground_white"]
-
-
-def lottie_loading(frames: list) -> dict:
-    """SoundCloud's loading animation (Lottie) redrawn with the letter: drawing frames as image layers, then a hold."""
-    import base64
-    import io
-
-    fps = 30
-    hold = 15
-    width, height, size = 600, 300, 150
-    assets, layers = [], []
-    for index, frame in enumerate(frames):
-        buffer = io.BytesIO()
-        frame.resize((size, size), Image.LANCZOS).save(buffer, format="PNG", optimize=True)
-        asset_id = f"a{index}"
-        assets.append({"id": asset_id, "w": size, "h": size, "e": 1, "u": "",
-                       "p": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()})
-        last = index == len(frames) - 1
-        layers.append({
-            "ddd": 0, "ind": index + 1, "ty": 2, "nm": asset_id, "refId": asset_id, "sr": 1,
-            "ks": {"o": {"a": 0, "k": 100}, "r": {"a": 0, "k": 0},
-                   "p": {"a": 0, "k": [width / 2, height / 2, 0]}, "a": {"a": 0, "k": [size / 2, size / 2, 0]},
-                   "s": {"a": 0, "k": [100, 100, 100]}},
-            "ao": 0, "ip": index, "op": index + 1 + (hold if last else 0), "st": 0, "bm": 0,
-        })
-    return {"v": "4.8.0", "fr": fps, "ip": 0, "op": len(frames) + hold, "w": width, "h": height,
-            "nm": "arsound_loading", "ddd": 0, "assets": assets, "layers": layers}
 
 
 PLACEHOLDER_SOURCE = ROOT / "local/analysis/res-decoded/res/drawable/ic_default_playable_artwork_placeholder_dark.xml"
@@ -159,65 +97,69 @@ def artwork_placeholders() -> None:
         path.write_bytes(bytes(resvg_py.svg_to_bytes(svg_string=svg)))
 
 
+JAVA_MARK = ROOT / "extensions/arsound/src/main/java/app/revanced/extension/soundcloud/shared/A9Mark.java"
+
+
+def java_mark() -> str:
+    """The four lines, their width and the drawing's timing for the app's own loading view (A9Loader)."""
+    def floats(points):
+        return ", ".join(f"{x:.2f}f, {y:.2f}f" for x, y in points)
+    lines = ",\n".join(f"            {{{floats(points)}}}" for points, _ in a9_android.lines())
+    roles = ", ".join("true" if role == "accent" else "false" for _, role in a9_android.lines())
+    timing = ", ".join(f"{{{delay}, {duration}}}" for delay, duration in a9_android.TIMING)
+    x0, y0, x1, y1 = a9_android.a9.bbox()
+    return (
+        "package app.revanced.extension.soundcloud.shared;\n\n"
+        "// Generated by tools/branding/generate.py from the А9 mark (letter-a-icon, a9.py). Do not edit by hand.\n\n"
+        "/** The А9 mark: its four lines on the logo's 512 grid, their width and the timing of the drawing. */\n"
+        "final class A9Mark {\n"
+        "    /** x, y pairs of each line, in the order the drawing starts them. */\n"
+        f"    static final float[][] LINES = {{\n{lines},\n    }};\n"
+        "    /** Whether a line is an accent line; an accent line draws from its end. */\n"
+        f"    static final boolean[] ACCENT = {{{roles}}};\n"
+        "    /** Delay and duration of each line's drawing, in milliseconds. */\n"
+        f"    static final int[][] TIMING = {{{timing}}};\n"
+        f"    static final float WIDTH = {a9_android.a9.WIDTH}f;\n"
+        "    /** The box of the mark with its line ends: left, top, right, bottom. */\n"
+        f"    static final float[] BOX = {{{x0:.2f}f, {y0:.2f}f, {x1:.2f}f, {y1:.2f}f}};\n\n"
+        "    private A9Mark() {\n"
+        "    }\n"
+        "}\n"
+    )
+
+
 def main() -> None:
     artwork_placeholders()
+    JAVA_MARK.write_text(java_mark(), encoding="utf-8")
 
-    # Launcher foreground, also used as the monochrome layer.
-    save(centered(glyph(LAUNCHER_GLYPH_PX), ADAPTIVE_PX), "drawable-nodpi/arsound_launcher_foreground.png")
+    # Launcher foreground, also the monochrome layer (Android tints it by its transparency).
+    launcher = mark_png(ADAPTIVE_PX, LAUNCHER_FIT)
+    save(launcher, "drawable-nodpi/arsound_launcher_foreground.png")
+    for name in LAUNCHER_FOREGROUND_NAMES:
+        save(launcher, f"drawable-nodpi/{name}.png")
 
     # Small icons: notifications, the SoundCloud logo spots and the Arsound menu rows (24dp).
     for density, scale in DENSITIES.items():
-        size = round(24 * scale)
-        icon = centered(glyph(round(size * 0.84)), size)
-        save(icon, f"drawable-{density}/arsound_icon.png")
+        save(mark_png(round(24 * scale), 0.84), f"drawable-{density}/arsound_icon.png")
 
     # SoundCloud logo spots: vectors, so the large logo on the sign-in screen stays sharp.
-    glyph_path = vector_glyph_path()
     (OUT / "drawable").mkdir(parents=True, exist_ok=True)
-    for name, (size, color) in LOGO_VECTORS.items():
-        (OUT / f"drawable/{name}.xml").write_text(vector_drawable(glyph_path, size, color), encoding="utf-8")
-    for name in LAUNCHER_FOREGROUND_NAMES:
-        save(centered(glyph(LAUNCHER_GLYPH_PX), ADAPTIVE_PX), f"drawable-nodpi/{name}.png")
+    for name, (size, colour) in LOGO_VECTORS.items():
+        (OUT / f"drawable/{name}.xml").write_text(logo_vector(size, colour), encoding="utf-8")
 
-    # Splash screen animation frames.
-    animation = Image.open(EXPORT / "anim/a-draw-white.apng")
-    frames = []
-    loading_frames = []
-    for index in range(0, SPLASH_LAST_DRAW_FRAME + 1, SPLASH_FRAME_STEP):
-        animation.seek(index)
-        frame = animation.convert("RGBA").resize((SPLASH_GLYPH_PX, SPLASH_GLYPH_PX), Image.LANCZOS)
-        name = f"arsound_splash_{len(frames):02d}"
-        save(centered(frame, ADAPTIVE_PX), f"drawable-nodpi/{name}.png")
-        frames.append(name)
-        loading_frames.append(animation.convert("RGBA"))
+    # The start screen: the mark drawing itself. The old bitmap frames go.
+    for old in (OUT / "drawable-nodpi").glob("arsound_splash_*.png"):
+        old.unlink()
+    (OUT / "drawable/arsound_splash.xml").write_text(a9_android.splash_avd(), encoding="utf-8")
 
-    duration = round(1000 / 60 * SPLASH_FRAME_STEP)
-    items = "\n".join(
-        f'    <item android:drawable="@drawable/{name}" android:duration="{duration if i < len(frames) - 1 else 2000}" />'
-        for i, name in enumerate(frames)
-    )
-    (OUT / "drawable").mkdir(parents=True, exist_ok=True)
-    (OUT / "drawable/arsound_splash.xml").write_text(
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        '<animation-list xmlns:android="http://schemas.android.com/apk/res/android" android:oneshot="true">\n'
-        f"{items}\n"
-        "</animation-list>\n",
-        encoding="utf-8",
-    )
-    import json
+    # The loading animation: a dark letter line in the light look, a white one in the dark look ("raw-night").
     (OUT / "raw").mkdir(parents=True, exist_ok=True)
-    # Light theme draws a dark letter, dark theme ("raw-night") a white one.
-    dark_frames = []
-    for frame in loading_frames:
-        alpha = frame.getchannel("A")
-        dark = Image.new("RGBA", frame.size, (0, 0, 0, 255))
-        dark.putalpha(alpha)
-        dark_frames.append(dark)
-    (OUT / "raw/loading_animation.json").write_text(json.dumps(lottie_loading(dark_frames), separators=(",", ":")), encoding="utf-8")
+    (OUT / "raw/loading_animation.json").write_text(
+        json.dumps(a9_android.lottie_loading(INK, AZURE_DEEP), separators=(",", ":")), encoding="utf-8")
     (OUT / "raw-night").mkdir(parents=True, exist_ok=True)
-    (OUT / "raw-night/loading_animation.json").write_text(json.dumps(lottie_loading(loading_frames), separators=(",", ":")), encoding="utf-8")
-
-    print(f"{len(frames)} splash frames, {duration} ms each")
+    (OUT / "raw-night/loading_animation.json").write_text(
+        json.dumps(a9_android.lottie_loading(WHITE, AZURE), separators=(",", ":")), encoding="utf-8")
+    print(f"А9: start screen {a9_android.DRAW_MS} ms, loading loop written")
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ final class ResultRow {
     private final TextView meta;
     private final ImageView download;
     private final TextView percent;
-    private final ProgressBar busy;
+    private final View busy;
 
     ResultRow(SearchScreen screen, OtherSource.Track track) {
         this.screen = screen;
@@ -57,8 +57,7 @@ final class ResultRow {
         download.setBackgroundResource(ripple.resourceId);
         download.setOnClickListener(v -> DownloadQueue.start(context.getApplicationContext(), track));
         action.addView(download, new FrameLayout.LayoutParams(dpTruncated(context, 48), dpTruncated(context, 48), Gravity.CENTER));
-        busy = new ProgressBar(context);
-        busy.setIndeterminateTintList(ColorStateList.valueOf(SearchScreen.accent(context)));
+        busy = new app.revanced.extension.soundcloud.shared.A9Loader(context, screen.look.primary);
         action.addView(busy, new FrameLayout.LayoutParams(dpTruncated(context, 28), dpTruncated(context, 28), Gravity.CENTER));
         percent = new TextView(context);
         percent.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
