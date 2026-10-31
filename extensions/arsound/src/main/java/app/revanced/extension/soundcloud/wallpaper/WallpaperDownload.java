@@ -4,6 +4,9 @@ import android.content.Context;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
@@ -28,6 +31,27 @@ public final class WallpaperDownload {
     }
 
     private static final long PROGRESS_STEP_MS = 100;
+    private static final String PREFIX = "wallpaper-";
+    private static final String SUFFIX = ".tmp";
+    /** The files of the downloads of this process: the sweep leaves them alone. */
+    private static final Set<File> LIVE = Collections.synchronizedSet(new HashSet<>());
+
+    /**
+     * Removes the files that downloads of an ended process left in the cache. A download removes its own file only
+     * while the process lives; one killed in the middle (low memory, a swipe, a crash) left up to 80 MB behind for
+     * good. Off the main thread; the downloads of this process are skipped.
+     */
+    public static void sweepLeftovers(Context context) {
+        File folder = context.getCacheDir();
+        Utils.runOnBackgroundThread(() -> {
+            File[] files = folder.listFiles((dir, name) -> name.startsWith(PREFIX) && name.endsWith(SUFFIX));
+            if (files == null) return;
+            for (File leftover : files) {
+                if (LIVE.contains(leftover)) continue;
+                if (leftover.delete()) Logger.printInfo(() -> "Wallpaper: removed a leftover download " + leftover.getName());
+            }
+        });
+    }
 
     private final File cacheFolder;
     private final String address;
@@ -51,7 +75,8 @@ public final class WallpaperDownload {
         started = true;
         File target;
         try {
-            target = File.createTempFile("wallpaper-", ".tmp", cacheFolder);
+            target = File.createTempFile(PREFIX, SUFFIX, cacheFolder);
+            LIVE.add(target);
         } catch (IOException ex) {
             Logger.printInfo(() -> "Wallpaper: no file for the download: " + ex.getClass().getSimpleName());
             finish(false);
@@ -136,7 +161,9 @@ public final class WallpaperDownload {
 
     private void discard() {
         File kept = file;
-        if (kept != null) kept.delete();
+        if (kept == null) return;
+        kept.delete();
+        LIVE.remove(kept);
     }
 
     private void progress(long received, long size) {

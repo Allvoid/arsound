@@ -116,6 +116,7 @@ final class WallhavenScreen extends SettingsScreen {
 
     @Override
     View create() {
+        app.revanced.extension.soundcloud.wallpaper.WallpaperDownload.sweepLeftovers(activity);
         LinearLayout root = ui.createRoot();
         root.addView(createTopBar());
 

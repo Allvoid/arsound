@@ -29,6 +29,8 @@ final class WallhavenCell extends FrameLayout {
     private final ImageView picture;
     private final TextView mark;
     private final ShimmerDrawable shimmer;
+    /** The still mark of a picture that did not load. */
+    private final TextView failedMark;
     /** The picture shown, or null for an empty cell. */
     private Wallhaven.Item item;
     /** The size the grid says the cell has, in pixels; 0 until the grid is laid out. */
@@ -67,6 +69,27 @@ final class WallhavenCell extends FrameLayout {
                 Gravity.TOP | Gravity.END);
         markParams.setMargins(pad, pad, pad, pad);
         addView(mark, markParams);
+
+        failedMark = new TextView(context);
+        failedMark.setText("!");
+        failedMark.setTextColor(0x99FFFFFF);
+        failedMark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        failedMark.setTypeface(Typeface.DEFAULT_BOLD);
+        failedMark.setVisibility(GONE);
+        addView(failedMark, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER));
+    }
+
+    /** The picture did not load: the shimmer stops, and a still mark shows until it is asked again. */
+    void showFailed() {
+        showSkeleton(false);
+        failedMark.setVisibility(VISIBLE);
+    }
+
+    /** The picture is asked again: the shimmer comes back. */
+    void showLoading() {
+        failedMark.setVisibility(GONE);
+        showSkeleton(true);
     }
 
     /**
@@ -79,6 +102,7 @@ final class WallhavenCell extends FrameLayout {
         cellHeight = height;
         picture.animate().cancel();
         picture.setAlpha(1f);
+        failedMark.setVisibility(GONE);
         if (item == null) {
             picture.setTag(null);
             picture.setImageDrawable(null);

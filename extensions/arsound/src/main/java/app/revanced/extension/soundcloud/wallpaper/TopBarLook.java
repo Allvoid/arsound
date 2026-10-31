@@ -26,9 +26,21 @@ public final class TopBarLook {
     /** The light line along the bottom of the glass, as a part of its height. */
     private static final float EDGE = 0.012f;
 
-    private static String stripStamp;
+    /** The baked picture the strip was made from: a new picture, or the same read again, is another bitmap. */
+    private static Bitmap stripSource;
     private static Bitmap strip;
     private static Methods methods;
+
+    // The brushes are made once per input and kept: the bar asks for them on every composition, and each was built by
+    // reflection, the glass with a look at the picture's file too.
+    private static long fadeSurface;
+    private static Object fadeBrush;
+    private static Bitmap glassFor;
+    private static int glassWidth, glassHeight;
+    private static Object glassBrush;
+    private static int tintArgb;
+    private static Object tintBrush;
+    private static Object sheenBrush;
 
     private TopBarLook() {
     }
@@ -37,7 +49,8 @@ public final class TopBarLook {
     private static final class Methods {
         final Object companion;
         final Method verticalGradient, box, shaderBrush, background, rectangle;
-        final Class<?> brush;
+        final Class<?> brush, pair;
+        final java.lang.reflect.Constructor<?> newPair;
 
         Methods(ClassLoader loader) throws Exception {
             brush = Class.forName("androidx.compose.ui.graphics.Brush", false, loader);
@@ -53,6 +66,8 @@ public final class TopBarLook {
                     .getMethod("background", modifier, brush, shape, float.class);
             rectangle = Class.forName("androidx.compose.ui.graphics.RectangleShapeKt", false, loader)
                     .getMethod("getRectangleShape");
+            pair = Class.forName("kotlin.Pair", false, loader);
+            newPair = pair.getConstructor(Object.class, Object.class);
         }
     }
 
@@ -65,8 +80,9 @@ public final class TopBarLook {
     public static synchronized Bitmap glassStrip() {
         Bitmap baked = WallpaperStore.bitmap();
         if (baked == null) return null;
-        String stamp = WallpaperStore.stamp() + "/" + baked.getWidth() + "x" + baked.getHeight();
-        if (strip != null && stamp.equals(stripStamp)) return strip;
+        // The strip depends only on the baked picture; asking its file for the time it changed cost a look at the
+        // disk on every composition of the bar.
+        if (strip != null && baked == stripSource) return strip;
         int height = Math.max(1, Math.round(baked.getHeight() * STRIP));
         int smallHeight = Math.max(1, Math.round(height * STRIP_WIDTH / (float) baked.getWidth()));
         Bitmap top = Bitmap.createBitmap(baked, 0, 0, baked.getWidth(), height);
@@ -86,7 +102,7 @@ public final class TopBarLook {
         new android.graphics.Canvas(saturated).drawBitmap(blurred, 0, 0, paint);
         blurred.recycle();
         strip = saturated;
-        stripStamp = stamp;
+        stripSource = baked;
         return strip;
     }
 
@@ -120,9 +136,12 @@ public final class TopBarLook {
      */
     static Object fade(Object modifier, long surface) throws Exception {
         Methods m = methods(modifier.getClass().getClassLoader());
-        Object brush = gradient(m, new float[]{0f, 0.55f, 1f}, new long[]{
-                HeaderShade.withAlpha(surface, 0.9f), HeaderShade.withAlpha(surface, 0.55f), HeaderShade.withAlpha(surface, 0f)});
-        return under(m, modifier, brush);
+        if (fadeBrush == null || fadeSurface != surface) {
+            fadeBrush = gradient(m, new float[]{0f, 0.55f, 1f}, new long[]{
+                    HeaderShade.withAlpha(surface, 0.9f), HeaderShade.withAlpha(surface, 0.55f), HeaderShade.withAlpha(surface, 0f)});
+            fadeSurface = surface;
+        }
+        return under(m, modifier, fadeBrush);
     }
 
     /**
@@ -135,17 +154,30 @@ public final class TopBarLook {
         Bitmap strip = glassStrip();
         Object result = modifier;
         if (strip != null) {
-            BitmapShader shader = new BitmapShader(strip, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(stripMatrix(strip, screenWidth, screenHeight));
-            result = under(m, result, m.shaderBrush.invoke(null, shader));
+            if (glassBrush == null || glassFor != strip || glassWidth != screenWidth || glassHeight != screenHeight) {
+                BitmapShader shader = new BitmapShader(strip, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                shader.setLocalMatrix(stripMatrix(strip, screenWidth, screenHeight));
+                glassBrush = m.shaderBrush.invoke(null, shader);
+                glassFor = strip;
+                glassWidth = screenWidth;
+                glassHeight = screenHeight;
+            }
+            result = under(m, result, glassBrush);
         }
-        long tint = packed(glassTint(surfaceArgb));
-        long white = packed(0xFFFFFFFF);
-        result = under(m, result, gradient(m, new float[]{0f, 1f}, new long[]{tint, tint}));
-        Object sheen = gradient(m, new float[]{0f, 0.45f, 1f - EDGE * 2, 1f - EDGE, 1f}, new long[]{
-                HeaderShade.withAlpha(white, 0.10f), HeaderShade.withAlpha(white, 0.03f), HeaderShade.withAlpha(white, 0.01f),
-                HeaderShade.withAlpha(white, 0.24f), HeaderShade.withAlpha(white, 0.24f)});
-        return under(m, result, sheen);
+        int tintColour = glassTint(surfaceArgb);
+        if (tintBrush == null || tintArgb != tintColour) {
+            long tint = packed(tintColour);
+            tintBrush = gradient(m, new float[]{0f, 1f}, new long[]{tint, tint});
+            tintArgb = tintColour;
+        }
+        result = under(m, result, tintBrush);
+        if (sheenBrush == null) {
+            long white = packed(0xFFFFFFFF);
+            sheenBrush = gradient(m, new float[]{0f, 0.45f, 1f - EDGE * 2, 1f - EDGE, 1f}, new long[]{
+                    HeaderShade.withAlpha(white, 0.10f), HeaderShade.withAlpha(white, 0.03f), HeaderShade.withAlpha(white, 0.01f),
+                    HeaderShade.withAlpha(white, 0.24f), HeaderShade.withAlpha(white, 0.24f)});
+        }
+        return under(m, result, sheenBrush);
     }
 
     /** An sRGB colour as Compose packs it: the ARGB value in the high 32 bits. */
@@ -154,11 +186,9 @@ public final class TopBarLook {
     }
 
     private static Object gradient(Methods m, float[] stops, long[] colours) throws Exception {
-        ClassLoader loader = m.brush.getClassLoader();
-        Class<?> pairClass = Class.forName("kotlin.Pair", false, loader);
-        Object pairs = java.lang.reflect.Array.newInstance(pairClass, stops.length);
+        Object pairs = java.lang.reflect.Array.newInstance(m.pair, stops.length);
         for (int i = 0; i < stops.length; i++) {
-            Object pair = pairClass.getConstructor(Object.class, Object.class).newInstance(stops[i], m.box.invoke(null, colours[i]));
+            Object pair = m.newPair.newInstance(stops[i], m.box.invoke(null, colours[i]));
             java.lang.reflect.Array.set(pairs, i, pair);
         }
         // From the top of the bar to its bottom; tile mode 0 is "clamp".

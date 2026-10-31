@@ -164,9 +164,17 @@ public final class WallpaperSurfaces {
      */
     public static int trackCellBackground(int highlight) {
         if (!active) return highlight;
-        int plain = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ripple_cell_default_drawable");
+        int plain = plainCellBackground;
+        if (plain == -1) {
+            // Looked up once: the id stays the same while the process lives, and every cell of a list asked for it.
+            plain = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ripple_cell_default_drawable");
+            plainCellBackground = plain;
+        }
         return plain == 0 ? highlight : plain;
     }
+
+    /** The plain cell background's id, 0 when the app has none, -1 before it is looked up. */
+    private static volatile int plainCellBackground = -1;
 
     /**
      * Injection point, in {@code BlurredHeaderBackgroundKt.a}: the address of the cover SoundCloud blurs behind the

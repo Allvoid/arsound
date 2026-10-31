@@ -37,8 +37,29 @@ final class ThumbnailLoader {
     private final ThreadPoolExecutor sharpPool;
     private final SharpLoader sharp;
     private volatile boolean closed;
-    /** Thumbnails that could not be read, so scrolling does not ask for them over and over. */
-    private final Set<String> failed = Collections.synchronizedSet(new HashSet<>());
+    /**
+     * Thumbnails that could not be read, with the time, so scrolling does not ask for them over and over. A failure
+     * expires after {@link #RETRY_MS}, and all of them when the network comes back: one failed read on a weak network
+     * kept the cell shimmering until the next search.
+     */
+    private final java.util.Map<String, Long> failed = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long RETRY_MS = 30_000;
+    /** The cells that gave up, asked again when the network comes back. */
+    private final java.util.Map<ImageView, Retry> gaveUp = Collections.synchronizedMap(new java.util.WeakHashMap<>());
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
+    private final Context context;
+
+    /** What a cell that gave up asked for. */
+    private static final class Retry {
+        final Wallhaven.Item item;
+        final int width, height;
+
+        Retry(Wallhaven.Item item, int width, int height) {
+            this.item = item;
+            this.width = width;
+            this.height = height;
+        }
+    }
     /** Sharp cells being made or already given up on, by key. */
     private final Set<String> sharpTried = Collections.synchronizedSet(new HashSet<>());
 
@@ -54,6 +75,43 @@ final class ThumbnailLoader {
         sharp = new SharpLoader(context);
         pool = newPool(3, "arsound-wallhaven-thumbnail");
         sharpPool = newPool(2, "arsound-wallhaven-sharp");
+        this.context = context.getApplicationContext();
+        watchNetwork();
+    }
+
+    /** When a network comes, the failures are forgotten and the cells on the screen that gave up load again. */
+    private void watchNetwork() {
+        try {
+            android.net.ConnectivityManager manager =
+                    (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(android.net.Network network) {
+                    if (closed) return;
+                    failed.clear();
+                    Utils.runOnMainThread(ThumbnailLoader.this::retryGaveUp);
+                }
+            };
+            manager.registerDefaultNetworkCallback(networkCallback);
+        } catch (Exception ex) {
+            networkCallback = null;
+            Logger.printInfo(() -> "Wallhaven: the network is not watched: " + ex);
+        }
+    }
+
+    private void retryGaveUp() {
+        java.util.List<java.util.Map.Entry<ImageView, Retry>> cells;
+        synchronized (gaveUp) {
+            cells = new java.util.ArrayList<>(gaveUp.entrySet());
+            gaveUp.clear();
+        }
+        for (java.util.Map.Entry<ImageView, Retry> cell : cells) {
+            ImageView view = cell.getKey();
+            Retry retry = cell.getValue();
+            if (view == null || !retry.item.thumbnail.equals(view.getTag())) continue;
+            if (view.getParent() instanceof WallhavenCell) ((WallhavenCell) view.getParent()).showLoading();
+            load(retry.item, view, retry.width, retry.height);
+        }
     }
 
     private static ThreadPoolExecutor newPool(int threads, String name) {
@@ -76,6 +134,16 @@ final class ThumbnailLoader {
         sharpPool.shutdownNow();
         failed.clear();
         sharpTried.clear();
+        gaveUp.clear();
+        if (networkCallback != null) {
+            try {
+                ((android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE))
+                        .unregisterNetworkCallback(networkCallback);
+            } catch (Exception ignored) {
+                // Already gone.
+            }
+            networkCallback = null;
+        }
     }
 
     /** The thumbnail if it is in memory, else null. */
@@ -101,7 +169,15 @@ final class ThumbnailLoader {
      * @param height The cell's height in pixels.
      */
     void load(Wallhaven.Item item, ImageView view, int width, int height) {
-        if (closed || failed.contains(item.thumbnail)) return;
+        if (closed) return;
+        Long failedAt = failed.get(item.thumbnail);
+        if (failedAt != null) {
+            if (android.os.SystemClock.uptimeMillis() - failedAt < RETRY_MS) {
+                giveUp(item, view, width, height);
+                return;
+            }
+            failed.remove(item.thumbnail);
+        }
         try {
             pool.execute(() -> loadNow(item, view, width, height));
         } catch (RejectedExecutionException ex) {
@@ -131,7 +207,10 @@ final class ThumbnailLoader {
                 Logger.printInfo(() -> "Wallhaven: a thumbnail did not load: " + ex.getClass().getSimpleName());
             }
             if (bitmap == null) {
-                if (!closed) failed.add(url);
+                if (!closed) {
+                    failed.put(url, android.os.SystemClock.uptimeMillis());
+                    Utils.runOnMainThread(() -> giveUp(item, view, width, height));
+                }
                 return;
             }
             cache.put(url, bitmap);
@@ -190,6 +269,16 @@ final class ThumbnailLoader {
             if (bitmap != null) cache.put(key, bitmap);
         }
         if (bitmap != null) show(url, view, bitmap, false);
+    }
+
+    /**
+     * The cell shows a still mark instead of the shimmer, which ran on for good, and is asked again when it is bound
+     * after {@link #RETRY_MS} or when the network comes back. Main thread.
+     */
+    private void giveUp(Wallhaven.Item item, ImageView view, int width, int height) {
+        if (closed || !item.thumbnail.equals(view.getTag())) return;
+        gaveUp.put(view, new Retry(item, width, height));
+        if (view.getParent() instanceof WallhavenCell) ((WallhavenCell) view.getParent()).showFailed();
     }
 
     /** Puts the bitmap in the view on the main thread, if the view still shows the picture the tag names. */
