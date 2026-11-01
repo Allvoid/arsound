@@ -54,6 +54,7 @@ public final class PlaybackRetryPatch {
     public static boolean onPlaybackError(Object player, boolean connected) {
         if (!connected || !Settings.isPlaybackRetryEnabled()) return connected;
         try {
+            logError(player);
             Object item = currentItem(player);
             // A missing or damaged file stays that way: waiting would only delay the error.
             if (playsFromFile(player, item)) return connected;
@@ -84,6 +85,38 @@ public final class PlaybackRetryPatch {
         } catch (Exception ex) {
             Logger.printException(() -> "Could not schedule playback retry", ex);
             return true;
+        }
+    }
+
+    private static Throwable lastLogged;
+
+    /**
+     * Writes what the player failed with (the cause chain, without addresses) into the normal log: until now only
+     * "Retrying playback" was there, and a track that never starts could not be told from a blocked or broken stream.
+     */
+    private static void logError(Object player) {
+        try {
+            Method exoPlayerGetter = Reflect.method(baseClass(player), method -> method.getParameterTypes().length == 0
+                    && method.getReturnType().getName().equals("androidx.media3.exoplayer.ExoPlayer")
+                    && !java.lang.reflect.Modifier.isAbstract(method.getModifiers()));
+            Object exoPlayer = exoPlayerGetter == null ? null : exoPlayerGetter.invoke(player);
+            if (exoPlayer == null) return;
+            Class<?> playerInterface = Class.forName("androidx.media3.common.Player", false, exoPlayer.getClass().getClassLoader());
+            Throwable error = (Throwable) playerInterface.getMethod("getPlayerError").invoke(exoPlayer);
+            if (error == null || error == lastLogged) return;
+            lastLogged = error;
+            StringBuilder chain = new StringBuilder();
+            int depth = 0;
+            for (Throwable cause = error; cause != null && depth < 6; cause = cause.getCause(), depth++) {
+                if (depth > 0) chain.append(" <- ");
+                String message = String.valueOf(cause.getMessage()).replaceAll("https?://([^/\\s?]+)\\S*", "$1");
+                if (message.length() > 160) message = message.substring(0, 160);
+                chain.append(cause.getClass().getSimpleName()).append(": ").append(message);
+            }
+            String text = chain.toString();
+            Logger.printInfo(() -> "Player error: " + text);
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Could not read the player error: " + ex);
         }
     }
 
