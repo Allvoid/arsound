@@ -237,6 +237,8 @@ public final class LocalAdditions {
             if (RemovedTracks.isKept(playlist, String.valueOf(urn))) continue;
             result.add(urn);
         }
+        // The server keeps 500 tracks in a playlist: the ones past that stay on this phone.
+        if (PlaylistLimit.moveOverflowLocally(playlist, result)) addedLocally = true;
         if (addedLocally) notifyPlaylistChanged(playlist);
         return result;
     }
