@@ -11,7 +11,9 @@
  *
  * <p>Entry points (Kotlin: {@code player/*Patch.kt}; {@code SleepTimer} is hooked from {@code download/DownloadTrackPatch.kt}):
  * <ul>
- * <li>{@code AudioEqualizer.onAudioSession(int)}; {@code ListeningStats.onPlaybackItem/onPlayerState};
+ * <li>{@code SoftEqualizer.withProcessor} puts {@code SoftEqualizerProcessor} first in the audio chain of the player: the
+ * equalizer and the preamp are shaped in software (filters in {@code player/dsp}), {@code SoftEqualizer.publish} hands it
+ * new settings; {@code AudioEqualizer.onAudioSession(int)} is kept empty; {@code ListeningStats.onPlaybackItem/onPlayerState};
  * {@code MixWithOtherApps.skipAudioFocus(Object)}; {@code StreamCache.beforeOpen/customSize/hasCustomSize}.</li>
  * <li>{@code PlayModeButton.build/onCustomAction/remember/setNotificationManager/setQueueManager}; the manifest receivers
  * {@code PlayModeReceiver} and {@code VivoMusicCardReceiver} (names written by the patches).</li>
@@ -22,7 +24,7 @@
  * <li>Screen hook (no patch): {@code VivoMusicCard.onActivityResumed}.</li>
  * </ul>
  *
- * <p>Main classes: sound - {@code AudioEqualizer}, {@code PreampEffect}, {@code GraphicCurve}, {@code UserPresetStore},
+ * <p>Main classes: sound - {@code AudioEqualizer}, {@code SoftEqualizer}, {@code SoftEqualizerProcessor}, {@code GraphicCurve}, {@code UserPresetStore},
  * {@code EqualizerChoice}; timer - {@code SleepTimer}, {@code SleepTimerScheduler}, {@code SleepTimerDialog} and the
  * {@code TimerMode} implementations {@code InTimeMode}/{@code AtClockMode}; queue - {@code PlayQueueApi} (the one place
  * that knows the obfuscated queue methods), {@code PlayMode}; stats - {@code ListeningStats}, {@code ListenSession},

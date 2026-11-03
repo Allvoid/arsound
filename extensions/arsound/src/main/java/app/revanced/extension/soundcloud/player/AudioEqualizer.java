@@ -1,28 +1,21 @@
 package app.revanced.extension.soundcloud.player;
 
-import android.content.Context;
-import android.media.AudioManager;
-import android.media.audiofx.Equalizer;
-import android.os.Build;
-
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.player.dsp.EffectParams;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
- * An equalizer on the player's sound: Android's own effect, attached to every audio session
- * the player creates. The chosen preset or band levels are applied at once to the sound that plays.
- * The preamp, an overall gain apart from the curve, is Android's dynamics effect on the same session.
+ * The equalizer of the player and its settings: ten octave bands, the presets, the preamp. The sound is shaped in software
+ * by {@link SoftEqualizerProcessor} in the player's own audio chain, so it needs nothing from the phone: it works where
+ * Android's audio effects are missing (HyperOS) and sounds the same everywhere. This class keeps the settings and tells the
+ * processors when they change ({@link SoftEqualizer#publish}).
  */
 @SuppressWarnings("unused")
 public final class AudioEqualizer {
     public static final String ENABLED = "equalizer_enabled";
-    /** The chosen preset of the device, or {@link #CUSTOM} for the user's own band levels. */
+    /** The chosen preset of an older version (a preset of the device), or {@link #CUSTOM} for the user's own band levels. */
     public static final String PRESET = "equalizer_preset";
     /** Band levels in millibels, comma separated, lowest band first. */
     public static final String LEVELS = "equalizer_levels";
@@ -32,34 +25,8 @@ public final class AudioEqualizer {
     public static final String PREAMP = "equalizer_preamp";
     /** The preamp range of the settings screen, in millibels. */
     public static final int PREAMP_MIN = -1200, PREAMP_MAX = 1200;
-
-    /** The effects of one audio session of the player. */
-    private static final class Session {
-        final Equalizer equalizer;
-        final PreampEffect preamp;
-
-        Session(int id, Equalizer equalizer) {
-            this.equalizer = equalizer;
-            this.preamp = new PreampEffect(id);
-        }
-
-        void release() {
-            try {
-                equalizer.release();
-            } catch (Throwable ignored) {
-                // Already released by the system.
-            }
-            preamp.release();
-        }
-    }
-
-    private static final List<Session> active = new ArrayList<>();
-    /** Effects kept at once: an equalizer per session, and a dynamics effect too while the preamp is used. */
-    private static final int MAX_EFFECTS = 4;
-    /** Applies run one at a time, each reading the settings when it writes: the last one always leaves the newest sound. */
-    private static final Object applyLock = new Object();
-    /** A background apply is waiting for its turn, so more band changes need no new one. */
-    private static final AtomicBoolean applyPending = new AtomicBoolean();
+    /** The range of a band, in millibels. */
+    public static final short BAND_MIN = -1200, BAND_MAX = 1200;
 
     private AudioEqualizer() {
     }
@@ -74,140 +41,58 @@ public final class AudioEqualizer {
         return (int) Math.max(PREAMP_MIN, Math.min(PREAMP_MAX, value));
     }
 
-    /** Saves the overall gain and applies it to the sound that plays now, from a background thread. */
+    /** Saves the overall gain; the sound that plays follows at once. */
     public static void setPreamp(int millibels) {
         Settings.putLong(PREAMP, Math.max(PREAMP_MIN, Math.min(PREAMP_MAX, millibels)));
-        applyAllSoon();
+        SoftEqualizer.publish();
     }
 
     /**
-     * Injection point: the player got a new audio session.
-     *
-     * @param sessionId The session id, 0 if none was given.
+     * Injection point of older builds: the player got a new audio session. Nothing is attached to the session any more
+     * (the sound is shaped in the player's own chain); the call is kept so the patch stays as it was.
      */
     public static void onAudioSession(int sessionId) {
-        if (sessionId <= 0) return;
-        try {
-            Session session = new Session(sessionId, new Equalizer(0, sessionId));
-            synchronized (active) {
-                active.add(session);
-                // Every new player session brings effects and the old sessions are gone: only the latest few are kept,
-                // since the system allows a limited number of effects.
-                // The new session gets the dynamics effect too if the preamp is set.
-                int perSession = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && preamp() != 0 ? 2 : 1;
-                while (active.size() > 1 && effects() + perSession - 1 > MAX_EFFECTS) active.remove(0).release();
-            }
-            apply(session);
-            Logger.printInfo(() -> "Equalizer attached to audio session " + sessionId + ", enabled " + isEnabled()
-                    + ", preamp " + preamp() + " mB");
-        } catch (Throwable ex) {
-            Logger.printException(() -> "Could not attach the equalizer", ex);
-        }
     }
 
-    /** Effects of the kept sessions. Called with {@link #active} held. */
-    private static int effects() {
-        int count = 0;
-        for (Session session : active) count += session.preamp.exists() ? 2 : 1;
-        return count;
-    }
-
-    /** Turns the equalizer on or off for the sound that plays now, from a background thread. */
+    /** Turns the equalizer on or off for the sound that plays now. */
     public static void setEnabled(boolean enabled) {
         Settings.putBoolean(ENABLED, enabled);
-        applyAllSoon();
+        SoftEqualizer.publish();
     }
 
-    /** Applies the settings to the sound that plays now. Binder calls per band and effect: not on the main thread. */
-    private static void applyAll() {
-        // A dead effect removes itself from the list while it is applied: a copy is walked.
-        List<Session> sessions;
-        synchronized (active) {
-            sessions = new ArrayList<>(active);
+    /** What the sound is shaped by now, from the settings. */
+    static EffectParams currentParams() {
+        float[] bands = new float[EffectParams.BANDS];
+        if (isEnabled()) {
+            short[] levels = levels(EffectParams.BANDS);
+            for (int i = 0; i < bands.length; i++) bands[i] = levels[i] / 100f;
         }
-        for (Session session : sessions) apply(session);
+        return new EffectParams(bands, preamp() / 100f);
     }
 
     /**
-     * Applies the settings off the main thread, many calls in a row becoming one run. Every band change of a drag
-     * costs a binder call per band and effect, which a slow audio HAL turns into dropped frames.
+     * The user's band levels on the ten bands; missing bands are flat. Levels saved by an older version, on the few bands
+     * of the phone's own equalizer, are put onto the ten bands by their place on the frequency scale.
      */
-    private static void applyAllSoon() {
-        if (!applyPending.compareAndSet(false, true)) return;
-        try {
-            Utils.runOnBackgroundThread(() -> {
-                try {
-                    synchronized (applyLock) {
-                        // Cleared once this run has its turn: changes made while it waited are in the settings it
-                        // reads now, and a change made while it works schedules one more run.
-                        applyPending.set(false);
-                        applyAll();
-                    }
-                } catch (Throwable ex) {
-                    Logger.printException(() -> "Could not apply the equalizer", ex);
-                }
-            });
-        } catch (Throwable ex) {
-            applyPending.set(false);
-            Logger.printException(() -> "Could not schedule the equalizer", ex);
-        }
-    }
-
-    private static void apply(Session session) {
-        synchronized (applyLock) {
-            Equalizer equalizer = session.equalizer;
-            try {
-                boolean enabled = isEnabled();
-                int preamp = preamp();
-                // Where the gain effect is not available, the preamp lifts or lowers every band of the equalizer,
-                // which then works even with the equalizer itself turned off.
-                boolean gainOnBands = !session.preamp.apply(preamp) && preamp != 0;
-                if (enabled || gainOnBands) {
-                    long preset = Settings.getLong(PRESET, CUSTOM);
-                    if (enabled && !gainOnBands && preset >= 0 && preset < equalizer.getNumberOfPresets()) {
-                        equalizer.usePreset((short) preset);
-                    } else {
-                        short bands = equalizer.getNumberOfBands();
-                        short[] levels = enabled ? levels(bands) : new short[bands];
-                        short[] range = equalizer.getBandLevelRange();
-                        int offset = gainOnBands ? preamp : 0;
-                        for (short band = 0; band < levels.length; band++) {
-                            int level = Math.max(range[0], Math.min(range[1], levels[band] + offset));
-                            equalizer.setBandLevel(band, (short) level);
-                        }
-                    }
-                }
-                equalizer.setEnabled(enabled || gainOnBands);
-            } catch (Throwable ex) {
-                // The session ended: its effects are dropped.
-                synchronized (active) {
-                    active.remove(session);
-                }
-                session.release();
-            }
-        }
-    }
-
-    /** The user's band levels; missing bands are flat. */
     public static short[] levels(int bands) {
-        short[] levels = new short[bands];
         String saved = Settings.getString(LEVELS, "");
         String[] parts = saved.isEmpty() ? new String[0] : saved.split(",");
-        for (int i = 0; i < bands && i < parts.length; i++) {
+        short[] read = new short[parts.length];
+        for (int i = 0; i < parts.length; i++) {
             try {
-                levels[i] = Short.parseShort(parts[i]);
+                read[i] = Short.parseShort(parts[i].trim());
             } catch (NumberFormatException ignored) {
             }
         }
-        return levels;
+        return LegacyLevels.onTenBands(read, bands);
     }
 
     public static void setLevel(int band, short level, int bands) {
         short[] levels = levels(bands);
         levels[band] = level;
-        // Called for every step of a drag: the sound follows from a background thread.
+        // Called for every step of a drag.
         save(levels, "");
-        applyAllSoon();
+        SoftEqualizer.publish();
     }
 
     /**
@@ -218,7 +103,7 @@ public final class AudioEqualizer {
      */
     public static void setLevels(short[] levels, String choice) {
         save(levels, choice);
-        applyAllSoon();
+        SoftEqualizer.publish();
     }
 
     private static void save(short[] levels, String choice) {
@@ -346,44 +231,23 @@ public final class AudioEqualizer {
 
     // endregion
 
-    /** What the settings screen shows: bands, their ranges and the device presets. */
+    /** What the settings screen shows: the ten bands and their range. */
     public static final class Info {
         public int[] centerFrequenciesHz = new int[0];
         public short minLevel;
         public short maxLevel;
+        /** Presets of the phone's own equalizer: none, the presets of the app are used. */
         public String[] presets = new String[0];
-        /** Band levels of each preset, to show them on the sliders. */
         public short[][] presetLevels = new short[0][];
     }
 
-    /** Reads the equalizer of this device on a session of its own. */
+    /** The bands of the equalizer: the same on every phone. */
     public static Info readInfo() {
         Info info = new Info();
-        Equalizer equalizer = null;
-        try {
-            Context context = Utils.getContext();
-            int session = ((AudioManager) context.getSystemService(Context.AUDIO_SERVICE)).generateAudioSessionId();
-            equalizer = new Equalizer(0, session);
-            short bands = equalizer.getNumberOfBands();
-            info.centerFrequenciesHz = new int[bands];
-            for (short band = 0; band < bands; band++) info.centerFrequenciesHz[band] = equalizer.getCenterFreq(band) / 1000;
-            short[] range = equalizer.getBandLevelRange();
-            info.minLevel = range[0];
-            info.maxLevel = range[1];
-            short presets = equalizer.getNumberOfPresets();
-            info.presets = new String[presets];
-            info.presetLevels = new short[presets][];
-            for (short preset = 0; preset < presets; preset++) {
-                info.presets[preset] = equalizer.getPresetName(preset);
-                equalizer.usePreset(preset);
-                info.presetLevels[preset] = new short[bands];
-                for (short band = 0; band < bands; band++) info.presetLevels[preset][band] = equalizer.getBandLevel(band);
-            }
-        } catch (Throwable ex) {
-            Logger.printException(() -> "Could not read the equalizer", ex);
-        } finally {
-            if (equalizer != null) equalizer.release();
-        }
+        info.centerFrequenciesHz = new int[EffectParams.BANDS];
+        for (int i = 0; i < EffectParams.BANDS; i++) info.centerFrequenciesHz[i] = (int) Math.round(EffectParams.BAND_HZ[i]);
+        info.minLevel = BAND_MIN;
+        info.maxLevel = BAND_MAX;
         return info;
     }
 }

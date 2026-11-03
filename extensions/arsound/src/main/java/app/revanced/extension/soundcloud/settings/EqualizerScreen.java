@@ -12,7 +12,7 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.player.AudioEqualizer;
 import app.revanced.extension.soundcloud.shared.Lang;
 
-/** The preamp, and the equalizer of Android with presets and a curve to drag. */
+/** The preamp, and the equalizer of the player (ten bands, in software) with presets and a curve to drag. */
 final class EqualizerScreen extends SectionScreen {
     static final String ID = "equalizer";
 
@@ -62,8 +62,8 @@ final class EqualizerScreen extends SectionScreen {
         LinearLayout options = ui.createColumn();
         list.addView(ui.createToggleRow(
                 text("Включить эквалайзер", "Turn on the equalizer"),
-                text("Меняет звук всего, что играет в SoundCloud, сразу, без перезапуска. Работает через эквалайзер Android.",
-                        "Changes the sound of everything SoundCloud plays, at once, without a restart. Uses Android's equalizer."),
+                text("Меняет звук всего, что играет в SoundCloud, сразу, без перезапуска. Работает на любом телефоне: звук обрабатывает сам плеер, системный эквалайзер не нужен.",
+                        "Changes the sound of everything SoundCloud plays, at once, without a restart. Works on every phone: the player shapes the sound itself, Android's equalizer is not needed."),
                 AudioEqualizer.isEnabled(),
                 (button, checked) -> {
                     AudioEqualizer.setEnabled(checked);
@@ -75,8 +75,8 @@ final class EqualizerScreen extends SectionScreen {
                         options.setVisibility(View.GONE);
                     }
                 }
-        ).icon("eq").brief(text("Меняет звук всего, что играет, через эквалайзер Android.",
-                "Changes the sound of everything that plays, through Android's equalizer.")));
+        ).icon("eq").brief(text("Меняет звук всего, что играет, на любом телефоне, без системного эквалайзера.",
+                "Changes the sound of everything that plays, on every phone, without Android's equalizer.")));
         options.setVisibility(AudioEqualizer.isEnabled() ? View.VISIBLE : View.GONE);
         list.addView(options);
         list.addView(ui.createSubHeading(text("Громкость", "Volume")));

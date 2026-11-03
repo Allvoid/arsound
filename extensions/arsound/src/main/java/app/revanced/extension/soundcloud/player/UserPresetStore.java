@@ -11,8 +11,9 @@ import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
  * The equalizer presets the user saved, kept in the settings as a JSON array of
- * {@code {"name", "levels": [millibels per band of this phone]}}. Every change reads the list, changes it and writes it
- * back, in one place.
+ * {@code {"name", "levels": [millibels per band]}}. Every change reads the list, changes it and writes it back, in one
+ * place. Presets saved by an older version, on the few bands of the phone's own equalizer, are put onto the bands of
+ * now when read ({@link LegacyLevels}).
  */
 final class UserPresetStore {
     private UserPresetStore() {
@@ -25,9 +26,9 @@ final class UserPresetStore {
             for (int i = 0; i < list.length(); i++) {
                 JSONObject item = list.getJSONObject(i);
                 JSONArray saved = item.getJSONArray("levels");
-                short[] levels = new short[bands];
-                for (int band = 0; band < bands && band < saved.length(); band++) levels[band] = (short) saved.getInt(band);
-                result.add(new AudioEqualizer.UserPreset(item.getString("name"), levels));
+                short[] read = new short[saved.length()];
+                for (int band = 0; band < read.length; band++) read[band] = (short) saved.getInt(band);
+                result.add(new AudioEqualizer.UserPreset(item.getString("name"), LegacyLevels.onTenBands(read, bands)));
             }
         } catch (Exception ex) {
             Logger.printException(() -> "Equalizer: could not read the user's presets", ex);
