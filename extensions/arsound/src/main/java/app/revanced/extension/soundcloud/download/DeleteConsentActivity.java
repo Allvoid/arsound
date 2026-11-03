@@ -49,10 +49,12 @@ public final class DeleteConsentActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         // Made again after the app was closed: nobody waits for the answer.
-        if (state != null || pending == null) {
+        if (pending == null) {
             finish();
             return;
         }
+        // Made again while the confirmation is open (the screen turned): its answer comes to this one.
+        if (state != null) return;
         try {
             List<Uri> files = getIntent().getParcelableArrayListExtra(FILES);
             startIntentSenderForResult(MediaStore.createDeleteRequest(getContentResolver(), files).getIntentSender(),

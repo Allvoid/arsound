@@ -158,6 +158,11 @@ public final class NativeOffline {
      * its queue while other tracks download; it has failed only when the downloader stood still that long.
      */
     private static volatile long busyAt;
+    /**
+     * Since when the phone is on a network SoundCloud downloads on, 0 while it is not. A request made on mobile data
+     * waits for Wi-Fi, so the time to fail counts from the moment Wi-Fi came, not from the request.
+     */
+    private static volatile long unmeteredSince;
     /** Tracks the user was told wait for Wi-Fi, so it is said once. */
     private static final Set<String> toldWifi = Collections.synchronizedSet(new HashSet<>());
 
@@ -190,7 +195,10 @@ public final class NativeOffline {
         }
         Map<String, ?> watched = preferences(context).getAll();
         boolean metered = isMetered(context);
-        if (isDownloaderBusy()) busyAt = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
+        if (metered) unmeteredSince = 0;
+        else if (unmeteredSince == 0) unmeteredSince = now;
+        if (isDownloaderBusy()) busyAt = now;
         for (Map.Entry<String, ?> entry : watched.entrySet()) {
             String trackId = entry.getKey();
             long requestedAt = entry.getValue() instanceof Long ? (Long) entry.getValue() : 0;
@@ -213,7 +221,7 @@ public final class NativeOffline {
                 }
                 continue;
             }
-            if (System.currentTimeMillis() - Math.max(requestedAt, busyAt) < FAIL_AFTER_MS) continue;
+            if (now - Math.max(Math.max(requestedAt, busyAt), unmeteredSince) < FAIL_AFTER_MS) continue;
             Logger.printInfo(() -> "The native offline download of " + trackId + " is still requested after "
                     + (System.currentTimeMillis() - requestedAt) / 1000 + " s on Wi-Fi: it failed, the request is taken back");
             cancel(context, trackId);

@@ -480,6 +480,8 @@ public final class DownloadTrackPatch {
                 return connection;
             } catch (java.net.UnknownHostException | java.net.ConnectException | java.net.SocketTimeoutException ex) {
                 connection.disconnect();
+                // Without any network there is nothing to wait for: the request fails at once, and holds no one up.
+                if (!hasNetwork(Utils.getContext())) throw ex;
                 onNetworkFailure();
                 if (attempt >= NETWORK_RETRIES) throw ex;
                 Logger.printInfo(() -> "No network answer for " + url + " (" + ex.getClass().getSimpleName()
@@ -706,16 +708,21 @@ public final class DownloadTrackPatch {
     private static final long NETWORK_WAIT_MS = 10 * 60_000;
 
     private static boolean isOnline(Context context) {
+        boolean online = hasNetwork(context);
+        // The network is back: the next outage gets a wait of its own, not what is left of the last one's.
+        if (online) networkWaitUntil = 0;
+        return online;
+    }
+
+    /** Whether the phone has a network with internet at all. */
+    private static boolean hasNetwork(Context context) {
         try {
             android.net.ConnectivityManager manager = context.getApplicationContext()
                     .getSystemService(android.net.ConnectivityManager.class);
             android.net.NetworkCapabilities capabilities = manager.getNetworkCapabilities(manager.getActiveNetwork());
-            boolean online = capabilities != null && capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
-            // The network is back: the next outage gets a wait of its own, not what is left of the last one's.
-            if (online) networkWaitUntil = 0;
-            return online;
+            return capabilities != null && capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
         } catch (Exception ex) {
-            // Unknown: the assembly goes ahead and finds out.
+            // Unknown: the caller goes ahead and finds out.
             return true;
         }
     }
