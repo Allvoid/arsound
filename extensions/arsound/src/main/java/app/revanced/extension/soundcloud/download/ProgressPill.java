@@ -13,7 +13,9 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
@@ -98,7 +100,8 @@ public final class ProgressPill {
 
     /**
      * Called when protected tracks are handed to SoundCloud's own offline library: they are part of the count like the
-     * files Arsound downloads, and are done when that library has them.
+     * files Arsound downloads, and are done when that library has them. While they only wait for Wi-Fi they are left
+     * out of the count ({@link #progressOf}).
      */
     static void onNativeQueued(Iterable<String> trackIds) {
         Utils.runOnMainThread(() -> {
@@ -123,13 +126,38 @@ public final class ProgressPill {
         Utils.runOnMainThread(ProgressPill::refresh);
     }
 
-    private static int downloadedOfBatch() {
-        int done = 0;
-        for (String id : batch) {
-            if (!pending.contains(id) && !DownloadProgress.isDownloading(id)
-                    && !NativeOffline.isDownloading(id) && !NativeOffline.isJustRequested(id)) done++;
+    /**
+     * What goes on with a track of the batch: it downloads (or waits for its turn), it only waits for Wi-Fi, or there
+     * is nothing more to wait for. A protected track that SoundCloud keeps "requested" on mobile data does nothing until
+     * Wi-Fi comes, and the user was told so; counting it kept "0 of 15" at the bottom for good.
+     */
+    private static NativeOffline.Progress progressOf(String id) {
+        if (pending.contains(id) || DownloadProgress.isDownloading(id) || NativeOffline.isJustRequested(id)) {
+            return NativeOffline.Progress.RUNNING;
         }
-        return done;
+        return NativeOffline.progressOf(id);
+    }
+
+    /** How many tracks of the batch are done, and how many only wait for Wi-Fi. */
+    private static final class BatchCount {
+        int done, waitingForWifi;
+    }
+
+    private static BatchCount countBatch() {
+        BatchCount count = new BatchCount();
+        for (String id : batch) {
+            switch (progressOf(id)) {
+                case NONE:
+                    count.done++;
+                    break;
+                case WAITING_FOR_WIFI:
+                    count.waitingForWifi++;
+                    break;
+                default:
+                    break;
+            }
+        }
+        return count;
     }
 
     // endregion
@@ -153,8 +181,14 @@ public final class ProgressPill {
             done = checked;
             total = checkTotal;
         } else if (!batch.isEmpty()) {
-            done = downloadedOfBatch();
-            total = batch.size();
+            BatchCount count = countBatch();
+            done = count.done;
+            // What only waits for Wi-Fi is not counted; it comes back into the count when the download goes on.
+            total = batch.size() - count.waitingForWifi;
+            if (total <= 0) {
+                hide(current);
+                return;
+            }
         } else {
             hide(current);
             return;
@@ -179,8 +213,15 @@ public final class ProgressPill {
     }
 
     private static final Runnable FINISH = () -> {
-        if (checkTotal != 0 || downloadedOfBatch() < batch.size()) return;
-        batch.clear();
+        if (checkTotal != 0) return;
+        List<String> waiting = new ArrayList<>();
+        for (String id : batch) {
+            NativeOffline.Progress progress = progressOf(id);
+            if (progress == NativeOffline.Progress.RUNNING) return;
+            if (progress == NativeOffline.Progress.WAITING_FOR_WIFI) waiting.add(id);
+        }
+        // What only waits for Wi-Fi stays, to be counted again when it goes on; everything else is done.
+        batch.retainAll(waiting);
         pending.clear();
         refresh();
     };

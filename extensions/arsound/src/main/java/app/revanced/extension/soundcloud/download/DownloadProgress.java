@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.offline.NativeOffline;
 import app.revanced.extension.soundcloud.shared.ComposeFollow;
 import app.revanced.extension.shared.Utils;
 
@@ -192,6 +193,16 @@ public final class DownloadProgress {
         ProgressPill.onDownloadsChanged();
     }
 
+    /**
+     * Called when SoundCloud's requests start or stop waiting for Wi-Fi ({@link NativeOffline#isWaitingForWifi}). The
+     * counter leaves them out or takes them up again, and the polling, which stopped while they only waited, goes on
+     * when they do not wait any more. The icons do not change, so the lists are not drawn again. Main thread.
+     */
+    public static void onNativeWaitChanged() {
+        startPolling();
+        ProgressPill.onDownloadsChanged();
+    }
+
     /** Called when downloaded files were deleted, so the lists lose their "downloaded" icons. */
     static void onDownloadsDeleted() {
         // The user is looking at the list: the icons and the numbers go at once, not after the pause of a batch.
@@ -271,10 +282,13 @@ public final class DownloadProgress {
                 downloading = current;
             }
             // SoundCloud's own offline library: the DRM tracks change their icon when its state of them does.
-            Map<String, String> nativeNow = app.revanced.extension.soundcloud.offline.NativeOffline.libraryStates();
+            Map<String, String> nativeNow = NativeOffline.libraryStates();
             boolean nativeChanged = !nativeNow.equals(nativeStates);
             nativeStates = nativeNow;
-            boolean nativeBusy = nativeNow.containsValue("REQUESTED") || nativeNow.containsValue("DOWNLOADING")
+            // A request that only waits for Wi-Fi is no work to follow: the polling stops, and NativeOffline starts it
+            // again (onNativeWaitChanged) when the phone is on an unmetered network and the request goes on.
+            boolean nativeBusy = nativeNow.containsValue("DOWNLOADING")
+                    || (nativeNow.containsValue("REQUESTED") && !NativeOffline.isWaitingForWifi())
                     || android.os.SystemClock.elapsedRealtime() < nativeWatchUntil;
             // The numbers of the playlists count the tracks of the library too.
             if (nativeChanged) recountAndRedraw();
@@ -288,10 +302,13 @@ public final class DownloadProgress {
                 // The icons of the tracks that started or ended change now; the numbers of the playlists follow.
                 recountAndRedraw();
             }
+            boolean going = !current.isEmpty() || nativeBusy;
             Utils.runOnMainThread(() -> {
                 if (changed || nativeChanged) redrawLists(resumed.get());
-                if (changed || nativeChanged) ProgressPill.onDownloadsChanged();
-                if (!current.isEmpty() || nativeBusy) startPolling();
+                // The counter looks once more when the polling stops: the last thing it learned is not a change of
+                // the state (a request that only waits for Wi-Fi), and nothing would show it any more.
+                if (changed || nativeChanged || !going) ProgressPill.onDownloadsChanged();
+                if (going) startPolling();
             });
         });
     }

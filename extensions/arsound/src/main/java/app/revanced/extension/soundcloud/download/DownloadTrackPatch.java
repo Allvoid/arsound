@@ -467,10 +467,16 @@ public final class DownloadTrackPatch {
         return Math.min(pause, 15_000);
     }
 
+    /** How long a request that finds no network at all waits for one to appear before it fails. */
+    private static final long NETWORK_APPEAR_MS = 3_000;
+    private static final long NETWORK_APPEAR_STEP_MS = 500;
+
     /**
      * Opens the connection and reads its response (the code is then kept by the connection). A request the network did
      * not carry (a VPN that restarts, a DNS that gives no answer) is sent again once every thread has waited for the
-     * network, as that says nothing about the track. The last failure is thrown.
+     * network, as that says nothing about the track. With no network at all the request waits only a few seconds for
+     * one to appear (the active network is gone for about a second while the phone switches from Wi-Fi to mobile data,
+     * or a VPN restarts) and then fails, without the long holds of the other failures. The last failure is thrown.
      */
     private static HttpURLConnection connectWithRetry(String url) throws Exception {
         for (int attempt = 0; ; attempt++) {
@@ -480,15 +486,30 @@ public final class DownloadTrackPatch {
                 return connection;
             } catch (java.net.UnknownHostException | java.net.ConnectException | java.net.SocketTimeoutException ex) {
                 connection.disconnect();
-                // Without any network there is nothing to wait for: the request fails at once, and holds no one up.
-                if (!hasNetwork(Utils.getContext())) throw ex;
-                onNetworkFailure();
+                boolean online = hasNetwork(Utils.getContext());
+                // Only a network that answers badly holds the other requests back; a missing one is not worth a hold.
+                if (online) onNetworkFailure();
                 if (attempt >= NETWORK_RETRIES) throw ex;
+                if (!online && !awaitNetworkBriefly(Utils.getContext())) throw ex;
                 Logger.printInfo(() -> "No network answer for " + url + " (" + ex.getClass().getSimpleName()
                         + "), every request waits and tries again");
                 waitForApiSlot();
             }
         }
+    }
+
+    /**
+     * Waits a few seconds for a network to appear, looking a couple of times a second.
+     *
+     * @return False if there is still none, so the request should fail.
+     */
+    private static boolean awaitNetworkBriefly(Context context) throws InterruptedException {
+        long until = android.os.SystemClock.elapsedRealtime() + NETWORK_APPEAR_MS;
+        while (!hasNetwork(context)) {
+            if (android.os.SystemClock.elapsedRealtime() >= until) return false;
+            Thread.sleep(NETWORK_APPEAR_STEP_MS);
+        }
+        return true;
     }
 
     /**
@@ -719,7 +740,10 @@ public final class DownloadTrackPatch {
         try {
             android.net.ConnectivityManager manager = context.getApplicationContext()
                     .getSystemService(android.net.ConnectivityManager.class);
-            android.net.NetworkCapabilities capabilities = manager.getNetworkCapabilities(manager.getActiveNetwork());
+            // No active network is a plain "no": it is what the phone has for a moment while it changes networks.
+            android.net.Network active = manager.getActiveNetwork();
+            if (active == null) return false;
+            android.net.NetworkCapabilities capabilities = manager.getNetworkCapabilities(active);
             return capabilities != null && capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
         } catch (Exception ex) {
             // Unknown: the caller goes ahead and finds out.

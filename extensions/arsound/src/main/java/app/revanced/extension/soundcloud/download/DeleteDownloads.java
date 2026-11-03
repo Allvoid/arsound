@@ -38,8 +38,12 @@ final class DeleteDownloads {
         int deleted = 0;
         List<String> kept = new ArrayList<>();
         List<Uri> files = new ArrayList<>();
+        // The protected tracks go back to SoundCloud as one batch: each one taken back on its own restarted SoundCloud's
+        // offline service, fifty times for a playlist of fifty.
+        List<String> inLibrary = new ArrayList<>();
+        for (String id : trackIds) if (NativeOffline.isInLibrary(id)) inLibrary.add(id);
+        NativeOffline.cancelAll(app, inLibrary);
         for (String id : trackIds) {
-            if (NativeOffline.isInLibrary(id)) NativeOffline.cancel(app, id);
             if (DownloadTrackPatch.deleteDownload(app, id)) {
                 deleted++;
                 continue;
