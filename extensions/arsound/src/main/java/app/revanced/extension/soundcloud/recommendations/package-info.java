@@ -26,8 +26,10 @@
  * {@code ForYouPrefs}, {@code MatchCache}; My Wave - {@code MyWave} (start, stop, refill when four tracks are left,
  * called by {@code player.PlaybackEvents}), {@code WaveBuilder} (taste, sources, matching to SoundCloud), {@code WaveMixer}
  * (order and the never-again rules), {@code WaveSource} (SoundCloud related / Last.fm / Deezer, ticked in the settings),
- * {@code DeezerApi}, {@code WaveMemory}/{@code WaveLedger} (skipped and heard tracks, fed by {@code ListeningStats}),
- * {@code ListenVerdict} (under 15 s skipped, 45 s or most of the track heard); the broken-heart button - {@code DislikeAction}.
+ * {@code DeezerApi}, {@code WaveMemory}/{@code WaveLedger} (skipped and heard tracks, fed by {@code ListeningStats}
+ * also when the statistics are off; the hooks never wait for the disk: {@code WaveLearner} holds the track lengths and
+ * the verdicts, a background thread loads and fills the ledger), {@code ListenVerdict} (under 15 s skipped, 45 s or
+ * most of the track heard, judged by the real length of the track); the broken-heart button - {@code DislikeAction}.
  * The screen is {@code settings.WaveScreen} (opened by the wave icon that {@code navbar.LibrarySearchButton} adds to the Library top bar,
  * {@code settings.WaveScreenLauncher}); the big card is {@code theme.WaveCard}.
  *

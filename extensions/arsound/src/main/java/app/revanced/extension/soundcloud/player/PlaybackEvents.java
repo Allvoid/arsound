@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.player;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.recommendations.MyWave;
+import app.revanced.extension.soundcloud.recommendations.WaveMemory;
 
 /**
  * Injection points of SoundCloud's player that more than one feature follows: an item starts, the player reports its
@@ -45,5 +46,6 @@ public final class PlaybackEvents {
         Crossfade.onProgress(position, duration);
         SlowedPlayback.reassert();
         NextTrackPreload.onProgress(position, duration);
+        WaveMemory.onProgress(duration);
     }
 }
