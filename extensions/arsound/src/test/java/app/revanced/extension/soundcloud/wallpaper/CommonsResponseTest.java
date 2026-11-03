@@ -96,7 +96,7 @@ public class CommonsResponseTest {
 
     private static List<String> ids(WallpaperSource.Page page) {
         List<String> ids = new ArrayList<>();
-        for (Wallhaven.Item item : page.items) ids.add(item.id);
+        for (WallpaperItem item : page.items) ids.add(item.id);
         return ids;
     }
 
@@ -106,7 +106,7 @@ public class CommonsResponseTest {
     public void aRecordedEntryBecomesAPictureWithItsCredit() throws Exception {
         WallpaperSource.Page page = CommonsResponse.parse(answer(true, SEATTLE), TALL, 1, SOURCE);
         assertEquals(1, page.items.size());
-        Wallhaven.Item item = page.items.get(0);
+        WallpaperItem item = page.items.get(0);
         assertSame(SOURCE, item.source);
         assertEquals("commons3840619", item.id);
         assertEquals("2304x3456", item.resolution);
@@ -124,7 +124,7 @@ public class CommonsResponseTest {
 
     @Test
     public void theAddressesLoseTheirTrackingWordsAndTheFullOneIsA1920Copy() throws Exception {
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, SEATTLE), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, SEATTLE), TALL, 1, SOURCE).items.get(0);
         assertEquals("https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b9/Seattle_Space_needle.jpg/"
                 + "500px-Seattle_Space_needle.jpg", item.thumbnail);
         assertEquals("https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b9/Seattle_Space_needle.jpg/"
@@ -135,7 +135,7 @@ public class CommonsResponseTest {
 
     @Test
     public void theGridIsNotOfferedAFileToSharpenFromButThePreviewHasAnEstimate() throws Exception {
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, SEATTLE), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, SEATTLE), TALL, 1, SOURCE).items.get(0);
         // The sharp stage of the grid only runs for a picture that names a size: a 500 pixel thumbnail already fills a cell.
         assertEquals(0L, item.fileSize);
         double scale = 1920.0 / 2304;
@@ -187,7 +187,7 @@ public class CommonsResponseTest {
     public void aWideBigPictureIsDownloadedAt3840() throws Exception {
         String huge = file(117, 1, 4200, 2800, "image/jpeg", 9_000_000, "Huge_panorama.jpg", "upload.wikimedia.org", "Jane",
                 "CC BY 2.0", "Panorama");
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, huge), WallhavenRules.Shape.WIDE_FOR_PHONE, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, huge), WallhavenRules.Shape.WIDE_FOR_PHONE, 1, SOURCE).items.get(0);
         assertTrue(item.fullUrl, item.fullUrl.endsWith("/3840px-Huge_panorama.jpg"));
         assertTrue(item.thumbnail, item.thumbnail.endsWith("/500px-Huge_panorama.jpg"));
         assertTrue(item.previewBytes > 0 && item.previewBytes < 9_000_000L);
@@ -196,7 +196,7 @@ public class CommonsResponseTest {
     @Test
     public void aWidePictureNoWiderThan3840IsDownloadedFromItsOriginalAddress() throws Exception {
         // 3000 wide: a copy at 1920 would leave too little of the middle that shows on a phone.
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, WIDE), WallhavenRules.Shape.WIDE_FOR_PHONE, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, WIDE), WallhavenRules.Shape.WIDE_FOR_PHONE, 1, SOURCE).items.get(0);
         assertEquals("https://upload.wikimedia.org/wikipedia/commons/a/ab/Wide_lake.jpg", item.fullUrl);
         assertEquals(2_000_000L, item.previewBytes);
     }
@@ -205,7 +205,7 @@ public class CommonsResponseTest {
     public void aNarrowPictureIsDownloadedFromItsOriginalAddress() throws Exception {
         String narrow = file(118, 1, 1500, 2200, "image/jpeg", 800_000, "Narrow_original.jpg", "upload.wikimedia.org", "Jane",
                 "CC BY 2.0", "Narrow");
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, narrow), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, narrow), TALL, 1, SOURCE).items.get(0);
         assertEquals("https://upload.wikimedia.org/wikipedia/commons/a/ab/Narrow_original.jpg", item.fullUrl);
         assertEquals(800_000L, item.previewBytes);
     }
@@ -278,7 +278,7 @@ public class CommonsResponseTest {
 
     @Test
     public void theAuthorIsTheNameOfTheFirstLink() throws Exception {
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, LUTTER), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, LUTTER), TALL, 1, SOURCE).items.get(0);
         assertEquals("Franz J\u00fcttner", item.author);
         assertEquals("Public domain", item.licence);
     }
@@ -289,7 +289,7 @@ public class CommonsResponseTest {
         for (int i = 0; i < 40; i++) name.append("Name").append(i).append(i % 2 == 0 ? " <b>of</b> " : " ");
         String long40 = file(131, 1, 1500, 2600, "image/jpeg", 900_000, "Long_author.jpg", "upload.wikimedia.org", name.toString(),
                 "CC0", "Description");
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, long40), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, long40), TALL, 1, SOURCE).items.get(0);
         assertTrue(item.author, item.author.startsWith("Name0 of Name1 Name2 of Name3"));
         assertTrue(item.author, item.author.endsWith("\u2026"));
         assertTrue(item.author, item.author.length() <= CommonsRules.MAX_AUTHOR);
@@ -303,14 +303,14 @@ public class CommonsResponseTest {
         String hidden = file(132, 1, 1500, 2600, "image/jpeg", 900_000, "Hidden_note.jpg", "upload.wikimedia.org",
                 "Unknown<span style=\\'display: none;\\'>author</span>", "CC0",
                 "A hill<span class=\\'hidden\\'> (machine note)</span>");
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, hidden), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, hidden), TALL, 1, SOURCE).items.get(0);
         assertEquals("Unknown", item.author);
         assertEquals("A hill", item.description);
     }
 
     @Test
     public void entitiesOfTheDescriptionAreDecoded() throws Exception {
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, LYON), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, LYON), TALL, 1, SOURCE).items.get(0);
         assertEquals("Statue de saint François & sa colombe", item.description);
         assertEquals("CC0", item.licence);
     }
@@ -318,7 +318,7 @@ public class CommonsResponseTest {
     @Test
     public void aDescriptionPageOnAnotherHostIsNotKept() throws Exception {
         String hostile = LYON.replace("https://commons.wikimedia.org/wiki", "https://evil.example.com/wiki");
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, hostile), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, hostile), TALL, 1, SOURCE).items.get(0);
         assertEquals("", item.pageUrl);
     }
 
@@ -327,7 +327,7 @@ public class CommonsResponseTest {
         String bare = q("{'pageid':130,'ns':6,'title':'File:Bare.jpg','index':1,'imageinfo':[{'size':900000,'width':1500,"
                 + "'height':2600,'mime':'image/jpeg','thumburl':'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Bare.jpg/"
                 + "500px-Bare.jpg','url':'https://upload.wikimedia.org/wikipedia/commons/a/ab/Bare.jpg'}]}");
-        Wallhaven.Item item = CommonsResponse.parse(answer(false, bare), TALL, 1, SOURCE).items.get(0);
+        WallpaperItem item = CommonsResponse.parse(answer(false, bare), TALL, 1, SOURCE).items.get(0);
         assertEquals("", item.author);
         assertEquals("", item.licence);
         assertEquals("", item.pageUrl);

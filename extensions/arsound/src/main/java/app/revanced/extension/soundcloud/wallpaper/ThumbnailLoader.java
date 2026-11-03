@@ -51,10 +51,10 @@ final class ThumbnailLoader {
 
     /** What a cell that gave up asked for. */
     private static final class Retry {
-        final Wallhaven.Item item;
+        final WallpaperItem item;
         final int width, height;
 
-        Retry(Wallhaven.Item item, int width, int height) {
+        Retry(WallpaperItem item, int width, int height) {
             this.item = item;
             this.width = width;
             this.height = height;
@@ -152,7 +152,7 @@ final class ThumbnailLoader {
     }
 
     /** The sharp cell if it is in memory, else null. */
-    Bitmap cachedSharp(Wallhaven.Item item, int width, int height) {
+    Bitmap cachedSharp(WallpaperItem item, int width, int height) {
         return width <= 0 || height <= 0 ? null : cache.get(SharpLoader.key(item, width, height));
     }
 
@@ -168,7 +168,7 @@ final class ThumbnailLoader {
      * @param width  The cell's width in pixels, 0 when not known yet.
      * @param height The cell's height in pixels.
      */
-    void load(Wallhaven.Item item, ImageView view, int width, int height) {
+    void load(WallpaperItem item, ImageView view, int width, int height) {
         if (closed) return;
         Long failedAt = failed.get(item.thumbnail);
         if (failedAt != null) {
@@ -185,7 +185,7 @@ final class ThumbnailLoader {
         }
     }
 
-    private void loadNow(Wallhaven.Item item, ImageView view, int width, int height) {
+    private void loadNow(WallpaperItem item, ImageView view, int width, int height) {
         String url = item.thumbnail;
         // The screen was closed, or the cell was reused for another picture, while this one waited.
         if (closed || !url.equals(view.getTag())) return;
@@ -219,7 +219,7 @@ final class ThumbnailLoader {
     }
 
     /** The sharp cell of an earlier visit, from memory or from disk, or null. */
-    private Bitmap keptCell(Wallhaven.Item item, int width, int height) {
+    private Bitmap keptCell(WallpaperItem item, int width, int height) {
         String key = SharpLoader.key(item, width, height);
         Bitmap bitmap = cache.get(key);
         if (bitmap != null) return bitmap;
@@ -236,7 +236,7 @@ final class ThumbnailLoader {
      * Makes the picture of a cell sharp: shows the kept cell, or downloads the full file and makes one. Does nothing
      * when the file is big, the network is metered, or this cell was tried already.
      */
-    void sharpen(Wallhaven.Item item, ImageView view, int width, int height) {
+    void sharpen(WallpaperItem item, ImageView view, int width, int height) {
         if (closed || width <= 0 || height <= 0) return;
         String key = SharpLoader.key(item, width, height);
         if (!sharpTried.add(key)) return;
@@ -247,7 +247,7 @@ final class ThumbnailLoader {
         }
     }
 
-    private void sharpenNow(Wallhaven.Item item, ImageView view, int width, int height, String key) {
+    private void sharpenNow(WallpaperItem item, ImageView view, int width, int height, String key) {
         String url = item.thumbnail;
         if (closed || !url.equals(view.getTag())) {
             // Not tried really: the cell was gone, and may come back.
@@ -275,7 +275,7 @@ final class ThumbnailLoader {
      * The cell shows a still mark instead of the shimmer, which ran on for good, and is asked again when it is bound
      * after {@link #RETRY_MS} or when the network comes back. Main thread.
      */
-    private void giveUp(Wallhaven.Item item, ImageView view, int width, int height) {
+    private void giveUp(WallpaperItem item, ImageView view, int width, int height) {
         if (closed || !item.thumbnail.equals(view.getTag())) return;
         gaveUp.put(view, new Retry(item, width, height));
         if (view.getParent() instanceof WallhavenCell) ((WallhavenCell) view.getParent()).showFailed();

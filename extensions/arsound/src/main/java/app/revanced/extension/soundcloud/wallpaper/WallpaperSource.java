@@ -8,7 +8,7 @@ import java.util.concurrent.Semaphore;
 /**
  * A place wallpapers can be browsed on: Wallhaven ({@link Wallhaven#SOURCE}) or Wikimedia Commons
  * ({@link CommonsSource#INSTANCE}). The catalogue screen, the grid, the download and the preview talk only to this
- * interface and to the pictures it hands out ({@link Wallhaven.Item}, which carries the source it came from), so a new
+ * interface and to the pictures it hands out ({@link WallpaperItem}, which carries the source it came from), so a new
  * source is one class that implements this, with nothing copied from the others.
  * <p>
  * What a source must guarantee: it fetches only from its own hosts over https ({@link #ownsHost}), it keeps its pace
@@ -47,7 +47,7 @@ public interface WallpaperSource {
      * address a tap on the line opens (Wallhaven: the picture's page; Commons: the author and the licence, which open
      * the file's description page). Main thread.
      */
-    List<Line> lines(Wallhaven.Item item);
+    List<Line> lines(WallpaperItem item);
 
     /**
      * Limits how many pictures are read from this source at once, or null for no limit. Every read takes a permit
@@ -59,7 +59,7 @@ public interface WallpaperSource {
 
     /** One page of the results. */
     final class Page {
-        public final List<Wallhaven.Item> items = new ArrayList<>();
+        public final List<WallpaperItem> items = new ArrayList<>();
         public int page;
         /** The last page known; a source that cannot tell says the page after this one while there is more. */
         public int lastPage;

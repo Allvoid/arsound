@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.settings;
 
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
+import android.content.Context;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.CompoundButton;
@@ -98,8 +99,13 @@ final class BottomBarScreen extends SectionScreen {
         hint.setGravity(Gravity.CENTER);
         bar.addView(hint);
         View button = ui.createPillButton(text("Перезапустить сейчас", "Restart now"), true, v -> {
-            Settings.flush();
-            Utils.restartApp(activity.getApplicationContext());
+            v.setEnabled(false);
+            Context context = activity.getApplicationContext();
+            // The ticks must be on the disk before the process ends; writing them waits for the disk, not here.
+            Utils.runOnBackgroundThread(() -> {
+                Settings.flush();
+                Utils.runOnMainThread(() -> Utils.restartApp(context));
+            });
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);

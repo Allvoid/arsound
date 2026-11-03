@@ -35,7 +35,8 @@
  * <p>Main classes: {@code WallpaperStore} (the chosen picture, dim, blur, install/remove, the one shared bitmap),
  * {@code WallpaperDrawable}/{@code WallpaperBitmap}/{@code WallpaperBaker} (draw it; the baked copy is cut to the
  * screen and blurred once), {@code WallpaperDownload}, the sources ({@code WallpaperSource} is the interface the screen,
- * the grid, the download and the preview talk to; {@code WallpaperSources} lists them and keeps the choice;
+ * the grid, the download and the preview talk to; {@code WallpaperItem} is one picture of any of them;
+ * {@code WallpaperSources} lists them and keeps the choice;
  * {@code Wallhaven} is the Wallhaven API client and the first source, its search address is built by
  * {@code WallhavenRequest} and the sorting and the tall-then-wide order are decided by {@code WallhavenRules};
  * {@code CommonsSource} is the second, with {@code CommonsRequest} (the search address), {@code CommonsResponse} (the

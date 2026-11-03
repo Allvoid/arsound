@@ -37,7 +37,7 @@ final class WallhavenCell extends FrameLayout {
     /** The still mark of a picture that did not load. */
     private final TextView failedMark;
     /** The picture shown, or null for an empty cell. */
-    private Wallhaven.Item item;
+    private WallpaperItem item;
     /** The size the grid says the cell has, in pixels; 0 until the grid is laid out. */
     private int cellWidth, cellHeight;
 
@@ -117,7 +117,7 @@ final class WallhavenCell extends FrameLayout {
      * @param item   The picture, or null for an empty cell.
      * @param width  The size of the cell in pixels as the grid works it out, or 0 when not known yet.
      */
-    void show(Wallhaven.Item item, ThumbnailLoader thumbnails, int width, int height) {
+    void show(WallpaperItem item, ThumbnailLoader thumbnails, int width, int height) {
         this.item = item;
         cellWidth = width;
         cellHeight = height;

@@ -73,7 +73,7 @@ public final class CommonsSource implements WallpaperSource {
     }
 
     @Override
-    public List<Line> lines(Wallhaven.Item item) {
+    public List<Line> lines(WallpaperItem item) {
         List<Line> lines = new ArrayList<>();
         // The credit Commons asks for: who made it, under which licence, and where it is from. A tap opens the file's page.
         lines.add(new Line(CommonsRules.creditLine(item.author, item.licence, Lang.russian()),

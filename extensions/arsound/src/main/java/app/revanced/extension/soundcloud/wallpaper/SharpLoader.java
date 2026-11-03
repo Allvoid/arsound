@@ -36,17 +36,17 @@ final class SharpLoader {
     }
 
     /** The key of a picture at the size of a cell, in memory and on disk. */
-    static String key(Wallhaven.Item item, int width, int height) {
+    static String key(WallpaperItem item, int width, int height) {
         return item.id + "_" + width + "x" + height;
     }
 
     /** True when this picture may be downloaded in full for a cell: it is small and the network is not metered. */
-    boolean mayLoad(Wallhaven.Item item) {
+    boolean mayLoad(WallpaperItem item) {
         return SharpPolicy.gridMayLoad(item.fileSize, NetworkCost.isMetered(context));
     }
 
     /** The sharp cell if an earlier visit kept it on disk, else null. */
-    Bitmap fromDisk(Wallhaven.Item item, int width, int height) {
+    Bitmap fromDisk(WallpaperItem item, int width, int height) {
         File file = disk.get(key(item, width, height));
         if (file == null) return null;
         BitmapFactory.Options options = new BitmapFactory.Options();
@@ -59,7 +59,7 @@ final class SharpLoader {
      *
      * @return The cell's picture, or null when the file could not be read.
      */
-    Bitmap fetch(Wallhaven.Item item, int width, int height) throws IOException {
+    Bitmap fetch(WallpaperItem item, int width, int height) throws IOException {
         byte[] bytes = Wallhaven.readPicture(item.fullUrl, READ_LIMIT);
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
@@ -85,7 +85,7 @@ final class SharpLoader {
         return cell;
     }
 
-    private void keep(Wallhaven.Item item, int width, int height, Bitmap cell) {
+    private void keep(WallpaperItem item, int width, int height, Bitmap cell) {
         try {
             ByteArrayOutputStream jpeg = new ByteArrayOutputStream(64 * 1024);
             cell.compress(Bitmap.CompressFormat.JPEG, KEPT_QUALITY, jpeg);

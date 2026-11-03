@@ -33,7 +33,7 @@ import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.NetworkCost;
 import app.revanced.extension.soundcloud.wallpaper.SharpPolicy;
-import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperItem;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperDownload;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperSource;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
@@ -57,7 +57,7 @@ final class WallpaperPreviewScreen {
     private static final int RENDER_WIDTH = 540;
 
     private final SettingsUi ui;
-    private final Wallhaven.Item item;
+    private final WallpaperItem item;
     private final Runnable onInstalled;
     private final int surface;
     private final int renderWidth, renderHeight;
@@ -89,7 +89,7 @@ final class WallpaperPreviewScreen {
     private int savedDim;
     private long savedBlur;
 
-    private WallpaperPreviewScreen(SettingsUi ui, Wallhaven.Item item, Bitmap thumbnail, Runnable onInstalled) {
+    private WallpaperPreviewScreen(SettingsUi ui, WallpaperItem item, Bitmap thumbnail, Runnable onInstalled) {
         this.ui = ui;
         this.item = item;
         this.base = thumbnail;
@@ -109,7 +109,7 @@ final class WallpaperPreviewScreen {
      * @param thumbnail   The thumbnail if the grid has it in memory, else null.
      * @param onInstalled Called once the picture is the wallpaper; the browser then closes.
      */
-    static WallpaperPreviewScreen show(SettingsUi ui, Wallhaven.Item item, Bitmap thumbnail, Runnable onInstalled) {
+    static WallpaperPreviewScreen show(SettingsUi ui, WallpaperItem item, Bitmap thumbnail, Runnable onInstalled) {
         WallpaperPreviewScreen preview = new WallpaperPreviewScreen(ui, item, thumbnail, onInstalled);
         preview.open();
         return preview;

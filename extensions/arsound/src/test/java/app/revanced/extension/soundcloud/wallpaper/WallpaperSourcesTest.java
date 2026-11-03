@@ -17,8 +17,8 @@ import app.revanced.extension.soundcloud.update.UpdateChecker;
 
 /** The two sources side by side: who owns which address, what each one shows, and the name the services see. */
 public class WallpaperSourcesTest {
-    private static Wallhaven.Item commonsItem(String author, String licence, String pageUrl) {
-        return new Wallhaven.Item(CommonsSource.INSTANCE, "commons1", "sfw", "2000x3000",
+    private static WallpaperItem commonsItem(String author, String licence, String pageUrl) {
+        return new WallpaperItem(CommonsSource.INSTANCE, "commons1", "sfw", "2000x3000",
                 "https://thumb.wikimedia.org/a/500px-a.jpg", "https://thumb.wikimedia.org/a/1920px-a.jpg", 0, 1_000_000, 0, 0,
                 pageUrl, author, licence, "");
     }

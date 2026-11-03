@@ -107,9 +107,9 @@ final class CommonsResponse {
     private static final class Entry {
         final long index;
         final int width, height;
-        final Wallhaven.Item item;
+        final WallpaperItem item;
 
-        Entry(long index, int width, int height, Wallhaven.Item item) {
+        Entry(long index, int width, int height, WallpaperItem item) {
             this.index = index;
             this.width = width;
             this.height = height;
@@ -168,7 +168,7 @@ final class CommonsResponse {
         long estimate = CommonsRules.estimateBytes(originalBytes, width, CommonsRules.fullWidth(width, height));
         // fileSize 0: the grid's sharp stage (SharpLoader) only runs for pictures that say a size, and a cell of the grid
         // is no wider than the 330 pixel thumbnail, so the sharp stage would only cost the service traffic.
-        Wallhaven.Item item = new Wallhaven.Item(source, id, "sfw", width + "x" + height, thumbnail, full, 0, estimate, 0, 0,
+        WallpaperItem item = new WallpaperItem(source, id, "sfw", width + "x" + height, thumbnail, full, 0, estimate, 0, 0,
                 CommonsRules.isPageUrl(page) ? page : "", author, licence, description);
         return new Entry(StrictJson.number(StrictJson.get(file, "index"), Long.MAX_VALUE), width, height, item);
     }

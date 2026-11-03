@@ -234,74 +234,14 @@ public final class Wallhaven {
         }
     }
 
-    /**
-     * One picture of the results, of whichever source ({@link #source}). The class keeps the name from the time Wallhaven was
-     * the only source: the grid's loaders ({@code ThumbnailLoader}, {@code SharpLoader}) are written against it.
-     */
-    public static final class Item {
-        /** Where the picture comes from: it knows the hosts to fetch from and the lines the preview shows. */
-        public final WallpaperSource source;
-        public final String id;
-        public final String purity;
-        public final String resolution;
-        public final String thumbnail;
-        public final String fullUrl;
-        /**
-         * The size in bytes of the full file, which the grid may fetch to make a cell sharp ({@code SharpPolicy}); 0 when the
-         * source offers no such file (its thumbnail is as wide as a cell, so there is nothing to sharpen).
-         */
-        public final long fileSize;
-        /** How many bytes the preview downloads: {@link #fileSize} when that is known, else an estimate, else 0. */
-        public final long previewBytes;
-        public final int views;
-        public final int favorites;
-        /** The address of the picture's page on the site, or an empty string. */
-        public final String pageUrl;
-        /** Who made the picture, the licence and a short description; empty for Wallhaven, which gives none. */
-        public final String author, licence, description;
-
-        Item(WallpaperSource source, String id, String purity, String resolution, String thumbnail, String fullUrl,
-             long fileSize, long previewBytes, int views, int favorites, String pageUrl, String author, String licence,
-             String description) {
-            this.source = source;
-            this.id = id;
-            this.purity = purity;
-            this.resolution = resolution;
-            this.thumbnail = thumbnail;
-            this.fullUrl = fullUrl;
-            this.fileSize = fileSize;
-            this.previewBytes = previewBytes;
-            this.views = views;
-            this.favorites = favorites;
-            this.pageUrl = pageUrl;
-            this.author = author;
-            this.licence = licence;
-            this.description = description;
-        }
-
-        public boolean isSafe() {
-            return "sfw".equals(purity);
-        }
-
-        /** True for a picture wider than it is tall: in a grid of tall cells only its middle shows. */
-        public boolean isWide() {
-            return WallhavenRules.isWide(resolution);
-        }
-
-        /** What a screen reader says of the picture: its description when it has one, else its size. */
-        public String label() {
-            return description.isEmpty() ? resolution : description;
-        }
-    }
-
     /** The picture of one entry of Wallhaven's answer. */
-    private static Item parseItem(JSONObject json) {
+    private static WallpaperItem parseItem(JSONObject json) {
         String id = json.optString("id");
         JSONObject thumbs = json.optJSONObject("thumbs");
         // The "original" one keeps the picture's shape (the long side is 300 pixels); the others are cut to a frame.
         String thumbnail = thumbs == null ? "" : thumbs.optString("original", thumbs.optString("large"));
         long fileSize = json.optLong("file_size");
-        return new Item(SOURCE, id, json.optString("purity", "sfw"), json.optString("resolution"), thumbnail,
+        return new WallpaperItem(SOURCE, id, json.optString("purity", "sfw"), json.optString("resolution"), thumbnail,
                 json.optString("path"), fileSize, fileSize, json.optInt("views"), json.optInt("favorites"), pageUrl(id),
                 "", "", "");
     }
@@ -324,7 +264,7 @@ public final class Wallhaven {
             WallpaperSource.Page result = new WallpaperSource.Page();
             JSONArray data = json.optJSONArray("data");
             for (int i = 0; data != null && i < data.length(); i++) {
-                Item item = parseItem(data.getJSONObject(i));
+                WallpaperItem item = parseItem(data.getJSONObject(i));
                 // The addresses come from the service's answer: only its own hosts are followed.
                 if (!item.id.isEmpty() && isWallhavenHost(item.fullUrl) && isWallhavenHost(item.thumbnail)) result.items.add(item);
             }
@@ -439,7 +379,7 @@ public final class Wallhaven {
         }
 
         @Override
-        public List<Line> lines(Item item) {
+        public List<Line> lines(WallpaperItem item) {
             List<Line> lines = new ArrayList<>();
             lines.add(new Line(Lang.text(item.views + " просмотров, " + item.favorites + " в избранном",
                     item.views + " views, " + item.favorites + " favorites"), null));

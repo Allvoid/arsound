@@ -33,7 +33,7 @@ public final class WallhavenGrid extends BaseAdapter {
     private static final int PLACEHOLDER_ROWS = 2;
 
     private final Context context;
-    private final List<Wallhaven.Item> items = new ArrayList<>();
+    private final List<WallpaperItem> items = new ArrayList<>();
     private final ThumbnailLoader thumbnails;
     private final int placeholderColor;
     /** Height of a cell as a part of its width. */
@@ -85,11 +85,11 @@ public final class WallhavenGrid extends BaseAdapter {
         notifyDataSetChanged();
     }
 
-    public void add(List<Wallhaven.Item> more) {
+    public void add(List<WallpaperItem> more) {
         // The service can repeat a picture on the next page when the list changes meanwhile (Commons: a random order does).
         Set<String> known = new HashSet<>();
-        for (Wallhaven.Item item : items) known.add(item.id);
-        for (Wallhaven.Item item : more) if (known.add(item.id)) items.add(item);
+        for (WallpaperItem item : items) known.add(item.id);
+        for (WallpaperItem item : more) if (known.add(item.id)) items.add(item);
         notifyDataSetChanged();
     }
 
@@ -104,7 +104,7 @@ public final class WallhavenGrid extends BaseAdapter {
         return items.size();
     }
 
-    public Wallhaven.Item item(int position) {
+    public WallpaperItem item(int position) {
         return position >= 0 && position < items.size() ? items.get(position) : null;
     }
 
@@ -114,7 +114,7 @@ public final class WallhavenGrid extends BaseAdapter {
     }
 
     /** The thumbnail of a picture if it is in memory, else null. */
-    public Bitmap thumbnail(Wallhaven.Item item) {
+    public Bitmap thumbnail(WallpaperItem item) {
         return thumbnails.cached(item.thumbnail);
     }
 

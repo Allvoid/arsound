@@ -36,6 +36,7 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.CommonsRules;
 import app.revanced.extension.soundcloud.wallpaper.SearchWords;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperItem;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenGrid;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenRules;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperSource;
@@ -510,7 +511,7 @@ final class WallhavenScreen extends SettingsScreen {
             if (right - left != oldRight - oldLeft) v.post(this::applyColumns);
         });
         view.setOnItemClickListener((parent, cell, position, id) -> {
-            Wallhaven.Item item = grid.item(position);
+            WallpaperItem item = grid.item(position);
             if (item != null) openPreview(item);
         });
         view.setOnScrollListener(new AbsListView.OnScrollListener() {
@@ -992,7 +993,7 @@ final class WallhavenScreen extends SettingsScreen {
     }
 
     /** Opens the full-screen look at a picture; the grid stays as it is under it. */
-    private void openPreview(Wallhaven.Item item) {
+    private void openPreview(WallpaperItem item) {
         if (preview != null) preview.release();
         preview = WallpaperPreviewScreen.show(ui, item, grid.thumbnail(item), activity::finish);
     }
