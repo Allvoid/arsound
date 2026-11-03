@@ -2,7 +2,8 @@
 App icons from the Claude Design icon set, in the colours of the Arsound themes.
 
 The designer's icons (tools/branding/design-icons/<design>.svg, from "Arsound Icons" of the design project) are drawn
-in scarlet: a tile with a gradient, sometimes a glow or flowers, and the letter. Each one is made once per theme colour
+in scarlet: a tile with a gradient, sometimes a glow or flowers, and the А9 mark (the files already carry it; a new
+design drawn with the old letter gets the mark in its place, see with_a9). Each one is made once per theme colour
 (the dark accent of every theme in themes.json; a new theme adds a colour by itself): every colour of the drawing is
 turned from the scarlet hue to the theme's accent hue, white stays white. The icons are not tied to the themes, they
 are picked on their own in Settings → Arsound → Appearance → App icon, in one group per colour.
@@ -106,6 +107,8 @@ def with_a9(svg, design):
     colour, as a shadow is.
     """
     groups = LETTER_GROUP.findall(svg)
+    if not groups and '<g mask="none">' in svg:
+        return svg  # the source already carries the mark (the old letter was swapped in the files on 03.11)
     if not groups:
         raise SystemExit(f"{design}: the letter group was not found")
     for index, group in enumerate(groups):
