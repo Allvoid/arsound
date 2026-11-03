@@ -60,15 +60,47 @@ public final class SettingsEntry {
         return Unit.INSTANCE;
     };
 
+    /** Opens "Transfer from Yandex Music" of the Arsound settings. */
+    static final Function0<Unit> OPEN_TRANSFER = () -> {
+        try {
+            Context context = Utils.getContext();
+            Intent intent = new Intent(context, ReVancedSettingsActivity.class)
+                    .putExtra(ReVancedSettingsActivity.EXTRA_SCREEN, TransferScreen.ID);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        } catch (Exception ex) {
+            Logger.printException(() -> "Failed to open the Yandex Music transfer", ex);
+        }
+        return Unit.INSTANCE;
+    };
+
     /**
      * Injection point. Called from the Compose code of SoundCloud's "Import my music" screen,
-     * below "Manage imported likes". Imports audio files from the phone.
+     * below "Manage imported likes": importing audio files from the phone and the transfer from Yandex Music.
      */
     public static void addImportEntry(Composer composer) {
         ActionListItemKt.a(
                 Lang.russian()
                         ? "Импорт файлов с телефона" : "Import files from this phone",
                 IMPORT_FILES,
+                null,
+                false,
+                false,
+                iconStart(),
+                Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
+                null,
+                null,
+                null,
+                0,
+                composer,
+                0,
+                DEFAULT_PARAMETERS_MASK
+        );
+        // SoundCloud's own import has no Yandex Music: the row opens Arsound's transfer.
+        ActionListItemKt.a(
+                Lang.russian()
+                        ? "Перенос из Яндекс Музыки" : "Transfer from Yandex Music",
+                OPEN_TRANSFER,
                 null,
                 false,
                 false,

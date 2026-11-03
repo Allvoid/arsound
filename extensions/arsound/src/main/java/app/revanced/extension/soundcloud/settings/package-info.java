@@ -8,8 +8,10 @@
  * <p>Entry points (Kotlin: {@code misc/settings/SettingsPatch.kt}, {@code local/ImportEntryPatch.kt}):
  * <ul>
  * <li>{@code SettingsEntry.addEntry(Composer)} - adds the "Arsound" row to SoundCloud's Compose settings list;
- * {@code SettingsEntry.addImportEntry(Composer)} - the "Import files from this phone" row on "Import my music". Both call
- * SoundCloud's own row composable, so the row looks native.</li>
+ * {@code SettingsEntry.addImportEntry(Composer)} - the rows "Import files from this phone" and "Transfer from Yandex Music"
+ * on "Import my music". Both call SoundCloud's own row composable, so the rows look native.</li>
+ * <li>{@code YandexImportTile.rows/drawTile} - a "Yandex Music" tile among the apps of SoundCloud's "Import from another
+ * app", drawn like SoundCloud's tiles; it opens {@code TransferScreen}.</li>
  * <li>{@code ReVancedSettingsActivity} - declared in the manifest by the patch; only a shell that shows the
  * {@code SettingsScreen} named by the intent.</li>
  * </ul>
