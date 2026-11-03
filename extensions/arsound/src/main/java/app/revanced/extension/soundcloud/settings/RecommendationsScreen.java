@@ -82,12 +82,9 @@ final class RecommendationsScreen extends SectionScreen {
         list.addView(ui.createSubHeading(text("Моя волна", "My Wave")));
         list.addView(ui.openScreenRow(
                 text("Моя волна", "My Wave"),
-                text("Музыка по вашему вкусу без конца. Кнопка включения, источники (SoundCloud, Last.fm, Deezer) и то, что играло, "
-                                + "на отдельном экране; к нему ведёт значок волны вверху Библиотеки. Трек, который вы переключили в первые "
-                                + "15 секунд, больше не предлагается; «Не нравится» скрывает трек навсегда.",
-                        "Music to your taste without end. The start button, the sources (SoundCloud, Last.fm, Deezer) and what played are "
-                                + "on a screen of their own, reached by the wave icon at the top of the Library. A track you switched off in "
-                                + "the first 15 seconds is never offered again; \"Not for me\" hides a track for good."),
+                text("Вкладка внизу экрана, источники и память волны. Сама волна включается на её вкладке, сразу после «Главной».",
+                        "The tab of the bottom bar, the sources and what the wave remembers. The wave itself starts on its tab, "
+                                + "right after Home."),
                 WaveScreen.ID).icon("recs"));
     }
 

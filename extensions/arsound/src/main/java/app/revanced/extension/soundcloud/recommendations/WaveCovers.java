@@ -29,7 +29,10 @@ final class WaveCovers {
     private WaveCovers() {
     }
 
-    /** The address of a track's small cover from SoundCloud's template, or null without a template. */
+    /**
+     * The address of a track's small cover from SoundCloud's template (the database's, with {@code {size}} in it) or
+     * from a ready address (the API's, already in the small size); null without either.
+     */
     static String address(String template) {
         if (template == null || template.isEmpty() || !template.startsWith("https://")) return null;
         return template.replace("{size}", SIZE);

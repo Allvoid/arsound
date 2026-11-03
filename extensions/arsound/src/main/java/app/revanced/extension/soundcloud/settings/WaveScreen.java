@@ -4,32 +4,20 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import android.content.Context;
 import android.content.Intent;
-import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.TextView;
+import android.widget.Toast;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-
-import app.revanced.extension.soundcloud.player.TrackTitleResolver;
-import app.revanced.extension.soundcloud.recommendations.MyWave;
 import app.revanced.extension.soundcloud.recommendations.WaveMemory;
 import app.revanced.extension.soundcloud.recommendations.WaveSource;
-import app.revanced.extension.soundcloud.theme.WaveCard;
+import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
- * "My Wave": the big start/stop card, what the wave is doing, where it gets its tracks (ticked) and the tracks it played
- * last. Opened by the gear of the "My Wave" tab ({@code recommendations.WavePage}) and from the settings.
+ * The settings of "My Wave": whether its tab stands in the bottom bar, where the tracks come from and what the wave
+ * remembers. Starting the wave and its tracks are on the tab itself ({@code recommendations.WavePage}); this screen is
+ * opened by the gear there and from the settings.
  */
 final class WaveScreen extends SectionScreen {
     static final String ID = "wave";
-    private static final int RECENT = 12;
-
-    private TextView status;
-    private LinearLayout recent;
-    private boolean scheduled;
 
     WaveScreen(SettingsUi ui) {
         super(ui);
@@ -52,8 +40,8 @@ final class WaveScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Музыка по вашему вкусу без конца: включить, источники, что играло",
-                "Music to your taste without end: start, sources, what played");
+        return text("Вкладка внизу экрана, откуда брать треки, память волны",
+                "The tab of the bottom bar, where the tracks come from, what the wave remembers");
     }
 
     @Override
@@ -63,121 +51,73 @@ final class WaveScreen extends SectionScreen {
 
     @Override
     String keywords() {
-        return text("волна рекомендации бесконечно лайки last.fm deezer похожие радио",
-                "wave recommendations endless likes last.fm deezer related radio");
+        return text("волна вкладка рекомендации бесконечно лайки last.fm deezer похожие радио",
+                "wave tab recommendations endless likes last.fm deezer related radio");
     }
 
     @Override
     String summary() {
-        return MyWave.isActive() ? text("Играет", "Playing") : text("Выключена", "Off");
+        return BoolSettings.HIDE_TAB_WAVE.get() ? text("Вкладка выключена", "Tab off") : text("Вкладка включена", "Tab on");
     }
 
     @Override
     void fill(LinearLayout list) {
-        list.addView(new WaveCard(activity, true), cardParams());
-        status = ui.createText("Body.Secondary", "");
-        status.setPadding(ui.dimen("spacing_m"), ui.dp(10), ui.dimen("spacing_m"), 0);
-        list.addView(status);
+        list.addView(ui.createSubHeading(text("Вкладка", "Tab")));
+        list.addView(ui.createToggleRow(
+                text("Вкладка «Моя волна»", "\"My Wave\" tab"),
+                text("Отдельная вкладка внизу экрана, сразу после «Главной». На ней волна включается одной кнопкой, "
+                                + "там же источники и треки волны. Эта же галочка стоит в «Нижней панели». "
+                                + "После переключения приложение перезапустится.",
+                        "A tab of its own in the bottom bar, right after Home. There the wave starts with one button, "
+                                + "and the sources and the wave's tracks are there too. The same tick is on the \"Bottom "
+                                + "bar\" screen. The app restarts after a switch."),
+                !BoolSettings.HIDE_TAB_WAVE.get(),
+                (button, checked) -> {
+                    BoolSettings.HIDE_TAB_WAVE.set(!checked);
+                    ArsoundTheme.restartApp(activity);
+                }
+        ).icon("recs").brief(text("Вкладка внизу, после «Главной».", "A tab in the bottom bar, after Home.")));
 
-        list.addView(ui.createSubHeading(text("Откуда берутся треки", "Where the tracks come from")));
-        TextView note = ui.createText("Body.Secondary", text(
-                "Хотя бы один источник остаётся включённым. Образцы — ваши лайки и треки, дослушанные хотя бы 45 секунд; "
-                        + "пропущенные в первые 15 секунд и «Не нравится» не предлагаются.",
-                "At least one source stays on. Seeds are your likes and the tracks heard at least 45 seconds; tracks skipped in "
-                        + "the first 15 seconds and \"Not for me\" are never offered."));
-        note.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dimen("spacing_s"));
-        list.addView(note);
+        list.addView(ui.createSubHeading(text("Откуда брать треки", "Where the tracks come from")));
+        String[] icons = {"recs", "stats", "music"};
         for (WaveSource source : WaveSource.values()) {
             ToggleRow[] row = new ToggleRow[1];
-            row[0] = ui.createCheckRow(source.label(), source.isOn(), (button, checked) -> {
+            row[0] = ui.createToggleRow(source.label(), source.note(), source.isOn(), (button, checked) -> {
                 if (!checked && WaveSource.onCount() <= 1) {
                     row[0].setChecked(true);
+                    Toast.makeText(activity, text("Хотя бы один источник остаётся включённым",
+                            "At least one source stays on"), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 source.set(checked);
             });
-            row[0].icon("recs");
+            row[0].icon(icons[source.ordinal() % icons.length]);
             list.addView(row[0]);
         }
-        TextView memory = ui.createText("Body.Secondary", text(
-                "Запомнено: пропущенных " + WaveMemory.skippedCount() + ", дослушанных " + WaveMemory.heardCount() + ".",
-                "Remembered: " + WaveMemory.skippedCount() + " skipped, " + WaveMemory.heardCount() + " heard."));
-        memory.setPadding(ui.dimen("spacing_m"), ui.dimen("spacing_s"), ui.dimen("spacing_m"), 0);
-        list.addView(memory);
-        ActionRow forget = ui.createActionRow(text("Забыть пропущенные и дослушанные", "Forget skipped and heard tracks"),
-                text("Волна начнёт с чистого листа. «Не нравится» и лайки не меняются.",
-                        "The wave starts afresh. Dislikes and likes stay as they are."),
+
+        list.addView(ui.createSubHeading(text("Память волны", "What the wave remembers")));
+        ActionRow[] forget = new ActionRow[1];
+        forget[0] = ui.createActionRow(text("Забыть пропущенные и дослушанные", "Forget skipped and heard tracks"),
+                remembered(),
                 v -> {
                     WaveMemory.forget();
-                    memory.setText(text("Запомнено: пропущенных 0, дослушанных 0.", "Remembered: 0 skipped, 0 heard."));
+                    forget[0].description().setText(SettingText.split(remembered()).summary);
+                    Toast.makeText(activity, text("Волна начнёт с чистого листа", "The wave starts afresh"),
+                            Toast.LENGTH_SHORT).show();
                 });
-        forget.icon("trash");
-        list.addView(forget);
-
-        list.addView(ui.createSubHeading(text("Играло в волне", "Played in the wave")));
-        recent = new LinearLayout(activity);
-        recent.setOrientation(LinearLayout.VERTICAL);
-        list.addView(recent);
-        refresh();
+        forget[0].icon("trash");
+        list.addView(forget[0]);
     }
 
-    private LinearLayout.LayoutParams cardParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = ui.dp(8);
-        params.leftMargin = ui.dp(16);
-        params.rightMargin = ui.dp(16);
-        return params;
-    }
-
-    @Override
-    void onResume() {
-        refresh();
-    }
-
-    /** The status line and the list of the last tracks; looked at again while the screen is open. */
-    private void refresh() {
-        if (status == null || recent == null) return;
-        int added = MyWave.addedCount();
-        status.setText(MyWave.isActive()
-                ? text("Играет, добавлено треков: " + added, "Playing, tracks added: " + added)
-                : added > 0 ? text("Остановлена, в последний раз добавлено треков: " + added, "Stopped, tracks added last time: " + added)
-                : text("Выключена. Нажмите «Включить».", "Off. Tap \"Play\"."));
-        List<String> urns = MyWave.recent(RECENT);
-        // Titles come from SoundCloud's own database, off the main thread.
-        app.revanced.extension.shared.Utils.runOnBackgroundThread(() -> {
-            Map<String, String[]> titles = TrackTitleResolver.storedTitles(urns);
-            app.revanced.extension.shared.Utils.runOnMainThread(() -> showRecent(urns, titles));
-        });
-        // The screen looks again every few seconds while it is open, so "added N" and the list move on.
-        if (!scheduled) {
-            scheduled = true;
-            status.postDelayed(() -> {
-                scheduled = false;
-                if (!activity.isFinishing() && !activity.isDestroyed()) refresh();
-            }, 3000);
-        }
-    }
-
-    private void showRecent(List<String> urns, Map<String, String[]> titles) {
-        if (recent == null || activity.isFinishing() || activity.isDestroyed()) return;
-        recent.removeAllViews();
-        if (urns.isEmpty()) {
-            TextView none = ui.createText("Body.Secondary", text("Пока ничего.", "Nothing yet."));
-            none.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), 0);
-            recent.addView(none);
-            return;
-        }
-        List<String> newestFirst = new ArrayList<>(urns);
-        Collections.reverse(newestFirst);
-        for (String urn : newestFirst) {
-            String[] found = titles.get(urn);
-            String label = found == null ? text("Трек SoundCloud", "SoundCloud track") : found[0] + (found[1] == null || found[1].isEmpty() ? "" : " — " + found[1]);
-            TextView line = ui.createText("Body.Primary", label);
-            line.setPadding(ui.dimen("spacing_m"), ui.dp(6), ui.dimen("spacing_m"), ui.dp(6));
-            line.setSingleLine(true);
-            line.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            recent.addView(line);
-        }
+    /** What the wave remembers now, for the row that forgets it. */
+    private static String remembered() {
+        return text("Запомнено: пропущенных " + WaveMemory.skippedCount() + ", дослушанных " + WaveMemory.heardCount()
+                        + ". Образцы волны — ваши лайки и треки, дослушанные хотя бы 45 секунд; трек, пропущенный в первые "
+                        + "15 секунд, и «Не нравится» больше не предлагаются. Сброс начнёт с чистого листа, лайки и "
+                        + "«Не нравится» не меняются.",
+                "Remembered: " + WaveMemory.skippedCount() + " skipped, " + WaveMemory.heardCount()
+                        + " heard. The wave's seeds are your likes and the tracks heard at least 45 seconds; a track skipped "
+                        + "in the first 15 seconds and \"Not for me\" are never offered again. Forgetting starts afresh; "
+                        + "likes and \"Not for me\" stay as they are.");
     }
 }

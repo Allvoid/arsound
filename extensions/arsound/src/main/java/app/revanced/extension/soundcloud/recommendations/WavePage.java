@@ -54,13 +54,18 @@ public final class WavePage extends Fragment {
     private TextView action;
     private TextView status;
     private LinearLayout chips;
+    private String chipStates = "";
     private LinearLayout history;
+    private TextView historyHeading;
     private boolean resumed;
     /** What the list was last drawn for (the tracks added and the one playing), so it is read again only on a change. */
     private String shownKey = "";
     /** Ticks until the list is read again because some of its tracks were not in SoundCloud's database yet. */
     private int retryIn = -1;
+    /** How many times more the list may be read again for the same tracks. */
+    private int retriesLeft;
     private static final int RETRY_TICKS = 3;
+    private static final int RETRIES = 3;
     private final Runnable tick = this::tick;
 
     public WavePage() {
@@ -94,7 +99,7 @@ public final class WavePage extends Fragment {
 
         column.addView(header(context));
 
-        orb = new WaveOrb(context, accent);
+        orb = new WaveOrb(context, accent, ArsoundTheme.palette(context, "primary"), ArsoundTheme.palette(context, "surface"));
         orb.setOnClickListener(v -> toggle(context));
         LinearLayout.LayoutParams orbParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -116,7 +121,8 @@ public final class WavePage extends Fragment {
         column.addView(chips, matchWidth());
         fillChips(context, accent);
 
-        column.addView(heading(context, text("В волне", "In the wave")));
+        historyHeading = heading(context, text("В волне", "In the wave"));
+        column.addView(historyHeading);
         history = new LinearLayout(context);
         history.setOrientation(LinearLayout.VERTICAL);
         history.setPadding(0, Dimens.dp(context, 4), 0, Dimens.dp(context, 4));
@@ -169,36 +175,37 @@ public final class WavePage extends Fragment {
         return row;
     }
 
-    /** One chip per source: filled in the accent when it is on. At least one stays on. */
+    /** One chip per source, flooded with the accent when it is on. At least one stays on. */
     private void fillChips(Context context, int accent) {
         chips.removeAllViews();
-        int onAccent = Colors.contrast(accent);
         int plain = ArsoundTheme.palette(context, "highlight");
         int textColor = ArsoundTheme.palette(context, "primary");
+        chipStates = "";
         for (WaveSource source : WaveSource.values()) {
-            TextView chip = label(context, "Body.Primary", source.shortLabel());
-            boolean on = source.isOn();
-            chip.setTypeface(Typeface.DEFAULT_BOLD);
-            chip.setTextColor(on ? onAccent : textColor);
-            chip.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF),
-                    rounded(on ? accent : plain, Dimens.dp(context, 100)), null));
-            int horizontal = Dimens.dp(context, 16), vertical = Dimens.dp(context, 9);
-            chip.setPadding(horizontal, vertical, horizontal, vertical);
-            chip.setContentDescription(source.label() + (on ? text(", включён", ", on") : text(", выключен", ", off")));
-            chip.setOnClickListener(v -> {
-                if (source.isOn() && WaveSource.onCount() <= 1) {
+            chipStates += source.isOn() ? '1' : '0';
+            WaveChip chip = new WaveChip(context, source.shortLabel(), source.isOn(), accent, plain, textColor);
+            chip.setToggle(nowOn -> {
+                if (!nowOn && WaveSource.onCount() <= 1) {
                     Toast.makeText(context, text("Хотя бы один источник остаётся включённым",
                             "At least one source stays on"), Toast.LENGTH_SHORT).show();
-                    return;
+                    return false;
                 }
-                source.set(!source.isOn());
-                fillChips(context, accent);
+                source.set(nowOn);
+                chipStates = currentStates();
+                return true;
             });
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             params.rightMargin = Dimens.dp(context, 8);
             chips.addView(chip, params);
         }
+    }
+
+    /** The sources on and off, one character each, to see they were changed elsewhere. */
+    private static String currentStates() {
+        StringBuilder states = new StringBuilder();
+        for (WaveSource source : WaveSource.values()) states.append(source.isOn() ? '1' : '0');
+        return states.toString();
     }
 
     private void toggle(Context context) {
@@ -221,7 +228,9 @@ public final class WavePage extends Fragment {
                 : text("Подбираю треки…", "Picking the tracks…")
                 : text("Музыка по вашему вкусу без конца. Нажмите, чтобы включить.",
                         "Music to your taste without end. Tap to play."));
-        String key = added + "/" + MyWave.current();
+        historyHeading.setText(MyWave.isPast() ? text("В прошлый раз", "Last time") : text("В волне", "In the wave"));
+        String key = added + "/" + MyWave.current() + "/" + on;
+        if (!key.equals(shownKey)) retriesLeft = RETRIES;
         if (!key.equals(shownKey) || retryIn == 0) {
             shownKey = key;
             retryIn = -1;
@@ -234,11 +243,33 @@ public final class WavePage extends Fragment {
     private void loadHistory() {
         List<String> urns = MyWave.around(BEFORE, RECENT);
         String playing = MyWave.current();
-        // Titles and covers come from SoundCloud's own database, off the main thread.
         Utils.runOnBackgroundThread(() -> {
-            Map<String, String[]> tracks = TrackTitleResolver.storedTitles(urns);
+            Map<String, String[]> tracks = findTracks(urns);
             Utils.runOnMainThread(() -> showHistory(urns, tracks, playing));
         });
+    }
+
+    /**
+     * Titles, uploaders and covers of the tracks, off the main thread: those found before (kept on the phone), then
+     * SoundCloud's own database, then its API. SoundCloud stores a track only once it has loaded it itself (to play it
+     * or to show it in the queue), so the wave's next tracks are not in the database yet; the API knows them.
+     */
+    private static Map<String, String[]> findTracks(List<String> urns) {
+        Map<String, String[]> tracks = WaveSession.tracks();
+        tracks.keySet().retainAll(urns);
+        List<String> missing = new java.util.ArrayList<>(urns);
+        missing.removeAll(tracks.keySet());
+        Map<String, String[]> found = new java.util.HashMap<>();
+        if (!missing.isEmpty()) {
+            found.putAll(TrackTitleResolver.storedTitles(missing));
+            missing.removeAll(found.keySet());
+        }
+        if (!missing.isEmpty()) found.putAll(TrackTitleResolver.fetchTracks(missing));
+        if (!found.isEmpty()) {
+            tracks.putAll(found);
+            WaveSession.putTracks(found, WaveSession.queue());
+        }
+        return tracks;
     }
 
     private void showHistory(List<String> urns, Map<String, String[]> tracks, String playing) {
@@ -254,8 +285,8 @@ public final class WavePage extends Fragment {
             return;
         }
         for (String urn : urns) history.addView(historyRow(context, tracks.get(urn), urn.equals(playing)));
-        // SoundCloud stores a queued track once it has loaded it: the ones it has not are looked for again a little later.
-        if (!tracks.keySet().containsAll(urns)) retryIn = RETRY_TICKS;
+        // A track neither SoundCloud nor its API gave (no connection, say) is looked for again a little later.
+        if (!tracks.keySet().containsAll(urns) && retriesLeft-- > 0) retryIn = RETRY_TICKS;
     }
 
     /** A row of the list: the cover, the title and the uploader; the track playing now has its title in the accent. */
@@ -343,7 +374,7 @@ public final class WavePage extends Fragment {
         orb.removeCallbacks(tick);
         if (visible) {
             // The sources may have been changed on the settings screen behind the gear.
-            fillChips(orb.getContext(), ArsoundTheme.palette(orb.getContext(), "special"));
+            if (!currentStates().equals(chipStates)) fillChips(orb.getContext(), ArsoundTheme.palette(orb.getContext(), "special"));
             update();
             orb.postDelayed(tick, TICK_MS);
         }

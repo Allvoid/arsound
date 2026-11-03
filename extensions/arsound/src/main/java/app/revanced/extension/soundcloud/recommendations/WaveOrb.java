@@ -2,7 +2,7 @@ package app.revanced.extension.soundcloud.recommendations;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
+import android.graphics.CornerPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
@@ -15,7 +15,7 @@ import app.revanced.extension.soundcloud.shared.Colors;
 import app.revanced.extension.soundcloud.shared.Dimens;
 
 /**
- * The big picture of the "My Wave" tab: soft rings in the theme's accent that flow round a play button. The rings drift
+ * The big picture of the "My Wave" tab: soft rings in the theme's accent that flow round a plain round play button. The rings drift
  * slowly while the wave rests and swell and move faster while it plays. They move only while the tab is on screen
  * ({@link #setRunning}); a tap anywhere on the picture is a tap on the button.
  */
@@ -25,7 +25,6 @@ final class WaveOrb extends View {
     private static final int RINGS = 4;
 
     private final int accent;
-    private final int onAccent;
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint button = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -41,16 +40,19 @@ final class WaveOrb extends View {
     /** How far the rings are swollen, from 0 (resting) to 1 (playing); it follows {@link #playing} smoothly. */
     private float swell;
 
-    WaveOrb(Context context, int accent) {
+    /**
+     * @param ink  The button: the theme's main text colour, white on a dark look and black on a light one.
+     * @param page The play mark cut into the button: the colour of the page under it.
+     */
+    WaveOrb(Context context, int accent, int ink, int page) {
         super(context);
         this.accent = accent;
-        this.onAccent = Colors.contrast(accent);
         maxHeight = Dimens.dp(context, 340);
         ring.setStyle(Paint.Style.FILL);
-        button.setColor(accent);
-        // The graphics chip draws the shadow of a shape from Android 9; older ones leave it out.
-        button.setShadowLayer(Dimens.dpExact(context, 18), 0, Dimens.dpExact(context, 6), Colors.withAlpha(Color.BLACK, 0x66));
-        icon.setColor(onAccent);
+        button.setColor(ink);
+        icon.setColor(page);
+        // Soft corners on the triangle and the bars, as SoundCloud's own play marks.
+        icon.setPathEffect(new CornerPathEffect(Dimens.dpExact(context, 3)));
         setClickable(true);
         setFocusable(true);
     }
@@ -124,13 +126,13 @@ final class WaveOrb extends View {
                 else path.lineTo(x, y);
             }
             path.close();
-            ring.setColor(Colors.withAlpha(accent, Math.max(0x18, 0x58 - i * 0x12 + Math.round(0x14 * swell))));
+            ring.setColor(Colors.withAlpha(accent, Math.max(0x14, 0x4C - i * 0x10 + Math.round(0x14 * swell))));
             canvas.drawPath(path, ring);
         }
 
-        float knob = base * 0.62f;
+        float knob = base * 0.46f;
         canvas.drawCircle(cx, cy, knob, button);
-        drawIcon(canvas, cx, cy, knob * 0.42f);
+        drawIcon(canvas, cx, cy, knob * 0.36f);
 
         if (running) postInvalidateOnAnimation();
     }
@@ -138,9 +140,9 @@ final class WaveOrb extends View {
     /** The play triangle while the wave rests, two pause bars while it plays. */
     private void drawIcon(Canvas canvas, float cx, float cy, float size) {
         if (playing) {
-            float bar = size * 0.36f, gap = size * 0.32f;
-            canvas.drawRoundRect(cx - gap - bar, cy - size, cx - gap, cy + size, bar / 3f, bar / 3f, icon);
-            canvas.drawRoundRect(cx + gap, cy - size, cx + gap + bar, cy + size, bar / 3f, bar / 3f, icon);
+            float bar = size * 0.42f, gap = size * 0.28f;
+            canvas.drawRoundRect(cx - gap - bar, cy - size, cx - gap, cy + size, bar / 2f, bar / 2f, icon);
+            canvas.drawRoundRect(cx + gap, cy - size, cx + gap + bar, cy + size, bar / 2f, bar / 2f, icon);
             return;
         }
         // The triangle's middle is a little right of the centre, so it looks centred.

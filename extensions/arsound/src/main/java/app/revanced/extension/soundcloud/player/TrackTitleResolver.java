@@ -179,4 +179,41 @@ public final class TrackTitleResolver {
         }
         return found;
     }
+
+    /**
+     * Titles, uploaders and covers of tracks SoundCloud has not stored yet, asked from its API: per track urn the title,
+     * the uploader and the address of the cover (the uploader's picture when the track has none), each possibly null.
+     * Blocks; a track the server does not return is left out.
+     */
+    public static Map<String, String[]> fetchTracks(List<String> urns) {
+        Map<String, String[]> found = new HashMap<>();
+        List<String> ids = new ArrayList<>();
+        for (String urn : urns) {
+            String id = DownloadTrackPatch.parseTrackId(urn);
+            if (id != null) ids.add(id);
+        }
+        for (int start = 0; start < ids.size(); start += 50) {
+            try {
+                List<String> batch = ids.subList(start, Math.min(ids.size(), start + 50));
+                String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks?ids="
+                        + String.join(",", batch));
+                if (response[1] == null) break;
+                JSONArray array = new JSONArray(response[1]);
+                for (int i = 0; i < array.length(); i++) {
+                    JSONObject track = array.getJSONObject(i);
+                    JSONObject user = track.optJSONObject("user");
+                    String cover = track.isNull("artwork_url") ? null : track.optString("artwork_url", null);
+                    if ((cover == null || cover.isEmpty()) && user != null && !user.isNull("avatar_url")) {
+                        cover = user.optString("avatar_url", null);
+                    }
+                    found.put("soundcloud:tracks:" + track.getLong("id"), new String[]{track.optString("title"),
+                            user == null ? "" : user.optString("username"), cover});
+                }
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "My Wave: no track titles from SoundCloud: " + ex);
+                break;
+            }
+        }
+        return found;
+    }
 }

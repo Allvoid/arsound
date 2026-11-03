@@ -33,6 +33,8 @@ public final class MyWave {
     private static volatile boolean active;
     /** The wave's track that plays now, or null before the first one starts. */
     private static volatile String current;
+    /** Whether the last wave was read from the phone ({@link WaveSession}); once, before the first look at the queue. */
+    private static boolean restored;
     private static volatile boolean building;
 
     private MyWave() {
@@ -40,16 +42,9 @@ public final class MyWave {
 
     /** How many tracks the wave has queued since it was started. */
     public static int addedCount() {
+        restore();
         synchronized (QUEUED) {
             return QUEUED.size();
-        }
-    }
-
-    /** The last tracks the wave queued, the oldest first. */
-    public static java.util.List<String> recent(int count) {
-        synchronized (QUEUED) {
-            List<String> all = new ArrayList<>(QUEUED);
-            return new ArrayList<>(all.subList(Math.max(0, all.size() - count), all.size()));
         }
     }
 
@@ -58,6 +53,7 @@ public final class MyWave {
      * one, and the next ones, {@code total} in all. From the start of the wave while none of its tracks played yet.
      */
     public static List<String> around(int before, int total) {
+        restore();
         synchronized (QUEUED) {
             List<String> all = new ArrayList<>(QUEUED);
             int from = windowStart(current == null ? -1 : all.indexOf(current), all.size(), before, total);
@@ -78,6 +74,35 @@ public final class MyWave {
         return active ? current : null;
     }
 
+    /** Whether the tracks known are those of a wave that is over (the last one, kept on the phone). */
+    public static boolean isPast() {
+        return !active && addedCount() > 0;
+    }
+
+    /** Puts the last wave, kept on the phone, back into the list of the wave's tracks; the wave stays off. */
+    private static void restore() {
+        synchronized (QUEUED) {
+            if (restored) return;
+            restored = true;
+            if (active || !QUEUED.isEmpty()) return;
+            try {
+                QUEUED.addAll(WaveSession.queue());
+                current = WaveSession.current();
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "My Wave: the last wave was not put back: " + ex);
+            }
+        }
+    }
+
+    /** Keeps the wave's tracks and the one playing on the phone, for the tab after a restart. */
+    private static void persist() {
+        List<String> queue;
+        synchronized (QUEUED) {
+            queue = new ArrayList<>(QUEUED);
+        }
+        WaveSession.save(queue, current);
+    }
+
     public static boolean isActive() {
         return active;
     }
@@ -89,6 +114,7 @@ public final class MyWave {
         active = true;
         current = null;
         synchronized (QUEUED) {
+            restored = true;
             QUEUED.clear();
         }
         toast(context, text("Включаю волну…", "Starting the wave…"));
@@ -105,6 +131,7 @@ public final class MyWave {
                     synchronized (QUEUED) {
                         QUEUED.addAll(entries);
                     }
+                    persist();
                     if (!LocalMusic.playTracks(entries)) {
                         active = false;
                         toast(context, text("Плеер ещё не готов", "The player is not ready yet"));
@@ -138,6 +165,7 @@ public final class MyWave {
             }
             current = key;
         }
+        persist();
         // The queue is read on the main thread: the hook runs on the player's thread.
         Utils.runOnMainThread(() -> refillIfLow(key));
     }
@@ -173,6 +201,7 @@ public final class MyWave {
             synchronized (QUEUED) {
                 QUEUED.addAll(entries);
             }
+            persist();
             Logger.printInfo(() -> "My Wave: " + entries.size() + " tracks added");
         }
     }
