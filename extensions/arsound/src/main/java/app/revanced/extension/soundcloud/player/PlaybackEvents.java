@@ -1,6 +1,7 @@
 package app.revanced.extension.soundcloud.player;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.recommendations.MyWave;
 
 /**
  * Injection points of SoundCloud's player that more than one feature follows: an item starts, the player reports its
@@ -27,7 +28,10 @@ public final class PlaybackEvents {
         boolean newTrack = !urn.equals(playingUrn);
         playingUrn = urn;
         Crossfade.onPlay(exoPlayer, newTrack);
-        if (newTrack) NextTrackPreload.onTrackChanged();
+        if (newTrack) {
+            NextTrackPreload.onTrackChanged();
+            MyWave.onTrackChanged(urn);
+        }
         SlowedPlayback.onPlay(exoPlayer, urn);
     }
 

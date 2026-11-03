@@ -101,6 +101,47 @@ public final class AutoplayQueue {
         }
     }
 
+    /** The class loader of SoundCloud's classes, once the queue manager exists; null before. */
+    static ClassLoader classLoader() {
+        Object manager = queueManager.get();
+        return manager == null ? null : manager.getClass().getClassLoader();
+    }
+
+    /** How many items wait after the playing one; -1 if the queue cannot be read. */
+    static int upcomingCount() {
+        Object manager = queueManager.get();
+        if (manager == null) return -1;
+        try {
+            Object queue = queueOf(manager);
+            return (int) queue.getClass().getMethod("size").invoke(queue) - positionOf(manager) - 1;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Autoplay: could not count the waiting items", ex);
+            return -1;
+        }
+    }
+
+    /**
+     * Adds tracks at the end of the queue, as the menu item "Play last" does. Main thread only: SoundCloud changes
+     * play queues there.
+     *
+     * @param urns {@code TrackUrn} objects.
+     */
+    static boolean playLast(String context, List<Object> urns) {
+        Object manager = queueManager.get();
+        if (manager == null || urns.isEmpty()) return false;
+        try {
+            Class<?> trackUrn = Class.forName("com.soundcloud.android.foundation.domain.TrackUrn", false,
+                    manager.getClass().getClassLoader());
+            Object array = java.lang.reflect.Array.newInstance(trackUrn, urns.size());
+            for (int i = 0; i < urns.size(); i++) java.lang.reflect.Array.set(array, i, urns.get(i));
+            manager.getClass().getMethod("o", String.class, array.getClass()).invoke(manager, context, array);
+            return true;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Autoplay: could not add tracks to the queue", ex);
+            return false;
+        }
+    }
+
     private static Object queueOf(Object manager) throws Exception {
         return manager.getClass().getMethod("k").invoke(manager);
     }

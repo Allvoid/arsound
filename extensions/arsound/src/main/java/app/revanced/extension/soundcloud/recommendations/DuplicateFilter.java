@@ -84,6 +84,8 @@ public final class DuplicateFilter {
      * @param seedUrn   The track the recommendations are for.
      */
     public static Iterator<?> filterAutoplay(Iterable<?> apiTracks, Object seedUrn) {
+        // While "My Wave" plays, SoundCloud's own recommendations would queue up in front of the wave's next batch.
+        if (MyWave.isActive()) return new ArrayList<>().iterator();
         boolean duplicates = Settings.isDuplicateFilterEnabled();
         List<Object> result = new ArrayList<>();
         try {

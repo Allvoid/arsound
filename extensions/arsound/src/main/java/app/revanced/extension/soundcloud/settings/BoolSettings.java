@@ -18,6 +18,8 @@ public final class BoolSettings {
     public static final BoolSetting HIDE_TAB_HOME = new BoolSetting(Settings.HIDE_TAB_HOME, false, true);
     public static final BoolSetting HIDE_TAB_FEED = new BoolSetting(Settings.HIDE_TAB_FEED, false, true);
     public static final BoolSetting HIDE_TAB_SEARCH = new BoolSetting(Settings.HIDE_TAB_SEARCH, false, true);
+    /** The "My Wave" card under the greeting of the home screen. On by default. */
+    public static final BoolSetting WAVE_CARD = new BoolSetting(Settings.WAVE_CARD, true);
     /** Checks GitHub for a newer Arsound release on every launch. On by default. */
     public static final BoolSetting UPDATE_CHECK = new BoolSetting(Settings.UPDATE_CHECK, true);
     /** Shows stored playlists before the server answers. On by default. */

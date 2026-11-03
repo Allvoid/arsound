@@ -11,6 +11,8 @@ import java.util.Map;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.recommendations.ForYou;
 import app.revanced.extension.soundcloud.recommendations.TrackDislikes;
+import app.revanced.extension.soundcloud.recommendations.WaveMemory;
+import app.revanced.extension.soundcloud.recommendations.WaveSource;
 
 /** The "For you" playlist of Last.fm, hiding duplicates, the "Not for me" list. */
 final class RecommendationsScreen extends SectionScreen {
@@ -49,6 +51,7 @@ final class RecommendationsScreen extends SectionScreen {
 
     @Override
     void fill(LinearLayout list) {
+        addWaveOptions(list);
         addForYouOptions(list);
         list.addView(ui.createSubHeading(text("Дубликаты", "Duplicates")));
         SubRows duplicateOptions = ui.createSubRows();
@@ -72,6 +75,60 @@ final class RecommendationsScreen extends SectionScreen {
         ));
         list.addView(duplicateOptions);
         addDislikeOptions(list);
+    }
+
+    /** "My Wave": the card on the home screen, the sources to ask, what is remembered. */
+    private void addWaveOptions(LinearLayout list) {
+        list.addView(ui.createSubHeading(text("Моя волна", "My Wave")));
+        list.addView(ui.createToggleRow(
+                text("Карточка «Моя волна» на главной", "The \"My Wave\" card on the home screen"),
+                text("Под приветствием на главной появляется карточка: нажмите, и играют треки по вашему вкусу без конца. "
+                                + "Когда в очереди остаётся четыре трека, следующие добавляются сами, без пауз и без повторов. "
+                                + "Трек, который вы переключили в первые 15 секунд, больше не предлагается и не берётся за образец; "
+                                + "образцы — ваши лайки и треки, дослушанные до конца или хотя бы 45 секунд; «Не нравится» скрывает "
+                                + "трек навсегда. Карточка стоит под приветствием: если приветствие скрыто или у темы его нет, "
+                                + "карточки тоже нет.",
+                        "A card under the greeting of the home screen: tap it and music to your taste plays without end. "
+                                + "When four tracks are left in the queue the next ones are added by themselves, without pauses or "
+                                + "repeats. A track you switched off in the first 15 seconds is never offered again and is no seed; "
+                                + "seeds are your likes and the tracks heard to the end or at least 45 seconds; \"Not for me\" hides "
+                                + "a track for good. The card stands under the greeting: if the greeting is hidden, or the theme "
+                                + "has none, there is no card."),
+                BoolSettings.WAVE_CARD
+        ).icon("recs").brief(text("Музыка по вашему вкусу без конца, одной кнопкой на главной.",
+                "Music to your taste without end, one button on the home screen.")));
+        TextView sourcesNote = ui.createText("Body.Secondary", text(
+                "Откуда волна берёт треки. Хотя бы один источник должен остаться включённым.",
+                "Where the wave gets its tracks. At least one source stays on."));
+        sourcesNote.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dimen("spacing_s"));
+        list.addView(sourcesNote);
+        for (WaveSource source : WaveSource.values()) {
+            ToggleRow[] row = new ToggleRow[1];
+            row[0] = ui.createCheckRow(source.label(), source.isOn(), (button, checked) -> {
+                if (!checked && WaveSource.onCount() <= 1) {
+                    // The last source stays: the wave would have nowhere to look.
+                    row[0].setChecked(true);
+                    return;
+                }
+                source.set(checked);
+            });
+            row[0].icon("recs");
+            list.addView(row[0]);
+        }
+        TextView memory = ui.createText("Body.Secondary", text(
+                "Запомнено: пропущенных " + WaveMemory.skippedCount() + ", дослушанных " + WaveMemory.heardCount() + ".",
+                "Remembered: " + WaveMemory.skippedCount() + " skipped, " + WaveMemory.heardCount() + " heard."));
+        memory.setPadding(ui.dimen("spacing_m"), ui.dimen("spacing_s"), ui.dimen("spacing_m"), 0);
+        list.addView(memory);
+        ActionRow forget = ui.createActionRow(text("Забыть пропущенные и дослушанные", "Forget skipped and heard tracks"),
+                text("Волна начнёт с чистого листа. «Не нравится» и лайки не меняются.",
+                        "The wave starts afresh. Dislikes and likes stay as they are."),
+                v -> {
+                    WaveMemory.forget();
+                    memory.setText(text("Запомнено: пропущенных 0, дослушанных 0.", "Remembered: 0 skipped, 0 heard."));
+                });
+        forget.icon("trash");
+        list.addView(forget);
     }
 
     private void addForYouOptions(LinearLayout list) {

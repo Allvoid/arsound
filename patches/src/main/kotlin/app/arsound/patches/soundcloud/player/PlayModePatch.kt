@@ -45,6 +45,12 @@ private class ReflectedMethod(val type: String, val name: String, val parameters
  */
 private val reflectedMethods = listOf(
     ReflectedMethod(PLAY_QUEUE, "shuffle", listOf("I")),
+    // "Play last", which My Wave uses to add the next batch at the end of the queue.
+    ReflectedMethod(
+        QUEUE_MANAGER_DESCRIPTOR,
+        "o",
+        listOf("Ljava/lang/String;", "[Lcom/soundcloud/android/foundation/domain/TrackUrn;"),
+    ),
     ReflectedMethod(PLAY_QUEUE, "size"),
     ReflectedMethod(PLAY_QUEUE, "getRepeatMode"),
     ReflectedMethod(PLAY_QUEUE, "items"),

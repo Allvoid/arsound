@@ -13,6 +13,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.UnplayedDownloads;
 import app.revanced.extension.soundcloud.recommendations.ForYou;
+import app.revanced.extension.soundcloud.recommendations.WaveMemory;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
@@ -133,6 +134,8 @@ public final class ListeningStats {
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().remove(PENDING).apply();
         if (ended.playedMs >= MIN_LISTEN_MS) append(ended);
+        // The taste of the wave: a track switched off in the first seconds, or heard to a good length.
+        WaveMemory.onListen(ended.urn, ended.playedMs, 0);
     }
 
     private static void savePending() {
