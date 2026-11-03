@@ -23,8 +23,8 @@
  * {@code NextTrackPreload}; {@code PlayerComments.setPlayerSettings/showPopups} (player/PlayerCommentsPatch.kt).</li>
  * <li>Screen hook (no patch): {@code VivoMusicCard.onActivityResumed}.</li>
  * <li>Versions of a track: {@code TrackVersions} (the choice: {@code VersionSpeed}, reverb and bass as {@code VersionStrength}),
- * {@code SlowedPlayback} sets the speed (pitch follows) on the Media3 player, {@code VersionEffects} makes the reverb and the
- * bass boost on the audio session next to the equalizer ({@code AudioEqualizer.onVersionsChanged}), {@code VersionsButton} is
+ * {@code SlowedPlayback} sets the speed (pitch follows) on the Media3 player, {@code SoftEqualizerProcessor} (in the audio chain of the player, filters in {@code player/dsp}) shapes the equalizer, the
+ * preamp, the bass boost and the reverb in software ({@code AudioEqualizer.onVersionsChanged}, {@code SoftEqualizer.publish}), {@code VersionsButton} is
  * the round buttons of the top row of the full player (versions, "Not for me") and {@code VersionsPopup} the small window.
  * "Not for me" also stands in the media notification and the lock screen as a custom action of {@code PlayModeButton}
  * ({@code DISLIKE_ACTION}, {@code PlayModeReceiver} for Android 12L and older) and in the 2 x 2 widget; the work is
