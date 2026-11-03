@@ -59,14 +59,26 @@ final class LyricsResult {
 
     final Status status;
     final Lyrics lyrics;
+    /** Shown, but kept neither on the phone nor in memory: the next load looks the track up again. */
+    final boolean stopgap;
 
     private LyricsResult(Status status, Lyrics lyrics) {
+        this(status, lyrics, false);
+    }
+
+    private LyricsResult(Status status, Lyrics lyrics, boolean stopgap) {
         this.status = status;
         this.lyrics = lyrics;
+        this.stopgap = stopgap;
     }
 
     static LyricsResult found(Lyrics lyrics) {
         return new LyricsResult(Status.FOUND, lyrics);
+    }
+
+    /** Words that stand in for better ones a place that did not answer may have. */
+    static LyricsResult stopgap(Lyrics lyrics) {
+        return new LyricsResult(Status.FOUND, lyrics, true);
     }
 
     static LyricsResult instrumental() {
@@ -87,6 +99,6 @@ final class LyricsResult {
 
     /** Whether the answer is worth keeping on the phone: a failure is not an answer. */
     boolean isStorable() {
-        return status.storable;
+        return status.storable && !stopgap;
     }
 }

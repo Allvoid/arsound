@@ -140,7 +140,7 @@ public final class LyricsRepository {
                 final LyricsResult answer = result;
                 // LRCLIB never answers with recognised words: such an answer stands in for "no lyrics" or "no connection".
                 // It is not kept in memory, so the next load asks LRCLIB again when it can (the text found there is better).
-                if (answer.lyrics == null || answer.lyrics.source != Lyrics.Source.NEURAL) remember(info, answer);
+                if (!answer.stopgap && (answer.lyrics == null || answer.lyrics.source != Lyrics.Source.NEURAL)) remember(info, answer);
                 if (request.isCancelled()) return;
                 Utils.runOnMainThread(new Runnable() {
                     @Override
@@ -170,9 +170,15 @@ public final class LyricsRepository {
                 RegionGuard.throwIfBlockedAnyHost();
             }
         }, request);
-        LyricsResult result = find(info, query, http, request);
+        java.util.concurrent.atomic.AtomicBoolean lrclibFailed = new java.util.concurrent.atomic.AtomicBoolean();
+        LyricsResult found = find(info, query, http, request, lrclibFailed);
+        // Words without timings found while LRCLIB did not answer are shown, not kept: LRCLIB may have them timed, and
+        // it is asked again the next time the track opens.
+        LyricsResult result = lrclibFailed.get() && found.lyrics != null && !found.lyrics.isTimed()
+                ? LyricsResult.stopgap(found.lyrics) : found;
         Logger.printInfo(() -> "Lyrics: " + info.urn + " -> " + result.status
-                + (result.lyrics == null ? "" : (result.lyrics.isTimed() ? ", synced" : ", plain") + ", " + result.lyrics.source));
+                + (result.lyrics == null ? "" : (result.lyrics.isTimed() ? ", synced" : ", plain") + ", " + result.lyrics.source)
+                + (result.stopgap ? ", not kept" : ""));
         cache().write(info.urn, query.signature, result);
         return orRecognised(info, result);
     }
@@ -184,7 +190,9 @@ public final class LyricsRepository {
      */
     private static final long LRCLIB_RETRY_MS = 1_500;
 
-    private static LyricsResult find(TrackInfo info, TrackQuery query, LyricsHttp http, Request request) throws IOException {
+    /** @param lrclibFailed Set when LRCLIB did not answer the first time. */
+    private static LyricsResult find(TrackInfo info, TrackQuery query, LyricsHttp http, Request request,
+                                     java.util.concurrent.atomic.AtomicBoolean lrclibFailed) throws IOException {
         LyricsResult result = null;
         IOException failure = null;
         try {
@@ -194,6 +202,7 @@ public final class LyricsRepository {
         } catch (IOException ex) {
             if (request.isCancelled()) throw ex;
             failure = ex;
+            lrclibFailed.set(true);
         }
         // The other places, one after another, until one has the words. One that cannot be reached is skipped. Asked
         // while LRCLIB, which is often busy (503), has time to recover.
