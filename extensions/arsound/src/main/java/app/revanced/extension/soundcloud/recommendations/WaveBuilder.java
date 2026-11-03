@@ -24,19 +24,25 @@ import app.revanced.extension.soundcloud.local.BatchActivity;
 /**
  * Makes one batch of "My Wave": reads the taste (the playing track, the likes, the tracks heard to a good length),
  * asks the sources the user ticked about a few of those seeds, puts the offers in order ({@link WaveMixer}) and gives the
- * SoundCloud tracks to play. Blocking: call it off the main thread.
+ * SoundCloud tracks to play. The seeds and sources are asked together. Blocking: call it off the main thread.
  */
 final class WaveBuilder {
     private static final int SEEDS = 3;
     /** Names from Last.fm and Deezer are looked up on SoundCloud: this many per source and seed. */
     private static final int LOOKUPS = 8;
     private static final int POOL_THREADS = 4;
+    /** How many questions to the sources run at once: every seed and source is asked together, not one after another. */
+    private static final int ASK_THREADS = 6;
+    /** How long the whole batch waits for the slowest source. */
+    private static final long ASK_WAIT_SECONDS = 25;
+    /** The likes are read again after this long; a wave started soon after the last one does not ask again. */
+    private static final long LIKES_FRESH_MS = 10 * 60 * 1000L;
+    private static List<String> cachedLikes;
+    private static long likesReadAt;
     private static final String TRACKS = "soundcloud:tracks:";
 
     private final Random random = new Random();
     private final Set<String> alreadyQueued;
-    /** Liked tracks of the account, read once per wave. */
-    private List<String> liked;
 
     /** @param alreadyQueued The urns this wave has queued: they never come again. */
     WaveBuilder(Collection<String> alreadyQueued) {
@@ -48,6 +54,20 @@ final class WaveBuilder {
      * @return The urns of the next tracks ({@code soundcloud:tracks:ID}); empty if nothing was found.
      */
     List<String> build(String playing, int count) throws Exception {
+        return build(playing, count, WaveSource.chosen(), SEEDS);
+    }
+
+    /**
+     * The first tracks of a wave, fast: SoundCloud's related tracks of two seeds, a request each, asked together. The
+     * slower sources (names looked up on SoundCloud one by one) join with the next batch, while these already play.
+     * When SoundCloud's own source is off, the full batch is built.
+     */
+    List<String> buildQuick(int count) throws Exception {
+        if (!WaveSource.SOUNDCLOUD.isOn()) return build(null, count);
+        return build(null, count, java.util.Collections.singletonList(WaveSource.SOUNDCLOUD), 2);
+    }
+
+    private List<String> build(String playing, int count, List<WaveSource> sources, int seeds) throws Exception {
         WaveLedger ledger = WaveMemory.ledger();
         Set<String> disliked = new HashSet<>(TrackDislikes.getAll().keySet());
         Set<String> never = new HashSet<>(ledger.skipped());
@@ -64,15 +84,32 @@ final class WaveBuilder {
         if (pool.isEmpty()) return new ArrayList<>();
 
         List<WaveMixer.Offer> offers = new ArrayList<>();
-        List<WaveSource> sources = WaveSource.chosen();
-        for (String seed : WaveMixer.pickSeeds(pool, SEEDS, random)) {
-            for (WaveSource source : sources) {
-                try {
-                    offers.addAll(ask(source, seed));
-                } catch (Exception ex) {
-                    Logger.printInfo(() -> "My Wave: " + source.key + " gave nothing for " + seed + ": " + ex);
+        ExecutorService askers = Executors.newFixedThreadPool(ASK_THREADS);
+        try {
+            List<Future<List<WaveMixer.Offer>>> answers = new ArrayList<>();
+            for (String seed : WaveMixer.pickSeeds(pool, seeds, random)) {
+                for (WaveSource source : sources) {
+                    answers.add(askers.submit(() -> {
+                        try {
+                            return ask(source, seed);
+                        } catch (Exception ex) {
+                            Logger.printInfo(() -> "My Wave: " + source.key + " gave nothing for " + seed + ": " + ex);
+                            return new ArrayList<>();
+                        }
+                    }));
                 }
             }
+            long until = System.currentTimeMillis() + ASK_WAIT_SECONDS * 1000;
+            for (Future<List<WaveMixer.Offer>> answer : answers) {
+                try {
+                    // The order of the answers is kept, so the same answers always mix the same way.
+                    offers.addAll(answer.get(Math.max(0, until - System.currentTimeMillis()), TimeUnit.MILLISECONDS));
+                } catch (Exception ex) {
+                    Logger.printInfo(() -> "My Wave: a source was too slow: " + ex);
+                }
+            }
+        } finally {
+            askers.shutdownNow();
         }
         List<String> mixed = new WaveMixer(never, likes, random).mix(offers, count * 2);
         // A track already in the queue under another urn kind, or a re-upload of a disliked song, is left out.
@@ -164,16 +201,16 @@ final class WaveBuilder {
     }
 
     /** The urns of the likes of the account, the newest first; empty if SoundCloud does not answer. */
-    private List<String> liked() {
-        if (liked != null) return liked;
-        liked = new ArrayList<>();
+    private static synchronized List<String> liked() {
+        if (cachedLikes != null && System.currentTimeMillis() - likesReadAt < LIKES_FRESH_MS) return cachedLikes;
+        List<String> liked = new ArrayList<>();
         try {
             String[] me = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
-            if (me[1] == null) return liked;
+            if (me[1] == null) return keep(liked);
             long userId = new JSONObject(me[1]).getLong("id");
             String[] response = DownloadTrackPatch.apiGet(
                     "https://api-v2.soundcloud.com/users/" + userId + "/track_likes?limit=40");
-            if (response[1] == null) return liked;
+            if (response[1] == null) return keep(liked);
             JSONArray items = new JSONObject(response[1]).optJSONArray("collection");
             for (int i = 0; items != null && i < items.length(); i++) {
                 JSONObject track = items.getJSONObject(i).optJSONObject("track");
@@ -181,6 +218,15 @@ final class WaveBuilder {
             }
         } catch (Exception ex) {
             Logger.printInfo(() -> "My Wave: could not read the likes: " + ex);
+        }
+        return keep(liked);
+    }
+
+    /** Keeps the likes read; an empty answer (no network) is not kept, so the next wave asks again. */
+    private static List<String> keep(List<String> liked) {
+        if (!liked.isEmpty()) {
+            cachedLikes = liked;
+            likesReadAt = System.currentTimeMillis();
         }
         return liked;
     }

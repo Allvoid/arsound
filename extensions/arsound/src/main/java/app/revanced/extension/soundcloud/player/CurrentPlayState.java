@@ -27,6 +27,12 @@ public final class CurrentPlayState {
         latest = state;
     }
 
+    /** Whether the player plays or is about to (buffering), as the media session said last. */
+    public static boolean isPlaying() {
+        PlayState now = latest;
+        return now != null && (now.a() || now.h());
+    }
+
     /**
      * Injection point. The play state a track's page is bound with.
      *

@@ -30,6 +30,8 @@ import java.util.Map;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.player.CurrentPlayState;
+import app.revanced.extension.soundcloud.player.MediaKeys;
 import app.revanced.extension.soundcloud.player.TrackTitleResolver;
 import app.revanced.extension.soundcloud.settings.WaveScreenLauncher;
 import app.revanced.extension.soundcloud.shared.Colors;
@@ -40,7 +42,7 @@ import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * The page of the "My Wave" tab ({@code navbar.WaveNavigationTarget}): the big moving picture with the play button in
- * the middle ({@link WaveOrb}), what the wave is doing, the sources as chips and the tracks it played, with their covers.
+ * the middle ({@link WaveOrb}, the player's play and pause for the wave), what the wave is doing, the sources as chips and the tracks it played, with their covers.
  * The finer settings (what to forget) are behind the gear, on the wave's settings screen.
  * <p>
  * The bottom bar makes the page once and hides it while another tab is open; the picture moves and the page looks at
@@ -57,6 +59,9 @@ public final class WavePage extends Fragment {
     private TextView status;
     private LinearLayout chips;
     private String chipStates = "";
+    /** What the last tap asked of the player, shown until {@link #expectedUntil}; null when nothing was asked. */
+    private Boolean expected;
+    private long expectedUntil;
     private LinearLayout history;
     private TextView historyHeading;
     private boolean resumed;
@@ -211,26 +216,53 @@ public final class WavePage extends Fragment {
         return states.toString();
     }
 
+    /**
+     * The button is the player's: it starts the wave when none plays, and pauses or resumes the music of a wave that
+     * plays, as the player's own button does.
+     */
     private void toggle(Context context) {
-        if (MyWave.isActive()) MyWave.stop(context);
-        else MyWave.start(context);
+        if (!MyWave.isActive()) {
+            MyWave.start(context);
+            expected = Boolean.TRUE;
+        } else if (CurrentPlayState.isPlaying()) {
+            MediaKeys.pause(context);
+            expected = Boolean.FALSE;
+        } else {
+            MediaKeys.play(context);
+            expected = Boolean.TRUE;
+        }
+        // The player answers in a moment: until then the button shows what was asked, so it does not flicker back.
+        expectedUntil = android.os.SystemClock.uptimeMillis() + 1500;
         update();
+        orb.postDelayed(this::update, 600);
+        orb.postDelayed(this::update, 1600);
+    }
+
+    /** Whether the music plays, as the button shows it: what was just asked for, else what the player says. */
+    private boolean playing() {
+        if (expected != null && android.os.SystemClock.uptimeMillis() < expectedUntil) return expected;
+        expected = null;
+        return MyWave.isActive() && CurrentPlayState.isPlaying();
     }
 
     /** The button, the line under it and, when the wave added tracks, the history. */
     private void update() {
         if (orb == null) return;
         boolean on = MyWave.isActive();
+        boolean sounds = playing();
         int added = MyWave.addedCount();
-        orb.setPlaying(on);
-        orb.setContentDescription(on ? text("Остановить Мою волну", "Stop My Wave") : text("Включить Мою волну", "Play My Wave"));
-        action.setText(on ? text("Волна играет", "The wave is playing") : text("Слушать волну", "Play the wave"));
+        orb.setPlaying(sounds);
+        orb.setContentDescription(sounds ? text("Пауза", "Pause") : text("Играть", "Play"));
+        action.setText(!on ? text("Слушать волну", "Play the wave")
+                : sounds ? text("Волна играет", "The wave is playing") : text("Волна на паузе", "The wave is paused"));
+        String problem = MyWave.problem();
         status.setText(on
                 ? added > 0 ? text("По вашему вкусу, без конца · треков в волне: " + added,
                         "To your taste, without end · tracks in the wave: " + added)
                 : text("Подбираю треки…", "Picking the tracks…")
-                : text("Музыка по вашему вкусу без конца. Нажмите, чтобы включить.",
-                        "Music to your taste without end. Tap to play."));
+                : problem != null ? problem
+                : text("Музыка по вашему вкусу без конца", "Music to your taste without end"));
+        if (!on) MyWave.prepare();
         historyHeading.setText(MyWave.isPast() ? text("В прошлый раз", "Last time") : text("В волне", "In the wave"));
         String key = added + "/" + MyWave.current() + "/" + on;
         if (!key.equals(shownKey)) retriesLeft = RETRIES;

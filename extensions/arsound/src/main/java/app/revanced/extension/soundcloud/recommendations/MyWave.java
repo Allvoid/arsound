@@ -3,7 +3,6 @@ package app.revanced.extension.soundcloud.recommendations;
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import android.content.Context;
-import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -26,7 +25,10 @@ import app.revanced.extension.soundcloud.local.LocalMusic;
 public final class MyWave {
     /** The wave asks for more when this many tracks or fewer wait in the queue. */
     private static final int REFILL_AT = 4;
-    private static final int FIRST_BATCH = 15;
+    /** The first tracks, from the fastest source; every source joins with the batch asked for right after. */
+    private static final int QUICK_BATCH = 8;
+    /** Tracks picked ahead while the tab is open are played if the tap comes within this long. */
+    private static final long PREPARED_FRESH_MS = 15 * 60 * 1000L;
     private static final int NEXT_BATCH = 12;
     /** The tracks of this wave, for the "never again" rule and to see whether the playing one is still the wave's. */
     private static final Set<String> QUEUED = new LinkedHashSet<>();
@@ -36,6 +38,15 @@ public final class MyWave {
     /** Whether the last wave was read from the phone ({@link WaveSession}); once, before the first look at the queue. */
     private static boolean restored;
     private static volatile boolean building;
+    private static volatile boolean preparing;
+    /** What the last start ran into, for the tab; null when it went well. */
+    private static volatile String problem;
+    /** The first tracks picked ahead ({@link #prepare}), and when; guarded by {@link #QUEUED}. */
+    private static List<String> prepared;
+    private static long preparedAt;
+    /** When tracks were last picked ahead; a try that found nothing waits {@link #PREPARE_RETRY_MS} before the next. */
+    private static volatile long preparedTriedAt;
+    private static final long PREPARE_RETRY_MS = 60 * 1000L;
 
     private MyWave() {
     }
@@ -113,44 +124,119 @@ public final class MyWave {
         building = true;
         active = true;
         current = null;
+        problem = null;
         synchronized (QUEUED) {
             restored = true;
             QUEUED.clear();
         }
-        toast(context, text("Включаю волну…", "Starting the wave…"));
+        List<String> ready = takePrepared();
+        if (ready != null) {
+            // Picked while the tab was open: the music starts at once.
+            play(ready);
+            return;
+        }
         Utils.runOnBackgroundThread(() -> {
             try {
-                List<String> entries = new WaveBuilder(new ArrayList<>()).build(null, FIRST_BATCH);
-                Utils.runOnMainThread(() -> {
-                    if (entries.isEmpty()) {
-                        active = false;
-                        toast(context, text("Пока нечего предложить: полайкайте пару треков или включите источник в настройках",
-                                "Nothing to offer yet: like a few tracks or tick a source in the settings"));
-                        return;
-                    }
-                    synchronized (QUEUED) {
-                        QUEUED.addAll(entries);
-                    }
-                    persist();
-                    if (!LocalMusic.playTracks(entries)) {
-                        active = false;
-                        toast(context, text("Плеер ещё не готов", "The player is not ready yet"));
-                    }
-                });
+                List<String> entries = new WaveBuilder(new ArrayList<>()).buildQuick(QUICK_BATCH);
+                Utils.runOnMainThread(() -> play(entries));
             } catch (Exception ex) {
-                active = false;
                 Logger.printException(() -> "My Wave: could not start", ex);
-                Utils.runOnMainThread(() -> toast(context, text("Волна не включилась: проверьте интернет",
+                Utils.runOnMainThread(() -> fail(text("Волна не включилась: проверьте интернет",
                         "The wave did not start: check the connection")));
-            } finally {
-                building = false;
             }
         });
     }
 
-    public static void stop(Context context) {
+    /** Plays the first tracks, then at once looks for the rest with every source, while those play. */
+    private static void play(List<String> entries) {
+        if (entries.isEmpty()) {
+            fail(text("Пока нечего предложить: полайкайте пару треков или включите источник",
+                    "Nothing to offer yet: like a few tracks or tick a source"));
+            return;
+        }
+        synchronized (QUEUED) {
+            QUEUED.addAll(entries);
+        }
+        persist();
+        if (!LocalMusic.playTracks(entries)) {
+            fail(text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second"));
+            return;
+        }
+        building = false;
+        extend(entries.get(0));
+    }
+
+    private static void fail(String message) {
         active = false;
-        toast(context, text("Волна остановлена", "The wave is stopped"));
+        building = false;
+        problem = message;
+    }
+
+    /** What went wrong at the last start, for the tab to show; null when it went well. */
+    public static String problem() {
+        return problem;
+    }
+
+    /**
+     * Picks the first tracks of a wave ahead, off the main thread, while the tab is open, so a tap plays at once. Does
+     * nothing while a wave plays or when tracks picked a short while ago are still waiting.
+     */
+    public static void prepare() {
+        if (active || building || preparing) return;
+        if (System.currentTimeMillis() - preparedTriedAt < PREPARE_RETRY_MS) return;
+        synchronized (QUEUED) {
+            if (prepared != null && System.currentTimeMillis() - preparedAt < PREPARED_FRESH_MS) return;
+        }
+        preparing = true;
+        preparedTriedAt = System.currentTimeMillis();
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                List<String> entries = new WaveBuilder(new ArrayList<>()).buildQuick(QUICK_BATCH);
+                if (entries.isEmpty()) return;
+                synchronized (QUEUED) {
+                    prepared = entries;
+                    preparedAt = System.currentTimeMillis();
+                }
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "My Wave: nothing picked ahead: " + ex);
+            } finally {
+                preparing = false;
+            }
+        });
+    }
+
+    /** The tracks picked ahead, once, while they are fresh; null otherwise. */
+    private static List<String> takePrepared() {
+        synchronized (QUEUED) {
+            List<String> ready = prepared != null && System.currentTimeMillis() - preparedAt < PREPARED_FRESH_MS ? prepared : null;
+            prepared = null;
+            if (ready == null) return null;
+            // A track disliked or skipped since it was picked is left out.
+            List<String> kept = new ArrayList<>();
+            Set<String> disliked = TrackDislikes.getAll().keySet();
+            for (String urn : ready) if (!disliked.contains(urn) && !WaveMemory.ledger().isSkipped(urn)) kept.add(urn);
+            return kept.isEmpty() ? null : kept;
+        }
+    }
+
+    /** Asks every source for the next batch right away and puts it at the end of the queue. */
+    private static void extend(String playing) {
+        if (!active || building) return;
+        building = true;
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                Set<String> queued;
+                synchronized (QUEUED) {
+                    queued = new LinkedHashSet<>(QUEUED);
+                }
+                List<String> entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
+                Utils.runOnMainThread(() -> add(entries));
+            } catch (Exception ex) {
+                Logger.printException(() -> "My Wave: could not build the next batch", ex);
+            } finally {
+                building = false;
+            }
+        });
     }
 
     /** Called by {@code PlaybackEvents} when a new track starts. Adds the next batch if few tracks wait. */
@@ -206,7 +292,4 @@ public final class MyWave {
         }
     }
 
-    private static void toast(Context context, String message) {
-        if (context != null) Toast.makeText(context.getApplicationContext(), message, Toast.LENGTH_SHORT).show();
-    }
 }
