@@ -32,7 +32,7 @@ import app.revanced.extension.soundcloud.recommendations.ForYou;
  * Uploads by others are often titled "Artist - Title" under the uploader's name: the artist is taken from the title
  * then, the same way as for the "For you" playlist.
  */
-final class TrackTitleResolver {
+public final class TrackTitleResolver {
     private static final String TITLES = "titles";
     /**
      * Tracks the server did not return when their titles were asked for (deleted, private, blocked in
@@ -152,7 +152,7 @@ final class TrackTitleResolver {
     }
 
     /** Titles and uploaders of tracks from SoundCloud's own database, without the network. */
-    static Map<String, String[]> storedTitles(List<String> urns) {
+    public static Map<String, String[]> storedTitles(List<String> urns) {
         Map<String, String[]> found = new HashMap<>();
         Context context = Utils.getContext();
         File path = context == null ? null : context.getDatabasePath("core.db");

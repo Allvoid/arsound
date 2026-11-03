@@ -36,6 +36,21 @@ public final class MyWave {
     private MyWave() {
     }
 
+    /** How many tracks the wave has queued since it was started. */
+    public static int addedCount() {
+        synchronized (QUEUED) {
+            return QUEUED.size();
+        }
+    }
+
+    /** The last tracks the wave queued, the oldest first. */
+    public static java.util.List<String> recent(int count) {
+        synchronized (QUEUED) {
+            List<String> all = new ArrayList<>(QUEUED);
+            return new ArrayList<>(all.subList(Math.max(0, all.size() - count), all.size()));
+        }
+    }
+
     public static boolean isActive() {
         return active;
     }

@@ -26,11 +26,16 @@ import app.revanced.extension.soundcloud.shared.Dimens;
  * The card "My Wave" under the greeting of the home screen: a tap starts music that follows the taste and does not end,
  * a tap while it plays stops it. The card is in the accent of the theme; the bars on it move while the wave plays.
  */
-final class WaveCard extends LinearLayout {
+public final class WaveCard extends LinearLayout {
     private final Bars bars;
     private final TextView subtitle;
 
-    WaveCard(Context context) {
+    public WaveCard(Context context) {
+        this(context, false);
+    }
+
+    /** @param big The card of the wave screen: taller, with a bigger title. */
+    public WaveCard(Context context, boolean big) {
         super(context);
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
@@ -40,16 +45,17 @@ final class WaveCard extends LinearLayout {
                 new int[]{accent, Colors.blend(accent, Color.BLACK, 0.35f)});
         shape.setCornerRadius(Dimens.dp(context, 18));
         setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), shape, null));
-        setPadding(Dimens.dp(context, 16), Dimens.dp(context, 14), Dimens.dp(context, 16), Dimens.dp(context, 14));
+        int pad = Dimens.dp(context, big ? 22 : 14);
+        setPadding(Dimens.dp(context, 16), pad, Dimens.dp(context, 16), pad);
 
         bars = new Bars(context, onAccent);
-        addView(bars, new LayoutParams(Dimens.dp(context, 36), Dimens.dp(context, 36)));
+        addView(bars, new LayoutParams(Dimens.dp(context, big ? 56 : 36), Dimens.dp(context, big ? 56 : 36)));
 
         LinearLayout texts = new LinearLayout(context);
         texts.setOrientation(VERTICAL);
         TextView title = new TextView(context);
         title.setText(text("Моя волна", "My Wave"));
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, big ? 24 : 19);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(onAccent);
         texts.addView(title);

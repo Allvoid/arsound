@@ -33,6 +33,7 @@ final class SettingsScreens {
                 new EqualizerScreen(ui),
                 new MusicScreen(ui),
                 new RecommendationsScreen(ui),
+                new WaveScreen(ui),
                 new StatsScreen(ui),
                 new StorageScreen(ui),
                 new NetworkScreen(ui),

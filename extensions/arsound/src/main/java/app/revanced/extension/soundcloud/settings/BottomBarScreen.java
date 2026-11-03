@@ -80,6 +80,7 @@ final class BottomBarScreen extends SectionScreen {
         library.icon("library");
         library.lock();
         list.addView(library);
+        list.addView(tabRow("recs", text("Моя волна (значок в Библиотеке)", "My Wave (icon in the Library)"), BoolSettings.HIDE_WAVE_BUTTON, changed));
         list.addView(tabRow("subscription", text("Upgrade (если есть)", "Upgrade (if any)"), BoolSettings.HIDE_UPGRADE_TAB, changed));
 
         TextView searchNote = ui.createText("Body.Secondary", text(

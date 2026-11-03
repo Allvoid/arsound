@@ -103,12 +103,6 @@ public final class HomeGreeting extends LinearLayout {
         titleParams.topMargin = dp(4);
         addView(title, titleParams);
 
-        if (BoolSettings.WAVE_CARD.get()) {
-            LayoutParams cardParams = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            cardParams.topMargin = dp(14);
-            addView(new WaveCard(context), cardParams);
-        }
-
         setPadding(dp(16), dp(20), dp(16), dp(6));
     }
 

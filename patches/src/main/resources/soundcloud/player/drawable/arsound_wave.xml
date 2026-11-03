@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "My Wave" button: five bars of a wave, drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the button tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4,10L4,14M8,6.5L8,17.5M12,3.75L12,20.25M16,7.5L16,16.5M20,10.5L20,13.5"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+</vector>

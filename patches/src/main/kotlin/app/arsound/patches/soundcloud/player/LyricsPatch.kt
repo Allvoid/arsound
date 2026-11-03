@@ -52,7 +52,7 @@ private val lyricsResourcePatch = resourcePatch {
         }
         copyResources(
             "soundcloud/player",
-            ResourceGroup("drawable", "arsound_lyrics.xml", "arsound_lyrics_on.xml", "arsound_slowed.xml", "arsound_dislike.xml"),
+            ResourceGroup("drawable", "arsound_lyrics.xml", "arsound_lyrics_on.xml", "arsound_slowed.xml", "arsound_dislike.xml", "arsound_wave.xml"),
         )
         document("res/layout/player_vertical_top_bar.xml").use { document ->
             document.documentElement.appendChild(

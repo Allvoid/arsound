@@ -49,8 +49,8 @@ public final class Settings {
     }
 
     /** Bottom bar tabs the user took out (Library is never one of them). Off by default; the app restarts to apply. */
-    /** The "My Wave" card on the home screen. */
-    public static final String WAVE_CARD = "wave_card";
+    /** The "My Wave" button in the top bar of the Library, taken out by the user. */
+    public static final String HIDE_WAVE_BUTTON = "hide_wave_button";
     public static final String HIDE_TAB_HOME = "hide_tab_home";
     public static final String HIDE_TAB_FEED = "hide_tab_feed";
     public static final String HIDE_TAB_SEARCH = "hide_tab_search";

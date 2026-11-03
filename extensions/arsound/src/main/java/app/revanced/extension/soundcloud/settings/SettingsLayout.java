@@ -36,7 +36,7 @@ final class SettingsLayout {
     static List<Group> groups() {
         return Arrays.asList(
                 new Group("Главное", "Main", AppearanceScreen.ID, BottomBarScreen.ID, PlaybackScreen.ID, EqualizerScreen.ID),
-                new Group("Музыка", "Music", MusicScreen.ID, RecommendationsScreen.ID, StatsScreen.ID),
+                new Group("Музыка", "Music", MusicScreen.ID, RecommendationsScreen.ID, WaveScreen.ID, StatsScreen.ID),
                 new Group("Данные", "Data", StorageScreen.ID, NetworkScreen.ID, AccountScreen.ID),
                 new Group("Приложение", "App", AdsScreen.ID, PrivacyScreen.ID, UpdatesScreen.ID),
                 new Group(null, null, DeveloperScreen.ID));

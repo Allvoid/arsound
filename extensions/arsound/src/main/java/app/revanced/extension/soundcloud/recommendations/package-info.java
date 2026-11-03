@@ -28,11 +28,12 @@
  * (order and the never-again rules), {@code WaveSource} (SoundCloud related / Last.fm / Deezer, ticked in the settings),
  * {@code DeezerApi}, {@code WaveMemory}/{@code WaveLedger} (skipped and heard tracks, fed by {@code ListeningStats}),
  * {@code ListenVerdict} (under 15 s skipped, 45 s or most of the track heard); the broken-heart button - {@code DislikeAction}.
- * The card is {@code theme.WaveCard}, put under the greeting by {@code theme.HomeGreeting}.
+ * The screen is {@code settings.WaveScreen} (opened by the wave icon that {@code navbar.LibrarySearchButton} adds to the Library top bar,
+ * {@code settings.WaveScreenLauncher}); the big card is {@code theme.WaveCard}.
  *
  * <p>Settings: {@code duplicate_filter} and {@code merge_edited_versions} ({@code settings.Settings}),
  * {@code dislikes_enabled} ({@code TrackDislikes.ENABLED}, default on), {@code for_you_enabled} ({@code ForYou.ENABLED}).
- * {@code wave_card}, {@code wave_src_soundcloud/lastfm/deezer}. Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs},
+ * {@code hide_wave_button}, {@code wave_src_soundcloud/lastfm/deezer}. Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs},
  * {@code arsound_for_you}, {@code arsound_wave}. Screen:
  * {@code settings.RecommendationsScreen}.
  *

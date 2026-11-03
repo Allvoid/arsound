@@ -19,7 +19,7 @@ public class SettingsLayoutTest {
         for (SettingsLayout.Group group : SettingsLayout.groups()) {
             for (String id : group.sectionIds) assertTrue("«" + id + "» is in two groups", seen.add(id));
         }
-        assertEquals(14, seen.size());
+        assertEquals(15, seen.size());
     }
 
     @Test
