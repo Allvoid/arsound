@@ -360,15 +360,18 @@ final class SearchScreen {
     /**
      * Shows the top of a page (back, the big cover or avatar, the name), then loads the page content off the main
      * thread.
+     *
+     * @param picture The address of the big cover or avatar ({@link OtherSource.Pictured#heroUrl()}), not the small
+     *                one of the row, which the 168 dp picture would show as a blur.
      */
-    private <T> void loadPage(Runnable self, String title, String subtitle, String thumb, boolean round, String icon,
+    private <T> void loadPage(Runnable self, String title, String subtitle, String picture, boolean round, String icon,
                               Callable<T> load, Consumer<T> show) {
         shownPage = self;
         int current = ++generation;
         int token = ++pageToken;
         clearList();
         list.addView(backRow());
-        list.addView(hero(title, subtitle, thumb, round, icon));
+        list.addView(hero(title, subtitle, picture, round, icon));
         spinner.setVisibility(View.VISIBLE);
         SearchThreads.NETWORK.execute(() -> {
             // Replaced or left while waiting in the queue: nothing to load.
@@ -397,7 +400,7 @@ final class SearchScreen {
     }
 
     private void showArtist(OtherSource.Artist artist) {
-        loadPage(() -> showArtist(artist), artist.name, text("Исполнитель", "Artist"), artist.thumbUrl, true,
+        loadPage(() -> showArtist(artist), artist.name, text("Исполнитель", "Artist"), artist.heroUrl(), true,
                 "ic_actions_user", () -> OtherSource.artistAlbums(artist), albums -> {
                     if (albums.isEmpty()) {
                         list.addView(note(text("Альбомов не нашлось.", "No albums found.")));
@@ -410,7 +413,7 @@ final class SearchScreen {
 
     private void showAlbum(OtherSource.Album album) {
         String subtitle = album.artist.isEmpty() ? albumDetails(album) : album.artist + " · " + albumDetails(album);
-        loadPage(() -> showAlbum(album), album.title, subtitle, album.thumbUrl, false, "ic_actions_playlist",
+        loadPage(() -> showAlbum(album), album.title, subtitle, album.heroUrl(), false, "ic_actions_playlist",
                 () -> OtherSource.albumTracks(album), tracks -> {
                     if (tracks.isEmpty()) {
                         list.addView(note(text("В альбоме нет треков.", "The album has no tracks.")));
@@ -498,13 +501,13 @@ final class SearchScreen {
     }
 
     /** The top of an album or artist page: the big cover (a circle for an artist), the name and a grey line. */
-    private View hero(String title, String subtitle, String thumb, boolean round, String icon) {
+    private View hero(String title, String subtitle, String picture, boolean round, String icon) {
         LinearLayout box = new LinearLayout(context);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setPadding(look.dp(24), 0, look.dp(24), look.dp(12));
         ImageView art = look.artwork(round, icon);
-        look.load(art, thumb, SearchLook.HERO_DP);
+        look.load(art, picture, SearchLook.HERO_DP);
         box.addView(art, new LinearLayout.LayoutParams(look.dp(SearchLook.HERO_DP), look.dp(SearchLook.HERO_DP)));
         TextView name = look.title(title);
         int h2 = app.revanced.extension.shared.Utils.getResourceIdentifier(

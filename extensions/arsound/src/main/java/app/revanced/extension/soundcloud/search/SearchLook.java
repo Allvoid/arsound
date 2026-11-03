@@ -185,7 +185,11 @@ final class SearchLook {
         return view;
     }
 
-    /** Loads the picture into a view made by {@link #artwork}; it fills the square, cut to it. */
+    /**
+     * Loads the picture into a view made by {@link #artwork}; it fills the square, cut to it. The side is part of what
+     * the bitmap is kept under, so a row ({@link #ART_DP}) and the top of a page ({@link #HERO_DP}) never share one,
+     * even for one address; the big places should still be given the big address.
+     */
     void load(ImageView view, String address, int sideDp) {
         SearchCovers.load(view, address, dp(sideDp), (target, bitmap) -> {
             target.setImageTintList(null);

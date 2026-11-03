@@ -81,6 +81,8 @@ public final class OtherSource {
 
     /** The side, in pixels, the pictures of the list rows are asked for in: a 64 dp cell on a dense screen. */
     private static final int THUMB_PX = 226;
+    /** The side, in pixels, of the big cover: what the player of YouTube Music shows, and the top of an album page. */
+    private static final int COVER_PX = 544;
 
     /**
      * A picture for a row of the list: YouTube Music sizes a cover or an avatar by its address, so the smallest one
@@ -101,23 +103,29 @@ public final class OtherSource {
                 best = image;
             }
         }
-        if (best == null) return null;
-        String url = best.getUrl();
-        if (url.contains("googleusercontent.com")) return url.replaceAll("=w\\d+-h\\d+[^/]*$", "=w" + THUMB_PX + "-h" + THUMB_PX);
-        if (url.contains("ggpht.com")) return url.replaceAll("=s\\d+", "=s" + THUMB_PX);
-        return url;
+        return best == null ? null : sized(best.getUrl(), THUMB_PX);
     }
 
     /**
-     * The largest picture. YouTube Music covers are square and can be asked for in any size: 544 px
-     * is what its own player shows. Video thumbnails are 16:9 frames and stay as they are.
+     * The largest picture, for a place that shows it big: the cover kept in a downloaded file, the top of an album or
+     * an artist page. YouTube Music covers and avatars are square and can be asked for in any size: 544 px is what
+     * its own player shows. Video thumbnails are 16:9 frames and stay as they are.
      */
-    private static String coverUrl(List<Image> images) {
+    static String coverUrl(List<Image> images) {
         Image best = null;
         for (Image image : images) if (best == null || image.getHeight() > best.getHeight()) best = image;
-        if (best == null) return null;
-        String url = best.getUrl();
-        return url.contains("googleusercontent.com") ? url.replaceAll("=w\\d+-h\\d+[^/]*$", "=w544-h544") : url;
+        return best == null ? null : sized(best.getUrl(), COVER_PX);
+    }
+
+    /** The address of a cover or an avatar that Google serves in any size, asked for in the given one. Others stay as they are. */
+    private static String sized(String url, int px) {
+        String resized = url.contains("googleusercontent.com")
+                ? url.replaceAll("=w\\d+-h\\d+[^/]*$", "=w" + px + "-h" + px) : url;
+        // Avatars come as "=sN-…" both from ggpht.com and from yt3.googleusercontent.com.
+        if (resized.equals(url) && (url.contains("ggpht.com") || url.contains("googleusercontent.com"))) {
+            resized = url.replaceAll("=s\\d+", "=s" + px);
+        }
+        return resized;
     }
 
     private static synchronized StreamingService service() {
@@ -146,33 +154,50 @@ public final class OtherSource {
         return tracks;
     }
 
-    public static final class Album {
+    /**
+     * What an album and an artist share: one picture asked for twice. The row of the list shows it small, the top of
+     * the page big; the small one stretched to the top of the page would be a blur.
+     */
+    public abstract static class Pictured {
+        /** The big picture for the top of the page, or null. */
+        public final String coverUrl;
+        /** The same picture small, for the row of the list, or null. */
+        public final String thumbUrl;
+
+        Pictured(String coverUrl, String thumbUrl) {
+            this.coverUrl = coverUrl;
+            this.thumbUrl = thumbUrl;
+        }
+
+        /** The picture for the top of the page: the big one, or the small one if that is all there is. */
+        public String heroUrl() {
+            return coverUrl != null ? coverUrl : thumbUrl;
+        }
+    }
+
+    public static final class Album extends Pictured {
         public final String url;
         public final String title;
         public final String artist;
         public final long trackCount;
-        /** The cover for the row, or null. */
-        public final String thumbUrl;
 
-        Album(String url, String title, String artist, long trackCount, String thumbUrl) {
+        Album(String url, String title, String artist, long trackCount, String coverUrl, String thumbUrl) {
+            super(coverUrl, thumbUrl);
             this.url = url;
             this.title = title;
             this.artist = artist;
             this.trackCount = trackCount;
-            this.thumbUrl = thumbUrl;
         }
     }
 
-    public static final class Artist {
+    public static final class Artist extends Pictured {
         public final String url;
         public final String name;
-        /** The avatar for the row, or null. */
-        public final String thumbUrl;
 
-        Artist(String url, String name, String thumbUrl) {
+        Artist(String url, String name, String coverUrl, String thumbUrl) {
+            super(coverUrl, thumbUrl);
             this.url = url;
             this.name = name;
-            this.thumbUrl = thumbUrl;
         }
     }
 
@@ -192,7 +217,7 @@ public final class OtherSource {
         PlaylistInfoItem playlist = (PlaylistInfoItem) item;
         String artist = artistName(playlist.getUploaderName());
         return new Album(playlist.getUrl(), playlist.getName(), artist.isEmpty() ? fallbackArtist : artist,
-                playlist.getStreamCount(), thumbUrl(playlist.getThumbnails()));
+                playlist.getStreamCount(), coverUrl(playlist.getThumbnails()), thumbUrl(playlist.getThumbnails()));
     }
 
     /** Albums and singles of YouTube Music. */
@@ -208,7 +233,9 @@ public final class OtherSource {
     public static List<Artist> searchArtists(String query) throws Exception {
         List<Artist> artists = new ArrayList<>();
         for (InfoItem item : searchItems(query, YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS)) {
-            if (item instanceof ChannelInfoItem) artists.add(new Artist(item.getUrl(), item.getName(), thumbUrl(item.getThumbnails())));
+            if (item instanceof ChannelInfoItem) {
+                artists.add(new Artist(item.getUrl(), item.getName(), coverUrl(item.getThumbnails()), thumbUrl(item.getThumbnails())));
+            }
         }
         return artists;
     }
