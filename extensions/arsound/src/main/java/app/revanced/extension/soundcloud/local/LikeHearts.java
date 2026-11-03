@@ -38,6 +38,9 @@ public final class LikeHearts {
      */
     public static boolean toggle(Object urn, boolean like) {
         if (!LikeObjects.isLocal(urn)) return false;
+        // With "Imported tracks in Your likes" off the heart does nothing: the files hidden from the likes stay as the
+        // user left them. Still handled here, so nothing is written for the file.
+        if (!ImportedLikes.isActive()) return true;
         File file = LikeObjects.fileOf(urn);
         if (file != null && ImportedLikes.setLiked(file, like)) HeartRefresh.emitAgain();
         return true;
