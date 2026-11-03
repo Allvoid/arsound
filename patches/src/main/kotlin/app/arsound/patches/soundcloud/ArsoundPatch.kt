@@ -12,6 +12,7 @@ import app.arsound.patches.soundcloud.download.headerDownloadButtonPatch
 import app.arsound.patches.soundcloud.library.hideImportBannerPatch
 import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.navbar.bottomTabsPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
 import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatch
 import app.arsound.patches.soundcloud.misc.playservices.playServicesDialogPatch
@@ -94,6 +95,7 @@ val arsoundBaseGroup = arsoundGroup(
     playerBarLogPatch,
     playbackTimelinePatch,
     notificationArtworkPatch,
+    bottomTabsPatch,
     playModePatch,
     currentPlayStatePatch,
     vivoMusicCardPatch,

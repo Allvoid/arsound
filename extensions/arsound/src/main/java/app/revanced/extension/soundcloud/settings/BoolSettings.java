@@ -14,6 +14,10 @@ public final class BoolSettings {
     public static final BoolSetting HIDE_SUBSCRIPTION_OFFERS = new BoolSetting(Settings.HIDE_SUBSCRIPTION_OFFERS, true);
     /** Removes the Upgrade tab from the bottom bar. Off by default. Written at once: the app restarts right after it. */
     public static final BoolSetting HIDE_UPGRADE_TAB = new BoolSetting(Settings.HIDE_UPGRADE_TAB, false);
+    /** Takes the Home, Feed and Search tabs out of the bottom bar (Library stays). Off by default; written at once: the app restarts. */
+    public static final BoolSetting HIDE_TAB_HOME = new BoolSetting(Settings.HIDE_TAB_HOME, false, true);
+    public static final BoolSetting HIDE_TAB_FEED = new BoolSetting(Settings.HIDE_TAB_FEED, false, true);
+    public static final BoolSetting HIDE_TAB_SEARCH = new BoolSetting(Settings.HIDE_TAB_SEARCH, false, true);
     /** Checks GitHub for a newer Arsound release on every launch. On by default. */
     public static final BoolSetting UPDATE_CHECK = new BoolSetting(Settings.UPDATE_CHECK, true);
     /** Shows stored playlists before the server answers. On by default. */

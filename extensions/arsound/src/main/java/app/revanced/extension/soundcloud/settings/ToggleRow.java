@@ -33,6 +33,14 @@ final class ToggleRow extends SettingRow {
         setOnClickListener(v -> button.toggle());
     }
 
+    /** Keeps the switch as it is: the row cannot be changed and looks it. */
+    void lock() {
+        if (toggle != null) toggle.setEnabled(false);
+        setOnClickListener(null);
+        setClickable(false);
+        setAlpha(.6f);
+    }
+
     /** Moves the switch without asking the user; the listener of the row hears it as any change. */
     void setChecked(boolean checked) {
         if (toggle != null) toggle.setChecked(checked);

@@ -19,7 +19,7 @@ public class SettingsLayoutTest {
         for (SettingsLayout.Group group : SettingsLayout.groups()) {
             for (String id : group.sectionIds) assertTrue("«" + id + "» is in two groups", seen.add(id));
         }
-        assertEquals(13, seen.size());
+        assertEquals(14, seen.size());
     }
 
     @Test
@@ -33,7 +33,7 @@ public class SettingsLayoutTest {
     @Test
     public void whatPeopleChangeMostComesFirst() {
         SettingsLayout.Group first = SettingsLayout.groups().get(0);
-        assertArrayEquals(new String[]{AppearanceScreen.ID, PlaybackScreen.ID, EqualizerScreen.ID}, first.sectionIds.toArray());
+        assertArrayEquals(new String[]{AppearanceScreen.ID, BottomBarScreen.ID, PlaybackScreen.ID, EqualizerScreen.ID}, first.sectionIds.toArray());
     }
 
     @Test

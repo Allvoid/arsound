@@ -1,0 +1,60 @@
+package app.revanced.extension.soundcloud.navbar;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
+
+/**
+ * Puts the tabs of the bottom bar in the order the app is built with: the tabs that stay first, in their own order, the
+ * hidden ones after them, and the tab that comes by itself (Upgrade) at the very end. The first tab is the one the app
+ * starts on and goes back to, and a tab's position is its number everywhere in SoundCloud, so hiding a tab by moving it
+ * to the end (and hiding its button) keeps every number true. SoundCloud appends the Upgrade tab to the list once the
+ * server has answered: it stays last so that the numbers of the other tabs do not shift when it arrives. No Android in
+ * here; used by {@link BottomTabs}.
+ */
+final class TabOrder {
+    private TabOrder() {
+    }
+
+    /** Where a tab goes; the order of the constants is the order in the list. */
+    enum Placement {
+        STAYS(true), HIDDEN(false), LAST(true);
+
+        final boolean shown;
+
+        Placement(boolean shown) {
+            this.shown = shown;
+        }
+    }
+
+    /** The result of {@link #arrange}: the new order and, per place of it, whether the tab's button is shown. */
+    static final class Arranged<T> {
+        final List<T> tabs;
+        final List<Boolean> shown;
+
+        Arranged(List<T> tabs, List<Boolean> shown) {
+            this.tabs = tabs;
+            this.shown = shown;
+        }
+
+        int hiddenCount() {
+            int count = 0;
+            for (boolean tabShown : shown) if (!tabShown) count++;
+            return count;
+        }
+    }
+
+    /** The tabs in the order of {@link Placement}, each group in the order it came. The same input always gives the same output. */
+    static <T> Arranged<T> arrange(List<? extends T> tabs, Function<? super T, Placement> placement) {
+        List<T> ordered = new ArrayList<>(tabs.size());
+        List<Boolean> shown = new ArrayList<>(tabs.size());
+        for (Placement wanted : Placement.values()) {
+            for (T tab : tabs) {
+                if (placement.apply(tab) != wanted) continue;
+                ordered.add(tab);
+                shown.add(wanted.shown);
+            }
+        }
+        return new Arranged<>(ordered, shown);
+    }
+}

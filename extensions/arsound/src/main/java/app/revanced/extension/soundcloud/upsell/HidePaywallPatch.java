@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.navbar.BottomTabs;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
@@ -24,6 +25,11 @@ public final class HidePaywallPatch {
             "GoNavigationTarget", "GoPlusNavigationTarget", "ProUnlimitedNavigationTarget"));
 
     private HidePaywallPatch() {
+    }
+
+    /** Whether the tab opens the subscription shop. */
+    public static boolean isUpgradeTab(Object tab) {
+        return tab != null && UPGRADE_TABS.contains(tab.getClass().getSimpleName());
     }
 
     /**
@@ -62,24 +68,29 @@ public final class HidePaywallPatch {
     /**
      * Injection point. Called with the bottom bar tabs before the menu is built.
      *
-     * @return The tabs without the Upgrade tab if it is hidden, otherwise the original list.
+     * @return The tabs without the Upgrade tab if it is hidden and with the tabs the user took out at the end.
      */
     public static List<?> filterNavigationTabs(List<?> tabs) {
         Logger.printDebug(() -> "Bottom bar tabs before: " + names(tabs)
                 + ", hiding the Upgrade tab: " + Settings.isHideUpgradeTabEnabled());
-        if (tabs == null || !Settings.isHideUpgradeTabEnabled()) return tabs;
-
-        List<Object> filtered = new ArrayList<>(tabs.size());
-        for (Object tab : tabs) {
-            String name = tab == null ? "" : tab.getClass().getSimpleName();
-            if (UPGRADE_TABS.contains(name)) {
-                Logger.printDebug(() -> "Hiding bottom bar tab " + name);
-                continue;
+        if (tabs == null) return null;
+        List<?> kept = tabs;
+        if (Settings.isHideUpgradeTabEnabled()) {
+            List<Object> filtered = new ArrayList<>(tabs.size());
+            for (Object tab : tabs) {
+                String name = tab == null ? "" : tab.getClass().getSimpleName();
+                if (UPGRADE_TABS.contains(name)) {
+                    Logger.printDebug(() -> "Hiding bottom bar tab " + name);
+                    continue;
+                }
+                filtered.add(tab);
             }
-            filtered.add(tab);
+            kept = filtered;
         }
-        Logger.printDebug(() -> "Bottom bar tabs after: " + names(filtered));
-        return filtered;
+        // The tabs the user took out of the bar go to the end of the list, see BottomTabs.
+        List<?> arranged = BottomTabs.arrange(kept);
+        Logger.printDebug(() -> "Bottom bar tabs after: " + names(arranged));
+        return arranged;
     }
 
     /**

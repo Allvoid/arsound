@@ -48,6 +48,11 @@ public final class Settings {
         BoolSettings.HIDE_UPGRADE_TAB.set(enabled);
     }
 
+    /** Bottom bar tabs the user took out (Library is never one of them). Off by default; the app restarts to apply. */
+    public static final String HIDE_TAB_HOME = "hide_tab_home";
+    public static final String HIDE_TAB_FEED = "hide_tab_feed";
+    public static final String HIDE_TAB_SEARCH = "hide_tab_search";
+
     public static final String UPDATE_CHECK = "update_check";
 
     /** Checks GitHub for a newer Arsound release on every launch. On by default. */

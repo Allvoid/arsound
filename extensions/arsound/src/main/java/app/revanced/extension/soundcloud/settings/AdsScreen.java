@@ -68,12 +68,6 @@ final class AdsScreen extends SectionScreen {
         ).icon("subscription").brief(text("Без экрана покупки Go и Go+ и всплывающих предложений.",
                 "No Go and Go+ purchase screen or popup offers.")));
         list.addView(ui.createToggleRow(
-                text("Скрыть вкладку Upgrade", "Hide Upgrade tab"),
-                text("Убирает вкладку Upgrade из нижней панели. Применится после перезапуска.",
-                        "Removes the Upgrade tab from the bottom bar. Applies after a restart."),
-                BoolSettings.HIDE_UPGRADE_TAB
-        ).icon("subscription"));
-        list.addView(ui.createToggleRow(
                 text("Кнопки скачивания SoundCloud — через Arsound", "SoundCloud download buttons use Arsound"),
                 text("«Скачать» в меню трека, плейлиста и альбома, на странице трека, круглая кнопка над плейлистом "
                                 + "и «Понравившимися» скачивают файлы через Arsound, а не предлагают подписку Go. "
