@@ -92,9 +92,9 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `region` | значок «?» у пометки «Недоступно в вашей стране» | `RegionHint` |
 | `screenshot` | окно «Поделиться скриншотом» | `ScreenshotShare` |
 | `search` | поиск Arsound по YouTube Music под строкой поиска (не поиск настроек) | `SearchSourceSwitch`, `OtherSource` |
-| `settings` | значения настроек и все экраны настроек | `Settings`, `BoolSettings`, `SettingsScreens`, `SettingsEntry` |
+| `settings` | значения настроек и все экраны настроек; резервная копия настроек в файл | `Settings`, `BoolSettings`, `SettingsScreens`, `SettingsEntry`, `SettingsTransfer`, `TransferPlan` |
 | `settings/search` | движок поиска по настройкам, без Android | `SearchIndex` |
-| `shared` | общие помощники: язык, размеры, цвета, Reflect, Rx, диалоги | `Lang`, `Reflect`, `ArsoundDialog` |
+| `shared` | общие помощники: язык, размеры, цвета, Reflect, Rx, диалоги, строгий разбор JSON | `Lang`, `Reflect`, `ArsoundDialog`, `StrictJson` |
 | `transfer` | перенос из Яндекс Музыки: ссылка или аккаунт Яндекса → приватный плейлист SoundCloud | `TransferJob`, `YandexMusic`, `YandexLink` |
 | `theme` | темы поверх интерфейса SoundCloud, цвета, шрифты, стартовый экран | `ArsoundTheme`, `ThemeLifecycle` |
 | `theme/effect` | анимированные фоны тем (искры, звёзды, лепестки, снег) | `EffectKind`, `EffectScene` |

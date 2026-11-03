@@ -23,14 +23,14 @@
 | region | "?" badge on "not available in your country" | RegionHint |
 | screenshot | screenshot share dialog | ScreenshotShare |
 | search | YouTube Music search under search bar | SearchSourceSwitch, OtherSource |
-| settings | setting values + all screens | Settings, BoolSettings, SettingsScreens, SettingsUi |
+| settings | setting values + all screens, settings backup to a file | Settings, BoolSettings, SettingsScreens, SettingsUi, SettingsTransfer, TransferPlan |
 | settings/search | settings search engine (stems, synonyms, typos) | SearchIndex, SynonymTable |
-| shared | helpers | Lang, Reflect, ArsoundDialog |
+| shared | helpers, strict JSON reader | Lang, Reflect, ArsoundDialog, StrictJson |
 | theme | themes, colours, fonts, start screen | ArsoundTheme, ThemeLifecycle |
 | theme/effect | animated theme backgrounds | EffectKind, EffectScene |
 | update | update check + ScreenHooks registry | UpdateChecker, ScreenHooks |
 | upsell | hides subscription offers | HidePaywallPatch |
-| wallpaper | wallpaper behind main screens, Wallhaven | WallpaperSurfaces, WallpaperStore |
+| wallpaper | wallpaper behind main screens; catalogue sources Wallhaven and Wikimedia Commons; Russian search words | WallpaperSurfaces, WallpaperStore, WallpaperSource, Wallhaven, CommonsSource, SearchWords |
 | widget | widget heart colour, likes widget covers | WidgetHeart, WidgetImages |
 
 Big facades (logic lives in sibling classes): LocalAdditions, ArsoundTheme, ReVancedSettingsActivity (only picks a screen).
