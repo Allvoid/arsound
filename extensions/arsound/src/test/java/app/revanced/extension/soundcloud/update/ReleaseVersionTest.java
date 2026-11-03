@@ -40,4 +40,12 @@ public class ReleaseVersionTest {
     public void buildMetadataIsIgnoredForTheNumbers() {
         assertTrue(ReleaseVersion.compare("0.9.4+build.7", "0.9.3") > 0);
     }
+
+    @Test
+    public void aPrivateTestBuildSitsBetweenTwoPublicReleases() {
+        // The public 1.0.1 on GitHub is not offered to the private test build...
+        assertTrue(ReleaseVersion.compare("1.0.1", "1.1.0-test.1") < 0);
+        // ...and the public 1.1.0 that follows it is.
+        assertTrue(ReleaseVersion.compare("1.1.0", "1.1.0-test.1") > 0);
+    }
 }
