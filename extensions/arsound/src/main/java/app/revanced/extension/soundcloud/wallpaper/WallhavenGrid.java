@@ -15,8 +15,9 @@ import java.util.Set;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
- * The results of the Wallhaven browser for a {@link android.widget.GridView}: the list of pictures and a
- * {@link WallhavenCell} for each. The pictures are loaded and kept by a {@link ThumbnailLoader}: thumbnails first, and
+ * The results of the wallpaper catalogue for a {@link android.widget.GridView}: the list of pictures (of the source the
+ * screen shows, {@link WallpaperSource}) and a {@link WallhavenCell} for each. Nothing here depends on which source the
+ * pictures are from; an item carries its own source. The pictures are loaded and kept by a {@link ThumbnailLoader}: thumbnails first, and
  * once scrolling has settled {@link #sharpenVisible} asks for the sharp version of the cells in view.
  * <p>
  * The screen tells the grid how many columns it has and how big a cell is in pixels ({@link #setLayout}); the sharp
@@ -85,7 +86,7 @@ public final class WallhavenGrid extends BaseAdapter {
     }
 
     public void add(List<Wallhaven.Item> more) {
-        // The service can repeat a picture on the next page when the list changes meanwhile.
+        // The service can repeat a picture on the next page when the list changes meanwhile (Commons: a random order does).
         Set<String> known = new HashSet<>();
         for (Wallhaven.Item item : items) known.add(item.id);
         for (Wallhaven.Item item : more) if (known.add(item.id)) items.add(item);

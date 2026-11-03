@@ -4,24 +4,22 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.network.RegionGuard;
 import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
- * The client of Wallhaven's open API (wallhaven.cc/help/api): searching wallpapers, checking an API key and
- * downloading a picture.
+ * The client of Wallhaven's open API (wallhaven.cc/help/api): searching wallpapers and checking an API key. It is also the
+ * first {@link WallpaperSource} ({@link #SOURCE}); the second is {@link CommonsSource}. Downloads and picture reads go through
+ * {@link WallpaperHttp}, which checks the host of every address against the source that owns it.
  * <p>
  * No key is needed for safe pictures. A key, if the user has one, goes only in the {@code X-API-Key} header of calls
  * to the API itself: never in an address, never to the picture servers, never in the log. Sketchy and NSFW pictures
@@ -37,7 +35,6 @@ public final class Wallhaven {
     private static final String API = SITE + "api/v1/";
     /** 45 calls a minute are allowed; a call every 1.4 seconds stays under that. */
     private static final long REQUEST_GAP_MS = 1_400;
-    private static final int MAX_DOWNLOAD_BYTES = 80 * 1024 * 1024;
     /** An answer of the API (a page of results) is never bigger than this. */
     private static final int MAX_JSON_BYTES = 2 * 1024 * 1024;
     private static final int MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
@@ -61,8 +58,10 @@ public final class Wallhaven {
     public static final int GENERAL = 4, ANIME = 2, PEOPLE = 1;
     public static final int SFW = 4, SKETCHY = 2, NSFW = 1;
 
-    private static final Object PACE = new Object();
-    private static long lastCall;
+    private static final RequestPacer PACER = new RequestPacer(REQUEST_GAP_MS);
+
+    /** Wallhaven as a source of the catalogue: what the screen and the grid talk to. */
+    public static final WallpaperSource SOURCE = new Source();
 
     private Wallhaven() {
     }
@@ -147,6 +146,13 @@ public final class Wallhaven {
         public int adultPurity = SKETCHY | NSFW;
         /** For a random sorting: the same seed gives the following pages without repeats. */
         public String seed = "";
+        /**
+         * Commons only: the set searched ({@link CommonsRules#FEATURED} or {@link CommonsRules#QUALITY}). Saved with the
+         * last search. The words, the shape and the widening are shared by every source; the rest of this class is Wallhaven's.
+         */
+        public String commonsSet = CommonsRules.DEFAULT_SET;
+        /** Wallhaven only; set by the browser, not saved: the user chose to search without the key the service refused. */
+        public boolean withoutKey;
 
         public Query copy() {
             Query copy = new Query();
@@ -159,6 +165,8 @@ public final class Wallhaven {
             copy.widened = widened;
             copy.adultPurity = adultPurity;
             copy.seed = seed;
+            copy.commonsSet = commonsSet;
+            copy.withoutKey = withoutKey;
             return copy;
         }
 
@@ -193,7 +201,7 @@ public final class Wallhaven {
             try {
                 return new JSONObject().put("v", JSON_VERSION).put("q", text).put("sorting", sorting)
                         .put("chosen", sortingChosen).put("range", range).put("categories", categories)
-                        .put("portrait", portrait).put("adult", adultPurity).toString();
+                        .put("portrait", portrait).put("adult", adultPurity).put("set", commonsSet).toString();
             } catch (Exception ex) {
                 return "{}";
             }
@@ -217,6 +225,7 @@ public final class Wallhaven {
                 if (categories != 0) query.categories = categories;
                 query.portrait = object.optBoolean("portrait", true);
                 query.adultPurity = object.optInt("adult", SKETCHY | NSFW) & (SKETCHY | NSFW);
+                query.commonsSet = CommonsRules.validSet(object.optString("set", CommonsRules.DEFAULT_SET));
             } catch (Exception ex) {
                 // A damaged note of the last search starts the browser from its defaults.
             }
@@ -225,28 +234,49 @@ public final class Wallhaven {
         }
     }
 
-    /** One picture of the results. */
+    /**
+     * One picture of the results, of whichever source ({@link #source}). The class keeps the name from the time Wallhaven was
+     * the only source: the grid's loaders ({@code ThumbnailLoader}, {@code SharpLoader}) are written against it.
+     */
     public static final class Item {
+        /** Where the picture comes from: it knows the hosts to fetch from and the lines the preview shows. */
+        public final WallpaperSource source;
         public final String id;
         public final String purity;
         public final String resolution;
         public final String thumbnail;
         public final String fullUrl;
+        /**
+         * The size in bytes of the full file, which the grid may fetch to make a cell sharp ({@code SharpPolicy}); 0 when the
+         * source offers no such file (its thumbnail is as wide as a cell, so there is nothing to sharpen).
+         */
         public final long fileSize;
+        /** How many bytes the preview downloads: {@link #fileSize} when that is known, else an estimate, else 0. */
+        public final long previewBytes;
         public final int views;
         public final int favorites;
+        /** The address of the picture's page on the site, or an empty string. */
+        public final String pageUrl;
+        /** Who made the picture, the licence and a short description; empty for Wallhaven, which gives none. */
+        public final String author, licence, description;
 
-        Item(JSONObject json) {
-            id = json.optString("id");
-            purity = json.optString("purity", "sfw");
-            resolution = json.optString("resolution");
-            JSONObject thumbs = json.optJSONObject("thumbs");
-            // The "original" one keeps the picture's shape (the long side is 300 pixels); the others are cut to a frame.
-            thumbnail = thumbs == null ? "" : thumbs.optString("original", thumbs.optString("large"));
-            fullUrl = json.optString("path");
-            fileSize = json.optLong("file_size");
-            views = json.optInt("views");
-            favorites = json.optInt("favorites");
+        Item(WallpaperSource source, String id, String purity, String resolution, String thumbnail, String fullUrl,
+             long fileSize, long previewBytes, int views, int favorites, String pageUrl, String author, String licence,
+             String description) {
+            this.source = source;
+            this.id = id;
+            this.purity = purity;
+            this.resolution = resolution;
+            this.thumbnail = thumbnail;
+            this.fullUrl = fullUrl;
+            this.fileSize = fileSize;
+            this.previewBytes = previewBytes;
+            this.views = views;
+            this.favorites = favorites;
+            this.pageUrl = pageUrl;
+            this.author = author;
+            this.licence = licence;
+            this.description = description;
         }
 
         public boolean isSafe() {
@@ -257,37 +287,33 @@ public final class Wallhaven {
         public boolean isWide() {
             return WallhavenRules.isWide(resolution);
         }
-    }
 
-    /** One page of the results. */
-    public static final class Page {
-        public final List<Item> items = new ArrayList<>();
-        public int page;
-        public int lastPage;
-        public int total;
-        public String seed = "";
-    }
-
-    /** The API refused or could not answer. */
-    public static final class ApiException extends IOException {
-        public final int code;
-        /** For an answer 429: how many seconds the service asked to wait, else 0. */
-        public final int retryAfter;
-
-        ApiException(int code, int retryAfter) {
-            super("Wallhaven HTTP " + code);
-            this.code = code;
-            this.retryAfter = retryAfter;
+        /** What a screen reader says of the picture: its description when it has one, else its size. */
+        public String label() {
+            return description.isEmpty() ? resolution : description;
         }
+    }
+
+    /** The picture of one entry of Wallhaven's answer. */
+    private static Item parseItem(JSONObject json) {
+        String id = json.optString("id");
+        JSONObject thumbs = json.optJSONObject("thumbs");
+        // The "original" one keeps the picture's shape (the long side is 300 pixels); the others are cut to a frame.
+        String thumbnail = thumbs == null ? "" : thumbs.optString("original", thumbs.optString("large"));
+        long fileSize = json.optLong("file_size");
+        return new Item(SOURCE, id, json.optString("purity", "sfw"), json.optString("resolution"), thumbnail,
+                json.optString("path"), fileSize, fileSize, json.optInt("views"), json.optInt("favorites"), pageUrl(id),
+                "", "", "");
     }
 
     /**
      * Searches. Blocks: call it off the main thread.
      *
      * @param key The API key, or an empty string to search as a guest.
-     * @throws ApiException For an answer that is not 200: 401 for a key the service does not know, 429 for too many calls.
+     * @throws WallpaperSource.Failure For an answer that is not 200: 401 for a key the service does not know, 429 for too
+     *                                  many calls.
      */
-    public static Page search(Query query, int page, String key) throws IOException {
+    public static WallpaperSource.Page search(Query query, int page, String key) throws IOException {
         boolean adult = !key.isEmpty() && Settings.getBoolean(Settings.WALLHAVEN_ADULT, false);
         String params = WallhavenRequest.params(query.text, query.effectiveSorting(), query.range, query.categories,
                 query.purity(adult), query.seed, WallhavenRules.shape(query.portrait, query.widened), page);
@@ -295,10 +321,10 @@ public final class Wallhaven {
         String body = readText(API + "search?" + params, key);
         try {
             JSONObject json = new JSONObject(body);
-            Page result = new Page();
+            WallpaperSource.Page result = new WallpaperSource.Page();
             JSONArray data = json.optJSONArray("data");
             for (int i = 0; data != null && i < data.length(); i++) {
-                Item item = new Item(data.getJSONObject(i));
+                Item item = parseItem(data.getJSONObject(i));
                 // The addresses come from the service's answer: only its own hosts are followed.
                 if (!item.id.isEmpty() && isWallhavenHost(item.fullUrl) && isWallhavenHost(item.thumbnail)) result.items.add(item);
             }
@@ -320,51 +346,26 @@ public final class Wallhaven {
         try {
             int code = connection.getResponseCode();
             if (code != 200) {
-                int wait = 0;
-                if (code == 429) {
-                    try {
-                        wait = Integer.parseInt(connection.getHeaderField("Retry-After").trim());
-                    } catch (Exception ex) {
-                        // No wait named: the screen picks one.
-                    }
-                }
-                throw new ApiException(code, wait);
+                // No wait named for an answer 429: the screen picks one.
+                throw new WallpaperSource.Failure("Wallhaven", code, code == 429 ? WallpaperHttp.retryAfter(connection) : 0);
             }
             try (InputStream input = connection.getInputStream()) {
-                return new String(readAll(input, MAX_JSON_BYTES), "UTF-8");
+                return new String(WallpaperHttp.readAll(input, MAX_JSON_BYTES), "UTF-8");
             }
         } finally {
             connection.disconnect();
         }
     }
 
-    /** A connection to an address with the timeouts and the name the service sees; the caller reads it and disconnects. */
-    private static HttpURLConnection connect(String address, int connectMs, int readMs) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(connectMs);
-        connection.setReadTimeout(readMs);
-        connection.setRequestProperty("User-Agent", "Arsound");
-        return connection;
-    }
-
-    /** Opens a call to the API after the pause that keeps it under the limit. */
+    /**
+     * Opens a call to the API after the pause that keeps it under the limit. The key goes in a header, and only to
+     * Wallhaven's own hosts: a redirect anywhere else is refused before it is followed.
+     */
     private static HttpURLConnection open(String address, String key) throws IOException {
         RegionGuard.throwIfBlockedAnyHost();
-        synchronized (PACE) {
-            long wait = lastCall + REQUEST_GAP_MS - System.currentTimeMillis();
-            if (wait > 0) {
-                try {
-                    Thread.sleep(wait);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("Interrupted");
-                }
-            }
-            lastCall = System.currentTimeMillis();
-        }
-        HttpURLConnection connection = connect(address, 10_000, 15_000);
-        if (key != null && !key.isEmpty()) connection.setRequestProperty("X-API-Key", key);
-        return connection;
+        PACER.pause();
+        return WallpaperHttp.openFollowing(address, 10_000, 15_000, Wallhaven::isWallhavenHost,
+                key != null && !key.isEmpty() ? "X-API-Key" : null, key);
     }
 
     // endregion
@@ -382,77 +383,70 @@ public final class Wallhaven {
         }
     }
 
-    /** Reads a small picture (a thumbnail). Not counted against the API limit, so not spaced out. Blocks. */
+    /**
+     * Reads a small picture (a thumbnail) of any source. Not counted against the API limit, so not spaced out. Blocks.
+     * The name is the one the grid's loaders know it by.
+     */
     static byte[] readThumbnail(String address) throws IOException {
         return readPicture(address, MAX_THUMBNAIL_BYTES);
     }
 
     /**
-     * Reads a picture of Wallhaven into memory, up to {@code limit} bytes: a bigger one is refused, from its announced
-     * size or when it grows over the limit. Not counted against the API limit, so not spaced out. Blocks.
+     * Reads a picture of the source whose host the address is on into memory, up to {@code limit} bytes: a bigger one is
+     * refused, from its announced size or when it grows over the limit. An address that is on no source's host is refused.
+     * Not counted against the API limit, so not spaced out. Blocks.
      */
     static byte[] readPicture(String address, int limit) throws IOException {
-        if (!isWallhavenHost(address)) throw new IOException("Not a Wallhaven address");
-        RegionGuard.throwIfBlockedAnyHost();
-        HttpURLConnection connection = connect(address, 10_000, 15_000);
-        try {
-            if (connection.getResponseCode() != 200) throw new IOException("HTTP " + connection.getResponseCode());
-            if (connection.getContentLength() > limit) throw new IOException("The picture is too big");
-            try (InputStream input = connection.getInputStream()) {
-                return readAll(input, limit);
-            }
-        } finally {
-            connection.disconnect();
-        }
+        WallpaperSource owner = WallpaperSources.owning(address);
+        if (owner == null) throw new IOException("Not the address of a wallpaper source");
+        return WallpaperHttp.readPicture(owner, address, limit);
     }
 
-    /** Told how much of a picture is downloaded; the total is -1 when the server does not say. */
-    public interface Progress {
-        void onProgress(long done, long total);
-    }
+    // endregion
 
-    /**
-     * Downloads a picture into a file. Blocks: call it off the main thread.
-     *
-     * @param cancelled Set by the screen when the user gives up; the download then stops and the file is removed.
-     */
-    public static void download(String address, File target, Progress progress, AtomicBoolean cancelled) throws IOException {
-        if (!isWallhavenHost(address)) throw new IOException("Not a Wallhaven address");
-        RegionGuard.throwIfBlockedAnyHost();
-        HttpURLConnection connection = connect(address, 15_000, 30_000);
-        boolean done = false;
-        try {
-            if (connection.getResponseCode() != 200) throw new IOException("HTTP " + connection.getResponseCode());
-            long total = connection.getContentLength();
-            if (total > MAX_DOWNLOAD_BYTES) throw new IOException("The picture is too big");
-            byte[] buffer = new byte[32 * 1024];
-            long received = 0;
-            try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(target)) {
-                int count;
-                while ((count = input.read(buffer)) > 0) {
-                    if (cancelled.get()) throw new IOException("Cancelled");
-                    received += count;
-                    if (received > MAX_DOWNLOAD_BYTES) throw new IOException("The picture is too big");
-                    output.write(buffer, 0, count);
-                    if (progress != null) progress.onProgress(received, total);
-                }
-            }
-            done = true;
-        } finally {
-            connection.disconnect();
-            if (!done) target.delete();
-        }
-    }
+    // region Source
 
-    private static byte[] readAll(InputStream input, int limit) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[16 * 1024];
-        int count;
-        while ((count = input.read(buffer)) > 0) {
-            output.write(buffer, 0, count);
-            if (output.size() > limit) throw new IOException("The answer is too big");
+    /** Wallhaven as a {@link WallpaperSource}: the calls of this class under the interface the screen uses. */
+    private static final class Source implements WallpaperSource {
+        @Override
+        public String id() {
+            return "wallhaven";
         }
-        return output.toByteArray();
+
+        @Override
+        public String name() {
+            return "Wallhaven";
+        }
+
+        @Override
+        public boolean curatedOnly() {
+            return false;
+        }
+
+        @Override
+        public Page search(Query query, int page) throws IOException {
+            return Wallhaven.search(query, page, query.withoutKey ? "" : key());
+        }
+
+        @Override
+        public int activeFilters(Query query) {
+            return WallhavenRules.activeFilters(query.categories, query.portrait, adultAllowed());
+        }
+
+        @Override
+        public boolean ownsHost(String address) {
+            return isWallhavenHost(address);
+        }
+
+        @Override
+        public List<Line> lines(Item item) {
+            List<Line> lines = new ArrayList<>();
+            lines.add(new Line(Lang.text(item.views + " просмотров, " + item.favorites + " в избранном",
+                    item.views + " views, " + item.favorites + " favorites"), null));
+            lines.add(new Line(Lang.text("Источник и автор: ", "Source and author: ") + item.pageUrl.replace("https://", ""),
+                    item.pageUrl));
+            return lines;
+        }
     }
 
     // endregion

@@ -381,6 +381,11 @@ public final class Settings {
     public static final String WALLHAVEN_ADULT = "arsound_wallhaven_adult";
     /** The last search of the Wallhaven browser as JSON (wallpaper/Wallhaven.Query), so it opens where it was left. */
     public static final String WALLHAVEN_LAST = "arsound_wallhaven_last";
+    /**
+     * Which catalogue the wallpaper browser shows: {@code wallhaven} or {@code commons} (wallpaper/WallpaperSources). A
+     * plain choice of the user, so it travels with the other settings.
+     */
+    public static final String WALLPAPER_SOURCE = "arsound_wallpaper_source";
 
     public static final String HIDE_HEADER_ARTWORK = "hide_header_artwork";
     public static final String HIDE_HOME_GREETING = "hide_home_greeting";

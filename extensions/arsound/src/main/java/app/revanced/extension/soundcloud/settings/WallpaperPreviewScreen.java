@@ -35,16 +35,21 @@ import app.revanced.extension.soundcloud.wallpaper.NetworkCost;
 import app.revanced.extension.soundcloud.wallpaper.SharpPolicy;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperDownload;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperSource;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
- * The full-screen look at a Wallhaven picture before it becomes the wallpaper. The picture fills the screen the way it
- * will lie behind the app, <em>with</em> the dim and the blur the sliders at the bottom are set to, so what is seen is what
- * is got. A tap on the picture hides and shows the controls.
+ * The full-screen look at a catalogue picture (of Wallhaven or Commons) before it becomes the wallpaper. The picture
+ * fills the screen the way it will lie behind the app, <em>with</em> the dim and the blur the sliders at the bottom are
+ * set to, so what is seen is what is got. A tap on the picture hides and shows the controls.
  * <p>
- * The thumbnail is 300 pixels, so the full picture downloads while the preview is open ("Set as background" then takes
- * that same file). A file that is too big to fetch on its own (see {@link SharpPolicy}) is not fetched, and the preview
- * says so, with a button that loads it anyway.
+ * The thumbnail is small (300 or 500 pixels), so the full picture downloads while the preview is open ("Set as
+ * background" then takes that same file). A file that is too big to fetch on its own (see {@link SharpPolicy}) is not
+ * fetched, and the preview says so, with a button that loads it anyway.
+ * <p>
+ * Under the size the preview shows the lines the picture's source gives ({@link WallpaperSource#lines}): for Wallhaven
+ * the views and the link to the picture's page, for Commons the author and the licence, which open the file's
+ * description page.
  * <p>
  * Made by {@link WallhavenScreen}, which keeps it to give up the download when the screen is closed.
  */
@@ -95,7 +100,7 @@ final class WallpaperPreviewScreen {
         int longSide = Math.max(metrics.widthPixels, metrics.heightPixels);
         renderWidth = Math.min(shortSide, RENDER_WIDTH);
         renderHeight = Math.round(renderWidth * (float) longSide / shortSide);
-        download = new WallpaperDownload(ui.activity, item.fullUrl);
+        download = new WallpaperDownload(ui.activity, item.source, item.fullUrl);
     }
 
     /**
@@ -224,25 +229,33 @@ final class WallpaperPreviewScreen {
 
         LinearLayout facts = new LinearLayout(ui.activity);
         facts.setOrientation(LinearLayout.VERTICAL);
-        TextView line = whiteText(item.resolution + "  ·  " + String.format(Locale.US, "%.1f", item.fileSize / 1048576f) + " MB", 15);
-        facts.addView(line);
-        facts.addView(whiteText(text(item.views + " просмотров, " + item.favorites + " в избранном",
-                item.views + " views, " + item.favorites + " favorites"), 12));
-        TextView source = whiteText(text("Источник и автор: ", "Source and author: ") + Wallhaven.pageUrl(item.id).replace("https://", ""), 12);
-        source.setPaintFlags(source.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-        source.setPadding(0, dp(2), 0, dp(2));
-        source.setOnClickListener(v -> {
-            try {
-                ui.activity.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(Wallhaven.pageUrl(item.id))));
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "Wallhaven: no app to open the link");
-            }
-        });
-        facts.addView(source);
+        // A source that does not know the size of the file it will send gives a guess, marked with a sign.
+        String size = item.previewBytes <= 0 ? ""
+                : "  ·  " + (item.fileSize > 0 ? "" : "≈ ")
+                + String.format(Locale.US, "%.1f", item.previewBytes / 1048576f) + " MB";
+        facts.addView(whiteText(item.resolution + size, 15));
+        for (WallpaperSource.Line line : item.source.lines(item)) facts.addView(factLine(line));
         LinearLayout.LayoutParams factsParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         factsParams.leftMargin = dp(4);
         bar.addView(facts, factsParams);
         return bar;
+    }
+
+    /** A line under the size: plain text, or underlined and opening its address when tapped. */
+    private TextView factLine(WallpaperSource.Line line) {
+        TextView view = whiteText(line.text, 12);
+        String link = line.link;
+        if (link == null || !link.startsWith("https://")) return view;
+        view.setPaintFlags(view.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        view.setPadding(0, dp(2), 0, dp(2));
+        view.setOnClickListener(v -> {
+            try {
+                ui.activity.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)));
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "Wallpaper: no app to open the link");
+            }
+        });
+        return view;
     }
 
     private TextView whiteText(String value, float sp) {
@@ -301,7 +314,7 @@ final class WallpaperPreviewScreen {
         LinearLayout note = new LinearLayout(ui.activity);
         note.setOrientation(LinearLayout.VERTICAL);
         note.setPadding(ui.dimen("spacing_m"), dp(10), ui.dimen("spacing_m"), dp(4));
-        String size = String.format(Locale.US, "%.0f", item.fileSize / 1048576f);
+        String size = String.format(Locale.US, "%.0f", item.previewBytes / 1048576f);
         TextView text = ui.createText("Body.Secondary", text(
                 "Показана уменьшенная миниатюра, она мягче настоящей картинки. Полный файл " + size
                         + " МБ сам не качается, чтобы не тратить трафик.",
@@ -349,7 +362,7 @@ final class WallpaperPreviewScreen {
             try {
                 result = WallpaperStore.preview(source, renderWidth, renderHeight, strength);
             } catch (Exception | OutOfMemoryError ex) {
-                Logger.printInfo(() -> "Wallhaven: the preview could not be drawn: " + ex.getClass().getSimpleName());
+                Logger.printInfo(() -> "Wallpaper: the preview could not be drawn: " + ex.getClass().getSimpleName());
             }
             Bitmap ready = result;
             Utils.runOnMainThread(() -> {
@@ -372,7 +385,7 @@ final class WallpaperPreviewScreen {
     /** Starts the download of the full picture, if it is small enough to take without being asked; else shows the note. */
     private void startDownload() {
         boolean metered = NetworkCost.isMetered(ui.activity);
-        if (SharpPolicy.previewMayLoad(item.fileSize, metered)) {
+        if (SharpPolicy.previewMayLoad(item.previewBytes, metered)) {
             download.start();
         } else {
             fullNote.setVisibility(View.VISIBLE);
@@ -416,7 +429,7 @@ final class WallpaperPreviewScreen {
                 try {
                     full = WallpaperStore.decodeCovering(file, renderWidth, renderHeight);
                 } catch (Exception | OutOfMemoryError ex) {
-                    Logger.printInfo(() -> "Wallhaven: the preview could not be read: " + ex.getClass().getSimpleName());
+                    Logger.printInfo(() -> "Wallpaper: the preview could not be read: " + ex.getClass().getSimpleName());
                 }
             }
             Bitmap ready = full;
@@ -446,7 +459,7 @@ final class WallpaperPreviewScreen {
         ui.activity.markWallpaperSeen();
         used = true;
         // A download that failed stays failed (it does not start again), so a new one is made.
-        if (download.isFailed()) download = new WallpaperDownload(ui.activity, item.fullUrl);
+        if (download.isFailed()) download = new WallpaperDownload(ui.activity, item.source, item.fullUrl);
         fullNote.setVisibility(View.GONE);
         setBusy(text("Скачиваю…", "Downloading…"));
         bar.setIndeterminate(true);

@@ -137,7 +137,8 @@ public final class WallpaperStore {
      * Keeps a downloaded picture as the wallpaper, bakes it and switches the wallpaper on. Blocks: call it off the
      * main thread.
      *
-     * @param id The picture's id on Wallhaven, for the link to its page.
+     * @param id The picture's id on Wallhaven, for the link to its page. For a picture of another source use
+     *           {@link #install(Context, File, String, String)}, so the note that is kept names the right source.
      */
     public static boolean install(Context context, File downloaded, String id) {
         return install(context, downloaded, id, "wallhaven");
@@ -152,8 +153,15 @@ public final class WallpaperStore {
         return install(context, picture, "", "phone");
     }
 
-    /** @param source Where the picture comes from: "wallhaven", or "phone" for one the user chose on the phone. */
-    private static boolean install(Context context, File downloaded, String id, String source) {
+    /**
+     * Keeps a downloaded picture as the wallpaper, bakes it and switches the wallpaper on, and writes where it is from
+     * into {@code meta.json}. Blocks: call it off the main thread.
+     *
+     * @param id       The picture's id at its source, for the link to its page.
+     * @param sourceId Where the picture comes from: the id of a {@link WallpaperSource} ({@code "wallhaven"},
+     *                 {@code "commons"}), or {@code "phone"} for one the user chose on the phone.
+     */
+    public static boolean install(Context context, File downloaded, String id, String sourceId) {
         synchronized (WRITE) {
             File temporary = null, metaTemporary = null, bakedTemporary = null;
             try {
@@ -163,7 +171,8 @@ public final class WallpaperStore {
                 temporary = File.createTempFile(ORIGINAL + ".", ".tmp", folder);
                 if (!keepPicture(downloaded, temporary)) return false;
 
-                JSONObject meta = new JSONObject().put("id", id == null ? "" : id).put("source", source);
+                JSONObject meta = new JSONObject().put("id", id == null ? "" : id)
+                        .put("source", sourceId == null ? "" : sourceId);
                 metaTemporary = File.createTempFile(META + ".", ".tmp", folder);
                 try (FileOutputStream output = new FileOutputStream(metaTemporary)) {
                     output.write(meta.toString().getBytes("UTF-8"));

@@ -13,7 +13,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 
 /**
- * One download of a Wallhaven picture into a file of its own in the cache. The preview starts it, so the full picture
+ * One download of a wallpaper (of any {@link WallpaperSource}) into a file of its own in the cache. The preview starts it, so the full picture
  * is on its way while the user looks at it, and "Set as background" takes the same file instead of downloading
  * again. The file is not shared with any other download, so a download that was given up cannot take the file of the
  * next one away.
@@ -54,6 +54,7 @@ public final class WallpaperDownload {
     }
 
     private final File cacheFolder;
+    private final WallpaperSource source;
     private final String address;
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private Listener listener;
@@ -63,9 +64,13 @@ public final class WallpaperDownload {
     private volatile boolean finished, saved;
     private long done, total = -1;
 
-    /** @param address The full picture's address on Wallhaven. */
-    public WallpaperDownload(Context context, String address) {
+    /**
+     * @param source  The source the picture is from: only an address on its own hosts is downloaded.
+     * @param address The full picture's address.
+     */
+    public WallpaperDownload(Context context, WallpaperSource source, String address) {
         this.cacheFolder = context.getCacheDir();
+        this.source = source;
         this.address = address;
     }
 
@@ -87,7 +92,7 @@ public final class WallpaperDownload {
             boolean ok = false;
             long[] lastUpdate = {0};
             try {
-                Wallhaven.download(address, target, (received, size) -> {
+                WallpaperHttp.download(source, address, target, (received, size) -> {
                     long now = System.currentTimeMillis();
                     if (now - lastUpdate[0] < PROGRESS_STEP_MS) return;
                     lastUpdate[0] = now;
@@ -95,7 +100,7 @@ public final class WallpaperDownload {
                 }, cancelled);
                 ok = true;
             } catch (IOException ex) {
-                if (!cancelled.get()) Logger.printInfo(() -> "Wallhaven: the download failed: " + ex.getClass().getSimpleName());
+                if (!cancelled.get()) Logger.printInfo(() -> "Wallpaper: the download failed: " + ex.getClass().getSimpleName());
             }
             boolean result = ok;
             Utils.runOnMainThread(() -> finish(result));
@@ -145,13 +150,14 @@ public final class WallpaperDownload {
     /**
      * Keeps the picture as the wallpaper and removes the file. Blocks: call it off the main thread.
      *
-     * @param id The picture's id on Wallhaven, for the link to its page.
+     * @param id The picture's id at its source, for the link to its page. The source written down with it is the one this
+     *           download is of.
      */
     public boolean install(Context context, String id) {
-        File source = file();
-        if (source == null || cancelled.get()) return false;
+        File kept = file();
+        if (kept == null || cancelled.get()) return false;
         try {
-            return WallpaperStore.install(context, source, id);
+            return WallpaperStore.install(context, kept, id, source.id());
         } finally {
             discard();
             // The file is gone, so the download is not a good one any more: a retry makes a new download.

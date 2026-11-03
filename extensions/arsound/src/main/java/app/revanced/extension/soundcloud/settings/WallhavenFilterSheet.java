@@ -11,18 +11,23 @@ import android.widget.Toast;
 
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.wallpaper.CommonsRules;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenRules;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperSource;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
- * The filters of the Wallhaven browser in a bottom sheet: the categories and the shape of the pictures as chips, then,
- * for those who use them, the API key and the 18+ mode, and at the bottom a way to remove the current wallpaper. The
- * choice applies with the "Show" button; the search starts over only if something changed.
+ * The filters of the wallpaper catalogue in a bottom sheet: the shape of the pictures as chips and, for Wallhaven, the
+ * categories, then, for those who use them, the API key and the 18+ mode, and at the bottom a way to remove the current
+ * wallpaper. A source that offers only chosen sets ({@link WallpaperSource#curatedOnly}, Commons) has none of Wallhaven's
+ * extras, so the sheet leaves them out. The choice applies with the "Show" button; the search starts over only if
+ * something changed.
  */
 final class WallhavenFilterSheet {
     private final SettingsUi ui;
     private final Wallhaven.Query query;
+    private final WallpaperSource source;
     private final Runnable onChanged;
     /** Reset was tapped: the sorting goes back to the app's choice too. */
     private boolean automaticSorting;
@@ -33,9 +38,10 @@ final class WallhavenFilterSheet {
     private ToggleRow adultSwitch;
     private ThemeSheet sheet;
 
-    private WallhavenFilterSheet(SettingsUi ui, Wallhaven.Query query, Runnable onChanged) {
+    private WallhavenFilterSheet(SettingsUi ui, Wallhaven.Query query, WallpaperSource source, Runnable onChanged) {
         this.ui = ui;
         this.query = query;
+        this.source = source;
         this.onChanged = onChanged;
         categories = query.categories;
         portrait = query.portrait;
@@ -44,11 +50,12 @@ final class WallhavenFilterSheet {
 
     /**
      * @param query     The search being edited; its filters are changed in place when the user applies them.
+     * @param source    The source shown: it decides which filters the sheet has.
      * @param onChanged Called after the filters changed, to search again.
      * @param onClosed  Called when the sheet is gone, whatever was changed in it (the key and the 18+ mode count as filters).
      */
-    static void show(SettingsUi ui, Wallhaven.Query query, Runnable onChanged, Runnable onClosed) {
-        WallhavenFilterSheet filters = new WallhavenFilterSheet(ui, query, onChanged);
+    static void show(SettingsUi ui, Wallhaven.Query query, WallpaperSource source, Runnable onChanged, Runnable onClosed) {
+        WallhavenFilterSheet filters = new WallhavenFilterSheet(ui, query, source, onChanged);
         filters.sheet = new ThemeSheet(ui.activity)
                 .setTitle(text("Фильтры", "Filters"))
                 .setContent(filters.build())
@@ -62,23 +69,26 @@ final class WallhavenFilterSheet {
         LinearLayout content = ui.createColumn();
         content.setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8));
 
-        content.addView(heading(text("Категории", "Categories")));
-        String[] names = {text("Общие", "General"), text("Аниме", "Anime"), text("Люди", "People")};
-        int[] bits = {Wallhaven.GENERAL, Wallhaven.ANIME, Wallhaven.PEOPLE};
-        LinearLayout categoryRow = chipRow();
-        for (int i = 0; i < bits.length; i++) {
-            int bit = bits[i];
-            TextView[] chip = new TextView[1];
-            chip[0] = WallpaperChip.create(ui, names[i], (categories & bit) != 0, v -> {
-                int next = (categories & bit) != 0 ? categories & ~bit : categories | bit;
-                // At least one category stays on: the service answers nothing otherwise.
-                if (next == 0) return;
-                categories = next;
-                WallpaperChip.style(ui, chip[0], (categories & bit) != 0);
-            });
-            addChip(categoryRow, chip[0], i);
+        boolean wallhaven = !source.curatedOnly();
+        if (wallhaven) {
+            content.addView(heading(text("Категории", "Categories")));
+            String[] names = {text("Общие", "General"), text("Аниме", "Anime"), text("Люди", "People")};
+            int[] bits = {Wallhaven.GENERAL, Wallhaven.ANIME, Wallhaven.PEOPLE};
+            LinearLayout categoryRow = chipRow();
+            for (int i = 0; i < bits.length; i++) {
+                int bit = bits[i];
+                TextView[] chip = new TextView[1];
+                chip[0] = WallpaperChip.create(ui, names[i], (categories & bit) != 0, v -> {
+                    int next = (categories & bit) != 0 ? categories & ~bit : categories | bit;
+                    // At least one category stays on: the service answers nothing otherwise.
+                    if (next == 0) return;
+                    categories = next;
+                    WallpaperChip.style(ui, chip[0], (categories & bit) != 0);
+                });
+                addChip(categoryRow, chip[0], i);
+            }
+            content.addView(categoryRow);
         }
-        content.addView(categoryRow);
 
         content.addView(heading(text("Форма картинок", "Shape of the pictures")));
         LinearLayout shapeRow = chipRow();
@@ -97,37 +107,47 @@ final class WallhavenFilterSheet {
         addChip(shapeRow, tall, 0);
         addChip(shapeRow, wide, 1);
         content.addView(shapeRow);
-        String tallSize = WallhavenRules.size(WallhavenRules.TALL_MIN_WIDTH, WallhavenRules.TALL_MIN_HEIGHT);
+        String tallSize = wallhaven ? WallhavenRules.size(WallhavenRules.TALL_MIN_WIDTH, WallhavenRules.TALL_MIN_HEIGHT)
+                : WallhavenRules.size(CommonsRules.TALL_MIN_WIDTH, CommonsRules.TALL_MIN_HEIGHT);
         String bigWideSize = WallhavenRules.size(WallhavenRules.WIDE_FOR_PHONE_MIN_WIDTH, WallhavenRules.WIDE_FOR_PHONE_MIN_HEIGHT);
         String wideSize = WallhavenRules.size(WallhavenRules.WIDE_MIN_WIDTH, WallhavenRules.WIDE_MIN_HEIGHT);
-        TextView shapeNote = ui.createText("Body.Secondary", text(
+        TextView shapeNote = ui.createText("Body.Secondary", wallhaven ? text(
                 "Для телефона: сначала вертикальные, от " + tallSize + ". Когда они кончатся, дальше идут широкие от "
                         + bigWideSize + " с пометкой: берётся их середина. Горизонтальные: только широкие, от " + wideSize
                         + ", тоже середина.",
                 "For a phone: tall pictures first, at least " + tallSize + ". When they run out, wide ones from "
                         + bigWideSize + " follow, marked: the middle of each is used. Wide: only wide pictures, at least "
-                        + wideSize + ", the middle of them too."));
+                        + wideSize + ", the middle of them too.")
+                : text(
+                "Для телефона: сначала вертикальные, от " + tallSize + ". Когда они кончатся, дальше крупные снимки от "
+                        + bigWideSize + ", вертикальные впереди; широкие с пометкой: берётся их середина. Горизонтальные: "
+                        + "только широкие, от " + wideSize + ", тоже середина.",
+                "For a phone: tall pictures first, at least " + tallSize + ". When they run out, big pictures from "
+                        + bigWideSize + " follow, the tall ones first; wide ones are marked: the middle of each is used. Wide: "
+                        + "only wide pictures, at least " + wideSize + ", the middle of them too."));
         shapeNote.setPadding(0, ui.dp(6), 0, 0);
         content.addView(shapeNote);
 
-        adultChips = createAdultChips();
-        content.addView(adultChips);
+        if (wallhaven) {
+            adultChips = createAdultChips();
+            content.addView(adultChips);
 
-        content.addView(heading(text("Доступ к 18+", "Access to 18+")));
-        LinearLayout access = ui.createColumn();
-        // The rows bring their own side padding; the sheet's padding is taken away here.
-        LinearLayout.LayoutParams accessParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        accessParams.leftMargin = accessParams.rightMargin = -ui.dp(20) + ui.dp(4);
-        ActionRow[] keyRow = new ActionRow[1];
-        keyRow[0] = WallhavenKeyDialog.createRow(ui, () -> {
-            keyRow[0].description().setText(WallhavenKeyDialog.summary());
-            updateAdult();
-        });
-        access.addView(keyRow[0]);
-        adultSwitch = WallhavenKeyDialog.createAdultRow(ui, this::updateAdult);
-        access.addView(adultSwitch);
-        content.addView(access, accessParams);
+            content.addView(heading(text("Доступ к 18+", "Access to 18+")));
+            LinearLayout access = ui.createColumn();
+            // The rows bring their own side padding; the sheet's padding is taken away here.
+            LinearLayout.LayoutParams accessParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            accessParams.leftMargin = accessParams.rightMargin = -ui.dp(20) + ui.dp(4);
+            ActionRow[] keyRow = new ActionRow[1];
+            keyRow[0] = WallhavenKeyDialog.createRow(ui, () -> {
+                keyRow[0].description().setText(WallhavenKeyDialog.summary());
+                updateAdult();
+            });
+            access.addView(keyRow[0]);
+            adultSwitch = WallhavenKeyDialog.createAdultRow(ui, this::updateAdult);
+            access.addView(adultSwitch);
+            content.addView(access, accessParams);
+        }
 
         if (WallpaperStore.has()) {
             TextView remove = ui.createText("H4.Primary", text("Убрать текущие обои", "Remove the current wallpaper"));
@@ -143,16 +163,19 @@ final class WallhavenFilterSheet {
         buttons.setGravity(Gravity.END);
         buttons.setPadding(0, ui.dp(10), 0, ui.dp(4));
         buttons.addView(button(text("Сбросить", "Reset"), false, v -> {
-            categories = Wallhaven.GENERAL | Wallhaven.ANIME | Wallhaven.PEOPLE;
             portrait = true;
-            adultPurity = Wallhaven.SKETCHY | Wallhaven.NSFW;
-            automaticSorting = true;
+            // What only Wallhaven has is reset only while Wallhaven is shown: Commons has none of it.
+            if (wallhaven) {
+                categories = Wallhaven.GENERAL | Wallhaven.ANIME | Wallhaven.PEOPLE;
+                adultPurity = Wallhaven.SKETCHY | Wallhaven.NSFW;
+                automaticSorting = true;
+            }
             apply();
         }));
         buttons.addView(button(text("Показать", "Show"), true, v -> apply()));
         content.addView(buttons);
 
-        updateAdult();
+        if (wallhaven) updateAdult();
         return content;
     }
 
@@ -178,6 +201,7 @@ final class WallhavenFilterSheet {
 
     /** The 18+ chips and the switch follow the key and the switch. */
     private void updateAdult() {
+        if (adultChips == null || adultSwitch == null) return;
         adultChips.setVisibility(Wallhaven.adultAllowed() ? View.VISIBLE : View.GONE);
         adultSwitch.setVisibility(Wallhaven.key().isEmpty() ? View.GONE : View.VISIBLE);
         // Taking the key away switches the mode off, and the switch shows what is kept.

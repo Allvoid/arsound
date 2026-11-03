@@ -21,9 +21,10 @@ import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
- * One cell of the Wallhaven grid: the picture over a shimmering skeleton, with a small mark on pictures that are not
- * safe and another on a wide picture in a tall cell (only its middle is shown, as on the phone's screen).
- * {@link WallhavenGrid} makes the cells and tells them their size; the pictures come from a {@link ThumbnailLoader}.
+ * One cell of the catalogue grid (Wallhaven or Commons): the picture over a shimmering skeleton, with a small mark on
+ * pictures that are not safe and another on a wide picture in a tall cell (only its middle is shown, as on the phone's
+ * screen). {@link WallhavenGrid} makes the cells and tells them their size; the pictures come from a
+ * {@link ThumbnailLoader}.
  */
 final class WallhavenCell extends FrameLayout {
     /** Height of the cell as a part of its width. */
@@ -135,7 +136,7 @@ final class WallhavenCell extends FrameLayout {
         mark.setVisibility(item.isSafe() ? GONE : VISIBLE);
         // Only in a tall cell: in a cell of the wide shape the picture is shown whole enough and needs no word.
         wideMark.setVisibility(ratio > 1f && item.isWide() ? VISIBLE : GONE);
-        setContentDescription(item.resolution);
+        setContentDescription(item.label());
         Bitmap cached = thumbnails.cachedSharp(item, width, height);
         if (cached == null) cached = thumbnails.cached(item.thumbnail);
         picture.setTag(item.thumbnail);

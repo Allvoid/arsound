@@ -33,13 +33,22 @@ import java.util.List;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.network.RegionGuard;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.wallpaper.CommonsRules;
+import app.revanced.extension.soundcloud.wallpaper.SearchWords;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenGrid;
 import app.revanced.extension.soundcloud.wallpaper.WallhavenRules;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperSource;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperSources;
 
 /**
- * The Wallhaven browser: a search field, a row of chips for the sorting, a filter sheet, and an endless grid of pictures.
- * A tap opens the full-screen preview ({@link WallpaperPreviewScreen}) with "Set as background".
+ * The wallpaper catalogue: a search field, a switch between the sources (Wallhaven and Wikimedia Commons), a row of chips
+ * for the sorting (Wallhaven) or for the set (Commons: featured or quality pictures), a filter sheet, and an endless grid
+ * of pictures. A tap opens the full-screen preview ({@link WallpaperPreviewScreen}) with "Set as background".
+ * <p>
+ * The screen talks to the shown source only through {@link WallpaperSource}. What only Wallhaven has (sortings, categories,
+ * 18+, the API key) is hidden while Commons is shown. Words typed in Russian are put into English before they are sent
+ * ({@link SearchWords}), and a line under the search field says what was searched for when that changed them.
  * <p>
  * The sorting follows the app's choice until the user taps a chip ({@link Wallhaven.Query#sortingChosen}): the most saved
  * pictures for a browse, relevance for a text. A search for phone-shaped pictures lists the tall ones first; when they
@@ -61,13 +70,18 @@ final class WallhavenScreen extends SettingsScreen {
     private static final int DEFAULT_WAIT_SECONDS = 20;
     /** Scrolling must be still this long before the cells in view are made sharp. */
     private static final long SETTLE_MS = 400;
-    /** The row of chips: a chip and the space around it. */
-    private static final int HEADER_DP = WallpaperChip.HEIGHT_DP + 10;
+    /** The two rows of chips over the grid (the sources, then the sortings or the sets): a chip and its space, twice. */
+    private static final int HEADER_DP = 2 * (WallpaperChip.HEIGHT_DP + 10);
+    /** After this many pages in a row with nothing to show (Commons filters pages by shape) a stage counts as used up. */
+    private static final int MAX_EMPTY_PAGES = 4;
     private static final int GRID_GAP_DP = 8, GRID_SIDE_DP = 12;
     /** The note that wide pictures follow stays this long, then goes by itself. */
     private static final long NOTICE_MS = 8_000;
 
     private final Wallhaven.Query query;
+    /** The source shown; the switch changes it. */
+    private WallpaperSource source;
+    private final WallpaperSource[] sources = WallpaperSources.all();
     private final WallhavenGrid grid;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int accent, primary, secondary, card;
@@ -87,10 +101,20 @@ final class WallhavenScreen extends SettingsScreen {
     private TextView notice;
     private EditText field;
     private final List<TextView> sortChips = new ArrayList<>();
+    private final List<TextView> sourceChips = new ArrayList<>();
+    private final List<TextView> setChips = new ArrayList<>();
+    /** The row of the sortings (Wallhaven) and the row of the sets (Commons); one of them is shown. */
+    private View sortRow, setRow;
+    /** "Searching for: space", under the search field, when the typed words were put into English. */
+    private TextView searchedAs;
     /** The chip of the top list, which also carries its period. */
     private TextView topChip;
     /** How many pictures the grid had when the wide ones began: 0 means none of the search was tall. */
     private int tallCount;
+    /** The wide pictures began and the note about it is still to be shown, with the first page that has any. */
+    private boolean widenNoticePending;
+    /** Pages in a row that had nothing to show. */
+    private int emptyRun;
     private int columns = 3;
     private boolean headerShown = true;
     private int lastScrollPosition;
@@ -115,6 +139,7 @@ final class WallhavenScreen extends SettingsScreen {
     WallhavenScreen(SettingsUi ui) {
         super(ui);
         query = Wallhaven.Query.fromJson(Settings.getString(Settings.WALLHAVEN_LAST, ""));
+        source = WallpaperSources.chosen();
         grid = new WallhavenGrid(activity);
         accent = ArsoundTheme.palette(activity, "special");
         primary = ArsoundTheme.palette(activity, "primary");
@@ -131,6 +156,10 @@ final class WallhavenScreen extends SettingsScreen {
         app.revanced.extension.soundcloud.wallpaper.WallpaperDownload.sweepLeftovers(activity);
         LinearLayout root = ui.createRoot();
         root.addView(createTopBar());
+        searchedAs = ui.createText("Body.Secondary", "");
+        searchedAs.setPadding(dp(GRID_SIDE_DP + 4), dp(2), dp(GRID_SIDE_DP + 4), dp(4));
+        searchedAs.setVisibility(View.GONE);
+        root.addView(searchedAs);
 
         FrameLayout content = new FrameLayout(activity);
         gridView = createGrid();
@@ -152,6 +181,7 @@ final class WallhavenScreen extends SettingsScreen {
 
         applyShape();
         updateFilterBadge();
+        updateSearchedLine();
         // The keyboard stays down until the search field is tapped.
         activity.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
                 | android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -200,9 +230,13 @@ final class WallhavenScreen extends SettingsScreen {
     }
 
     private void updateFilterBadge() {
-        int count = WallhavenRules.activeFilters(query.categories, query.portrait, Wallhaven.adultAllowed());
+        int count = source.activeFilters(query);
         filterBadge.setText(String.valueOf(count));
         filterBadge.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    private String searchHint() {
+        return text("Поиск обоев на " + source.name(), "Search " + source.name());
     }
 
     /** Styled like the field of the settings search: a pill in the card colour with a thin accent edge. */
@@ -225,7 +259,7 @@ final class WallhavenScreen extends SettingsScreen {
         field.setBackground(null);
         field.setSingleLine(true);
         field.setText(query.text);
-        field.setHint(text("Поиск обоев на Wallhaven", "Search Wallhaven"));
+        field.setHint(searchHint());
         field.setHintTextColor(secondary);
         field.setTextColor(primary);
         field.setHighlightColor((accent & 0x00FFFFFF) | 0x55000000);
@@ -256,20 +290,56 @@ final class WallhavenScreen extends SettingsScreen {
     }
 
     /**
-     * One row of sorting chips over the grid, on a fade of the screen colour so the pictures under it do not fight the
-     * words. The top list's chip says its period and opens the choice of it when tapped again.
+     * Two rows of chips over the grid, on a fade of the screen colour so the pictures under it do not fight the words:
+     * the sources, then the sortings (Wallhaven) or the sets (Commons). The top list's chip says its period and opens the
+     * choice of it when tapped again.
      */
     private View createHeader() {
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int surface = ArsoundTheme.palette(activity, "surface") | 0xFF000000;
+        box.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{(surface & 0x00FFFFFF) | 0xF2000000, (surface & 0x00FFFFFF) | 0xCC000000, surface & 0x00FFFFFF}));
+        box.addView(createSourceRow());
+        sortRow = createSortRow();
+        setRow = createSetRow();
+        box.addView(sortRow);
+        box.addView(setRow);
+        showSource();
+        return box;
+    }
+
+    /** One scrolling row of chips with the room around it that the header counts on. */
+    private HorizontalScrollView chipScroll(LinearLayout row) {
         HorizontalScrollView scroll = new HorizontalScrollView(activity);
         scroll.setHorizontalScrollBarEnabled(false);
-        int surface = ArsoundTheme.palette(activity, "surface") | 0xFF000000;
-        scroll.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{(surface & 0x00FFFFFF) | 0xF2000000, (surface & 0x00FFFFFF) | 0xCC000000, surface & 0x00FFFFFF}));
-
-        LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(GRID_SIDE_DP), dp(4), dp(GRID_SIDE_DP), dp(6));
+        scroll.addView(row);
+        return scroll;
+    }
+
+    private void addChip(LinearLayout row, View chip) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.rightMargin = dp(8);
+        row.addView(chip, params);
+    }
+
+    /** The switch between the sources, saved as the user's choice. */
+    private View createSourceRow() {
+        LinearLayout row = new LinearLayout(activity);
+        for (WallpaperSource each : sources) {
+            TextView chip = WallpaperChip.create(ui, each.name(), each.id().equals(source.id()), v -> chooseSource(each));
+            sourceChips.add(chip);
+            addChip(row, chip);
+        }
+        return chipScroll(row);
+    }
+
+    private View createSortRow() {
+        LinearLayout row = new LinearLayout(activity);
         for (String sorting : Wallhaven.SORTINGS) {
             TextView chip = WallpaperChip.create(ui, sortLabel(sorting), sorting.equals(query.sorting), v -> {
                 if (Wallhaven.TOPLIST.equals(sorting) && Wallhaven.TOPLIST.equals(query.sorting)) {
@@ -283,14 +353,57 @@ final class WallhavenScreen extends SettingsScreen {
             });
             if (Wallhaven.TOPLIST.equals(sorting)) topChip = chip;
             sortChips.add(chip);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.rightMargin = dp(8);
-            row.addView(chip, params);
+            addChip(row, chip);
         }
-        scroll.addView(row);
+        HorizontalScrollView scroll = chipScroll(row);
         updateTopLabel();
         return scroll;
+    }
+
+    /** "Curated: featured / quality": the two sets of Commons. */
+    private View createSetRow() {
+        LinearLayout row = new LinearLayout(activity);
+        TextView label = ui.createText("Body.Secondary", text("Отобранные:", "Curated:"));
+        label.setSingleLine(true);
+        addChip(row, label);
+        for (String set : CommonsRules.SETS) {
+            TextView chip = WallpaperChip.create(ui, setLabel(set), set.equals(query.commonsSet), v -> chooseSet(set));
+            setChips.add(chip);
+            addChip(row, chip);
+        }
+        return chipScroll(row);
+    }
+
+    private static String setLabel(String set) {
+        return CommonsRules.FEATURED.equals(set) ? text("Избранные", "Featured") : text("Качественные", "Quality");
+    }
+
+    /** Switches to another source: the choice is kept, the rows follow, and the search starts over there. */
+    private void chooseSource(WallpaperSource next) {
+        if (next.id().equals(source.id())) return;
+        source = next;
+        WallpaperSources.choose(next);
+        showSource();
+        reload();
+    }
+
+    private void chooseSet(String set) {
+        if (set.equals(query.commonsSet)) return;
+        query.commonsSet = set;
+        styleChips(setChips, CommonsRules.SETS, set);
+        reload();
+    }
+
+    /** The chips, the rows, the hint and the filter badge show the source that is chosen. */
+    private void showSource() {
+        for (int i = 0; i < sourceChips.size(); i++) {
+            WallpaperChip.style(ui, sourceChips.get(i), sources[i].id().equals(source.id()));
+        }
+        boolean curated = source.curatedOnly();
+        sortRow.setVisibility(curated ? View.GONE : View.VISIBLE);
+        setRow.setVisibility(curated ? View.VISIBLE : View.GONE);
+        if (field != null) field.setHint(searchHint());
+        if (filterBadge != null) updateFilterBadge();
     }
 
     private static String sortLabel(String sorting) {
@@ -525,6 +638,23 @@ final class WallhavenScreen extends SettingsScreen {
 
     // region Searching
 
+    /** The typed words as the services get them: Russian words put into English, anything else as it is. */
+    private static String translated(String typed) {
+        String words = typed == null ? "" : typed.trim();
+        if (words.isEmpty()) return "";
+        String english = SearchWords.english(words);
+        return english == null || english.trim().isEmpty() ? words : english.trim();
+    }
+
+    /** Says what is searched for when that is not what was typed ("Searching for: space"). */
+    private void updateSearchedLine() {
+        String typed = query.text == null ? "" : query.text.trim();
+        String english = translated(typed);
+        boolean changed = !typed.isEmpty() && !english.equals(typed);
+        searchedAs.setText(text("Ищу: " + english, "Searching for: " + english));
+        searchedAs.setVisibility(changed ? View.VISIBLE : View.GONE);
+    }
+
     private void submitText() {
         String typed = field.getText().toString().trim();
         if (typed.equals(query.text)) return;
@@ -548,10 +678,13 @@ final class WallhavenScreen extends SettingsScreen {
         // A new search lists the tall pictures first again.
         query.widened = false;
         tallCount = 0;
+        emptyRun = 0;
+        widenNoticePending = false;
         Settings.putString(Settings.WALLHAVEN_LAST, query.toJson());
         grid.clear();
         applyShape();
         updateFilterBadge();
+        updateSearchedLine();
         lastScrollPosition = 0;
         showHeader(true);
         hideProblems();
@@ -583,23 +716,26 @@ final class WallhavenScreen extends SettingsScreen {
         loading = true;
         int mine = generation;
         Wallhaven.Query asked = query.copy();
+        // The words go to every source in English; the screen keeps what was typed.
+        asked.text = translated(query.text);
         // The key was changed in the filters since it was refused: it is tried again.
         if (guest && !Wallhaven.key().equals(guestKey)) guest = false;
-        String key = guest ? "" : Wallhaven.key();
+        asked.withoutKey = guest;
+        WallpaperSource asking = source;
         // The first page of the wide pictures comes under the tall ones that are already in the grid.
         if (number > 1 || query.widened) grid.setLoadingMore(true);
         Utils.runOnBackgroundThread(() -> {
-            Wallhaven.Page result = null;
+            WallpaperSource.Page result = null;
             IOException failure = null;
             try {
-                result = Wallhaven.search(asked, number, key);
+                result = asking.search(asked, number);
             } catch (IOException ex) {
                 failure = ex;
             } catch (Exception ex) {
                 // An answer the screen cannot read counts as a failed call.
                 failure = new IOException(ex);
             }
-            Wallhaven.Page page = result;
+            WallpaperSource.Page page = result;
             IOException error = failure;
             Utils.runOnMainThread(() -> {
                 if (mine != generation || isGone()) return;
@@ -611,9 +747,13 @@ final class WallhavenScreen extends SettingsScreen {
         });
     }
 
-    private void showPage(Wallhaven.Page result) {
+    private void showPage(WallpaperSource.Page result) {
         page = result.page;
         lastPage = result.lastPage;
+        emptyRun = result.items.isEmpty() ? emptyRun + 1 : 0;
+        // Commons keeps only the pictures of the right shape, so a page can come back with none while the next has some.
+        // After a few in a row the stage is used up, which lets the wide pictures follow.
+        if (emptyRun >= MAX_EMPTY_PAGES && page < lastPage) lastPage = page;
         if (Wallhaven.RANDOM.equals(query.effectiveSorting()) && !result.seed.isEmpty()) query.seed = result.seed;
         grid.add(result.items);
         hideProblems();
@@ -625,13 +765,16 @@ final class WallhavenScreen extends SettingsScreen {
             query.seed = "";
             page = 0;
             lastPage = 1;
+            emptyRun = 0;
+            widenNoticePending = true;
             // With nothing listed yet the spinner stays and the first wide page is asked for at once; else the grid asks
             // for it when it is scrolled near its end, like for any other page.
             if (tallCount == 0) {
                 loadPage(1);
                 return;
             }
-        } else if (query.widened && result.page == 1 && !result.items.isEmpty()) {
+        } else if (query.widened && widenNoticePending && !result.items.isEmpty()) {
+            widenNoticePending = false;
             showNotice(tallCount == 0
                     ? text("Вертикальных картинок по запросу нет. Показаны широкие с пометкой: берётся их середина.",
                     "No tall pictures for this search. Showing wide ones, marked: the middle of each is used.")
@@ -639,6 +782,11 @@ final class WallhavenScreen extends SettingsScreen {
                     "Tall pictures ran out. Wide ones follow, marked: the middle of each is used."));
         }
         if (grid.size() == 0) {
+            // The source filtered this page away but has more: the spinner stays and the next page is asked for.
+            if (page < lastPage) {
+                loadPage(page + 1);
+                return;
+            }
             showEmpty();
             return;
         }
@@ -657,17 +805,19 @@ final class WallhavenScreen extends SettingsScreen {
             hideProblems();
             paused = false;
             // The first page of the wide pictures fails over a grid that already holds the tall ones: no spinner on top.
-            if (number == 1 && grid.size() == 0) {
+            // A later page of a search whose earlier pages showed nothing (Commons) counts as the first.
+            if (grid.size() == 0) {
                 showLoading();
                 grid.setLoadingMore(true);
             }
             loadPage(number);
         };
         String message;
+        String name = source.name();
         String action = text("Повторить", "Try again");
-        if (error instanceof Wallhaven.ApiException) {
-            int code = ((Wallhaven.ApiException) error).code;
-            if (code == 401) {
+        if (error instanceof WallpaperSource.Failure) {
+            int code = ((WallpaperSource.Failure) error).code;
+            if (code == 401 && !source.curatedOnly()) {
                 // A key the service does not know is never sent again behind the user's back: the user decides.
                 message = text("Wallhaven не принял API-ключ (ошибка 401). Исправьте ключ в фильтрах каталога или ищите без него.",
                         "Wallhaven did not accept the API key (error 401). Fix the key in the catalogue Filters, or search without it.");
@@ -679,16 +829,16 @@ final class WallhavenScreen extends SettingsScreen {
                 return;
             }
             if (code == 429) {
-                int wait = ((Wallhaven.ApiException) error).retryAfter;
+                int wait = ((WallpaperSource.Failure) error).retryAfter;
                 waitAndRetry(number, wait > 0 ? Math.min(wait, 90) : DEFAULT_WAIT_SECONDS, again);
                 return;
             }
-            message = text("Wallhaven ответил ошибкой " + code + ". Попробуйте позже.", "Wallhaven answered with error " + code + ". Try later.");
+            message = text(name + " ответил ошибкой " + code + ". Попробуйте позже.", name + " answered with error " + code + ". Try later.");
         } else if (error instanceof RegionGuard.BlockedException) {
-            message = text("Сеть закрыта защитой по стране IP, поэтому Wallhaven не открыть. Настройки — раздел «Сеть».",
-                    "The network is closed by the IP country guard, so Wallhaven cannot be reached. See Settings > Network.");
+            message = text("Сеть закрыта защитой по стране IP, поэтому " + name + " не открыть. Настройки — раздел «Сеть».",
+                    "The network is closed by the IP country guard, so " + name + " cannot be reached. See Settings > Network.");
         } else {
-            message = text("Не удалось связаться с wallhaven.cc. Проверьте интернет.", "Could not reach wallhaven.cc. Check the connection.");
+            message = text("Не удалось связаться с " + name + ". Проверьте интернет.", "Could not reach " + name + ". Check the connection.");
         }
         problem(number, message, action, again);
     }
@@ -706,8 +856,9 @@ final class WallhavenScreen extends SettingsScreen {
                     again.run();
                     return;
                 }
-                problem(number, text("Wallhaven просит не частить. Повтор через " + left[0] + " с.",
-                        "Wallhaven asks to slow down. Trying again in " + left[0] + " s."),
+                String name = source.name();
+                problem(number, text(name + " просит не частить. Повтор через " + left[0] + " с.",
+                        name + " asks to slow down. Trying again in " + left[0] + " s."),
                         text("Повторить сейчас", "Try now"), () -> {
                             cancelCountdown();
                             again.run();
@@ -724,10 +875,13 @@ final class WallhavenScreen extends SettingsScreen {
         countdown = null;
     }
 
-    /** Trouble with the first page fills the screen; trouble with a later one is a pill over the pictures. */
+    /**
+     * Trouble while nothing is listed yet fills the screen; trouble with a later page is a pill over the pictures. (A
+     * page after the first can come before any picture does: Commons turns pages away by shape.)
+     */
     private void problem(int number, String message, String action, Runnable onAction) {
         paused = true;
-        if (number == 1 && grid.size() == 0) {
+        if (grid.size() == 0) {
             showMessage(message, action, onAction);
             return;
         }
@@ -740,7 +894,15 @@ final class WallhavenScreen extends SettingsScreen {
 
     /** Nothing was found, not even wide pictures: says why when the reason is the top list, which holds few pictures. */
     private void showEmpty() {
-        if (!query.text.isEmpty() && Wallhaven.TOPLIST.equals(query.effectiveSorting())) {
+        if (source.curatedOnly()) {
+            if (!query.text.isEmpty() && CommonsRules.FEATURED.equals(query.commonsSet)) {
+                // The featured pictures are few; the quality ones are many more.
+                showMessage(text("Среди избранных ничего не нашлось. Качественных картинок гораздо больше.",
+                                "No featured picture matches. There are many more quality ones."),
+                        text("Искать среди качественных", "Search the quality pictures"), () -> chooseSet(CommonsRules.QUALITY));
+                return;
+            }
+        } else if (!query.text.isEmpty() && Wallhaven.TOPLIST.equals(query.effectiveSorting())) {
             // The top list of a period is only what was popular then; a text is better looked for by relevance.
             showMessage(text("В топе за этот период таких картинок нет. Поиск по релевантности найдёт больше.",
                             "The top list of this period has none like that. Searching by relevance finds more."),
@@ -822,7 +984,7 @@ final class WallhavenScreen extends SettingsScreen {
     // region Filters and preview
 
     private void showFilters() {
-        WallhavenFilterSheet.show(ui, query, () -> {
+        WallhavenFilterSheet.show(ui, query, source, () -> {
             // Reset may give the sorting back to the app: the chips follow.
             showSorting();
             reload();

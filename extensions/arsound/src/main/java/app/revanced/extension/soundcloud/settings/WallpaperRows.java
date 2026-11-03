@@ -35,8 +35,9 @@ import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 /**
  * The wallpaper rows of the appearance screen: the switch, then a small phone with the whole picture as it lies behind
  * the screens next to the dim and the blur sliders, the look of the top bar over the picture (small phones to choose
- * from, {@link TopBarPreview}), and the buttons that choose another picture or remove it. The
- * Wallhaven key and the 18+ switch are not here: they moved into the filters of the catalogue
+ * from, {@link TopBarPreview}), and the buttons that choose another picture or remove it. The catalogue behind the
+ * first button has two sources, Wallhaven and Wikimedia Commons, which its own screen switches ({@link WallhavenScreen}).
+ * The Wallhaven key and the 18+ switch are not here: they moved into the filters of the catalogue
  * ({@link WallhavenFilterSheet}), where they are used.
  */
 final class WallpaperRows {
@@ -57,13 +58,19 @@ final class WallpaperRows {
      */
     void addTo(LinearLayout list) {
         // The search finds the whole group by these words, which the rows do not all say.
-        ui.recordForSearch(text("Обои", "Wallpaper"), text("Фон приложения: картинка, Wallhaven, затемнение, размытие, ключ API, 18+",
-                "App background picture: Wallhaven, dim, blur, API key, 18+"));
+        ui.recordForSearch(text("Обои", "Wallpaper"), text("Фон приложения: картинка, Wallhaven, Wikimedia Commons, Викисклад, "
+                        + "затемнение, размытие, ключ API, 18+",
+                "App background picture: Wallhaven, Wikimedia Commons, dim, blur, API key, 18+"));
         ui.recordForSearch(text("API-ключ Wallhaven", "Wallhaven API key"), text("Нужен только для картинок 18+", "Needed for 18+ pictures only"));
         ui.recordForSearch(text("Показывать 18+", "Show 18+"), text("Картинки Sketchy и NSFW в каталоге Wallhaven", "Sketchy and NSFW pictures in the Wallhaven catalogue"));
         ui.recordForSearch(text("Обои Wallhaven", "Wallhaven wallpapers"),
                 text("Каталог wallhaven.cc: поиск, популярное, случайные. Нужен интернет.",
                         "The wallhaven.cc catalogue: search, popular, random. Needs the internet."));
+        ui.recordForSearch(text("Обои Wikimedia Commons", "Wikimedia Commons wallpapers"),
+                text("Бесплатные фото Викисклада: избранные и качественные, поиск по-русски и по-английски, без регистрации. "
+                                + "Нужен интернет.",
+                        "Free photos of Wikimedia Commons: featured and quality pictures, search in Russian or English, "
+                                + "nothing to register. Needs the internet."));
         list.addView(ui.createSubHeading(text("Обои", "Wallpaper")));
         boolean chosen = WallpaperStore.has();
 
@@ -103,8 +110,9 @@ final class WallpaperRows {
             ui.recordForSearch(text("Затемнение обоев", "Wallpaper dim"), "");
             ui.recordForSearch(text("Размытие обоев", "Wallpaper blur"), "");
             TextView empty = ui.createText("Body.Secondary", text(
-                    "Обои не выбраны. Каталог Wallhaven: поиск, популярное, случайные. Нужен интернет.",
-                    "No wallpaper yet. The Wallhaven catalogue: search, popular, random. Needs the internet."));
+                    "Обои не выбраны. Каталоги Wallhaven и Wikimedia Commons: поиск, популярное, случайные. Нужен интернет.",
+                    "No wallpaper yet. The Wallhaven and Wikimedia Commons catalogues: search, popular, random. "
+                            + "Needs the internet."));
             empty.setPadding(ui.dimen("spacing_m"), ui.dp(4), ui.dimen("spacing_m"), ui.dp(4));
             list.addView(empty);
         }
@@ -259,15 +267,16 @@ final class WallpaperRows {
     }
 
     /**
-     * Where the picture comes from and how it goes: the Wallhaven catalogue, a picture from the phone's gallery, and
+     * Where the picture comes from and how it goes: the catalogue (Wallhaven or Commons), a picture from the phone's gallery, and
      * (with a picture chosen) removing it. Rows of their own that say what they do: the two bare buttons "Change" and
      * "Remove" did not say what they changed or removed.
      */
     private void addButtons(LinearLayout list, boolean chosen) {
         list.addView(ui.createActionRow(
-                chosen ? text("Другие обои из Wallhaven", "Other wallpaper from Wallhaven")
-                        : text("Обои из каталога Wallhaven", "Wallpaper from the Wallhaven catalogue"),
-                text("Поиск, популярное, случайные картинки. Нужен интернет.", "Search, popular and random pictures. Needs the internet."),
+                chosen ? text("Другие обои из каталога", "Other wallpaper from the catalogue")
+                        : text("Обои из каталога", "Wallpaper from the catalogue"),
+                text("Wallhaven и Wikimedia Commons: поиск, популярное, случайные картинки. Нужен интернет.",
+                        "Wallhaven and Wikimedia Commons: search, popular and random pictures. Needs the internet."),
                 v -> activity.startActivity(ui.screenIntent(WallhavenScreen.ID))).icon("wallpaper").chevron());
         list.addView(ui.createActionRow(
                 text("Своя картинка из галереи", "Your own picture from the gallery"),
@@ -307,7 +316,7 @@ final class WallpaperRows {
     static final int REQUEST_OWN_PICTURE = 7101;
 
     /**
-     * The picture the user picked: copied into the cache, kept as the wallpaper the same way a Wallhaven picture is
+     * The picture the user picked: copied into the cache, kept as the wallpaper the same way a catalogue picture is
      * (an odd file is refused with a message), then the screen is built again with it.
      */
     static void onPicturePicked(ReVancedSettingsActivity activity, Uri picture) {
