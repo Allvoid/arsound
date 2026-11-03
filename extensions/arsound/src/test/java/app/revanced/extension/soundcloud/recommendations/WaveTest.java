@@ -329,4 +329,17 @@ public class WaveTest {
         assertEquals(20, MyWave.windowStart(28, 30, 2, 10));
         assertEquals(0, MyWave.windowStart(3, 6, 2, 10));
     }
+
+    @Test
+    public void aSkippedTrackRestsAFewDaysAndThenMayComeAgain() {
+        WaveLedger ledger = new WaveLedger();
+        long skippedAt = 1_000_000L;
+        ledger.record("soundcloud:tracks:1", ListenVerdict.SKIPPED, skippedAt);
+        assertTrue(ledger.isResting("soundcloud:tracks:1", skippedAt + WaveLedger.SKIP_REST_MS - 1));
+        assertEquals(Collections.singletonList("soundcloud:tracks:1"), ledger.resting(skippedAt + 1));
+        assertFalse(ledger.isResting("soundcloud:tracks:1", skippedAt + WaveLedger.SKIP_REST_MS));
+        assertTrue(ledger.resting(skippedAt + WaveLedger.SKIP_REST_MS).isEmpty());
+        // Still not a seed: it was skipped, only no longer kept away.
+        assertTrue(ledger.isSkipped("soundcloud:tracks:1"));
+    }
 }

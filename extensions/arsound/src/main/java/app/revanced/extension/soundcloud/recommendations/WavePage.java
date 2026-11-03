@@ -15,6 +15,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
+import android.util.TypedValue;
+import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -34,6 +36,8 @@ import app.revanced.extension.soundcloud.player.CurrentPlayState;
 import app.revanced.extension.soundcloud.player.MediaKeys;
 import app.revanced.extension.soundcloud.player.TrackTitleResolver;
 import app.revanced.extension.soundcloud.settings.WaveScreenLauncher;
+import app.revanced.extension.soundcloud.settings.Settings;
+import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.Colors;
 import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
@@ -50,8 +54,10 @@ import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
  */
 public final class WavePage extends Fragment {
     /** How many tracks the list shows, and how many of them played before the one playing now. */
-    private static final int RECENT = 10;
+    private static final int RECENT = 15;
     private static final int BEFORE = 2;
+    /** The line about how the wave works was hidden with "Do not show again". */
+    private static final String NOTE_HIDDEN = "wave_note_hidden";
     private static final long TICK_MS = 2000;
 
     private WaveOrb orb;
@@ -134,14 +140,12 @@ public final class WavePage extends Fragment {
         history.setOrientation(LinearLayout.VERTICAL);
         column.addView(history, matchWidth());
 
-        TextView note = label(context, "Body.Secondary", text(
-                "Волна учится на ваших лайках и треках, дослушанных хотя бы 45 секунд. Пропущенные в первые 15 секунд "
-                        + "и «Не нравится» больше не предлагаются.",
-                "The wave learns from your likes and the tracks heard at least 45 seconds. Tracks skipped in the first "
-                        + "15 seconds and \"Not for me\" are never offered again."));
-        LinearLayout.LayoutParams noteParams = matchWidth();
-        noteParams.topMargin = Dimens.dp(context, 12);
-        column.addView(note, noteParams);
+        if (!Settings.getBoolean(NOTE_HIDDEN, false)) {
+            View note = note(context);
+            LinearLayout.LayoutParams noteParams = matchWidth();
+            noteParams.topMargin = Dimens.dp(context, 12);
+            column.addView(note, noteParams);
+        }
 
         update();
 
@@ -336,16 +340,30 @@ public final class WavePage extends Fragment {
             history.addView(none);
             return;
         }
-        for (String urn : urns) history.addView(historyRow(context, tracks.get(urn), urn.equals(playing)));
+        for (String urn : urns) {
+            View row = historyRow(context, tracks.get(urn), urn.equals(playing));
+            // A tap plays the wave from this track, the ones after it following, as in a playlist.
+            row.setOnClickListener(v -> {
+                MyWave.playFrom(urn);
+                expected = Boolean.TRUE;
+                expectedUntil = android.os.SystemClock.uptimeMillis() + 1500;
+                update();
+            });
+            history.addView(row);
+        }
         // A track neither SoundCloud nor its API gave (no connection, say) is looked for again a little later.
         if (!tracks.keySet().containsAll(urns) && retriesLeft-- > 0) retryIn = RETRY_TICKS;
     }
 
-    /** A row of the list: the cover, the title and the uploader; the track playing now has its title in the accent. */
+    /** A row of the list: the cover, the title and the artist; the track playing now has its title in the accent. */
     private View historyRow(Context context, String[] track, boolean playing) {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        // Only a ripple under the finger: no plate over the wallpaper.
+        row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22FFFFFF), null,
+                rounded(0xFFFFFFFF, Dimens.dp(context, 10))));
+        row.setClickable(true);
         // The rows lie straight on the page, like SoundCloud's track lists, with no card under them.
         row.setPadding(0, Dimens.dp(context, 8), 0, Dimens.dp(context, 8));
 
@@ -436,6 +454,95 @@ public final class WavePage extends Fragment {
         if (orb == null || !resumed || isHidden()) return;
         update();
         orb.postDelayed(tick, TICK_MS);
+    }
+
+    /** The short line at the end of the page: a tap opens how the wave works, where it can be hidden for good. */
+    private View note(Context context) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, Dimens.dp(context, 8), 0, Dimens.dp(context, 8));
+        TextView line = label(context, "Body.Secondary", text("Как волна подбирает треки", "How the wave picks tracks"));
+        row.addView(line, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView mark = label(context, "Body.Secondary", "?");
+        mark.setGravity(Gravity.CENTER);
+        mark.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setStroke(Dimens.dp(context, 1), mark.getCurrentTextColor());
+        mark.setBackground(circle);
+        int size = Dimens.dp(context, 22);
+        row.addView(mark, new LinearLayout.LayoutParams(size, size));
+        row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22FFFFFF), null,
+                rounded(0xFFFFFFFF, Dimens.dp(context, 10))));
+        row.setContentDescription(text("Как волна подбирает треки, подробнее", "How the wave picks tracks, more"));
+        row.setOnClickListener(v -> explain(context, row));
+        return row;
+    }
+
+    /** How the wave works, with "Do not show again", which takes the line off the page. */
+    private void explain(Context context, View note) {
+        int accent = ArsoundTheme.palette(context, "special");
+        int primary = ArsoundTheme.palette(context, "primary");
+        int secondary = ArsoundTheme.palette(context, "secondary");
+        int count = MyWave.addedCount();
+        LinearLayout content = new LinearLayout(context);
+        content.setTag(ArsoundDialog.KEEP_COLORS);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(Dimens.dp(context, 24), 0, Dimens.dp(context, 24), Dimens.dp(context, 4));
+        content.addView(paragraph(context, primary, text(
+                "Волна подбирает треки по вашим лайкам и трекам, дослушанным хотя бы 45 секунд.",
+                "The wave picks tracks by your likes and the tracks heard at least 45 seconds.")));
+        content.addView(paragraph(context, secondary, text(
+                "Она наполняется постепенно, пока вы слушаете: сначала несколько треков, потом следующие — когда впереди "
+                        + "остаётся шесть, волна сама добавляет новые. Поэтому сейчас в ней " + count + " "
+                        + tracksWord(count) + ", дальше будет больше: она не кончается.",
+                "It fills up gradually as you listen: a few tracks first, then more — when six are left ahead, the wave "
+                        + "adds new ones by itself. So now it holds " + count + " tracks, and there will be more: it does "
+                        + "not end.")));
+        content.addView(paragraph(context, secondary, text(
+                "«Не нравится» убирает трек навсегда. Трек, пропущенный в первые 15 секунд, не считается неудачным: "
+                        + "он отдохнёт три дня и потом может вернуться.",
+                "\"Not for me\" removes a track for good. A track skipped in the first 15 seconds does not count as a "
+                        + "miss: it rests three days and may come back after that.")));
+        content.addView(paragraph(context, secondary, text(
+                "Нажмите на трек в списке — волна заиграет с него.",
+                "Tap a track in the list and the wave plays from it.")));
+
+        CheckBox box = new CheckBox(context);
+        box.setText(text("Больше не показывать", "Do not show again"));
+        box.setTextColor(secondary);
+        box.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        box.setButtonTintList(ColorStateList.valueOf(accent));
+
+        new ArsoundDialog(context)
+                .setTitle(text("Как работает волна", "How the wave works"))
+                .setView(content)
+                .setButtonsStart(box)
+                .setPositiveButton(text("Понятно", "Got it"), (dialog, which) -> {
+                    if (!box.isChecked()) return;
+                    Settings.putBoolean(NOTE_HIDDEN, true);
+                    if (note.getParent() instanceof ViewGroup) ((ViewGroup) note.getParent()).removeView(note);
+                })
+                .show();
+    }
+
+    /** "трек", "трека" or "треков" for the number. */
+    private static String tracksWord(int count) {
+        int tens = count % 100, ones = count % 10;
+        if (tens >= 11 && tens <= 14) return "треков";
+        if (ones == 1) return "трек";
+        if (ones >= 2 && ones <= 4) return "трека";
+        return "треков";
+    }
+
+    private static TextView paragraph(Context context, int color, CharSequence value) {
+        TextView view = new TextView(context);
+        view.setText(value);
+        view.setTextColor(color);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        view.setPadding(0, Dimens.dp(context, 6), 0, Dimens.dp(context, 6));
+        return view;
     }
 
     private static TextView label(Context context, String style, String value) {

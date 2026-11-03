@@ -7,8 +7,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * What the player learned about the taste: the tracks switched off in the first seconds (never offered again, no seed)
- * and the tracks heard to a good length (seeds of the wave). Newest last, each kept for a limited time and in a limited
+ * What the player learned about the taste: the tracks switched off in the first seconds (no seed, and they rest for a
+ * few days before the wave may offer them again: a skip may only mean "not now") and the tracks heard to a good length
+ * (seeds of the wave). Newest last, each kept for a limited time and in a limited
  * number, so the lists do not grow for ever. Written as one line of text so it fits a preference. No Android here, so it
  * can be tested on the JVM.
  */
@@ -18,6 +19,11 @@ final class WaveLedger {
     /** A skip is forgotten after this long: a track disliked for a mood is not lost for good (a dislike is for good). */
     static final long SKIP_KEPT_MS = 90L * 24 * 3600 * 1000;
     static final long HEARD_KEPT_MS = 60L * 24 * 3600 * 1000;
+    /**
+     * How long a skipped track is not offered. Switching a track off in its first seconds may mean "not now" as well as
+     * "not for me", so it comes back after a rest; "Not for me" is the button for good.
+     */
+    static final long SKIP_REST_MS = 3L * 24 * 3600 * 1000;
 
     private final Map<String, Long> skipped = new LinkedHashMap<>();
     private final Map<String, Long> heard = new LinkedHashMap<>();
@@ -65,6 +71,19 @@ final class WaveLedger {
 
     synchronized boolean isSkipped(String urn) {
         return skipped.containsKey(urn);
+    }
+
+    /** Whether the track was skipped less than {@link #SKIP_REST_MS} ago: the wave does not offer it now. */
+    synchronized boolean isResting(String urn, long now) {
+        Long time = skipped.get(urn);
+        return time != null && now - time < SKIP_REST_MS;
+    }
+
+    /** The tracks skipped less than {@link #SKIP_REST_MS} ago. */
+    synchronized List<String> resting(long now) {
+        List<String> urns = new ArrayList<>();
+        for (Map.Entry<String, Long> entry : skipped.entrySet()) if (now - entry.getValue() < SKIP_REST_MS) urns.add(entry.getKey());
+        return urns;
     }
 
     /** {@code s<urn>=<time>} and {@code h<urn>=<time>} items, separated by spaces. */

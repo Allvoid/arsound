@@ -113,11 +113,11 @@ final class WaveScreen extends SectionScreen {
     private static String remembered() {
         return text("Запомнено: пропущенных " + WaveMemory.skippedCount() + ", дослушанных " + WaveMemory.heardCount()
                         + ". Образцы волны — ваши лайки и треки, дослушанные хотя бы 45 секунд; трек, пропущенный в первые "
-                        + "15 секунд, и «Не нравится» больше не предлагаются. Сброс начнёт с чистого листа, лайки и "
+                        + "15 секунд, отдыхает три дня, «Не нравится» не предлагается никогда. Сброс начнёт с чистого листа, лайки и "
                         + "«Не нравится» не меняются.",
                 "Remembered: " + WaveMemory.skippedCount() + " skipped, " + WaveMemory.heardCount()
                         + " heard. The wave's seeds are your likes and the tracks heard at least 45 seconds; a track skipped "
-                        + "in the first 15 seconds and \"Not for me\" are never offered again. Forgetting starts afresh; "
+                        + "in the first 15 seconds rests three days, \"Not for me\" never comes again. Forgetting starts afresh; "
                         + "likes and \"Not for me\" stay as they are.");
     }
 }

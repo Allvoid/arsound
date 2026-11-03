@@ -70,7 +70,8 @@ final class WaveBuilder {
     private List<String> build(String playing, int count, List<WaveSource> sources, int seeds) throws Exception {
         WaveLedger ledger = WaveMemory.ledger();
         Set<String> disliked = new HashSet<>(TrackDislikes.getAll().keySet());
-        Set<String> never = new HashSet<>(ledger.skipped());
+        // A skipped track rests a few days and then may come again; a disliked one never does.
+        Set<String> never = new HashSet<>(ledger.resting(System.currentTimeMillis()));
         never.addAll(disliked);
         never.addAll(alreadyQueued);
         if (playing != null) never.add(playing);

@@ -17,14 +17,17 @@ import app.revanced.extension.soundcloud.local.LocalMusic;
 /**
  * "My Wave": a queue that follows the person's taste and does not end. It starts from the likes and what was heard to a
  * good length; when only a few tracks are left in the queue, the next batch is asked from the sources the person ticked
- * and added at the end, so the music goes on without a pause. A track queued once is never queued again in this wave,
- * and neither are the tracks skipped in the first seconds or disliked ({@link WaveBuilder}, {@link WaveMixer}).
+ * and added at the end, so the music goes on without a pause. A track queued once is never queued again in this wave;
+ * a disliked one never comes, a skipped one rests a few days ({@link WaveLedger}, {@link WaveBuilder}, {@link WaveMixer}).
  * <p>
  * The wave is on while the playing track is one it queued: when the person plays something else the wave lets go.
  */
 public final class MyWave {
-    /** The wave asks for more when this many tracks or fewer wait in the queue. */
-    private static final int REFILL_AT = 4;
+    /**
+     * The wave asks for more when this many tracks or fewer wait in the queue: a batch takes some ten seconds to find,
+     * so it is asked for well before the last track.
+     */
+    private static final int REFILL_AT = 6;
     /** The first tracks, from the fastest source; every source joins with the batch asked for right after. */
     private static final int QUICK_BATCH = 8;
     /** Tracks picked ahead while the tab is open are played if the tap comes within this long. */
@@ -214,7 +217,7 @@ public final class MyWave {
             // A track disliked or skipped since it was picked is left out.
             List<String> kept = new ArrayList<>();
             Set<String> disliked = TrackDislikes.getAll().keySet();
-            for (String urn : ready) if (!disliked.contains(urn) && !WaveMemory.ledger().isSkipped(urn)) kept.add(urn);
+            for (String urn : ready) if (!disliked.contains(urn) && !WaveMemory.ledger().isResting(urn, System.currentTimeMillis())) kept.add(urn);
             return kept.isEmpty() ? null : kept;
         }
     }
@@ -259,7 +262,9 @@ public final class MyWave {
     private static void refillIfLow(String playing) {
         if (!active || building) return;
         int waiting = AutoplayQueue.upcomingCount();
-        if (waiting < 0 || waiting > REFILL_AT) return;
+        // When the player's queue cannot be read, the wave counts its own tracks after the playing one.
+        if (waiting < 0) waiting = ownUpcoming(playing);
+        if (waiting > REFILL_AT) return;
         building = true;
         Utils.runOnBackgroundThread(() -> {
             try {
@@ -275,6 +280,42 @@ public final class MyWave {
                 building = false;
             }
         });
+    }
+
+    /** How many of the wave's tracks come after the given one, by the wave's own list. */
+    private static int ownUpcoming(String playing) {
+        synchronized (QUEUED) {
+            List<String> all = new ArrayList<>(QUEUED);
+            int at = all.indexOf(playing);
+            return at < 0 ? 0 : all.size() - at - 1;
+        }
+    }
+
+    /**
+     * Plays the wave from one of its tracks, the ones after it following, as a tap in a playlist does. A wave that is
+     * over (the last one, kept on the phone) goes on from there: it is on again and looks for more as it plays.
+     */
+    public static void playFrom(String urn) {
+        restore();
+        List<String> from;
+        synchronized (QUEUED) {
+            List<String> all = new ArrayList<>(QUEUED);
+            int at = all.indexOf(urn);
+            if (at < 0) return;
+            from = new ArrayList<>(all.subList(at, all.size()));
+        }
+        if (building) return;
+        boolean wasActive = active;
+        active = true;
+        problem = null;
+        if (!LocalMusic.playTracks(from)) {
+            active = wasActive;
+            problem = text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second");
+            return;
+        }
+        current = urn;
+        persist();
+        if (from.size() - 1 <= REFILL_AT) extend(urn);
     }
 
     /** Adds a batch at the end of the queue. */
