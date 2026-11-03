@@ -55,6 +55,10 @@ local/                            Локальные файлы, в Git не п�
 | **Custom app name**, **Arsound branding** | Название, иконки (и 93 варианта иконки на выбор), анимации запуска и загрузки, логотипы и заглушка обложки. |
 | **Change package name** | Патч ReVanced: пакет `com.arsound.app` (до 0.9.3 включительно был `com.soundcloud.android.revanced`). |
 
+**Нижняя панель** (`navbar`, `BottomTabsPatch.kt`): убранная вкладка не вырезается, а уходит в конец списка вкладок (`TabOrder`: сначала остающиеся, потом убранные, вкладка Upgrade всегда последней) и скрывается её кнопка: номер вкладки в SoundCloud — её место в списке, так номера остаются верными, а первая видимая вкладка становится стартовой и «домашней» для кнопки «назад». Список оборачивается там, где его отдаёт `NavigationTargetsProvider.a()` и где `MainNavigationPresenter.a(...)` получает обновлённый список; кнопки скрываются в конце `MainNavigationView.setupMenuItems`; в `LibraryFragment.onPrepareOptionsMenu` добавляется кнопка поиска.
+
+**Моя волна** (`recommendations/MyWave`): первая партия строится в фоне (`WaveBuilder`: образцы — играющий трек, лайки, дослушанные; источники — `WaveSource`) и играет через `LocalMusic.playTracks`; следующая добавляется в конец очереди методом «Играть последним» (`PlayQueueManager.o`) на `PlaybackEvents.onPlay`, когда после играющего остаётся не больше четырёх треков; пока волна играет, автовоспроизведение SoundCloud ничего не добавляет (`DuplicateFilter.filterAutoplay`). Пропуски и дослушивания пишет `ListeningStats` в `WaveMemory`.
+
 ### Как устроен код расширения
 
 Пакеты в `extensions/arsound/src/main/java/app/revanced/extension/soundcloud/` повторяют функции: `settings`,
@@ -81,9 +85,10 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `network` | свой DNS, блокировка по стране IP, значок сети, вопрос перед DataDome, общие обложки | `NetworkPatch`, `RegionGuard` |
 | `offline` | сохранённое показывается сразу, скачанное играет из файла, повтор при сбое сети | `OfflineFirstPatch`, `InstantFilePlayback` |
 | `permissions` | приветствие при первом запуске, объяснение разрешений, переключатель языка (имя историческое) | `WelcomePermissions` |
-| `player` | эквалайзер, таймер сна, кнопка режима воспроизведения, статистика, кэш потока, обложка уведомления, плеер vivo, плавный переход, загрузка следующего трека, всплывающие комментарии | `AudioEqualizer`, `SleepTimer`, `PlayModeButton`, `PlaybackEvents` |
+| `navbar` | вкладки нижней панели (убрать «Главная», «Лента», «Поиск»; Библиотека остаётся), кнопка поиска в Библиотеке | `BottomTabs`, `TabOrder`, `LibrarySearchButton` |
+| `player` | эквалайзер, версии трека (slowed, speed up, reverb, bass boost), таймер сна, кнопка режима воспроизведения и кнопка «Не нравится», статистика, кэш потока, обложка уведомления, плеер vivo, плавный переход, загрузка следующего трека, всплывающие комментарии | `AudioEqualizer`, `TrackVersions`, `SleepTimer`, `PlayModeButton`, `PlaybackEvents` |
 | `power` | экономия энергии: реже опрос, без фоновых отчётов | `PowerSavingPatch` |
-| `recommendations` | фильтр дублей, «Не для меня», плейлист «Для вас», очередь автовоспроизведения | `DuplicateFilter`, `AutoplayQueue`, `ForYou`, `TrackDislikes` |
+| `recommendations` | фильтр дублей, «Не для меня», плейлист «Для вас», «Моя волна» (бесконечная очередь по вкусу), очередь автовоспроизведения | `DuplicateFilter`, `AutoplayQueue`, `ForYou`, `TrackDislikes`, `MyWave` |
 | `region` | значок «?» у пометки «Недоступно в вашей стране» | `RegionHint` |
 | `screenshot` | окно «Поделиться скриншотом» | `ScreenshotShare` |
 | `search` | поиск Arsound по YouTube Music под строкой поиска (не поиск настроек) | `SearchSourceSwitch`, `OtherSource` |

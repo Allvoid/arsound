@@ -23,11 +23,17 @@
  * {@code DislikeStore}, {@code DislikeMenuRow}; For you - {@code ForYou} (facade for the settings screen),
  * {@code LibrarySeeds} (seed songs from the phone), {@code LastFm}, {@code ForYouCandidates},
  * {@code SoundCloudMatcher} (best candidates, at most two per artist), {@code ForYouPlaylist} (the private playlist),
- * {@code ForYouPrefs}, {@code MatchCache}.
+ * {@code ForYouPrefs}, {@code MatchCache}; My Wave - {@code MyWave} (start, stop, refill when four tracks are left,
+ * called by {@code player.PlaybackEvents}), {@code WaveBuilder} (taste, sources, matching to SoundCloud), {@code WaveMixer}
+ * (order and the never-again rules), {@code WaveSource} (SoundCloud related / Last.fm / Deezer, ticked in the settings),
+ * {@code DeezerApi}, {@code WaveMemory}/{@code WaveLedger} (skipped and heard tracks, fed by {@code ListeningStats}),
+ * {@code ListenVerdict} (under 15 s skipped, 45 s or most of the track heard); the broken-heart button - {@code DislikeAction}.
+ * The card is {@code theme.WaveCard}, put under the greeting by {@code theme.HomeGreeting}.
  *
  * <p>Settings: {@code duplicate_filter} and {@code merge_edited_versions} ({@code settings.Settings}),
  * {@code dislikes_enabled} ({@code TrackDislikes.ENABLED}, default on), {@code for_you_enabled} ({@code ForYou.ENABLED}).
- * Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs}, {@code arsound_for_you}. Screen:
+ * {@code wave_card}, {@code wave_src_soundcloud/lastfm/deezer}. Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs},
+ * {@code arsound_for_you}, {@code arsound_wave}. Screen:
  * {@code settings.RecommendationsScreen}.
  *
  * <p>Gotchas: dislikes never touch likes, playlists or search. "For you" only reads names from the phone and sends only

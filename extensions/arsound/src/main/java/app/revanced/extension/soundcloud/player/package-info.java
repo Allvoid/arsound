@@ -22,6 +22,13 @@
  * <li>{@code PlaybackEvents.onPlay/onProgress} (player/TrackTransitionsPatch.kt), handed on to {@code Crossfade} and
  * {@code NextTrackPreload}; {@code PlayerComments.setPlayerSettings/showPopups} (player/PlayerCommentsPatch.kt).</li>
  * <li>Screen hook (no patch): {@code VivoMusicCard.onActivityResumed}.</li>
+ * <li>Versions of a track: {@code TrackVersions} (the choice: {@code VersionSpeed}, reverb and bass as {@code VersionStrength}),
+ * {@code SlowedPlayback} sets the speed (pitch follows) on the Media3 player, {@code VersionEffects} makes the reverb and the
+ * bass boost on the audio session next to the equalizer ({@code AudioEqualizer.onVersionsChanged}), {@code VersionsButton} is
+ * the round buttons of the top row of the full player (versions, "Not for me") and {@code VersionsPopup} the small window.
+ * "Not for me" also stands in the media notification and the lock screen as a custom action of {@code PlayModeButton}
+ * ({@code DISLIKE_ACTION}, {@code PlayModeReceiver} for Android 12L and older) and in the 2 x 2 widget; the work is
+ * {@code recommendations.DislikeAction}.</li>
  * </ul>
  *
  * <p>Main classes: sound - {@code AudioEqualizer}, {@code SoftEqualizer}, {@code SoftEqualizerProcessor}, {@code GraphicCurve}, {@code UserPresetStore},
@@ -37,6 +44,7 @@
  * ({@code AudioEqualizer}), {@code listening_stats} ({@code ListeningStats}), {@code arsound_player_track_colors}
  * ({@code NotificationArtwork}), and in {@code settings.Settings}: {@code mix_with_other_apps}, {@code stream_cache_size},
  * {@code stream_cache_days}, {@code smooth_player_collapse}, {@code crossfade}, {@code crossfade_seconds},
+ * {@code fx_speed}, {@code fx_reverb}, {@code fx_bass}, {@code slowed_percent}, {@code fx_speedup_percent},
  * {@code preload_next}, {@code hide_player_comments}. Own preference files: {@code arsound_listening_stats},
  * {@code arsound_sleep_timer}, {@code arsound_vivo_music_card}.
  *

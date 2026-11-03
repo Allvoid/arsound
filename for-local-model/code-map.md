@@ -16,9 +16,10 @@
 | network | custom DNS, IP-country block, net badge, DataDome prompt | NetworkPatch, RegionGuard |
 | offline | saved data first, play downloaded file, retry | OfflineFirstPatch, InstantFilePlayback |
 | permissions | first-run greeting, permission notes, language switch | WelcomePermissions |
-| player | equalizer, sleep timer, play mode, stats, stream cache, vivo card | AudioEqualizer, SleepTimer, PlayModeButton |
+| navbar | bottom bar tabs on/off, search button in the library | BottomTabs, TabOrder |
+| player | equalizer, track versions (slowed/speed up/reverb/bass), sleep timer, play mode, not-for-me button, stats, stream cache, vivo card | AudioEqualizer, TrackVersions, SleepTimer, PlayModeButton |
 | power | power saving | PowerSavingPatch |
-| recommendations | duplicate filter, dislikes, "For you" | DuplicateFilter, ForYou, TrackDislikes |
+| recommendations | duplicate filter, dislikes, "For you", "My Wave" | DuplicateFilter, ForYou, TrackDislikes, MyWave |
 | region | "?" badge on "not available in your country" | RegionHint |
 | screenshot | screenshot share dialog | ScreenshotShare |
 | search | YouTube Music search under search bar | SearchSourceSwitch, OtherSource |
