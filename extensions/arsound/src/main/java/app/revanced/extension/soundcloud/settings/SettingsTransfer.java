@@ -13,6 +13,8 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import app.revanced.extension.soundcloud.shared.StrictJson;
+
 /**
  * The settings file: turns the values of the preferences files into JSON and back, and works out what importing it
  * changes. Pure Java with no Android, so the whole format is tested on the JVM; the reading and writing of the real
@@ -49,6 +51,8 @@ final class SettingsTransfer {
     static final int FORMAT_VERSION = 1;
     /** The most a settings file may hold, in bytes. A real one is tens of kilobytes. */
     static final int MAX_BYTES = 4 * 1024 * 1024;
+    /** Objects and arrays inside each other: a settings file needs four levels, so a deeper one is not ours. */
+    static final int MAX_JSON_DEPTH = 8;
 
     /** The names of the value types, in the order the sections are written. */
     private static final String[] TYPES = {"boolean", "int", "long", "float", "string", "stringSet"};
@@ -103,12 +107,12 @@ final class SettingsTransfer {
     static TransferExport export(Map<String, ? extends Map<String, ?>> current, String appVersion, String date) {
         StringBuilder out = new StringBuilder(4096);
         out.append("{\n  \"format\": ");
-        TransferJson.quote(out, FORMAT);
+        StrictJson.quote(out, FORMAT);
         out.append(",\n  \"formatVersion\": ").append(FORMAT_VERSION);
         out.append(",\n  \"appVersion\": ");
-        TransferJson.quote(out, appVersion);
+        StrictJson.quote(out, appVersion);
         out.append(",\n  \"exportedOn\": ");
-        TransferJson.quote(out, date);
+        StrictJson.quote(out, date);
         out.append(",\n  \"files\": {");
 
         int written = 0, skipped = 0;
@@ -135,20 +139,20 @@ final class SettingsTransfer {
 
             out.append(firstFile ? "\n    " : ",\n    ");
             firstFile = false;
-            TransferJson.quote(out, source.file);
+            StrictJson.quote(out, source.file);
             out.append(": {");
             boolean firstSection = true;
             for (Map.Entry<String, List<String[]>> section : sections.entrySet()) {
                 if (section.getValue().isEmpty()) continue;
                 out.append(firstSection ? "\n      " : ",\n      ");
                 firstSection = false;
-                TransferJson.quote(out, section.getKey());
+                StrictJson.quote(out, section.getKey());
                 out.append(": {");
                 boolean firstValue = true;
                 for (String[] pair : section.getValue()) {
                     out.append(firstValue ? "\n        " : ",\n        ");
                     firstValue = false;
-                    TransferJson.quote(out, pair[0]);
+                    StrictJson.quote(out, pair[0]);
                     out.append(": ").append(pair[1]);
                 }
                 out.append("\n      }");
@@ -169,7 +173,7 @@ final class SettingsTransfer {
         }
         if (value instanceof String) {
             StringBuilder text = new StringBuilder();
-            TransferJson.quote(text, (String) value);
+            StrictJson.quote(text, (String) value);
             return text.toString();
         }
         if (value instanceof Set) {
@@ -182,7 +186,7 @@ final class SettingsTransfer {
             StringBuilder text = new StringBuilder("[");
             for (int i = 0; i < items.size(); i++) {
                 if (i > 0) text.append(", ");
-                TransferJson.quote(text, items.get(i));
+                StrictJson.quote(text, items.get(i));
             }
             return text.append(']').toString();
         }
@@ -201,7 +205,12 @@ final class SettingsTransfer {
      */
     static TransferBackup parse(String text) throws TransferException {
         if (text.length() > MAX_BYTES) throw new TransferException(TransferException.Reason.TOO_BIG, "text of " + text.length());
-        Object root = TransferJson.parse(text);
+        Object root;
+        try {
+            root = StrictJson.parse(text, MAX_JSON_DEPTH);
+        } catch (StrictJson.Malformed ex) {
+            throw new TransferException(TransferException.Reason.NOT_JSON, ex.getMessage());
+        }
         Map<String, Object> top = objectOf(root);
         if (top == null || !FORMAT.equals(top.get("format"))) {
             throw new TransferException(TransferException.Reason.NOT_SETTINGS, "no format mark");

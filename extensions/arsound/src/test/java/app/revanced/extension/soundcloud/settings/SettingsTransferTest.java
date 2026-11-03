@@ -245,6 +245,21 @@ public class SettingsTransferTest {
     }
 
     @Test
+    public void aFileNestedFarTooDeepIsNotJsonAndNeverCrashes() {
+        StringBuilder deep = new StringBuilder();
+        for (int i = 0; i < 100_000; i++) deep.append('[');
+        assertRefused(deep.toString(), TransferException.Reason.NOT_JSON);
+        // A little deeper than the limit is refused too, a file at the limit is read (and then found to be no settings file).
+        StringBuilder atLimit = new StringBuilder(), over = new StringBuilder();
+        for (int i = 0; i <= SettingsTransfer.MAX_JSON_DEPTH; i++) atLimit.append('[');
+        for (int i = 0; i <= SettingsTransfer.MAX_JSON_DEPTH; i++) atLimit.append(']');
+        for (int i = 0; i <= SettingsTransfer.MAX_JSON_DEPTH + 1; i++) over.append('[');
+        for (int i = 0; i <= SettingsTransfer.MAX_JSON_DEPTH + 1; i++) over.append(']');
+        assertRefused(atLimit.toString(), TransferException.Reason.NOT_SETTINGS);
+        assertRefused(over.toString(), TransferException.Reason.NOT_JSON);
+    }
+
+    @Test
     public void aFileOfAnotherProgramIsRefused() {
         assertRefused("{\"some\": \"thing\"}", TransferException.Reason.NOT_SETTINGS);
         assertRefused("[1, 2, 3]", TransferException.Reason.NOT_SETTINGS);
