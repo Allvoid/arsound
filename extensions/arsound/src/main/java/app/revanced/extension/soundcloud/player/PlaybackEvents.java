@@ -16,6 +16,11 @@ public final class PlaybackEvents {
     private PlaybackEvents() {
     }
 
+    /** The urn of the item that started last, or null before any. */
+    public static String playingUrn() {
+        return playingUrn;
+    }
+
     /** Injection point: start of {@code BaseExoPlayer.f(PlaybackItem)}, an item starts or resumes. Player thread. */
     public static void onPlay(Object exoPlayer, Object item) {
         String urn;

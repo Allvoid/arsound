@@ -16,6 +16,7 @@ import android.widget.TextView;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.recommendations.DislikeAction;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
@@ -32,6 +33,68 @@ public final class VersionsButton {
     private static final int FALLBACK_ACCENT = 0xFFFF5500;
     private static final int GAP_DP = 8;
 
+    /** The buttons of the top row, from the close button to the left: what each shows and does. */
+    private enum Kind {
+        VERSIONS("arsound_slowed") {
+            @Override
+            boolean available() {
+                return true;
+            }
+
+            @Override
+            boolean lit() {
+                return TrackVersions.anyOn();
+            }
+
+            @Override
+            String description() {
+                return lit() ? text("Версии трека: " + TrackVersions.summary(), "Versions of the track: " + TrackVersions.summary())
+                        : text("Версии трека", "Versions of the track");
+            }
+
+            @Override
+            void onTap(Context context, Runnable update) {
+                VersionsPopup.show(context, update);
+            }
+        },
+        DISLIKE("arsound_dislike") {
+            @Override
+            boolean available() {
+                return DislikeAction.isAvailable();
+            }
+
+            @Override
+            boolean lit() {
+                return false;
+            }
+
+            @Override
+            String description() {
+                return text("Не нравится: не рекомендовать и включить следующий", "Not for me: do not recommend and play the next one");
+            }
+
+            @Override
+            void onTap(Context context, Runnable update) {
+                DislikeAction.run(context);
+            }
+        };
+
+        final String icon;
+
+        Kind(String icon) {
+            this.icon = icon;
+        }
+
+        abstract boolean available();
+
+        /** Whether the button is coloured with the accent. */
+        abstract boolean lit();
+
+        abstract String description();
+
+        abstract void onTap(Context context, Runnable update);
+    }
+
     private VersionsButton() {
     }
 
@@ -41,16 +104,30 @@ public final class VersionsButton {
             if (!(page instanceof RelativeLayout) || page.getTag(R_TAG) != null) return;
             int closeId = id("player_close_indicator");
             View close = closeId == 0 ? null : page.findViewById(closeId);
-            int icon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_slowed");
-            if (!(close instanceof ImageButton) || !(close.getParent() instanceof View) || icon == 0) return;
-            Follower follower = new Follower((RelativeLayout) page, (ImageButton) close, icon);
-            page.setTag(R_TAG, follower);
+            if (!(close instanceof ImageButton) || !(close.getParent() instanceof View)) return;
+            int slot = 0;
+            for (Kind kind : Kind.values()) {
+                int icon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, kind.icon);
+                if (!kind.available() || icon == 0) continue;
+                new Follower((RelativeLayout) page, (ImageButton) close, icon, kind, slot++);
+            }
+            // The page is marked once, even with nothing added.
+            page.setTag(R_TAG, Boolean.TRUE);
         } catch (Throwable ex) {
             Logger.printException(() -> "Slowed button: could not add it to the player page", ex);
         }
     }
 
     private static final int R_TAG = 0x41534c57;
+
+    /** The place of the leftmost button that is shown. */
+    private static int lastSlot() {
+        int last = -1;
+        for (Kind kind : Kind.values()) {
+            if (kind.available() && Utils.getResourceIdentifier(ResourceType.DRAWABLE, kind.icon) != 0) last++;
+        }
+        return last;
+    }
 
     private static int id(String name) {
         return Utils.getResourceIdentifier(ResourceType.ID, name);
@@ -65,10 +142,18 @@ public final class VersionsButton {
         private final Rect rect = new Rect();
         private ColorStateList offTint;
         private Boolean shownOn;
+        private final Kind kind;
+        /** 0 stands next to the close button, 1 next to that one, and so on to the left. */
+        private final int slot;
+        /** Only the leftmost button makes the title end before itself: the ones right of it are further from the title. */
+        private final boolean leftmost;
 
-        Follower(RelativeLayout page, ImageButton close, int icon) {
+        Follower(RelativeLayout page, ImageButton close, int icon, Kind kind, int slot) {
             this.page = page;
             this.close = close;
+            this.kind = kind;
+            this.slot = slot;
+            leftmost = slot == lastSlot();
             Context context = page.getContext();
             button = new ImageButton(context);
             // Like the button next to it: its round glass, its padding, the way the picture is fitted.
@@ -91,20 +176,19 @@ public final class VersionsButton {
         }
 
         private void toggle(Context context) {
-            VersionsPopup.show(page.getContext(), this::update);
+            kind.onTap(page.getContext(), this::update);
         }
 
-        /** The colour tells whether any version is on. */
+        /** The colour tells whether the button is on. */
         private void update() {
-            boolean on = TrackVersions.anyOn();
+            boolean on = kind.lit();
             if (shownOn != null && shownOn == on) return;
             shownOn = on;
             int[] colours = ArsoundTheme.darkColors(page.getContext());
             int accent = colours == null ? FALLBACK_ACCENT : colours[1];
             button.setImageTintList(on ? ColorStateList.valueOf(accent) : offTint);
             button.setSelected(on);
-            button.setContentDescription(on ? text("Версии трека: " + TrackVersions.summary(), "Versions of the track: " + TrackVersions.summary())
-                    : text("Версии трека", "Versions of the track"));
+            button.setContentDescription(kind.description());
         }
 
         /** Left of the close button, at its height. Moves the picture only: no layout pass starts from here. */
@@ -126,9 +210,9 @@ public final class VersionsButton {
                 button.setLayoutParams(params);
             }
             float gap = page.getResources().getDisplayMetrics().density * GAP_DP;
-            button.setTranslationX(rect.left - gap - size);
+            button.setTranslationX(rect.left - (gap + size) * (slot + 1));
             button.setTranslationY(rect.top + (close.getHeight() - size) / 2f);
-            keepTitleClear(Math.round(rect.left - gap - size));
+            if (leftmost) keepTitleClear(Math.round(rect.left - (gap + size) * (slot + 1)));
         }
 
         /**

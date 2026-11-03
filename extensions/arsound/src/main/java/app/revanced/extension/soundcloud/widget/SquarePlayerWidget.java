@@ -18,6 +18,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import app.revanced.extension.soundcloud.player.PlayModeButton;
+import app.revanced.extension.soundcloud.player.PlayModeReceiver;
+import app.revanced.extension.soundcloud.recommendations.DislikeAction;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.shared.SerialWork;
 
@@ -183,7 +186,22 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
         // White on the dark bottom of the cover: no colour of the card, which the 4 x 1 widget's heart is fitted to.
         int heart = resource(context, "id", "btn_like");
         if (heart != 0) square.setInt(heart, "setColorFilter", liked[0] ? 0xFFFF5A7A : Color.TRANSPARENT);
+        addDislike(context, square);
         return square;
+    }
+
+    /** The broken heart in the corner: "not for me" for the playing track and on to the next one; a broadcast to the receiver of the notification button. */
+    private static void addDislike(Context context, RemoteViews square) {
+        int button = resource(context, "id", "arsound_widget_dislike");
+        if (button == 0) return;
+        if (!DislikeAction.isAvailable()) {
+            square.setViewVisibility(button, android.view.View.GONE);
+            return;
+        }
+        Intent intent = new Intent(PlayModeButton.DISLIKE_ACTION).setClass(context, PlayModeReceiver.class)
+                .setPackage(context.getPackageName());
+        square.setOnClickPendingIntent(button, PendingIntent.getBroadcast(context, 0x507B, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
     }
 
     /** The square before anything played: the logo, "touch to open", and a tap opens the app. */

@@ -14,9 +14,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.recommendations.DislikeAction;
 
 /**
  * The play mode button of the media notification: in order, repeat the queue, repeat the track, shuffled.
@@ -31,6 +34,8 @@ import app.revanced.extension.shared.Utils;
 public final class PlayModeButton {
     /** The custom action of the media session, and the broadcast of the notification action. */
     public static final String ACTION = "app.arsound.action.PLAY_MODE";
+    /** The custom action of the media session and the broadcast of the "not for me" button. */
+    public static final String DISLIKE_ACTION = "app.arsound.action.DISLIKE";
 
     private static final String STATE_BUILDER = "android.support.v4.media.session.PlaybackStateCompat$Builder";
     private static final String STATE = "android.support.v4.media.session.PlaybackStateCompat";
@@ -179,7 +184,7 @@ public final class PlayModeButton {
             for (Iterator<Object> it = actions.iterator(); it.hasNext(); ) {
                 String id = (String) api.actionId.invoke(it.next());
                 // Ours is added again below; a repeat of any other action (the like, the end of casting) is stale.
-                if (ACTION.equals(id) || !seen.add(id)) {
+                if (ACTION.equals(id) || DISLIKE_ACTION.equals(id) || !seen.add(id)) {
                     it.remove();
                     dropped++;
                 }
@@ -194,6 +199,8 @@ public final class PlayModeButton {
             if (icon == 0) return clean;
             Object builder = api.copy.newInstance(clean);
             api.addCustomAction.invoke(builder, ACTION, mode.title(), icon);
+            int dislike = DislikeAction.isAvailable() ? Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_dislike") : 0;
+            if (dislike != 0) api.addCustomAction.invoke(builder, DISLIKE_ACTION, text("Не нравится", "Not for me"), dislike);
             return api.build.invoke(builder);
         } catch (Throwable ex) {
             Logger.printException(() -> "Play mode: could not add the button to the session", ex);
@@ -207,6 +214,11 @@ public final class PlayModeButton {
      * @return True if the action was the button's and is handled.
      */
     public static boolean onCustomAction(String action) {
+        if (DISLIKE_ACTION.equals(action)) {
+            Context context = Utils.getContext();
+            if (context != null) handler.post(() -> DislikeAction.run(context));
+            return true;
+        }
         if (!ACTION.equals(action)) return false;
         handler.post(PlayModeButton::cycle);
         return true;
@@ -242,12 +254,25 @@ public final class PlayModeButton {
             Constructor<?> constructor = actionClass.getConstructor(int.class, CharSequence.class, PendingIntent.class);
             Object action = constructor.newInstance(icon, mode.title(), pending);
             // The builder's addAction is obfuscated (and returns nothing after shrinking): the method that takes an action.
+            Method addAction = null;
             for (Method method : builder.getClass().getMethods()) {
                 Class<?>[] parameters = method.getParameterTypes();
                 if (parameters.length == 1 && parameters[0] == actionClass) {
-                    method.invoke(builder, action);
-                    return;
+                    addAction = method;
+                    break;
                 }
+            }
+            if (addAction != null) {
+                addAction.invoke(builder, action);
+                int dislike = DislikeAction.isAvailable() ? icon("arsound_dislike") : 0;
+                if (dislike != 0) {
+                    Intent dislikeIntent = new Intent(DISLIKE_ACTION).setClass(context, PlayModeReceiver.class)
+                            .setPackage(context.getPackageName());
+                    PendingIntent dislikePending = PendingIntent.getBroadcast(context, 0x507A, dislikeIntent,
+                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                    addAction.invoke(builder, constructor.newInstance(dislike, text("Не нравится", "Not for me"), dislikePending));
+                }
+                return;
             }
             Logger.printInfo(() -> "Play mode: the notification builder has no method to add an action");
         } catch (Throwable ex) {
@@ -292,6 +317,10 @@ public final class PlayModeButton {
     }
 
     private static int icon(PlayMode mode) {
-        return Utils.getResourceIdentifier(ResourceType.DRAWABLE, mode.icon);
+        return icon(mode.icon);
+    }
+
+    private static int icon(String name) {
+        return Utils.getResourceIdentifier(ResourceType.DRAWABLE, name);
     }
 }
