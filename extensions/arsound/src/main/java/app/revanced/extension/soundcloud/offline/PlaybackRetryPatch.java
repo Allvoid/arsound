@@ -101,8 +101,18 @@ public final class PlaybackRetryPatch {
                     && !java.lang.reflect.Modifier.isAbstract(method.getModifiers()));
             Object exoPlayer = exoPlayerGetter == null ? null : exoPlayerGetter.invoke(player);
             if (exoPlayer == null) return;
+            // getPlayerError(), renamed by R8: the only method without parameters that returns a PlaybackException.
             Class<?> playerInterface = Class.forName("androidx.media3.common.Player", false, exoPlayer.getClass().getClassLoader());
-            Throwable error = (Throwable) playerInterface.getMethod("getPlayerError").invoke(exoPlayer);
+            Method errorGetter = null;
+            for (Method method : playerInterface.getMethods()) {
+                if (method.getParameterTypes().length == 0
+                        && method.getReturnType().getName().equals("androidx.media3.common.PlaybackException")) {
+                    errorGetter = method;
+                    break;
+                }
+            }
+            if (errorGetter == null) throw new NoSuchMethodException("Player.getPlayerError");
+            Throwable error = (Throwable) errorGetter.invoke(exoPlayer);
             if (error == null || error == lastLogged) return;
             lastLogged = error;
             StringBuilder chain = new StringBuilder();
