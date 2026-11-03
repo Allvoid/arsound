@@ -16,8 +16,8 @@
  * </ul>
  *
  * <p>Settings (both in {@code settings.Settings}): {@code hide_subscription_offers} (default on; one switch for the
- * screen, banners and popups) and {@code hide_upgrade_tab} (default off; written to disk at once because the app
- * restarts right after it).
+ * screen, banners and popups) and {@code hide_upgrade_tab} (default off; written in the background, the page recreates
+ * the activity, which reads it from memory; the row is on the "Bottom bar" screen).
  *
  * <p>Gotchas: the names above are called from patched smali, do not rename them. SoundCloud's own download buttons,
  * which also sell Go+, are handled in {@code download}, not here.

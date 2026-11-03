@@ -5,7 +5,10 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
-/** Ads, subscription offers, the Upgrade tab, the download buttons of SoundCloud and the screenshot sheet. */
+/**
+ * Ads, subscription offers, the download buttons of SoundCloud and the screenshot sheet. The Upgrade tab is not here:
+ * its tick is on the "Bottom bar" screen ({@link BottomBarScreen}) with the other tabs.
+ */
 final class AdsScreen extends SectionScreen {
     static final String ID = "ads";
 
@@ -25,8 +28,8 @@ final class AdsScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Реклама, предложения Go и Go+, вкладка Upgrade, кнопки скачивания, окно скриншота",
-                "Ads, Go and Go+ offers, Upgrade tab, download buttons, screenshot sheet");
+        return text("Реклама, предложения Go и Go+, кнопки скачивания, окно скриншота",
+                "Ads, Go and Go+ offers, download buttons, screenshot sheet");
     }
 
     @Override

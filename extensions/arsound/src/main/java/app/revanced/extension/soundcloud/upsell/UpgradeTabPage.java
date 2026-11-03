@@ -89,9 +89,11 @@ public final class UpgradeTabPage {
                         + "sells it only through Google Play, and Arsound is a mod installed from elsewhere. That is "
                         + "why the shop used to end in \"Oops\"."), secondary, 16));
 
+        // The names are those of the "Bottom bar" screen and of its Upgrade row (settings/BottomBarScreen): keep them in
+        // step. The row is a tick that is on while the tab stays, so hiding the tab means taking the tick away.
         column.addView(paragraph(context, text(
-                "Вкладку можно скрыть: Настройки → Arsound → Реклама и подписка → «Скрыть вкладку Upgrade».",
-                "You can hide the tab: Settings → Arsound → Ads and subscription → \"Hide Upgrade tab\"."),
+                "Вкладку можно скрыть: Настройки → Arsound → Нижняя панель → снимите галочку «Upgrade (если есть)».",
+                "You can hide the tab: Settings → Arsound → Bottom bar → untick \"Upgrade (if any)\"."),
                 secondary, 12));
 
         TextView hide = label(context, text("Скрыть вкладку", "Hide the tab"), 16, Colors.ink(accent, 0.6, 0xFF000000, 0xFFFFFFFF));
@@ -130,8 +132,8 @@ public final class UpgradeTabPage {
         column.addView(hide, buttonParams);
 
         column.addView(paragraph(context, text(
-                "Вернуть её можно там же, выключив переключатель.",
-                "It comes back by turning the same switch off."), secondary, 12));
+                "Вернуть её можно там же, поставив галочку обратно.",
+                "It comes back by ticking the same row again."), secondary, 12));
 
         // Arsound itself is free: the place where SoundCloud sold its subscription offers to support the project.
         column.addView(paragraph(context, text(

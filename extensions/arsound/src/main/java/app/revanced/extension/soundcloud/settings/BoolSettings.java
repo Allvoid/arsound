@@ -12,7 +12,11 @@ public final class BoolSettings {
     public static final BoolSetting TELEMETRY_ENABLED = new BoolSetting(Settings.TELEMETRY_ENABLED, false);
     /** On by default, the offer screen cannot load its prices outside of Google Play anyway. */
     public static final BoolSetting HIDE_SUBSCRIPTION_OFFERS = new BoolSetting(Settings.HIDE_SUBSCRIPTION_OFFERS, true);
-    /** Removes the Upgrade tab from the bottom bar. Off by default. Written at once: the app restarts right after it. */
+    /**
+     * Removes the Upgrade tab from the bottom bar. Off by default. Written in the background like most settings: the
+     * Upgrade tab page only makes the main screen again, which reads the value from memory, and the "Bottom bar"
+     * screen flushes it to the disk before its restart.
+     */
     public static final BoolSetting HIDE_UPGRADE_TAB = new BoolSetting(Settings.HIDE_UPGRADE_TAB, false);
     /** Takes the Home, Feed and Search tabs out of the bottom bar (Library stays). Off by default; written at once: the app restarts. */
     public static final BoolSetting HIDE_TAB_HOME = new BoolSetting(Settings.HIDE_TAB_HOME, false, true);
