@@ -9,7 +9,6 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.player.MixWithOtherApps;
 import app.revanced.extension.soundcloud.player.NextTrackPreload;
 import app.revanced.extension.soundcloud.player.PlayerComments;
-import app.revanced.extension.soundcloud.player.SlowedPlayback;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
 
 /**
@@ -62,7 +61,7 @@ final class PlaybackScreen extends SectionScreen {
     void fill(LinearLayout list) {
         addTransitionRows(list);
         addPlayerRows(list);
-        addSlowedRows(list);
+        new VersionRows(ui).addTo(list);
 
         list.addView(ui.createSubHeading(text("Воспроизведение", "Playback")));
         list.addView(ui.createToggleRow(
@@ -161,32 +160,6 @@ final class PlaybackScreen extends SectionScreen {
                             .keepOnly(context, java.util.Collections.emptyList()));
                 }).icon("offline").brief(text("Следующий трек из облака скачивается, пока играет текущий.",
                 "The next track from the cloud is fetched while the current one plays.")));
-    }
-
-    /** Every track slowed: the speed and the pitch go down together, as in the "slowed" versions of tracks. */
-    private void addSlowedRows(LinearLayout list) {
-        list.addView(ui.createSubHeading(text("Slowed", "Slowed")));
-        SubRows speedOptions = ui.createSubRows();
-        list.addView(ui.createToggleRow(
-                text("Играть всё в slowed", "Play everything slowed"),
-                text("Каждый трек играет медленнее и ниже, как в slowed-версиях: на ходу, без отдельных файлов. "
-                                + "Треки, в названии которых уже есть slowed, sped up или nightcore, остаются как есть: "
-                                + "второй раз замедлять их не нужно. Скорость можно выбрать ниже. Тексты песен и полоса "
-                                + "прогресса остаются верными: время идёт по самому треку.",
-                        "Every track plays slower and lower, as in the \"slowed\" versions, on the fly, with no extra files. "
-                                + "Tracks whose title already says slowed, sped up or nightcore are left as they are: "
-                                + "there is no point in slowing them twice. The speed is chosen below. The lyrics and the "
-                                + "progress bar stay right: time runs by the track itself."),
-                BoolSettings.SLOWED_PLAYBACK,
-                speedOptions,
-                (button, checked) -> SlowedPlayback.onSettingChanged()
-        ).icon("playback").brief(text("Все треки медленнее и ниже; уже slowed-треки не трогаются.",
-                "All tracks slower and lower; tracks that are slowed already are left alone.")));
-        speedOptions.addView(ui.createChoiceRow(text("Скорость", "Speed"), null,
-                Settings.SLOWED_PERCENT, SlowedPlayback.DEFAULT_PERCENT, SlowedPlayback.PERCENTS,
-                new String[]{"90 %", text("85 % (обычный slowed)", "85 % (usual slowed)"), "80 %", "75 %", "70 %", "65 %"},
-                SlowedPlayback::onSettingChanged));
-        list.addView(speedOptions);
     }
 
     /** What the full screen player shows besides the track. */

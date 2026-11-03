@@ -60,6 +60,11 @@ public final class AudioEqualizer {
         SoftEqualizer.publish();
     }
 
+    /** The chosen reverb or bass changed: the sound that plays now follows. */
+    public static void onVersionsChanged() {
+        SoftEqualizer.publish();
+    }
+
     /** What the sound is shaped by now, from the settings. */
     static EffectParams currentParams() {
         float[] bands = new float[EffectParams.BANDS];
@@ -67,7 +72,7 @@ public final class AudioEqualizer {
             short[] levels = levels(EffectParams.BANDS);
             for (int i = 0; i < bands.length; i++) bands[i] = levels[i] / 100f;
         }
-        return new EffectParams(bands, preamp() / 100f);
+        return new EffectParams(bands, preamp() / 100f, TrackVersions.bass().bassShelfDb(), TrackVersions.reverb().ordinal());
     }
 
     /**

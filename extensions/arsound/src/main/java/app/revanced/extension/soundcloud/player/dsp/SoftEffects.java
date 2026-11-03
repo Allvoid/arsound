@@ -3,7 +3,7 @@ package app.revanced.extension.soundcloud.player.dsp;
 import java.nio.ByteBuffer;
 
 /**
- * The sound shaping of the player, in software: preamp, ten peaking bands and a limiter, on 16-bit
+ * The sound shaping of the player, in software: preamp, a low shelf, ten peaking bands, a reverb and a limiter, on 16-bit
  * or float PCM with any number of channels and any sample rate. The coefficients are worked out for the sample rate
  * of the stream when it is configured, and again when the settings change. The limiter holds the sound under a ceiling,
  * so boosts cannot clip. Nothing here is Android's: it is the same on every phone, whatever audio effects the firmware
@@ -19,6 +19,8 @@ public final class SoftEffects {
     private static final double RELEASE_MS = 120;
     /** Width of a band in octaves. */
     private static final double BAND_OCTAVES = 1.0;
+    private static final float[] REVERB_FEEDBACK = {0f, 0.78f, 0.85f, 0.91f};
+    private static final float[] REVERB_WET = {0f, 0.25f, 0.4f, 0.55f};
 
     private volatile EffectParams params = EffectParams.NONE;
     private EffectParams applied;
@@ -26,8 +28,13 @@ public final class SoftEffects {
     private int channels;
     private int encoding;
     private final Biquad[] bands = new Biquad[EffectParams.BANDS];
+    private final Biquad bass = new Biquad();
+    private final SoftReverb reverb = new SoftReverb();
     private boolean[] bandOn = new boolean[EffectParams.BANDS];
+    private boolean bassOn;
     private double preamp = 1;
+    private float wet;
+    private boolean reverbOn;
     private double limiterGain = 1;
     private double[] frameBuffer = new double[0];
     private double releasePerSample;
@@ -51,14 +58,18 @@ public final class SoftEffects {
         this.channels = channels;
         this.encoding = encoding;
         for (Biquad band : bands) band.setChannels(channels);
+        bass.setChannels(channels);
+        reverb.configure(sampleRate, channels);
         releasePerSample = 1 - Math.exp(-1.0 / (RELEASE_MS / 1000.0 * sampleRate));
         limiterGain = 1;
         applied = null;
     }
 
-    /** The sound goes on from another place (a seek): the tails of the filters are cleared. */
+    /** The sound goes on from another place (a seek): the tails of the filters and the reverb are cleared. */
     public void flush() {
         for (Biquad band : bands) band.clear();
+        bass.clear();
+        reverb.clear();
         limiterGain = 1;
     }
 
@@ -70,7 +81,13 @@ public final class SoftEffects {
         for (int i = 0; i < bands.length; i++) {
             bandOn[i] = now.bandDb[i] != 0f && bands[i].peaking(EffectParams.BAND_HZ[i], now.bandDb[i], BAND_OCTAVES, sampleRate);
         }
+        bassOn = now.bassDb != 0f && bass.lowShelf(EffectParams.BASS_CORNER_HZ, now.bassDb, sampleRate);
         preamp = Math.pow(10, now.preampDb / 20.0);
+        reverbOn = now.reverb > 0;
+        if (reverbOn) {
+            reverb.setFeedback(REVERB_FEEDBACK[Math.min(3, now.reverb)]);
+            wet = REVERB_WET[Math.min(3, now.reverb)];
+        }
     }
 
     /**
@@ -112,7 +129,9 @@ public final class SoftEffects {
 
     private double shape(int channel, double sample) {
         double x = sample * preamp;
+        if (bassOn) x = bass.process(channel, x);
         for (int i = 0; i < bands.length; i++) if (bandOn[i]) x = bands[i].process(channel, x);
+        if (reverbOn) x += wet * reverb.process(channel, (float) x);
         return x;
     }
 

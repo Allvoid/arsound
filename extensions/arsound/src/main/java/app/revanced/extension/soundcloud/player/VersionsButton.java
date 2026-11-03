@@ -12,16 +12,15 @@ import android.view.ViewTreeObserver;
 import android.widget.ImageButton;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
 import app.revanced.extension.shared.Utils;
-import app.revanced.extension.soundcloud.settings.BoolSettings;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
- * The round button of the full-screen player that switches {@link SlowedPlayback} on and off. It stands in the top
+ * The round button of the full-screen player that opens the versions of the track ({@link VersionsPopup}: slowed, sped
+ * up, reverb, bass boost). It is lit while any version is on. It stands in the top
  * row, left of the button that closes the player (between the title and that button), looks like the buttons of the
  * column on the right and follows the top bar: it is as visible as the close button is.
  * <p>
@@ -29,11 +28,11 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * layout that is as wide as its widest button and keeps the close button in the middle of it, so a button added to the
  * left would push the close button away from the edge.
  */
-public final class SlowedButton {
+public final class VersionsButton {
     private static final int FALLBACK_ACCENT = 0xFFFF5500;
     private static final int GAP_DP = 8;
 
-    private SlowedButton() {
+    private VersionsButton() {
     }
 
     /** Called when a player page is filled with a track: the page gets its button once. */
@@ -92,27 +91,20 @@ public final class SlowedButton {
         }
 
         private void toggle(Context context) {
-            boolean on = !SlowedPlayback.isEnabled();
-            BoolSettings.SLOWED_PLAYBACK.set(on);
-            SlowedPlayback.onSettingChanged();
-            update();
-            int percent = Math.round(SlowedPlayback.speed() * 100);
-            Toast.makeText(context.getApplicationContext(), on
-                    ? text("Slowed: " + percent + " %", "Slowed: " + percent + " %")
-                    : text("Slowed выключен", "Slowed off"), Toast.LENGTH_SHORT).show();
+            VersionsPopup.show(page.getContext(), this::update);
         }
 
-        /** The colour tells whether the tracks play slowed. */
+        /** The colour tells whether any version is on. */
         private void update() {
-            boolean on = SlowedPlayback.isEnabled();
+            boolean on = TrackVersions.anyOn();
             if (shownOn != null && shownOn == on) return;
             shownOn = on;
             int[] colours = ArsoundTheme.darkColors(page.getContext());
             int accent = colours == null ? FALLBACK_ACCENT : colours[1];
             button.setImageTintList(on ? ColorStateList.valueOf(accent) : offTint);
             button.setSelected(on);
-            button.setContentDescription(on ? text("Выключить slowed", "Switch slowed off")
-                    : text("Включить slowed", "Switch slowed on"));
+            button.setContentDescription(on ? text("Версии трека: " + TrackVersions.summary(), "Versions of the track: " + TrackVersions.summary())
+                    : text("Версии трека", "Versions of the track"));
         }
 
         /** Left of the close button, at its height. Moves the picture only: no layout pass starts from here. */

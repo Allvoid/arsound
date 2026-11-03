@@ -16,22 +16,17 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.LocalMusic;
-import app.revanced.extension.soundcloud.settings.BoolSettings;
-import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
- * Plays every track slowed: slower and lower, as the "slowed" versions are made. The speed of the player is set when a
- * track starts, with the pitch following the speed, so it is the same as a record played slower. A track whose title
- * already says that it was slowed or sped up is left at its own speed: slowed twice it would be mush.
+ * Plays every track at the speed of the chosen version ({@link TrackVersions}): slowed (slower and lower) or sped up
+ * (faster and higher). The speed of the player is set when a track starts, with the pitch following the speed, so it is
+ * the same as a record played slower or faster. A track whose title already says that it was slowed or sped up is left
+ * at its own speed: slowed twice it would be mush.
  * <p>
  * The player is Media3's, behind SoundCloud's wrapper; both the way to it and the call that sets the speed are found by
  * their shape, because their names are shrunk.
  */
 public final class SlowedPlayback {
-    /** The speed of the slowed tracks in percent: 85 is the usual "slowed". */
-    public static final int DEFAULT_PERCENT = 85;
-    public static final long[] PERCENTS = {90, 85, 80, 75, 70, 65};
-
     /** Words of a title that mean the track is already at another speed. */
     private static final Pattern RETIMED = Pattern.compile(
             "(?<![\\p{L}\\p{N}])(?:slowed|slow\\s*(?:\\+|&|and|n)\\s*reverb|sped[\\s-]*up|speed[\\s-]*up|speedup|nightcore|"
@@ -59,14 +54,14 @@ public final class SlowedPlayback {
     private SlowedPlayback() {
     }
 
+    /** Whether a version with another speed is chosen. */
     public static boolean isEnabled() {
-        return BoolSettings.SLOWED_PLAYBACK.get();
+        return TrackVersions.speed() != VersionSpeed.NORMAL;
     }
 
-    /** The speed of slowed tracks as a factor of their own. */
+    /** The speed of the chosen version as a factor of the track's own. */
     public static float speed() {
-        long percent = Settings.getLong(Settings.SLOWED_PERCENT, DEFAULT_PERCENT);
-        return Math.max(50, Math.min(100, percent)) / 100f;
+        return TrackVersions.speedFactor();
     }
 
     /** Whether the title says that the track is already slowed or sped up. */
@@ -208,7 +203,7 @@ public final class SlowedPlayback {
             }
             setParameters.invoke(exo, wanted);
             slowedHere = slowed;
-            Logger.printInfo(() -> "Slowed playback: " + (again ? "the speed was lost, set again: " : "") + (slowed ? "slowed to " : "normal speed, ") + factor + " for " + urn
+            Logger.printInfo(() -> "Slowed playback: " + (again ? "the speed was lost, set again: " : "") + (slowed ? TrackVersions.speed().key + " at " : "normal speed, ") + factor + " for " + urn
                     + (Boolean.TRUE.equals(retimed) ? " (its title says it is at another speed already)" : ""));
         } catch (Throwable ex) {
             // A repeat runs every few seconds: its failure is only logged, the first apply has shown it already.

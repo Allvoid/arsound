@@ -42,7 +42,7 @@ val equalizerPatch = bytecodePatch {
     compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
-        // The equalizer and the preamp run in the player's own audio chain, in software, so
+        // The equalizer, the preamp, the bass boost and the reverb run in the player's own audio chain, in software, so
         // they work where the phone has no audio effects (HyperOS). The processor goes first in the chain.
         audioProcessorChainMethod.addInstructions(
             0,

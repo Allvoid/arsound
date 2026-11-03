@@ -39,6 +39,26 @@ public final class Biquad {
         return true;
     }
 
+    /** A low shelf: lifts or cuts everything under the corner by a gain (shelf slope 1). */
+    public boolean lowShelf(double cornerHz, double gainDb, double sampleRate) {
+        if (!usable(cornerHz, sampleRate)) {
+            passThrough();
+            return false;
+        }
+        double a = Math.pow(10, gainDb / 40);
+        double w0 = 2 * Math.PI * cornerHz / sampleRate;
+        double sin = Math.sin(w0), cos = Math.cos(w0);
+        double alpha = sin / 2 * Math.sqrt(2);
+        double root = 2 * Math.sqrt(a) * alpha;
+        set(a * ((a + 1) - (a - 1) * cos + root),
+                2 * a * ((a - 1) - (a + 1) * cos),
+                a * ((a + 1) - (a - 1) * cos - root),
+                (a + 1) + (a - 1) * cos + root,
+                -2 * ((a - 1) + (a + 1) * cos),
+                (a + 1) + (a - 1) * cos - root);
+        return true;
+    }
+
     private static boolean usable(double hz, double sampleRate) {
         return sampleRate > 0 && hz > 0 && hz < sampleRate * 0.45;
     }

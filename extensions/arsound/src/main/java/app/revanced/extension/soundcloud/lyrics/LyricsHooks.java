@@ -4,7 +4,7 @@ import android.view.View;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.player.PlayerArtworkLayers;
-import app.revanced.extension.soundcloud.player.SlowedButton;
+import app.revanced.extension.soundcloud.player.VersionsButton;
 
 /**
  * Where the patched player calls into the lyrics: when a player page is filled with a track, and when the player
@@ -29,8 +29,8 @@ public final class LyricsHooks {
             if (!(view instanceof View)) return;
             View page = LyricsLayer.pageOf((View) view);
             if (page == null) return;
-            // The slowed button is the player's, not the lyrics': it is there whatever the lyrics are set to.
-            SlowedButton.attach(page);
+            // The versions button is the player's, not the lyrics': it is there whatever the lyrics are set to.
+            VersionsButton.attach(page);
             LyricsLayer layer = LyricsLayer.forPage(page);
             if (layer == null) {
                 LyricsLayer.hideButton(page);

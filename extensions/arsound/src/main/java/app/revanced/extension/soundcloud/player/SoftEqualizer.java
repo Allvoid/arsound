@@ -24,7 +24,7 @@ public final class SoftEqualizer {
 
     /**
      * Injection point: the start of the constructor of the audio sink's processor chain. The equalizer comes first, so
-     * it shapes the sound as the decoder gives it, before the speed of slowed playback is made.
+     * it shapes the sound as the decoder gives it, before the speed of a slowed or sped up version is made.
      */
     public static AudioProcessor[] withProcessor(AudioProcessor[] chain) {
         try {

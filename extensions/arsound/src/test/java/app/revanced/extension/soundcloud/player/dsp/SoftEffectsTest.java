@@ -71,6 +71,14 @@ public class SoftEffectsTest {
         assertEquals(Math.pow(10, -9 / 20.0), band.magnitudeAt(250, 48000), 0.01);
     }
 
+    @Test
+    public void aLowShelfLiftsTheLowsAndLeavesTheHighs() {
+        Biquad shelf = new Biquad();
+        shelf.setChannels(1);
+        shelf.lowShelf(110, 10, 44100);
+        assertEquals(Math.pow(10, 10 / 20.0), shelf.magnitudeAt(30, 44100), 0.05);
+        assertEquals(1.0, shelf.magnitudeAt(5000, 44100), 0.02);
+    }
 
     @Test
     public void aBandNearTheTopOfALowSampleRateIsLeftOut() {
@@ -109,7 +117,7 @@ public class SoftEffectsTest {
     public void thePreampSetsTheLevel() {
         SoftEffects effects = new SoftEffects();
         effects.configure(44100, 1, SoftEffects.ENCODING_PCM_FLOAT);
-        effects.setParams(new EffectParams(new float[EffectParams.BANDS], -6f));
+        effects.setParams(new EffectParams(new float[EffectParams.BANDS], -6f, 0f, 0));
         double peak = peakOfSecondHalf(run(effects, sine(1000, 44100, 4410, 1, 0.5)));
         assertEquals(0.5 * Math.pow(10, -6 / 20.0), peak, 0.005);
     }
@@ -118,7 +126,7 @@ public class SoftEffectsTest {
     public void aBandAtTheEqualizerLiftsItsFrequency() {
         SoftEffects effects = new SoftEffects();
         effects.configure(44100, 1, SoftEffects.ENCODING_PCM_FLOAT);
-        effects.setParams(new EffectParams(bands(5, 6f), 0f));
+        effects.setParams(new EffectParams(bands(5, 6f), 0f, 0f, 0));
         double lifted = peakOfSecondHalf(run(effects, sine(1000, 44100, 8820, 1, 0.2)));
         assertEquals(0.2 * 2.0, lifted, 0.01);
         effects.configure(44100, 1, SoftEffects.ENCODING_PCM_FLOAT);
@@ -130,7 +138,7 @@ public class SoftEffectsTest {
     public void theLimiterKeepsABoostedLoudSoundUnderTheCeiling() {
         SoftEffects effects = new SoftEffects();
         effects.configure(44100, 2, SoftEffects.ENCODING_PCM_FLOAT);
-        effects.setParams(new EffectParams(bands(5, 12f), 12f));
+        effects.setParams(new EffectParams(bands(5, 12f), 12f, 10f, 0));
         float[] out = run(effects, sine(1000, 44100, 8820, 2, 0.9));
         double peak = 0;
         for (float sample : out) peak = Math.max(peak, Math.abs(sample));
@@ -141,7 +149,7 @@ public class SoftEffectsTest {
     public void sixteenBitOutputNeverWrapsAround() {
         SoftEffects effects = new SoftEffects();
         effects.configure(44100, 1, SoftEffects.ENCODING_PCM_16BIT);
-        effects.setParams(new EffectParams(new float[EffectParams.BANDS], 12f));
+        effects.setParams(new EffectParams(new float[EffectParams.BANDS], 12f, 0f, 0));
         ByteBuffer in = ByteBuffer.allocate(2 * 4410).order(ByteOrder.nativeOrder());
         for (int i = 0; i < 4410; i++) in.putShort((short) Math.round(32000 * Math.sin(2 * Math.PI * 440 * i / 44100.0)));
         in.flip();
@@ -163,7 +171,7 @@ public class SoftEffectsTest {
         for (int channels : new int[]{1, 2, 6}) {
             SoftEffects effects = new SoftEffects();
             effects.configure(48000, channels, SoftEffects.ENCODING_PCM_FLOAT);
-            effects.setParams(new EffectParams(new float[EffectParams.BANDS], -6f));
+            effects.setParams(new EffectParams(new float[EffectParams.BANDS], -6f, 0f, 0));
             float[] out = run(effects, sine(500, 48000, 4800, channels, 0.5));
             assertEquals("channels " + channels, 0.25, peakOfSecondHalf(out), 0.005);
         }
@@ -172,7 +180,7 @@ public class SoftEffectsTest {
     @Test
     public void aChangeOfSampleRateWorksTheCoefficientsAgain() {
         SoftEffects effects = new SoftEffects();
-        effects.setParams(new EffectParams(bands(5, 6f), 0f));
+        effects.setParams(new EffectParams(bands(5, 6f), 0f, 0f, 0));
         for (int rate : new int[]{44100, 48000, 22050, 96000}) {
             effects.configure(rate, 1, SoftEffects.ENCODING_PCM_FLOAT);
             double peak = peakOfSecondHalf(run(effects, sine(1000, rate, rate / 5, 1, 0.2)));
@@ -180,13 +188,35 @@ public class SoftEffectsTest {
         }
     }
 
+    @Test
+    public void theReverbLeavesATailAfterAnImpulse() {
+        SoftEffects effects = new SoftEffects();
+        effects.configure(44100, 1, SoftEffects.ENCODING_PCM_FLOAT);
+        effects.setParams(new EffectParams(new float[EffectParams.BANDS], 0f, 0f, 3));
+        float[] impulse = new float[44100];
+        impulse[0] = 0.5f;
+        float[] out = run(effects, impulse);
+        double tail = 0;
+        for (int i = 4000; i < out.length; i++) tail += Math.abs(out[i]);
+        assertTrue("tail " + tail, tail > 0.5);
+    }
 
+    @Test
+    public void noReverbLeavesNoTail() {
+        SoftEffects effects = new SoftEffects();
+        effects.configure(44100, 1, SoftEffects.ENCODING_PCM_FLOAT);
+        effects.setParams(new EffectParams(new float[EffectParams.BANDS], 1f, 0f, 0));
+        float[] impulse = new float[22050];
+        impulse[0] = 0.5f;
+        float[] out = run(effects, impulse);
+        for (int i = 10; i < out.length; i++) assertEquals(0f, out[i], 1e-6f);
+    }
 
     @Test
     public void flushClearsTheTails() {
         SoftEffects effects = new SoftEffects();
         effects.configure(44100, 1, SoftEffects.ENCODING_PCM_FLOAT);
-        effects.setParams(new EffectParams(bands(0, 12f), 0f));
+        effects.setParams(new EffectParams(new float[EffectParams.BANDS], 0f, 0f, 2));
         float[] impulse = new float[4410];
         impulse[0] = 0.5f;
         run(effects, impulse);

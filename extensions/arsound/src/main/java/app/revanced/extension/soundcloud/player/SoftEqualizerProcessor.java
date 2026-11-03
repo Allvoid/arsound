@@ -8,7 +8,7 @@ import java.nio.ByteOrder;
 import app.revanced.extension.soundcloud.player.dsp.SoftEffects;
 
 /**
- * The equalizer and the preamp of the player as a Media3 audio processor, put into the
+ * The equalizer, the preamp, the bass boost and the reverb of the player as a Media3 audio processor, put into the
  * chain of the player's audio sink by {@link SoftEqualizer}. It shapes the sound in software ({@link SoftEffects}), so it
  * works on every phone, also where the firmware has no audio effects (HyperOS). It is always in the chain and passes the
  * sound on untouched while nothing is set; the settings reach it live.
