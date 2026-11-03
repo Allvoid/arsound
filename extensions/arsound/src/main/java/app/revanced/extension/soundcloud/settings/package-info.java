@@ -12,6 +12,9 @@
  * on "Import my music". Both call SoundCloud's own row composable, so the rows look native.</li>
  * <li>{@code YandexImportTile.rows/drawTile} - a "Yandex Music" tile among the apps of SoundCloud's "Import from another
  * app", drawn like SoundCloud's tiles; it opens {@code TransferScreen}.</li>
+ * <li>Settings backup: {@code SettingsTransferRows} (the rows and dialogs on "Updates and data"), {@code SettingsTransfer}
+ * (the JSON format and the import plan, pure), {@code TransferPlan} (what travels and what never does),
+ * {@code TransferFiles} (the Android part).</li>
  * <li>{@code ReVancedSettingsActivity} - declared in the manifest by the patch; only a shell that shows the
  * {@code SettingsScreen} named by the intent.</li>
  * </ul>

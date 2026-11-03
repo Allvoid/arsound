@@ -7,6 +7,11 @@ import app.revanced.extension.shared.Utils;
 
 /**
  * Settings of the ReVanced SoundCloud patches, stored in a separate preferences file.
+ * <p>
+ * The settings backup ({@link TransferPlan}) carries every key of this file except {@link TransferPlan#SETTINGS_NEVER}:
+ * a new key that is tied to this phone (a path, a cache, a running state) or holds a secret must be added there. Names
+ * ending in {@code _key} or holding words like token, secret, password, cookie, session or auth are kept out by
+ * themselves.
  */
 @SuppressWarnings("unused")
 public final class Settings {
@@ -43,7 +48,10 @@ public final class Settings {
         return BoolSettings.HIDE_UPGRADE_TAB.get();
     }
 
-    /** Written at once, not in the background: the Upgrade tab page restarts the app right after it. */
+    /**
+     * Written in the background: the Upgrade tab page does not restart the app, it makes the main screen again, and
+     * that reads the new value from memory. The "Bottom bar" screen flushes it before its restart.
+     */
     public static void setHideUpgradeTabEnabled(boolean enabled) {
         BoolSettings.HIDE_UPGRADE_TAB.set(enabled);
     }

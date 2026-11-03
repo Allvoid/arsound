@@ -50,6 +50,7 @@ final class SettingsIcons {
         put("dislike", "ic_actions_thumbs_down");
         put("music", "ic_actions_musical_note");
         put("import", "ic_actions_import");
+        put("export", "ic_actions_upload", "ic_actions_share");
         put("order", "ic_actions_move_handle");
         put("folder", "ic_actions_playlist");
         put("storage", "ic_actions_downloaded");

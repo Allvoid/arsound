@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.settings;
 
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
+import android.content.Intent;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -9,12 +10,19 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
 
-/** Update checks, links to the project and the reset of SoundCloud's data. */
+/**
+ * Update checks, links to the project, the backup of the settings to a file ({@link SettingsTransferRows}) and the reset
+ * of SoundCloud's data.
+ */
 final class UpdatesScreen extends SectionScreen {
     static final String ID = "updates";
 
+    /** Export and import of the settings; the file picker answers to this screen. */
+    private final SettingsTransferRows transfer;
+
     UpdatesScreen(SettingsUi ui) {
         super(ui);
+        transfer = new SettingsTransferRows(ui);
     }
 
     @Override
@@ -29,8 +37,14 @@ final class UpdatesScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Версия " + UpdateChecker.VERSION + ", проверка обновлений, сброс данных SoundCloud",
-                "Version " + UpdateChecker.VERSION + ", update check, SoundCloud data reset");
+        return text("Версия " + UpdateChecker.VERSION + ", проверка обновлений, резервная копия настроек, сброс данных SoundCloud",
+                "Version " + UpdateChecker.VERSION + ", update check, settings backup, SoundCloud data reset");
+    }
+
+    @Override
+    String keywords() {
+        return text("экспорт импорт настроек резервная копия бэкап перенос на новый телефон переустановка восстановить",
+                "export import settings backup restore transfer new phone reinstall");
     }
 
     @Override
@@ -81,6 +95,8 @@ final class UpdatesScreen extends SectionScreen {
                 v -> UpdateChecker.openUrl(activity, UpdateChecker.REPOSITORY_URL)
         ).icon("link").chevron());
 
+        transfer.addTo(list);
+
         list.addView(ui.createSubHeading(text("Сброс", "Reset")));
         list.addView(ui.createActionRow(
                 text("Сбросить данные SoundCloud", "Reset SoundCloud data"),
@@ -93,6 +109,11 @@ final class UpdatesScreen extends SectionScreen {
                 this::confirmReset
         ).icon("reset").danger().brief(text("Как «Очистить данные» в Android, вход и настройки Arsound сохранятся.",
                 "Like \"Clear data\" in Android; login and Arsound settings are kept.")));
+    }
+
+    @Override
+    void onActivityResult(int requestCode, int resultCode, Intent data) {
+        transfer.onActivityResult(requestCode, resultCode, data);
     }
 
     /** Set while the data is being removed: a second tap does not start another reset. */
