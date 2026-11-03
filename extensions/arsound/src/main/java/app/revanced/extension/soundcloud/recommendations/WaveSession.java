@@ -22,7 +22,8 @@ import app.revanced.extension.shared.Utils;
  */
 final class WaveSession {
     private static final String PREFERENCES_NAME = "arsound_wave_session";
-    private static final String QUEUE = "queue", CURRENT = "current", TRACKS = "tracks";
+    /** "tracks_v2": the first kept the uploader where the player shows the artist; those are read again. */
+    private static final String QUEUE = "queue", CURRENT = "current", TRACKS = "tracks_v2";
     /** How many tracks of the last wave are kept, the newest ones. */
     static final int KEEP = 60;
 
@@ -62,13 +63,30 @@ final class WaveSession {
         preferences.edit().putString(QUEUE, new JSONArray(kept).toString()).putString(CURRENT, current).apply();
     }
 
-    /** Title, uploader and cover address of the tracks found before, by urn. */
+    /** Whether every one of the tracks is kept with its artist (in the current form). */
+    static boolean tracksCover(List<String> urns) {
+        return tracks().keySet().containsAll(urns);
+    }
+
+    /** Title, artist and cover address of the tracks found before, by urn. */
     static Map<String, String[]> tracks() {
+        return read(TRACKS);
+    }
+
+    /**
+     * The tracks the first version of the list kept, with the uploader in place of the artist: shown while the phone
+     * cannot ask for the artist, never written again.
+     */
+    static Map<String, String[]> oldTracks() {
+        return read("tracks");
+    }
+
+    private static Map<String, String[]> read(String key) {
         Map<String, String[]> tracks = new HashMap<>();
         try {
             SharedPreferences preferences = preferences();
             if (preferences == null) return tracks;
-            JSONObject object = new JSONObject(preferences.getString(TRACKS, "{}"));
+            JSONObject object = new JSONObject(preferences.getString(key, "{}"));
             for (Iterator<String> keys = object.keys(); keys.hasNext(); ) {
                 String urn = keys.next();
                 JSONArray parts = object.getJSONArray(urn);

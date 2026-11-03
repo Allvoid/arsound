@@ -35,6 +35,8 @@ import app.revanced.extension.soundcloud.settings.WaveScreenLauncher;
 import app.revanced.extension.soundcloud.shared.Colors;
 import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.wallpaper.TopBarStyle;
+import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * The page of the "My Wave" tab ({@code navbar.WaveNavigationTarget}): the big moving picture with the play button in
@@ -125,8 +127,6 @@ public final class WavePage extends Fragment {
         column.addView(historyHeading);
         history = new LinearLayout(context);
         history.setOrientation(LinearLayout.VERTICAL);
-        history.setPadding(0, Dimens.dp(context, 4), 0, Dimens.dp(context, 4));
-        history.setBackground(rounded(ArsoundTheme.palette(context, "highlight"), Dimens.dp(context, 16)));
         column.addView(history, matchWidth());
 
         TextView note = label(context, "Body.Secondary", text(
@@ -140,9 +140,11 @@ public final class WavePage extends Fragment {
 
         update();
 
-        // A soft veil under the status bar, so the page scrolling up does not run into the clock and the icons.
+        // A soft veil under the status bar, so the page scrolling up does not run into the clock and the icons. Over a
+        // wallpaper it follows the top bar style of Appearance: with "No band" nothing covers the picture.
         FrameLayout root = new FrameLayout(context);
         root.addView(scroll);
+        if (WallpaperStore.isActive() && TopBarStyle.current() == TopBarStyle.CLEAR) return root;
         View veil = new View(context);
         int surface = ArsoundTheme.palette(context, "surface");
         veil.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
@@ -178,8 +180,9 @@ public final class WavePage extends Fragment {
     /** One chip per source, flooded with the accent when it is on. At least one stays on. */
     private void fillChips(Context context, int accent) {
         chips.removeAllViews();
-        int plain = ArsoundTheme.palette(context, "highlight");
         int textColor = ArsoundTheme.palette(context, "primary");
+        // An off chip is a thin outline with a faint tint of the text colour: no plate over the wallpaper.
+        int plain = Colors.withAlpha(textColor, 0x14);
         chipStates = "";
         for (WaveSource source : WaveSource.values()) {
             chipStates += source.isOn() ? '1' : '0';
@@ -244,32 +247,50 @@ public final class WavePage extends Fragment {
         List<String> urns = MyWave.around(BEFORE, RECENT);
         String playing = MyWave.current();
         Utils.runOnBackgroundThread(() -> {
-            Map<String, String[]> tracks = findTracks(urns);
-            Utils.runOnMainThread(() -> showHistory(urns, tracks, playing));
+            // What the phone knows is shown at once; the API, which may be slow or out of reach, fills in the rest.
+            Map<String, String[]> known = knownTracks(urns);
+            Utils.runOnMainThread(() -> showHistory(urns, known, playing));
+            if (WaveSession.tracksCover(urns)) return;
+            Map<String, String[]> fetched = fetchMissing(urns, known);
+            if (!fetched.isEmpty()) Utils.runOnMainThread(() -> showHistory(urns, fetched, playing));
         });
     }
 
     /**
-     * Titles, uploaders and covers of the tracks, off the main thread: those found before (kept on the phone), then
-     * SoundCloud's own database, then its API. SoundCloud stores a track only once it has loaded it itself (to play it
-     * or to show it in the queue), so the wave's next tracks are not in the database yet; the API knows them.
+     * Titles, artists and covers the phone has, off the main thread: those found before (kept on the phone), then
+     * SoundCloud's own database, then the names kept by the first version of the list (uploaders, not artists).
      */
-    private static Map<String, String[]> findTracks(List<String> urns) {
+    private static Map<String, String[]> knownTracks(List<String> urns) {
         Map<String, String[]> tracks = WaveSession.tracks();
         tracks.keySet().retainAll(urns);
         List<String> missing = new java.util.ArrayList<>(urns);
         missing.removeAll(tracks.keySet());
-        Map<String, String[]> found = new java.util.HashMap<>();
         if (!missing.isEmpty()) {
-            found.putAll(TrackTitleResolver.storedTitles(missing));
-            missing.removeAll(found.keySet());
+            Map<String, String[]> stored = TrackTitleResolver.storedTitles(missing);
+            tracks.putAll(stored);
+            WaveSession.putTracks(stored, WaveSession.queue());
+            missing.removeAll(stored.keySet());
         }
-        if (!missing.isEmpty()) found.putAll(TrackTitleResolver.fetchTracks(missing));
-        if (!found.isEmpty()) {
-            tracks.putAll(found);
-            WaveSession.putTracks(found, WaveSession.queue());
+        if (!missing.isEmpty()) {
+            Map<String, String[]> old = WaveSession.oldTracks();
+            for (String urn : missing) if (old.containsKey(urn)) tracks.put(urn, old.get(urn));
         }
         return tracks;
+    }
+
+    /**
+     * The tracks the phone does not know, asked from SoundCloud's API: it knows the wave's next tracks, which SoundCloud
+     * stores only once it has loaded them itself. All the tracks, or empty when the API gave nothing new.
+     */
+    private static Map<String, String[]> fetchMissing(List<String> urns, Map<String, String[]> known) {
+        List<String> missing = new java.util.ArrayList<>(urns);
+        missing.removeAll(WaveSession.tracks().keySet());
+        Map<String, String[]> found = TrackTitleResolver.fetchTracks(missing);
+        if (found.isEmpty()) return found;
+        WaveSession.putTracks(found, WaveSession.queue());
+        Map<String, String[]> all = new java.util.HashMap<>(known);
+        all.putAll(found);
+        return all;
     }
 
     private void showHistory(List<String> urns, Map<String, String[]> tracks, String playing) {
@@ -279,8 +300,7 @@ public final class WavePage extends Fragment {
         if (urns.isEmpty()) {
             TextView none = label(context, "Body.Secondary", text("Здесь появятся треки волны: что играло, что играет и что дальше.",
                     "The wave's tracks will show here: what played, what plays and what comes next."));
-            int pad = Dimens.dp(context, 16);
-            none.setPadding(pad, pad, pad, pad);
+            none.setPadding(0, Dimens.dp(context, 4), 0, Dimens.dp(context, 4));
             history.addView(none);
             return;
         }
@@ -294,8 +314,8 @@ public final class WavePage extends Fragment {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Dimens.dp(context, 12);
-        row.setPadding(pad, Dimens.dp(context, 8), pad, Dimens.dp(context, 8));
+        // The rows lie straight on the page, like SoundCloud's track lists, with no card under them.
+        row.setPadding(0, Dimens.dp(context, 8), 0, Dimens.dp(context, 8));
 
         ImageView cover = new ImageView(context);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);

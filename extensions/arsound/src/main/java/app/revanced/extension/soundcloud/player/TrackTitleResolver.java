@@ -96,7 +96,7 @@ public final class TrackTitleResolver {
                     JSONObject track = array.getJSONObject(i);
                     JSONObject user = track.optJSONObject("user");
                     putTitle(titles, "soundcloud:tracks:" + track.getLong("id"), track.optString("title"),
-                            user == null ? "" : user.optString("username"));
+                            artistOf(track, user));
                     returned.add(String.valueOf(track.getLong("id")));
                     changed = true;
                 }
@@ -152,8 +152,9 @@ public final class TrackTitleResolver {
     }
 
     /**
-     * Titles and uploaders of tracks from SoundCloud's own database, without the network: per track urn the title, the
-     * uploader and the address template of the cover ({@code {size}} in it stands for the size), each possibly null.
+     * Titles and artists of tracks from SoundCloud's own database, without the network: per track urn the title, the
+     * artist as the player shows it (the uploader when the track names none) and the address template of the cover
+     * ({@code {size}} in it stands for the size), each possibly null.
      */
     public static Map<String, String[]> storedTitles(List<String> urns) {
         Map<String, String[]> found = new HashMap<>();
@@ -164,7 +165,8 @@ public final class TrackTitleResolver {
             // SQLite takes at most 999 values in one query.
             for (int start = 0; start < urns.size(); start += 400) {
                 List<String> part = urns.subList(start, Math.min(urns.size(), start + 400));
-                String query = "SELECT t.urn, t.title, u.username, t.artworkUrlTemplate FROM Tracks t "
+                // preferredName is the artist SoundCloud's player shows (the publisher's metadata); the uploader when it has none.
+                String query = "SELECT t.urn, t.title, COALESCE(NULLIF(t.preferredName, ''), u.username), t.artworkUrlTemplate FROM Tracks t "
                         + "LEFT JOIN TrackUserJoin j ON j.trackUrn = t.urn LEFT JOIN Users u ON u.urn = j.userUrn "
                         + "WHERE t.urn IN (" + String.join(",", Collections.nCopies(part.size(), "?")) + ")";
                 try (Cursor cursor = core.rawQuery(query, part.toArray(new String[0]))) {
@@ -181,8 +183,8 @@ public final class TrackTitleResolver {
     }
 
     /**
-     * Titles, uploaders and covers of tracks SoundCloud has not stored yet, asked from its API: per track urn the title,
-     * the uploader and the address of the cover (the uploader's picture when the track has none), each possibly null.
+     * Titles, artists and covers of tracks SoundCloud has not stored yet, asked from its API: per track urn the title,
+     * the artist as the player shows it and the address of the cover (the uploader's picture when the track has none), each possibly null.
      * Blocks; a track the server does not return is left out.
      */
     public static Map<String, String[]> fetchTracks(List<String> urns) {
@@ -207,7 +209,7 @@ public final class TrackTitleResolver {
                         cover = user.optString("avatar_url", null);
                     }
                     found.put("soundcloud:tracks:" + track.getLong("id"), new String[]{track.optString("title"),
-                            user == null ? "" : user.optString("username"), cover});
+                            artistOf(track, user), cover});
                 }
             } catch (Exception ex) {
                 Logger.printInfo(() -> "My Wave: no track titles from SoundCloud: " + ex);
@@ -215,5 +217,13 @@ public final class TrackTitleResolver {
             }
         }
         return found;
+    }
+
+    /** The artist the player shows: the publisher's metadata of the track, else the uploader. */
+    private static String artistOf(JSONObject track, JSONObject user) {
+        JSONObject publisher = track.optJSONObject("publisher_metadata");
+        String artist = publisher == null || publisher.isNull("artist") ? "" : publisher.optString("artist").trim();
+        if (!artist.isEmpty()) return artist;
+        return user == null ? "" : user.optString("username");
     }
 }
