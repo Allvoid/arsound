@@ -40,6 +40,8 @@ public final class BoolSettings {
     public static final BoolSetting SAVED_PLAYLIST_HIDDEN = new BoolSetting(Settings.SAVED_PLAYLIST_HIDDEN, false);
     /** Imported files among "Your likes", on this phone only. On by default; independent of the "Imported" playlist. */
     public static final BoolSetting IMPORTED_IN_LIKES = new BoolSetting(Settings.IMPORTED_IN_LIKES, true);
+    /** A file that is imported is liked at once: heart filled, among "Your likes". On by default; files already imported are not touched. */
+    public static final BoolSetting LIKE_ON_IMPORT = new BoolSetting(Settings.LIKE_ON_IMPORT, true);
     public static final BoolSetting REGION_GUARD = new BoolSetting(Settings.REGION_GUARD, false);
     /** Checks the IP country again when the network or the VPN changes. On by default. */
     public static final BoolSetting REGION_RECHECK_ON_CHANGE = new BoolSetting(Settings.REGION_RECHECK_ON_CHANGE, true);

@@ -21,6 +21,7 @@ final class AdditionsMenus {
     private static final String PLAYLIST_ROW_TAG = "arsound_local_additions_row";
     private static final String COVER_ROW_TAG = "arsound_cover_row";
     private static final String REMOVE_COVER_ROW_TAG = "arsound_remove_cover_row";
+    private static final String LIKE_ROW_TAG = "arsound_like_row";
 
     private AdditionsMenus() {
     }
@@ -42,11 +43,29 @@ final class AdditionsMenus {
         }
     }
 
-    /** "Set cover" in the menu of an imported file. */
+    /**
+     * "Like" or "Remove from likes" in the menu of an imported file: SoundCloud shows no heart on a track that looks like
+     * the user's own upload, so this is the way to like a file that was not liked on import, or to take the like away.
+     */
+    private static void addLikeRow(Dialog dialog, MenuRows.TrackMenu menu, File audio) {
+        menu.removeTagged(LIKE_ROW_TAG);
+        if (!ImportedLikes.isActive()) return;
+        boolean liked = ImportedLikes.isLiked(audio);
+        ViewGroup row = MenuRows.running(dialog,
+                liked ? text("Убрать из «Ваших лайков»", "Remove from Your likes") : text("Лайкнуть", "Like"),
+                liked ? "ic_actions_heart_active" : "ic_actions_heart", () -> {
+                    if (ImportedLikes.setLiked(audio, !liked)) HeartRefresh.emitAgain();
+                });
+        row.setTag(LIKE_ROW_TAG);
+        menu.addBelowItems(row);
+    }
+
+    /** "Set cover" in the menu of an imported file, and the like row. */
     static void addTrackCoverRow(Dialog dialog, File audio) {
         try {
             MenuRows.TrackMenu menu = MenuRows.TrackMenu.find(dialog);
             if (menu == null) return;
+            addLikeRow(dialog, menu, audio);
             menu.removeTagged(COVER_ROW_TAG);
 
             boolean hasCover = LocalCovers.hasUserCover(audio);

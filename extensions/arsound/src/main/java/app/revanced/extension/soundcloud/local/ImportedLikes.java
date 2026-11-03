@@ -13,12 +13,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.settings.BoolSettings;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
  * Imported files among "Your likes", as if the user liked them. On this phone only: nothing is written to the
- * SoundCloud database and nothing is sent to the server.
+ * SoundCloud database and nothing is sent to the server. Which files are liked is decided by {@link LikeChoices}: a
+ * file is liked when it was imported while "like what I import" was on, or when the user liked it, and stops being
+ * liked when the user takes the like away.
  * <p>
  * The likes screen reads the database with a join on the tracks table, which has no row for a file. So the lists
  * are read as usual and the files are added to what comes out of {@code RoomLikesReadStorage}: to the first
@@ -35,7 +38,7 @@ public final class ImportedLikes {
     private static final String PLAY_ITEMS = "loadLikedTrackPlayItems";
 
     private static final Object LOCK = new Object();
-    private static final HiddenLikes HIDDEN = new HiddenLikes(new HiddenLikesPreferences());
+    private static final LikeChoices CHOICES = new LikeChoices(new LikeChoicesPreferences());
     private static final LikesPaging PAGING = new LikesPaging();
     private static final LikePlacement PLACEMENT = new ImportedOnTop();
     /** Set while the original method runs for a hook, so the hook in it lets that call through. */
@@ -155,7 +158,10 @@ public final class ImportedLikes {
                 Context context = Utils.getContext();
                 // Not kept while the app has no context yet.
                 if (context == null) return new LikedFiles(Collections.emptyList(), file -> false);
-                liked = new LikedFiles(LocalMusic.getFiles(context), HIDDEN::isHidden);
+                List<File> files = LocalMusic.getFiles(context);
+                // New files get the import's like here, if it is on: every way a file arrives comes through this list.
+                CHOICES.sync(files, BoolSettings.LIKE_ON_IMPORT.get());
+                liked = new LikedFiles(files, file -> !CHOICES.isLiked(file));
             }
             return liked;
         }
@@ -167,9 +173,39 @@ public final class ImportedLikes {
      * @return True if that changed the likes.
      */
     static boolean setLiked(File file, boolean like) {
-        boolean changed = like ? HIDDEN.show(file) : HIDDEN.hide(file);
+        // The choices are read once before they are changed: a heart can be tapped before any list was drawn.
+        likedFiles();
+        boolean changed = like ? CHOICES.like(file) : CHOICES.unlike(file);
         if (changed) refresh();
         return changed;
+    }
+
+    /** Whether the imported file is liked now. */
+    static boolean isLiked(File file) {
+        return likedFiles().contains(file);
+    }
+
+    /** The imported files nobody decided about: imported while the like on import was off, not liked since. */
+    public static int undecidedCount() {
+        Context context = Utils.getContext();
+        if (context == null) return 0;
+        likedFiles();
+        return CHOICES.undecidedCount(LocalMusic.getFiles(context));
+    }
+
+    /**
+     * Likes the imported files nobody decided about, for the settings screen, after the user agreed; the files the
+     * user took the like away from stay as they are.
+     *
+     * @return How many files were liked.
+     */
+    public static int likeUndecided() {
+        Context context = Utils.getContext();
+        if (context == null) return 0;
+        likedFiles();
+        int count = CHOICES.likeUndecided(LocalMusic.getFiles(context));
+        if (count > 0) refresh();
+        return count;
     }
 
     /** Files were imported, deleted or finished loading, or the option changed: the lists on screen are redrawn. */
@@ -182,8 +218,9 @@ public final class ImportedLikes {
 
     /** An imported file was deleted. */
     public static void onFileDeleted(File file) {
-        // Forgotten, so a new file that gets the same name is not hidden from the likes.
-        HIDDEN.show(file);
+        // Forgotten, so a new file that gets the same name is a new file and not one the user decided about.
+        likedFiles();
+        CHOICES.forget(file);
         refresh();
     }
 

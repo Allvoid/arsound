@@ -218,6 +218,8 @@ public final class Settings {
     }
 
     public static final String IMPORTED_IN_LIKES = "imported_in_likes";
+    /** Whether a file is liked by itself when it is imported. */
+    public static final String LIKE_ON_IMPORT = "like_on_import";
 
     /** Imported files among "Your likes", on this phone only. On by default; independent of the "Imported" playlist. */
     public static boolean isImportedInLikesEnabled() {

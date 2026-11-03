@@ -12,6 +12,7 @@ import app.revanced.extension.soundcloud.local.ImportedLikes;
 import app.revanced.extension.soundcloud.local.PlaylistOrder;
 import app.revanced.extension.soundcloud.local.TrackOrder;
 import app.revanced.extension.soundcloud.local.WatchFolder;
+import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 
 /** The phone's own music: importing files, the "Imported" playlist, the order of playlists and tracks. */
 final class MusicScreen extends SectionScreen {
@@ -91,23 +92,45 @@ final class MusicScreen extends SectionScreen {
                 BoolSettings.SAVED_PLAYLIST_HIDDEN
         ));
         list.addView(savedOptions);
+        SubRows likeOptions = ui.createSubRows();
         list.addView(ui.createToggleRow(
                 text("Импортированные в «Ваших лайках»", "Imported tracks in \"Your likes\""),
-                text("Импортированные файлы показываются среди ваших лайков, будто вы их лайкнули: новые сверху, "
-                                + "сердечко закрашено, играют оттуда же. Нажатие на сердечко убирает файл из лайков "
-                                + "(сам файл остаётся), повторное возвращает. Только на этом телефоне, на сервер "
-                                + "ничего не уходит. Поиск по лайкам находит файлы по имени.",
-                        "Imported files show up among your likes as if you liked them: the newest on top, the heart "
-                                + "filled, and they play from there. Tapping the heart removes a file from the likes "
-                                + "(the file itself stays), tapping again brings it back. Only on this phone; nothing "
-                                + "is sent to the server. Searching the likes finds files by name."),
+                text("Лайкнутые импортированные файлы показываются среди ваших лайков: новые сверху, сердечко "
+                                + "закрашено, играют оттуда же. Нажатие на сердечко убирает файл из лайков (сам файл "
+                                + "остаётся в «Импортированных»), повторное возвращает; можно лайкнуть и файл, который "
+                                + "не лайкнулся при импорте. Только на этом телефоне, на сервер ничего не уходит. "
+                                + "Поиск по лайкам находит файлы по имени. Выключено — файлов нет среди лайков вовсе.",
+                        "Liked imported files show up among your likes: the newest on top, the heart filled, and they "
+                                + "play from there. Tapping the heart removes a file from the likes (the file itself "
+                                + "stays in Imported), tapping again brings it back; a file that was not liked on import "
+                                + "can be liked too. Only on this phone; nothing is sent to the server. Searching the "
+                                + "likes finds files by name. Off: no files among the likes at all."),
                 BoolSettings.IMPORTED_IN_LIKES,
+                likeOptions,
                 (button, checked) -> {
                     // The likes screen shows the change the next time it loads; an open one is redrawn now.
                     ImportedLikes.refresh();
                 }
-        ).icon("widget").brief(text("Импортированные файлы показываются среди ваших лайков.",
-                "Imported files show up among your likes.")));
+        ).icon("widget").brief(text("Лайкнутые импортированные файлы показываются среди ваших лайков.",
+                "Liked imported files show up among your likes.")));
+        likeOptions.addView(ui.createToggleRow(
+                text("Лайкать импортированные при импорте", "Like imported tracks when importing"),
+                text("Новый импортированный трек сразу лайкается: сердечко закрашено в интерфейсе SoundCloud, он в "
+                                + "«Ваших лайках». Снимете лайк — трек пропадёт из лайков и останется только в "
+                                + "«Импортированных». Выключено — новые треки не лайкаются, но любой можно лайкнуть "
+                                + "самому сердечком. Уже импортированные треки это не меняет: ни ваши лайки, ни ваши "
+                                + "снятые лайки.",
+                        "A track you import is liked at once: the heart is filled in SoundCloud's interface and it is "
+                                + "among \"Your likes\". Take the like away and it leaves the likes and stays only in "
+                                + "Imported. Off: new tracks are not liked, but you can like any of them with the heart. "
+                                + "Files already imported are left as they are: neither your likes nor the likes you "
+                                + "took away change."),
+                BoolSettings.LIKE_ON_IMPORT,
+                (button, checked) -> {
+                    if (checked) offerToLikeImported();
+                }
+        ));
+        list.addView(likeOptions);
 
         list.addView(ui.createSubHeading(text("Порядок", "Order")));
         list.addView(ui.createToggleRow(
@@ -171,5 +194,26 @@ final class MusicScreen extends SectionScreen {
     @Override
     void onResume() {
         updateFolderName();
+    }
+
+    /**
+     * "Like what I import" was switched on: files imported while it was off stay as they are, unless the user wants them
+     * liked too. The ones the user took the like away from are never liked by this.
+     */
+    private void offerToLikeImported() {
+        int waiting = ImportedLikes.undecidedCount();
+        if (waiting == 0) return;
+        new ArsoundDialog(activity)
+                .setTitle(text("Лайкнуть и уже импортированные?", "Like the ones imported earlier too?"))
+                .setMessage(text("Есть импортированные треки, которые не лайкнуты (их " + waiting + "). Лайкнуть их "
+                                + "тоже? Треки, у которых вы сами сняли лайк, не тронутся.",
+                        "Some imported tracks are not liked (" + waiting + "). Like them too? Tracks you took the "
+                                + "like away from stay as they are."))
+                .setNegativeButton(text("Нет, только новые", "No, new ones only"), null)
+                .setPositiveButton(text("Лайкнуть", "Like them"), (dialog, which) -> {
+                    int liked = ImportedLikes.likeUndecided();
+                    Toast.makeText(activity, text("Лайкнуто: " + liked, "Liked: " + liked), Toast.LENGTH_SHORT).show();
+                })
+                .show();
     }
 }
