@@ -41,6 +41,11 @@ import app.revanced.extension.soundcloud.wallpaper.WallhavenRules;
  * The Wallhaven browser: a search field, a row of chips for the sorting, a filter sheet, and an endless grid of pictures.
  * A tap opens the full-screen preview ({@link WallpaperPreviewScreen}) with "Set as background".
  * <p>
+ * The sorting follows the app's choice until the user taps a chip ({@link Wallhaven.Query#sortingChosen}): the most saved
+ * pictures for a browse, relevance for a text. A search for phone-shaped pictures lists the tall ones first; when they
+ * run out the same grid goes on with big wide ones (marked, only their middle is shown), so a rare word still finds
+ * something.
+ * <p>
  * The grid has three columns on a phone and cells in the shape of the pictures. The row of chips slides away when the
  * list is scrolled down and returns when it is scrolled up. Once scrolling has been still for a moment the cells in view
  * are made sharp ({@link WallhavenGrid#sharpenVisible}).
@@ -59,6 +64,8 @@ final class WallhavenScreen extends SettingsScreen {
     /** The row of chips: a chip and the space around it. */
     private static final int HEADER_DP = WallpaperChip.HEIGHT_DP + 10;
     private static final int GRID_GAP_DP = 8, GRID_SIDE_DP = 12;
+    /** The note that wide pictures follow stays this long, then goes by itself. */
+    private static final long NOTICE_MS = 8_000;
 
     private final Wallhaven.Query query;
     private final WallhavenGrid grid;
@@ -76,8 +83,14 @@ final class WallhavenScreen extends SettingsScreen {
     private String stateActionLabel;
     private Runnable stateTarget;
     private TextView banner;
+    /** A pill that tells the tall pictures ran out and wide ones follow. */
+    private TextView notice;
     private EditText field;
     private final List<TextView> sortChips = new ArrayList<>();
+    /** The chip of the top list, which also carries its period. */
+    private TextView topChip;
+    /** How many pictures the grid had when the wide ones began: 0 means none of the search was tall. */
+    private int tallCount;
     private int columns = 3;
     private boolean headerShown = true;
     private int lastScrollPosition;
@@ -95,10 +108,9 @@ final class WallhavenScreen extends SettingsScreen {
     private boolean guest;
     /** The key that was refused when {@link #guest} was chosen; a different key ends the guest search. */
     private String guestKey = "";
-    /** The user picked a sorting by hand, so a search text does not switch it to relevance. */
-    private boolean sortChosen;
     private Runnable countdown;
     private final Runnable settle = this::sharpenVisible;
+    private final Runnable hideNoticeLater = this::hideNotice;
 
     WallhavenScreen(SettingsUi ui) {
         super(ui);
@@ -130,12 +142,12 @@ final class WallhavenScreen extends SettingsScreen {
         header = createHeader();
         content.addView(header, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(HEADER_DP), Gravity.TOP));
-        banner = createBanner();
-        FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        bannerParams.bottomMargin = dp(16);
-        bannerParams.leftMargin = bannerParams.rightMargin = dp(16);
-        content.addView(banner, bannerParams);
+        banner = createPill();
+        content.addView(banner, pillParams());
+        // Both pills sit at the bottom; the trouble one wins (see problem()).
+        notice = createPill();
+        notice.setOnClickListener(v -> hideNotice());
+        content.addView(notice, pillParams());
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         applyShape();
@@ -254,23 +266,22 @@ final class WallhavenScreen extends SettingsScreen {
         scroll.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{(surface & 0x00FFFFFF) | 0xF2000000, (surface & 0x00FFFFFF) | 0xCC000000, surface & 0x00FFFFFF}));
 
-        String[] sortLabels = {text("Топ", "Top"), text("Новые", "Latest"), text("Просмотры", "Most viewed"),
-                text("Избранное", "Favorites"), text("Релевантные", "Relevance"), text("Случайные", "Random")};
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(GRID_SIDE_DP), dp(4), dp(GRID_SIDE_DP), dp(6));
-        for (int i = 0; i < Wallhaven.SORTINGS.length; i++) {
-            String sorting = Wallhaven.SORTINGS[i];
-            TextView chip = WallpaperChip.create(ui, sortLabels[i], sorting.equals(query.sorting), v -> {
+        for (String sorting : Wallhaven.SORTINGS) {
+            TextView chip = WallpaperChip.create(ui, sortLabel(sorting), sorting.equals(query.sorting), v -> {
                 if (Wallhaven.TOPLIST.equals(sorting) && Wallhaven.TOPLIST.equals(query.sorting)) {
                     showRanges();
                     return;
                 }
-                sortChosen = true;
-                chooseSorting(sorting);
+                // A tapped chip stays chosen, also for a text typed later.
+                query.chooseSorting(sorting);
+                showSorting();
                 reload();
             });
+            if (Wallhaven.TOPLIST.equals(sorting)) topChip = chip;
             sortChips.add(chip);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -282,11 +293,27 @@ final class WallhavenScreen extends SettingsScreen {
         return scroll;
     }
 
+    private static String sortLabel(String sorting) {
+        switch (sorting) {
+            case Wallhaven.TOPLIST:
+                return text("Топ", "Top");
+            case Wallhaven.DATE_ADDED:
+                return text("Новые", "Latest");
+            case Wallhaven.VIEWS:
+                return text("Просмотры", "Most viewed");
+            case Wallhaven.RELEVANCE:
+                return text("Релевантные", "Relevance");
+            case Wallhaven.RANDOM:
+                return text("Случайные", "Random");
+            default:
+                return text("Избранное", "Favorites");
+        }
+    }
+
     /** The top list's chip carries the period and an arrow while the top list is chosen. */
     private void updateTopLabel() {
-        TextView chip = sortChips.get(0);
         boolean top = Wallhaven.TOPLIST.equals(query.sorting);
-        chip.setText(top ? text("Топ · ", "Top · ") + rangeLabel(query.range) + " ▾" : text("Топ", "Top"));
+        topChip.setText(top ? text("Топ · ", "Top · ") + rangeLabel(query.range) + " ▾" : text("Топ", "Top"));
     }
 
     private static String rangeLabel(String range) {
@@ -346,9 +373,9 @@ final class WallhavenScreen extends SettingsScreen {
         for (int i = 0; i < chips.size(); i++) WallpaperChip.style(ui, chips.get(i), values[i].equals(selected));
     }
 
-    private void chooseSorting(String sorting) {
-        query.sorting = sorting;
-        styleChips(sortChips, Wallhaven.SORTINGS, sorting);
+    /** The chips show the sorting the search uses, which the app may have changed with the text. */
+    private void showSorting() {
+        styleChips(sortChips, Wallhaven.SORTINGS, query.sorting);
         updateTopLabel();
     }
 
@@ -460,8 +487,16 @@ final class WallhavenScreen extends SettingsScreen {
         return state;
     }
 
-    /** A pill at the bottom for trouble with a later page, so the pictures already there stay in view. */
-    private TextView createBanner() {
+    private FrameLayout.LayoutParams pillParams() {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        params.bottomMargin = dp(16);
+        params.leftMargin = params.rightMargin = dp(16);
+        return params;
+    }
+
+    /** A pill at the bottom, for trouble with a later page or a note, so the pictures already there stay in view. */
+    private TextView createPill() {
         TextView view = ui.createText("H4.Primary", "");
         view.setGravity(Gravity.CENTER);
         view.setPadding(dp(18), dp(10), dp(18), dp(10));
@@ -494,9 +529,9 @@ final class WallhavenScreen extends SettingsScreen {
         String typed = field.getText().toString().trim();
         if (typed.equals(query.text)) return;
         query.text = typed;
-        // A text is looked for by relevance unless a sorting was picked by hand.
-        if (!typed.isEmpty() && !sortChosen && Wallhaven.TOPLIST.equals(query.sorting)) chooseSorting(Wallhaven.RELEVANCE);
-        if (typed.isEmpty() && !sortChosen && Wallhaven.RELEVANCE.equals(query.sorting)) chooseSorting(Wallhaven.TOPLIST);
+        // Unless a chip was tapped, a text is looked for by relevance and a browse is by the most saved pictures.
+        query.settleSorting();
+        showSorting();
         reload();
     }
 
@@ -510,6 +545,9 @@ final class WallhavenScreen extends SettingsScreen {
         lastPage = 1;
         loading = false;
         query.seed = "";
+        // A new search lists the tall pictures first again.
+        query.widened = false;
+        tallCount = 0;
         Settings.putString(Settings.WALLHAVEN_LAST, query.toJson());
         grid.clear();
         applyShape();
@@ -517,6 +555,7 @@ final class WallhavenScreen extends SettingsScreen {
         lastScrollPosition = 0;
         showHeader(true);
         hideProblems();
+        hideNotice();
         showLoading();
         grid.setLoadingMore(true);
         // Taps on the chips or searches in a row ask the service once, for the last choice, after a short pause: each
@@ -547,7 +586,8 @@ final class WallhavenScreen extends SettingsScreen {
         // The key was changed in the filters since it was refused: it is tried again.
         if (guest && !Wallhaven.key().equals(guestKey)) guest = false;
         String key = guest ? "" : Wallhaven.key();
-        if (number > 1) grid.setLoadingMore(true);
+        // The first page of the wide pictures comes under the tall ones that are already in the grid.
+        if (number > 1 || query.widened) grid.setLoadingMore(true);
         Utils.runOnBackgroundThread(() -> {
             Wallhaven.Page result = null;
             IOException failure = null;
@@ -574,12 +614,32 @@ final class WallhavenScreen extends SettingsScreen {
     private void showPage(Wallhaven.Page result) {
         page = result.page;
         lastPage = result.lastPage;
-        if (Wallhaven.RANDOM.equals(query.sorting) && !result.seed.isEmpty()) query.seed = result.seed;
+        if (Wallhaven.RANDOM.equals(query.effectiveSorting()) && !result.seed.isEmpty()) query.seed = result.seed;
         grid.add(result.items);
         hideProblems();
+        if (WallhavenRules.tallRanOut(query.portrait, query.widened, page, lastPage)) {
+            // The tall pictures are all listed: the same grid goes on with big wide ones (marked, cut to their middle).
+            // A random search starts a new order for them.
+            tallCount = grid.size();
+            query.widened = true;
+            query.seed = "";
+            page = 0;
+            lastPage = 1;
+            // With nothing listed yet the spinner stays and the first wide page is asked for at once; else the grid asks
+            // for it when it is scrolled near its end, like for any other page.
+            if (tallCount == 0) {
+                loadPage(1);
+                return;
+            }
+        } else if (query.widened && result.page == 1 && !result.items.isEmpty()) {
+            showNotice(tallCount == 0
+                    ? text("Вертикальных картинок по запросу нет. Показаны широкие с пометкой: берётся их середина.",
+                    "No tall pictures for this search. Showing wide ones, marked: the middle of each is used.")
+                    : text("Вертикальные кончились. Дальше широкие с пометкой: берётся их середина.",
+                    "Tall pictures ran out. Wide ones follow, marked: the middle of each is used."));
+        }
         if (grid.size() == 0) {
-            showMessage(text("Ничего не найдено. Измените запрос или фильтры.", "Nothing found. Change the search or the filters."),
-                    null, null);
+            showEmpty();
             return;
         }
         hideState();
@@ -596,7 +656,8 @@ final class WallhavenScreen extends SettingsScreen {
         Runnable again = () -> {
             hideProblems();
             paused = false;
-            if (number == 1) {
+            // The first page of the wide pictures fails over a grid that already holds the tall ones: no spinner on top.
+            if (number == 1 && grid.size() == 0) {
                 showLoading();
                 grid.setLoadingMore(true);
             }
@@ -670,9 +731,42 @@ final class WallhavenScreen extends SettingsScreen {
             showMessage(message, action, onAction);
             return;
         }
+        // The trouble is more urgent than the note about wide pictures, and both sit at the same place.
+        hideNotice();
         banner.setText(message + "  ·  " + action);
         banner.setOnClickListener(v -> onAction.run());
         banner.setVisibility(View.VISIBLE);
+    }
+
+    /** Nothing was found, not even wide pictures: says why when the reason is the top list, which holds few pictures. */
+    private void showEmpty() {
+        if (!query.text.isEmpty() && Wallhaven.TOPLIST.equals(query.effectiveSorting())) {
+            // The top list of a period is only what was popular then; a text is better looked for by relevance.
+            showMessage(text("В топе за этот период таких картинок нет. Поиск по релевантности найдёт больше.",
+                            "The top list of this period has none like that. Searching by relevance finds more."),
+                    text("Искать по релевантности", "Search by relevance"), () -> {
+                        query.useAutomaticSorting();
+                        showSorting();
+                        reload();
+                    });
+            return;
+        }
+        showMessage(text("Ничего не найдено. Измените запрос или фильтры.", "Nothing found. Change the search or the filters."),
+                null, null);
+    }
+
+    /** A note over the pictures that goes by itself, or when it is tapped. Not shown over a message about trouble. */
+    private void showNotice(String message) {
+        if (banner.getVisibility() == View.VISIBLE) return;
+        notice.setText(message);
+        notice.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideNoticeLater);
+        handler.postDelayed(hideNoticeLater, NOTICE_MS);
+    }
+
+    private void hideNotice() {
+        handler.removeCallbacks(hideNoticeLater);
+        if (notice != null) notice.setVisibility(View.GONE);
     }
 
     // endregion
@@ -728,7 +822,11 @@ final class WallhavenScreen extends SettingsScreen {
     // region Filters and preview
 
     private void showFilters() {
-        WallhavenFilterSheet.show(ui, query, this::reload, this::updateFilterBadge);
+        WallhavenFilterSheet.show(ui, query, () -> {
+            // Reset may give the sorting back to the app: the chips follow.
+            showSorting();
+            reload();
+        }, this::updateFilterBadge);
     }
 
     /** Opens the full-screen look at a picture; the grid stays as it is under it. */
@@ -742,6 +840,7 @@ final class WallhavenScreen extends SettingsScreen {
     void onDestroy() {
         cancelCountdown();
         handler.removeCallbacks(settle);
+        handler.removeCallbacks(hideNoticeLater);
         if (preview != null) preview.release();
         grid.close();
     }

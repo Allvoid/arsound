@@ -18,16 +18,20 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import app.revanced.extension.soundcloud.shared.Dimens;
+import app.revanced.extension.soundcloud.shared.Lang;
 
 /**
  * One cell of the Wallhaven grid: the picture over a shimmering skeleton, with a small mark on pictures that are not
- * safe. {@link WallhavenGrid} makes the cells and tells them their size; the pictures come from a {@link ThumbnailLoader}.
+ * safe and another on a wide picture in a tall cell (only its middle is shown, as on the phone's screen).
+ * {@link WallhavenGrid} makes the cells and tells them their size; the pictures come from a {@link ThumbnailLoader}.
  */
 final class WallhavenCell extends FrameLayout {
     /** Height of the cell as a part of its width. */
     float ratio = 4f / 3f;
     private final ImageView picture;
     private final TextView mark;
+    /** "wide", bottom left: the picture is cut to the cell's middle, which the phone will do too. */
+    private final TextView wideMark;
     private final ShimmerDrawable shimmer;
     /** The still mark of a picture that did not load. */
     private final TextView failedMark;
@@ -70,6 +74,22 @@ final class WallhavenCell extends FrameLayout {
         markParams.setMargins(pad, pad, pad, pad);
         addView(mark, markParams);
 
+        wideMark = new TextView(context);
+        wideMark.setText(Lang.text("широкая", "wide"));
+        wideMark.setTextColor(0xFFFFFFFF);
+        wideMark.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        wideMark.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable widePill = new GradientDrawable();
+        widePill.setColor(0xB3000000);
+        widePill.setCornerRadius(radius);
+        wideMark.setBackground(widePill);
+        wideMark.setPadding(pad, pad / 3, pad, pad / 3);
+        wideMark.setVisibility(GONE);
+        LayoutParams wideParams = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        wideParams.setMargins(pad, pad, pad, pad);
+        addView(wideMark, wideParams);
+
         failedMark = new TextView(context);
         failedMark.setText("!");
         failedMark.setTextColor(0x99FFFFFF);
@@ -108,10 +128,13 @@ final class WallhavenCell extends FrameLayout {
             picture.setImageDrawable(null);
             showSkeleton(true);
             mark.setVisibility(GONE);
+            wideMark.setVisibility(GONE);
             setContentDescription(null);
             return;
         }
         mark.setVisibility(item.isSafe() ? GONE : VISIBLE);
+        // Only in a tall cell: in a cell of the wide shape the picture is shown whole enough and needs no word.
+        wideMark.setVisibility(ratio > 1f && item.isWide() ? VISIBLE : GONE);
         setContentDescription(item.resolution);
         Bitmap cached = thumbnails.cachedSharp(item, width, height);
         if (cached == null) cached = thumbnails.cached(item.thumbnail);

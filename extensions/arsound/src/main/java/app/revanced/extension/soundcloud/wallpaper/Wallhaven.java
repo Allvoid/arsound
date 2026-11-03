@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,6 +27,10 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * to the API itself: never in an address, never to the picture servers, never in the log. Sketchy and NSFW pictures
  * are asked for only with a key and the user's explicit switch ({@link #adultAllowed()}). The service allows 45 calls
  * a minute; the calls are spread out and an answer 429 is reported with the wait it asked for.
+ * <p>
+ * How wide the catalogue is depends on what a search asks for ({@link WallhavenRules}, {@link WallhavenRequest}): a text
+ * is looked for by relevance, not in the top list of a period; a browse is by the most saved pictures; and tall pictures
+ * are followed by big wide ones, whose middle fits a phone, when they run out.
  */
 public final class Wallhaven {
     private static final String SITE = "https://wallhaven.cc/";
@@ -45,11 +48,14 @@ public final class Wallhaven {
     public static final String FAVORITES = "favorites";
     public static final String RELEVANCE = "relevance";
     public static final String RANDOM = "random";
-    /** The sortings in the order the browser offers them. */
-    public static final String[] SORTINGS = {TOPLIST, DATE_ADDED, VIEWS, FAVORITES, RELEVANCE, RANDOM};
+    /** The sortings in the order the browser offers them: the one it starts with is first. */
+    public static final String[] SORTINGS = {FAVORITES, TOPLIST, VIEWS, DATE_ADDED, RELEVANCE, RANDOM};
     /** The periods of the top list. */
     public static final String[] RANGES = {"1d", "3d", "1w", "1M", "3M", "6M", "1y"};
-    private static final String DEFAULT_RANGE = "1M";
+    /** A year: the top list of a month holds only about 300 tall pictures, a year about 4 000. */
+    private static final String DEFAULT_RANGE = "1y";
+    /** What {@link Query#toJson} writes as its version; a note of the last search with no version is from an older build. */
+    private static final int JSON_VERSION = 2;
 
     /** The category and purity masks, as the API writes them: three digits, the first one is the highest bit. */
     public static final int GENERAL = 4, ANIME = 2, PEOPLE = 1;
@@ -118,11 +124,25 @@ public final class Wallhaven {
     /** What the browser asks for. Fields are changed in place by the screen and saved as the last search. */
     public static final class Query {
         public String text = "";
-        public String sorting = TOPLIST;
+        /**
+         * What the sorting chips show. Unless {@link #sortingChosen} is set the app decides it ({@link #settleSorting}):
+         * a text is looked for by relevance, a browse is by the most saved pictures.
+         */
+        public String sorting = WallhavenRules.DEFAULT_SORTING;
+        /** The user tapped a sorting chip, so that sorting is kept for a text too. Saved with the last search. */
+        public boolean sortingChosen;
         public String range = DEFAULT_RANGE;
         public int categories = GENERAL | ANIME | PEOPLE;
-        /** Only tall pictures, which fit a phone held upright. */
+        /**
+         * Pictures for a phone held upright: tall ones, and big wide ones after them when the tall ones run out
+         * ({@link #widened}). False: only wide pictures, as the user chose.
+         */
         public boolean portrait = true;
+        /**
+         * Set by the browser, not saved: the tall pictures of this search are used up, so the pages that follow are wide
+         * pictures ({@link WallhavenRules.Shape#WIDE_FOR_PHONE}), whose middle fits the phone.
+         */
+        public boolean widened;
         /** What the adult mode adds to the safe pictures, when it is on. */
         public int adultPurity = SKETCHY | NSFW;
         /** For a random sorting: the same seed gives the following pages without repeats. */
@@ -132,9 +152,11 @@ public final class Wallhaven {
             Query copy = new Query();
             copy.text = text;
             copy.sorting = sorting;
+            copy.sortingChosen = sortingChosen;
             copy.range = range;
             copy.categories = categories;
             copy.portrait = portrait;
+            copy.widened = widened;
             copy.adultPurity = adultPurity;
             copy.seed = seed;
             return copy;
@@ -145,10 +167,33 @@ public final class Wallhaven {
             return SFW | (adult ? adultPurity & (SKETCHY | NSFW) : 0);
         }
 
+        /** The sorting this search really uses: the chosen one, else relevance for a text and the favourites for a browse. */
+        public String effectiveSorting() {
+            return WallhavenRules.sorting(text, sorting, sortingChosen);
+        }
+
+        /** Makes {@link #sorting} say what the search uses, so the chips show it. Call it after the text changed. */
+        public void settleSorting() {
+            sorting = effectiveSorting();
+        }
+
+        /** The user tapped this sorting chip: it is kept from now on, whatever the text. */
+        public void chooseSorting(String chosen) {
+            sorting = chosen;
+            sortingChosen = true;
+        }
+
+        /** Gives the sorting back to the app (relevance for a text, favourites for a browse). */
+        public void useAutomaticSorting() {
+            sortingChosen = false;
+            settleSorting();
+        }
+
         public String toJson() {
             try {
-                return new JSONObject().put("q", text).put("sorting", sorting).put("range", range)
-                        .put("categories", categories).put("portrait", portrait).put("adult", adultPurity).toString();
+                return new JSONObject().put("v", JSON_VERSION).put("q", text).put("sorting", sorting)
+                        .put("chosen", sortingChosen).put("range", range).put("categories", categories)
+                        .put("portrait", portrait).put("adult", adultPurity).toString();
             } catch (Exception ex) {
                 return "{}";
             }
@@ -158,11 +203,16 @@ public final class Wallhaven {
             Query query = new Query();
             try {
                 JSONObject object = new JSONObject(json);
+                boolean current = object.optInt("v", 1) >= JSON_VERSION;
                 query.text = object.optString("q", "");
-                String sorting = object.optString("sorting", TOPLIST);
+                String sorting = object.optString("sorting", WallhavenRules.DEFAULT_SORTING);
                 for (String known : SORTINGS) if (known.equals(sorting)) query.sorting = sorting;
-                String range = object.optString("range", DEFAULT_RANGE);
+                String saved = object.optString("range", DEFAULT_RANGE);
+                // An older build always saved the period; its default of a month left only a few hundred tall pictures.
+                String range = !current && "1M".equals(saved) ? DEFAULT_RANGE : saved;
                 for (String known : RANGES) if (known.equals(range)) query.range = range;
+                query.sortingChosen = current ? object.optBoolean("chosen", false)
+                        : WallhavenRules.legacySortingWasChosen(query.sorting, saved, !query.text.isEmpty());
                 int categories = object.optInt("categories", GENERAL | ANIME | PEOPLE) & 7;
                 if (categories != 0) query.categories = categories;
                 query.portrait = object.optBoolean("portrait", true);
@@ -170,6 +220,7 @@ public final class Wallhaven {
             } catch (Exception ex) {
                 // A damaged note of the last search starts the browser from its defaults.
             }
+            query.settleSorting();
             return query;
         }
     }
@@ -200,6 +251,11 @@ public final class Wallhaven {
 
         public boolean isSafe() {
             return "sfw".equals(purity);
+        }
+
+        /** True for a picture wider than it is tall: in a grid of tall cells only its middle shows. */
+        public boolean isWide() {
+            return WallhavenRules.isWide(resolution);
         }
     }
 
@@ -233,18 +289,10 @@ public final class Wallhaven {
      */
     public static Page search(Query query, int page, String key) throws IOException {
         boolean adult = !key.isEmpty() && Settings.getBoolean(Settings.WALLHAVEN_ADULT, false);
-        StringBuilder url = new StringBuilder(API).append("search?categories=").append(mask(query.categories))
-                .append("&purity=").append(mask(query.purity(adult)))
-                .append("&sorting=").append(query.sorting).append("&order=desc")
-                .append("&page=").append(Math.max(1, page));
-        if (!query.text.isEmpty()) url.append("&q=").append(URLEncoder.encode(query.text, "UTF-8"));
-        if (TOPLIST.equals(query.sorting)) url.append("&topRange=").append(query.range);
-        if (RANDOM.equals(query.sorting) && !query.seed.isEmpty()) url.append("&seed=").append(query.seed);
-        // Keeps out the pictures too small for the screen; "portrait" is the service's own word for tall ones.
-        if (query.portrait) url.append("&ratios=portrait&atleast=1080x1920");
-        else url.append("&atleast=1920x1080");
+        String params = WallhavenRequest.params(query.text, query.effectiveSorting(), query.range, query.categories,
+                query.purity(adult), query.seed, WallhavenRules.shape(query.portrait, query.widened), page);
 
-        String body = readText(url.toString(), key);
+        String body = readText(API + "search?" + params, key);
         try {
             JSONObject json = new JSONObject(body);
             Page result = new Page();
@@ -264,10 +312,6 @@ public final class Wallhaven {
             // A page from a proxy or a captive portal instead of an answer.
             throw new IOException("Wallhaven sent a reply that is not JSON");
         }
-    }
-
-    private static String mask(int bits) {
-        return "" + (bits >> 2 & 1) + (bits >> 1 & 1) + (bits & 1);
     }
 
     /** A call to the API: spaced out, with the key in the header. Returns the body. */

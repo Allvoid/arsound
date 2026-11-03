@@ -32,7 +32,8 @@
  *
  * <p>Main classes: {@code WallpaperStore} (the chosen picture, dim, blur, install/remove, the one shared bitmap),
  * {@code WallpaperDrawable}/{@code WallpaperBitmap}/{@code WallpaperBaker} (draw it; the baked copy is cut to the
- * screen and blurred once), {@code WallpaperDownload}, {@code Wallhaven} (API client), the grid
+ * screen and blurred once), {@code WallpaperDownload}, {@code Wallhaven} (API client; the address of a search is
+ * built by {@code WallhavenRequest}, the sorting and the tall-then-wide order are decided by {@code WallhavenRules}), the grid
  * ({@code WallhavenGrid}, {@code WallhavenCell}, {@code ThumbnailLoader}, {@code SharpLoader}, {@code GridDiskCache},
  * {@code ShimmerDrawable}), policies ({@code SharpPolicy}, {@code NetworkCost}), and view helpers
  * ({@code ViewKind}, {@code ClassNames}, {@code SurfaceColours}, {@code MainScreen}).
@@ -45,7 +46,7 @@
  *
  * <p>Gotchas: SoundCloud's views are recognised by class name and by colour ({@code ClassNames},
  * {@code SurfaceColours}) because the extension has no compile dependency on them; a SoundCloud update can change
- * what counts as a "base layer". Pure arithmetic ({@code BoxBlur}, {@code CoverCrop}, {@code WallhavenRules},
+ * what counts as a "base layer". Pure arithmetic ({@code BoxBlur}, {@code CoverCrop}, {@code WallhavenRules}, {@code WallhavenRequest},
  * {@code WallpaperKeep}) must stay Android-free for the JVM tests. Thumbnails use a bounded cache and skip full
  * downloads on a metered network.
  */

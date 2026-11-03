@@ -21,6 +21,11 @@ import app.revanced.extension.soundcloud.theme.ArsoundTheme;
  * <p>
  * The screen tells the grid how many columns it has and how big a cell is in pixels ({@link #setLayout}); the sharp
  * pictures are made at exactly that size.
+ * <p>
+ * A search for phone-shaped pictures goes on with wide ones when the tall ones run out ({@link Wallhaven.Query#widened}),
+ * so wide and tall pictures meet in the same tall cells: both are cut to their middle (the cell does it, the sharp
+ * picture does it by {@link CoverCrop}) and the cell marks the wide ones. Tall pages come first and wide ones after them,
+ * so a picture is never listed twice; {@link #add} drops a repeat anyway.
  */
 public final class WallhavenGrid extends BaseAdapter {
     /** Rows of skeleton cells shown while the next page is on its way. */

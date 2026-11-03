@@ -12,6 +12,7 @@ import android.widget.Toast;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.Wallhaven;
+import app.revanced.extension.soundcloud.wallpaper.WallhavenRules;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
@@ -23,6 +24,8 @@ final class WallhavenFilterSheet {
     private final SettingsUi ui;
     private final Wallhaven.Query query;
     private final Runnable onChanged;
+    /** Reset was tapped: the sorting goes back to the app's choice too. */
+    private boolean automaticSorting;
     private int categories;
     private boolean portrait;
     private int adultPurity;
@@ -94,9 +97,16 @@ final class WallhavenFilterSheet {
         addChip(shapeRow, tall, 0);
         addChip(shapeRow, wide, 1);
         content.addView(shapeRow);
+        String tallSize = WallhavenRules.size(WallhavenRules.TALL_MIN_WIDTH, WallhavenRules.TALL_MIN_HEIGHT);
+        String bigWideSize = WallhavenRules.size(WallhavenRules.WIDE_FOR_PHONE_MIN_WIDTH, WallhavenRules.WIDE_FOR_PHONE_MIN_HEIGHT);
+        String wideSize = WallhavenRules.size(WallhavenRules.WIDE_MIN_WIDTH, WallhavenRules.WIDE_MIN_HEIGHT);
         TextView shapeNote = ui.createText("Body.Secondary", text(
-                "Для телефона: вертикальные, от 1080×1920. Горизонтальные: от 1920×1080, из них берётся середина.",
-                "For a phone: tall, at least 1080×1920. Wide: at least 1920×1080, the middle of them is used."));
+                "Для телефона: сначала вертикальные, от " + tallSize + ". Когда они кончатся, дальше идут широкие от "
+                        + bigWideSize + " с пометкой: берётся их середина. Горизонтальные: только широкие, от " + wideSize
+                        + ", тоже середина.",
+                "For a phone: tall pictures first, at least " + tallSize + ". When they run out, wide ones from "
+                        + bigWideSize + " follow, marked: the middle of each is used. Wide: only wide pictures, at least "
+                        + wideSize + ", the middle of them too."));
         shapeNote.setPadding(0, ui.dp(6), 0, 0);
         content.addView(shapeNote);
 
@@ -136,6 +146,7 @@ final class WallhavenFilterSheet {
             categories = Wallhaven.GENERAL | Wallhaven.ANIME | Wallhaven.PEOPLE;
             portrait = true;
             adultPurity = Wallhaven.SKETCHY | Wallhaven.NSFW;
+            automaticSorting = true;
             apply();
         }));
         buttons.addView(button(text("Показать", "Show"), true, v -> apply()));
@@ -175,6 +186,11 @@ final class WallhavenFilterSheet {
 
     private void apply() {
         boolean changed = query.categories != categories || query.portrait != portrait || query.adultPurity != adultPurity;
+        // Reset also gives a sorting chip tapped earlier back to the app's choice.
+        if (automaticSorting && query.sortingChosen) {
+            query.useAutomaticSorting();
+            changed = true;
+        }
         query.categories = categories;
         query.portrait = portrait;
         query.adultPurity = adultPurity;
