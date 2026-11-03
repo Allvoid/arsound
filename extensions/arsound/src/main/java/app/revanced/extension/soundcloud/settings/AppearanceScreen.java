@@ -169,6 +169,18 @@ final class AppearanceScreen extends SectionScreen {
         playerOptions.follow(ArsoundTheme.isPlayerSkinEnabled());
         list.addView(playerOptions);
         list.addView(ui.createToggleRow(
+                text("Обложка целиком в плеере", "Whole cover in the player"),
+                text("Полноэкранный плеер показывает всю обложку между названием и волной, а за ней — размытую "
+                                + "копию обложки. Выключено — как в SoundCloud: обложка растянута на весь экран, видна "
+                                + "только её полоса, и она медленно едет вбок по ходу трека. Приложение перезапустится.",
+                        "The full-screen player shows the whole cover between the title and the waveform, with a "
+                                + "blurred copy of it behind. Off: as in SoundCloud, the cover is stretched over the "
+                                + "whole screen, only a strip of it is seen, and it slowly slides sideways as the track "
+                                + "plays. The app restarts."),
+                BoolSettings.WHOLE_PLAYER_COVER,
+                (button, checked) -> ArsoundTheme.restartApp(activity)
+        ).icon("wallpaper").brief(text("Вся обложка, а не её полоса.", "The whole cover, not a strip of it.")));
+        list.addView(ui.createToggleRow(
                 text("Плавное сворачивание плеера", "Smooth player collapse"),
                 text("Плеер сворачивается и раскрывается без рывков: пока он движется, Arsound не перерисовывает "
                                 + "обложку зря и ставит анимацию темы на паузу. Если что-то выглядит не так, "

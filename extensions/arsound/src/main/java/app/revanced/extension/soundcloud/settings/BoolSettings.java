@@ -80,6 +80,11 @@ public final class BoolSettings {
      * down. Off puts SoundCloud's own behaviour back. On by default.
      */
     public static final BoolSetting SMOOTH_PLAYER_COLLAPSE = new BoolSetting(Settings.SMOOTH_PLAYER_COLLAPSE, true);
+    /**
+     * The open player shows the whole cover between the title and the waveform, on a blurred copy of it, instead of
+     * SoundCloud's strip of it that slides sideways. On by default; written at once, the app restarts after a switch.
+     */
+    public static final BoolSetting WHOLE_PLAYER_COVER = new BoolSetting(Settings.WHOLE_PLAYER_COVER, true, true);
     /** The end of a track fades out and the next one fades in. Off by default. */
     public static final BoolSetting CROSSFADE = new BoolSetting(Settings.CROSSFADE, false);
     /** Every track plays slowed, unless its title says it is slowed or sped up already. Off by default. */

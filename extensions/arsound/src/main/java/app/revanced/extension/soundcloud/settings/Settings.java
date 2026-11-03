@@ -399,6 +399,8 @@ public final class Settings {
     public static final String THEME_EFFECTS_DENSITY = "theme_effects_density";
 
     public static final String SMOOTH_PLAYER_COLLAPSE = "smooth_player_collapse";
+    /** The open player shows the whole cover on a blurred copy of it (player/WholeCover). On by default. */
+    public static final String WHOLE_PLAYER_COVER = "whole_player_cover";
 
     /** The end of a track fades out and the next one fades in (player/Crossfade). Off by default. */
     public static final String CROSSFADE = "crossfade";

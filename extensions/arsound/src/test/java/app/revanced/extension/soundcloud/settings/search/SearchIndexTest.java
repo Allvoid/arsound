@@ -135,6 +135,14 @@ public class SearchIndexTest {
     }
 
     @Test
+    public void wholeCover() {
+        SearchIndex index = SearchFixture.index();
+        for (String query : new String[]{"обложка", "обложку целиком", "вся обложка"}) {
+            assertFinds(index, query, "Обложка целиком в плеере");
+        }
+    }
+
+    @Test
     public void adsAndSubscription() {
         SearchIndex index = SearchFixture.index();
         for (String query : new String[]{"реклама", "adblock", "баннер"}) {
@@ -142,7 +150,7 @@ public class SearchIndexTest {
         }
         assertFinds(index, "баннер", "Скрыть баннер импорта плейлистов");
         for (String query : new String[]{"подписка", "premium", "go"}) {
-            assertFinds(index, query, "Скрывать предложения подписки", "Скрыть вкладку Upgrade");
+            assertFinds(index, query, "Скрывать предложения подписки", "Upgrade (если есть)");
         }
     }
 

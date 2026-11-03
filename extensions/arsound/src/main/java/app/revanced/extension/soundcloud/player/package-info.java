@@ -1,13 +1,15 @@
 /**
  * Everything around playback: equalizer, sleep timer, play mode button, listening statistics, stream cache, mixing with
  * other apps, notification cover, smooth player sheet, the vivo control-centre player, the smooth transition between
- * tracks, loading the next track ahead and hiding the comments that pop up in the player.
+ * tracks, loading the next track ahead, hiding the comments that pop up in the player and the whole cover in the open
+ * player.
  *
  * <p>User view: an equalizer with presets and preamp; a sleep timer in the player's menu ("in 30 minutes" or "at 23:30");
  * a repeat/shuffle button in the media notification; listening statistics kept on the phone; a stream cache with a size
  * chosen by the user; "mix with other apps" (play without audio focus); the right cover in the notification; a player
  * sheet that does not stutter when pulled down; Arsound in the music card of vivo OriginOS; a track that ends fades out
- * and the next fades in; the next streamed track is fetched whole while the current one plays; no pop-up comments.
+ * and the next fades in; the next streamed track is fetched whole while the current one plays; no pop-up comments; the
+ * open player shows the whole cover on a blurred copy of it, not a sliding strip of it.
  *
  * <p>Entry points (Kotlin: {@code player/*Patch.kt}; {@code SleepTimer} is hooked from {@code download/DownloadTrackPatch.kt}):
  * <ul>
@@ -20,7 +22,8 @@
  * <li>{@code NotificationArtwork.imageProviderPackage/style/remember}; {@code SleepTimer.onTrackMenu/setMenuConsumer};
  * {@code PlayerSheet.onSheetState}; {@code PlayerArtworkLayers.created/round/skipSlide/square}.</li>
  * <li>{@code PlaybackEvents.onPlay/onProgress} (player/TrackTransitionsPatch.kt), handed on to {@code Crossfade} and
- * {@code NextTrackPreload}; {@code PlayerComments.setPlayerSettings/showPopups} (player/PlayerCommentsPatch.kt).</li>
+ * {@code NextTrackPreload}; {@code PlayerComments.setPlayerSettings/showPopups} (player/PlayerCommentsPatch.kt);
+ * {@code WholeCover.skipSlide} (player/WholeCoverPatch.kt, the artwork controller's "width changed").</li>
  * <li>Screen hook (no patch): {@code VivoMusicCard.onActivityResumed}.</li>
  * <li>Versions of a track: {@code TrackVersions} (the choice: {@code VersionSpeed}, reverb and bass as {@code VersionStrength}),
  * {@code SlowedPlayback} sets the speed (pitch follows) on the Media3 player, {@code SoftEqualizerProcessor} (in the audio chain of the player, filters in {@code player/dsp}) shapes the equalizer, the
@@ -38,14 +41,15 @@
  * {@code ListenRecord}, {@code HistoryFile}, {@code TrackTitleResolver}; focus - {@code MixWithOtherApps},
  * {@code CallWatcher}; vivo - {@code VivoMusicCard}, {@code VivoPlayerList}, {@code VivoHintScheduler}/{@code VivoHintScreen};
  * transitions - {@code PlaybackEvents}, {@code Crossfade}, {@code NextTrackPreload} (the copies themselves are
- * {@code download.PrefetchedTracks}); comments - {@code PlayerComments}.
+ * {@code download.PrefetchedTracks}); comments - {@code PlayerComments}; cover - {@code WholeCover} (size and place of
+ * SoundCloud's image views, the backdrop view) and {@code CoverBackdrop} (the blurred, darkened small picture).
  *
  * <p>Settings: keys live next to the feature - {@code equalizer_enabled/preset/levels/preamp/choice/user_presets}
  * ({@code AudioEqualizer}), {@code listening_stats} ({@code ListeningStats}), {@code arsound_player_track_colors}
  * ({@code NotificationArtwork}), and in {@code settings.Settings}: {@code mix_with_other_apps}, {@code stream_cache_size},
  * {@code stream_cache_days}, {@code smooth_player_collapse}, {@code crossfade}, {@code crossfade_seconds},
  * {@code fx_speed}, {@code fx_reverb}, {@code fx_bass}, {@code slowed_percent}, {@code fx_speedup_percent},
- * {@code preload_next}, {@code hide_player_comments}. Own preference files: {@code arsound_listening_stats},
+ * {@code preload_next}, {@code hide_player_comments}, {@code whole_player_cover}. Own preference files: {@code arsound_listening_stats},
  * {@code arsound_sleep_timer}, {@code arsound_vivo_music_card}.
  *
  * <p>Gotchas: SoundCloud's queue manager and player classes are reached by reflection under their short obfuscated
