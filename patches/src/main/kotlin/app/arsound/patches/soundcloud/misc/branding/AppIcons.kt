@@ -98,6 +98,7 @@ internal val APP_ICONS = listOf(
     "monet",
     "monet_dark",
     // region design icons (tools/branding/design_icons.py)
+    "a9_minimal",
     "d_alaya_scarlet",
     "d_noir_scarlet",
     "d_glow_scarlet",

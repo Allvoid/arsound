@@ -99,6 +99,7 @@ final class AppIconList {
             {"monet", "Как обои (светлая)", "Wallpaper colours (light)", "Цвета обоев", "Wallpaper colours"},
             {"monet_dark", "Как обои (тёмная)", "Wallpaper colours (dark)", "Цвета обоев", "Wallpaper colours"},
             // region design icons (tools/branding/design_icons.py)
+            {"a9_minimal", "А9 минимализм", "A9 minimal", "Минимализм", "Minimal"},
             {"d_alaya_scarlet", "Плитка", "Tile", "Алые", "Scarlet"},
             {"d_noir_scarlet", "Буква", "Letter", "Алые", "Scarlet"},
             {"d_glow_scarlet", "Свечение", "Glow", "Алые", "Scarlet"},

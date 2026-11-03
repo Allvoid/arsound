@@ -12,6 +12,9 @@ An Android icon has two layers of 108dp, of which about the middle 72dp show: th
 background layer (so the launcher's own shape cuts it, without the drawing's rounded corners), the letter goes to the
 foreground layer. Both are bitmaps (WebP, 432 px) like the other decorated icons.
 
+The minimal А9 icon (two thick lines on a dark tile, the one from the A9 Icon Set) is added first, in its own group,
+as a vector.
+
 Run: python tools/branding/design_icons.py
 It writes the layers, the adaptive icons and puts the icons into AppIcons.kt and AppIconList.java (between the
 "design icons" marks); tools/branding/icons.py keeps them when it writes the lists again.
@@ -60,6 +63,15 @@ LETTER_GROUP = re.compile(r'<g transform="translate\(107\.52 136\.66\) scale\(0\
 LETTER_PAINT = re.compile(r'<g fill="none" stroke="([^"]+)"')
 # Where the А9 mark goes on the 512 tile, and how big.
 MARK_FIT, MARK_X, MARK_Y = 300, 256, 262
+
+# The minimal А9 icon of the A9 Icon Set (letter-a-icon): the katakana as two thick lines on a dark tile, one line white,
+# one azure. Drawn on the 512 tile like the designs; the tile is the 72 dp middle of the 108 dp layer. It is not tied
+# to a theme, so it is one icon, in its own group, written as vector layers.
+MINIMAL = {"id": "a9_minimal", "name": "А9 минимализм", "nameEn": "A9 minimal", "group": "Минимализм",
+           "groupEn": "Minimal"}
+MINIMAL_TILE = ("#1b1b1d", "#040404")
+MINIMAL_LINES = (("#ffffff", "M144 164H368L232 348"), ("#4c9bff", "M246.6 220L152 348"))
+MINIMAL_WIDTH = 32
 
 START, END = "// region design icons (tools/branding/design_icons.py)", "// endregion design icons"
 
@@ -168,6 +180,53 @@ def adaptive(icon_id):
     )
 
 
+def minimal_layers():
+    """The background (the tile's gradient over the whole layer) and the foreground (the two lines) of the minimal icon."""
+    scale = 72 / TILE
+    shift = 54 - TILE / 2 * scale
+    top, bottom = MINIMAL_TILE
+    background = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android" '
+        'xmlns:aapt="http://schemas.android.com/aapt"\n'
+        '    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">\n'
+        '    <path android:pathData="M0,0h108v108h-108z">\n'
+        '        <aapt:attr name="android:fillColor">\n'
+        '            <gradient android:type="linear" android:startX="54" android:startY="0" '
+        'android:endX="54" android:endY="108">\n'
+        f'                <item android:offset="0" android:color="#ff{top[1:]}" />\n'
+        f'                <item android:offset="1" android:color="#ff{bottom[1:]}" />\n'
+        '            </gradient>\n'
+        '        </aapt:attr>\n'
+        '    </path>\n'
+        '</vector>\n'
+    )
+    lines = "".join(
+        f'        <path android:pathData="{data}" android:strokeColor="#ff{color[1:]}" '
+        f'android:strokeWidth="{MINIMAL_WIDTH}" android:strokeLineCap="round" android:strokeLineJoin="round" '
+        'android:fillColor="#00000000" />\n'
+        for color, data in MINIMAL_LINES
+    )
+    foreground = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
+        '    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">\n'
+        f'    <group android:translateX="{shift:.3f}" android:translateY="{shift:.3f}" '
+        f'android:scaleX="{scale:.6f}" android:scaleY="{scale:.6f}">\n'
+        f'{lines}    </group>\n'
+        '</vector>\n'
+    )
+    return background, foreground
+
+
+def write_minimal():
+    background, foreground = minimal_layers()
+    (RES / "drawable").mkdir(parents=True, exist_ok=True)
+    (RES / f"drawable/arsound_icon_bg_{MINIMAL['id']}.xml").write_text(background, encoding="utf-8")
+    (RES / f"drawable/arsound_icon_fg_{MINIMAL['id']}.xml").write_text(foreground, encoding="utf-8")
+    (RES / f"mipmap-anydpi/arsound_icon_{MINIMAL['id']}.xml").write_text(adaptive(MINIMAL["id"]), encoding="utf-8")
+
+
 def items():
     """The icons: id, name, English name, group, English group (for the lists), without writing anything."""
     themes = json.loads(THEMES.read_text(encoding="utf-8"))["themes"]
@@ -232,19 +291,20 @@ def write_lists(result):
         JAVA.write_text(java, encoding="utf-8")
     ids = [f'"{item["id"]}",' for item in result]
     kotlin = KOTLIN.read_text(encoding="utf-8")
-    # Both regions of the Kotlin file get the same ids.
+    # The first Kotlin region is the list of icons, the second the set of bitmap ones: the minimal icon is a vector.
     regions = list(re.finditer(rf"[ \t]*{re.escape(START)}\n.*?[ \t]*{re.escape(END)}\n", kotlin, re.S))
-    block = "    " + START + "\n" + "".join(f"    {line}\n" for line in ids) + "    " + END + "\n"
-    for found in reversed(regions):
+    for found, lines in reversed(list(zip(regions, ([f'"{MINIMAL["id"]}",'] + ids, ids)))):
+        block = "    " + START + "\n" + "".join(f"    {line}\n" for line in lines) + "    " + END + "\n"
         kotlin = kotlin[:found.start()] + block + kotlin[found.end():]
     KOTLIN.write_text(kotlin, encoding="utf-8")
     rows = [f"{{{java_string(i['id'])}, {java_string(i['name'])}, {java_string(i['nameEn'])}, "
-            f"{java_string(i['group'])}, {java_string(i['groupEn'])}}}," for i in result]
+            f"{java_string(i['group'])}, {java_string(i['groupEn'])}}}," for i in [MINIMAL] + result]
     replace_region(JAVA, rows, " " * 12)
 
 
 def main():
     result = write_layers()
+    write_minimal()
     write_lists(result)
     size = sum(f.stat().st_size for f in (RES / "drawable-nodpi").glob("arsound_icon_*_d_*.webp"))
     print(f"{len(result)} design icons, {size // 1024} KB")
