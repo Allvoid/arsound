@@ -31,6 +31,8 @@ public final class MyWave {
     /** The tracks of this wave, for the "never again" rule and to see whether the playing one is still the wave's. */
     private static final Set<String> QUEUED = new LinkedHashSet<>();
     private static volatile boolean active;
+    /** The wave's track that plays now, or null before the first one starts. */
+    private static volatile String current;
     private static volatile boolean building;
 
     private MyWave() {
@@ -51,6 +53,31 @@ public final class MyWave {
         }
     }
 
+    /**
+     * A window of the wave's queue in its order: up to {@code before} tracks that played before the one playing now, that
+     * one, and the next ones, {@code total} in all. From the start of the wave while none of its tracks played yet.
+     */
+    public static List<String> around(int before, int total) {
+        synchronized (QUEUED) {
+            List<String> all = new ArrayList<>(QUEUED);
+            int from = windowStart(current == null ? -1 : all.indexOf(current), all.size(), before, total);
+            return new ArrayList<>(all.subList(from, Math.min(all.size(), from + total)));
+        }
+    }
+
+    /**
+     * Where a window of {@code total} places starts in a list of {@code size}, to show {@code before} places ahead of
+     * {@code at} (-1: none) and as many after it as fit; it slides back from the end so it stays full.
+     */
+    static int windowStart(int at, int size, int before, int total) {
+        return Math.max(0, Math.min(at - before, size - total));
+    }
+
+    /** The wave's track that plays now, or null. */
+    public static String current() {
+        return active ? current : null;
+    }
+
     public static boolean isActive() {
         return active;
     }
@@ -60,6 +87,7 @@ public final class MyWave {
         if (building) return;
         building = true;
         active = true;
+        current = null;
         synchronized (QUEUED) {
             QUEUED.clear();
         }
@@ -108,6 +136,7 @@ public final class MyWave {
                 if (!building) active = false;
                 return;
             }
+            current = key;
         }
         // The queue is read on the main thread: the hook runs on the player's thread.
         Utils.runOnMainThread(() -> refillIfLow(key));

@@ -30,12 +30,14 @@
  * also when the statistics are off; the hooks never wait for the disk: {@code WaveLearner} holds the track lengths and
  * the verdicts, a background thread loads and fills the ledger), {@code ListenVerdict} (under 15 s skipped, 45 s or
  * most of the track heard, judged by the real length of the track); the broken-heart button - {@code DislikeAction}.
- * The screen is {@code settings.WaveScreen} (opened by the wave icon that {@code navbar.LibrarySearchButton} adds to the Library top bar,
- * {@code settings.WaveScreenLauncher}); the big card is {@code theme.WaveCard}.
+ * The tab page is {@code WavePage} (a fragment of the bottom bar's "My Wave" tab, {@code navbar.WaveNavigationTarget}):
+ * {@code WaveOrb} draws the moving wave with the button, {@code WaveCovers} loads the small covers. The settings screen
+ * is {@code settings.WaveScreen} (behind the page's gear and in the settings, {@code settings.WaveScreenLauncher}); its
+ * big card is {@code theme.WaveCard}.
  *
  * <p>Settings: {@code duplicate_filter} and {@code merge_edited_versions} ({@code settings.Settings}),
  * {@code dislikes_enabled} ({@code TrackDislikes.ENABLED}, default on), {@code for_you_enabled} ({@code ForYou.ENABLED}).
- * {@code hide_wave_button}, {@code wave_src_soundcloud/lastfm/deezer}. Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs},
+ * {@code hide_tab_wave} ({@code settings.BoolSettings.HIDE_TAB_WAVE}), {@code wave_src_soundcloud/lastfm/deezer}. Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs},
  * {@code arsound_for_you}, {@code arsound_wave}. Screen:
  * {@code settings.RecommendationsScreen}.
  *

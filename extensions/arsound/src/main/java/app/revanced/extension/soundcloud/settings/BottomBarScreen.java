@@ -35,8 +35,8 @@ final class BottomBarScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Какие вкладки показывать внизу: главная, лента, поиск, библиотека",
-                "Which tabs the bottom bar shows: home, feed, search, library");
+        return text("Какие вкладки показывать внизу: главная, моя волна, лента, поиск, библиотека",
+                "Which tabs the bottom bar shows: home, my wave, feed, search, library");
     }
 
     @Override
@@ -74,6 +74,7 @@ final class BottomBarScreen extends SectionScreen {
         Runnable changed = () -> restart[0].setVisibility(View.VISIBLE);
 
         list.addView(tabRow("home", text("Главная", "Home"), TabKind.HOME.hiddenSetting(), changed));
+        list.addView(tabRow("recs", text("Моя волна", "My Wave"), BoolSettings.HIDE_TAB_WAVE, changed));
         list.addView(tabRow("feed", text("Лента", "Feed"), TabKind.FEED.hiddenSetting(), changed));
         list.addView(tabRow("search", text("Поиск", "Search"), TabKind.SEARCH.hiddenSetting(), changed));
         ToggleRow library = ui.createCheckRow(text("Библиотека", "Library"), true, (button, checked) -> {
@@ -81,7 +82,6 @@ final class BottomBarScreen extends SectionScreen {
         library.icon("library");
         library.lock();
         list.addView(library);
-        list.addView(tabRow("recs", text("Моя волна (значок в Библиотеке)", "My Wave (icon in the Library)"), BoolSettings.HIDE_WAVE_BUTTON, changed));
         list.addView(tabRow("subscription", text("Upgrade (если есть)", "Upgrade (if any)"), BoolSettings.HIDE_UPGRADE_TAB, changed));
 
         TextView searchNote = ui.createText("Body.Secondary", text(

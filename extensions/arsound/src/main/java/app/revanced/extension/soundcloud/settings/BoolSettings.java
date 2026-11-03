@@ -22,8 +22,8 @@ public final class BoolSettings {
     public static final BoolSetting HIDE_TAB_HOME = new BoolSetting(Settings.HIDE_TAB_HOME, false, true);
     public static final BoolSetting HIDE_TAB_FEED = new BoolSetting(Settings.HIDE_TAB_FEED, false, true);
     public static final BoolSetting HIDE_TAB_SEARCH = new BoolSetting(Settings.HIDE_TAB_SEARCH, false, true);
-    /** Takes the "My Wave" button out of the top bar of the Library. Off by default. */
-    public static final BoolSetting HIDE_WAVE_BUTTON = new BoolSetting(Settings.HIDE_WAVE_BUTTON, false);
+    /** Takes Arsound's "My Wave" tab out of the bottom bar. Off by default; the app restarts to apply. */
+    public static final BoolSetting HIDE_TAB_WAVE = new BoolSetting(Settings.HIDE_TAB_WAVE, false, true);
     /** Checks GitHub for a newer Arsound release on every launch. On by default. */
     public static final BoolSetting UPDATE_CHECK = new BoolSetting(Settings.UPDATE_CHECK, true);
     /** Shows stored playlists before the server answers. On by default. */

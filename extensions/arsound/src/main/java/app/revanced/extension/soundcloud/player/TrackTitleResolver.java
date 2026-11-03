@@ -151,7 +151,10 @@ public final class TrackTitleResolver {
         entry.title = names != null ? names[1] : title;
     }
 
-    /** Titles and uploaders of tracks from SoundCloud's own database, without the network. */
+    /**
+     * Titles and uploaders of tracks from SoundCloud's own database, without the network: per track urn the title, the
+     * uploader and the address template of the cover ({@code {size}} in it stands for the size), each possibly null.
+     */
     public static Map<String, String[]> storedTitles(List<String> urns) {
         Map<String, String[]> found = new HashMap<>();
         Context context = Utils.getContext();
@@ -161,13 +164,13 @@ public final class TrackTitleResolver {
             // SQLite takes at most 999 values in one query.
             for (int start = 0; start < urns.size(); start += 400) {
                 List<String> part = urns.subList(start, Math.min(urns.size(), start + 400));
-                String query = "SELECT t.urn, t.title, u.username FROM Tracks t "
+                String query = "SELECT t.urn, t.title, u.username, t.artworkUrlTemplate FROM Tracks t "
                         + "LEFT JOIN TrackUserJoin j ON j.trackUrn = t.urn LEFT JOIN Users u ON u.urn = j.userUrn "
                         + "WHERE t.urn IN (" + String.join(",", Collections.nCopies(part.size(), "?")) + ")";
                 try (Cursor cursor = core.rawQuery(query, part.toArray(new String[0]))) {
                     while (cursor.moveToNext()) {
                         if (cursor.getString(1) == null) continue;
-                        found.put(cursor.getString(0), new String[]{cursor.getString(1), cursor.getString(2)});
+                        found.put(cursor.getString(0), new String[]{cursor.getString(1), cursor.getString(2), cursor.getString(3)});
                     }
                 }
             }

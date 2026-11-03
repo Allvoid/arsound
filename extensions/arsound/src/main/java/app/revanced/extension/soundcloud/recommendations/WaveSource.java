@@ -40,6 +40,12 @@ public enum WaveSource {
         return text(russian, english);
     }
 
+    /** The name of the service alone, for a chip: "SoundCloud", "Last.fm", "Deezer". */
+    public String shortLabel() {
+        int colon = english.indexOf(':');
+        return colon < 0 ? english : english.substring(0, colon);
+    }
+
     public String note() {
         return text(russianNote, englishNote);
     }

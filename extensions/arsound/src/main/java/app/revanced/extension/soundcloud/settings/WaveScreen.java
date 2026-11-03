@@ -21,8 +21,7 @@ import app.revanced.extension.soundcloud.theme.WaveCard;
 
 /**
  * "My Wave": the big start/stop card, what the wave is doing, where it gets its tracks (ticked) and the tracks it played
- * last. Opened by the wave button in the top bar of the Library (SoundCloud's bottom bar cannot take a tab of its own: its
- * screens are Compose pages made by SoundCloud) and from the settings.
+ * last. Opened by the gear of the "My Wave" tab ({@code recommendations.WavePage}) and from the settings.
  */
 final class WaveScreen extends SectionScreen {
     static final String ID = "wave";

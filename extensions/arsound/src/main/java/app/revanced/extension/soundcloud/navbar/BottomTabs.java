@@ -7,10 +7,11 @@ import java.util.Collections;
 import java.util.List;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.settings.BoolSettings;
 import app.revanced.extension.soundcloud.upsell.HidePaywallPatch;
 
 /**
- * Takes the tabs the user chose out of SoundCloud's bottom bar. A hidden tab is not removed: it moves to the end of the
+ * Takes the tabs the user chose out of SoundCloud's bottom bar and adds Arsound's "My Wave" tab after Home. A hidden tab is not removed: it moves to the end of the
  * list the app is built from and its button is hidden, so the tab's number stays true everywhere SoundCloud uses it and
  * the first visible tab is the one the app starts on and goes back to. A deep link or a shortcut that opens the hidden
  * tab still works; only the button is gone.
@@ -34,15 +35,26 @@ public final class BottomTabs {
     public static List<?> arrange(List<?> tabs) {
         if (tabs == null) return null;
         try {
-            TabOrder.Arranged<Object> arranged = TabOrder.arrange(tabs, BottomTabs::placementOf);
+            List<?> all = withWave(tabs);
+            TabOrder.Arranged<Object> arranged = TabOrder.arrange(all, BottomTabs::placementOf);
             shown = arranged.shown;
-            if (arranged.hiddenCount() == 0) return tabs;
+            if (arranged.hiddenCount() == 0) return all;
             Logger.printInfo(() -> "Bottom bar: " + arranged.hiddenCount() + " of " + tabs.size() + " tabs hidden");
             return arranged.tabs;
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not arrange the tabs of the bottom bar", ex);
             return tabs;
         }
+    }
+
+    /**
+     * The tabs with "My Wave" right after Home, unless the user took it out. Arsound's own tab is simply left out then:
+     * no deep link opens it, so it needs no hidden place.
+     */
+    private static List<?> withWave(List<?> tabs) {
+        if (BoolSettings.HIDE_TAB_WAVE.get()) return tabs;
+        return TabOrder.<Object>withExtra(tabs, new WaveNavigationTarget(),
+                tab -> TabKind.of(tab) == TabKind.HOME, tab -> tab instanceof WaveNavigationTarget);
     }
 
     private static TabOrder.Placement placementOf(Object tab) {

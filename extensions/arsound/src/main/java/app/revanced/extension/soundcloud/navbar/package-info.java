@@ -1,6 +1,7 @@
 /**
- * The bottom bar of SoundCloud: the user takes out the tabs Home, Feed and Search (Library always stays), and a search
- * button stands in the top bar of the Library while the Search tab is out.
+ * The bottom bar of SoundCloud: Arsound's own "My Wave" tab after Home ({@code WaveNavigationTarget}); the user takes
+ * out the tabs Home, My Wave, Feed and Search (Library always stays), and a search button stands in the top bar of the
+ * Library while the Search tab is out.
  *
  * <p>User view: Settings, "Нижняя панель": a tick per tab. The app starts on the first tab that stays and goes back to
  * it. A change applies after a restart of the app, which the screen offers.
@@ -12,9 +13,11 @@
  * {@code HidePaywallPatch.filterNavigationTabs} (upsell) drops the Upgrade tab and then calls {@code arrange} as well.
  *
  * <p>Main classes: {@code BottomTabs} (hooks), {@code TabOrder} (pure ordering, tested), {@code TabKind} (which class
- * makes which tab, and its setting), {@code LibrarySearchButton}.
+ * makes which tab, and its setting), {@code WaveNavigationTarget} (the wave tab: title, icon, page
+ * {@code recommendations.WavePage}), {@code LibrarySearchButton}.
  *
- * <p>Settings: {@code hide_tab_home}, {@code hide_tab_feed}, {@code hide_tab_search} (default off, written at once);
+ * <p>Settings: {@code hide_tab_home}, {@code hide_tab_wave}, {@code hide_tab_feed}, {@code hide_tab_search} (default off,
+ * written at once; a taken-out wave tab is left out of the list, not hidden at its end);
  * {@code hide_upgrade_tab} stays in the same screen.
  *
  * <p>Gotchas: a hidden tab is not removed from the list: it moves to the end and only its button is hidden. SoundCloud

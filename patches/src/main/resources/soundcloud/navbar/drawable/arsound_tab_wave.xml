@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The "My Wave" tab of the bottom bar: the plain wave, the bolder one while the tab is open (as SoundCloud's tabs do). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:drawable="@drawable/arsound_tab_wave_active" />
+    <item android:state_checked="true" android:drawable="@drawable/arsound_tab_wave_active" />
+    <item android:drawable="@drawable/arsound_tab_wave_plain" />
+</selector>

@@ -319,4 +319,14 @@ public class WaveTest {
     }
 
     // endregion
+
+    @Test
+    public void theListShowsTwoPlayedTracksAndTheNextOnes() {
+        assertEquals(0, MyWave.windowStart(-1, 30, 2, 10));
+        assertEquals(0, MyWave.windowStart(1, 30, 2, 10));
+        assertEquals(5, MyWave.windowStart(7, 30, 2, 10));
+        // Near the end the window slides back, so it stays full.
+        assertEquals(20, MyWave.windowStart(28, 30, 2, 10));
+        assertEquals(0, MyWave.windowStart(3, 6, 2, 10));
+    }
 }

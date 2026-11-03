@@ -3,6 +3,7 @@ package app.revanced.extension.soundcloud.navbar;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * Puts the tabs of the bottom bar in the order the app is built with: the tabs that stay first, in their own order, the
@@ -42,6 +43,28 @@ final class TabOrder {
             for (boolean tabShown : shown) if (!tabShown) count++;
             return count;
         }
+    }
+
+    /**
+     * The tabs with {@code extra} put right after the first tab {@code after} accepts, or first when none does. The
+     * list comes back as it was when it holds a tab {@code same} accepts already, so a list arranged twice does not get
+     * the tab twice.
+     */
+    static <T> List<T> withExtra(List<? extends T> tabs, T extra, Predicate<? super T> after, Predicate<? super T> same) {
+        List<T> result = new ArrayList<>(tabs.size() + 1);
+        for (T tab : tabs) {
+            if (same.test(tab)) return new ArrayList<>(tabs);
+        }
+        boolean placed = false;
+        for (T tab : tabs) {
+            result.add(tab);
+            if (!placed && after.test(tab)) {
+                result.add(extra);
+                placed = true;
+            }
+        }
+        if (!placed) result.add(0, extra);
+        return result;
     }
 
     /** The tabs in the order of {@link Placement}, each group in the order it came. The same input always gives the same output. */

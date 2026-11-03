@@ -3,7 +3,7 @@ package app.revanced.extension.soundcloud.settings;
 import android.content.Context;
 import android.content.Intent;
 
-/** Opens the "My Wave" screen from outside the settings package (the wave button of the Library). */
+/** Opens the "My Wave" screen from outside the settings package (the gear of the "My Wave" tab). */
 public final class WaveScreenLauncher {
     private WaveScreenLauncher() {
     }

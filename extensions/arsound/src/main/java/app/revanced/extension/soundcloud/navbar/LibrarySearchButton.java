@@ -21,7 +21,6 @@ import app.revanced.extension.soundcloud.update.UpdateChecker;
 @SuppressWarnings("unused")
 public final class LibrarySearchButton {
     private static final int ITEM_ID = 0x41535243;
-    private static final int WAVE_ID = 0x41535244;
 
     private LibrarySearchButton() {
     }
@@ -29,7 +28,6 @@ public final class LibrarySearchButton {
     /** Injection point: the start of {@code LibraryFragment.onPrepareOptionsMenu(Menu)}. */
     public static void onPrepareMenu(Menu menu) {
         try {
-            addWaveButton(menu);
             MenuItem existing = menu.findItem(ITEM_ID);
             if (!BoolSettings.HIDE_TAB_SEARCH.get()) {
                 if (existing != null) menu.removeItem(ITEM_ID);
@@ -47,28 +45,6 @@ public final class LibrarySearchButton {
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not add the search button to the Library", ex);
         }
-    }
-
-    /**
-     * The wave icon, left of the search button: opens the "My Wave" screen. SoundCloud's bottom bar cannot take a tab of its
-     * own (its screens are Compose pages), so the wave lives behind an icon in the top bar of the Library.
-     */
-    private static void addWaveButton(Menu menu) {
-        MenuItem existing = menu.findItem(WAVE_ID);
-        if (BoolSettings.HIDE_WAVE_BUTTON.get()) {
-            if (existing != null) menu.removeItem(WAVE_ID);
-            return;
-        }
-        if (existing != null) return;
-        MenuItem item = menu.add(Menu.NONE, WAVE_ID, Menu.NONE, Lang.text("Моя волна", "My Wave"));
-        int icon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "arsound_wave");
-        if (icon != 0) item.setIcon(icon);
-        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-        item.setOnMenuItemClickListener(clicked -> {
-            Activity activity = UpdateChecker.resumedActivity();
-            if (activity != null) activity.startActivity(app.revanced.extension.soundcloud.settings.WaveScreenLauncher.intent(activity));
-            return true;
-        });
     }
 
     /** Picks the Search tab of the bottom bar, found as the view that has a menu with the Search tab in it. */

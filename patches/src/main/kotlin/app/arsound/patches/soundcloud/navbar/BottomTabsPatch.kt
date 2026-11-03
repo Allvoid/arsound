@@ -1,9 +1,13 @@
 package app.arsound.patches.soundcloud.navbar
 
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
+import app.arsound.patches.soundcloud.misc.resources.ensureValuesFile
 import app.arsound.patches.soundcloud.misc.hooks.insertBeforeLastReturnVoid
 import app.arsound.patches.soundcloud.misc.hooks.wrapLastReturnedObject
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
+import app.arsound.util.ResourceGroup
+import app.arsound.util.copyResources
+import app.arsound.util.getNode
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
@@ -13,6 +17,7 @@ import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.bytecodePatch
+import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.returnType
 import com.android.tools.smali.dexlib2.Opcode
 
@@ -56,14 +61,36 @@ private val BytecodePatchContext.libraryMenuMethod by gettingFirstMethodDeclarat
     parameterTypes("Landroid/view/Menu;")
 }
 
+/** The title and the icon of Arsound's "My Wave" tab, which the bar reads as resources. */
+private val waveTabResourcePatch = resourcePatch {
+    apply {
+        copyResources(
+            "soundcloud/navbar",
+            ResourceGroup("drawable", "arsound_tab_wave.xml", "arsound_tab_wave_plain.xml", "arsound_tab_wave_active.xml"),
+        )
+        mapOf("values" to "My Wave", "values-ru" to "Моя волна").forEach { (folder, title) ->
+            val path = "res/$folder/strings.xml"
+            ensureValuesFile(path)
+            document(path).use { document ->
+                document.getNode("resources").appendChild(
+                    document.createElement("string").apply {
+                        setAttribute("name", "arsound_tab_wave")
+                        textContent = title
+                    },
+                )
+            }
+        }
+    }
+}
+
 /**
  * Tabs of the bottom bar the user can take out (Home, Feed, Search): the tabs that stay are put first in the list the
  * bar and the navigation controller are made from, the hidden ones last, and the buttons of the hidden ones are hidden.
- * With the Search tab out, a search button stands in the top bar of the Library. Part of the "Arsound" patch, not shown
- * on its own.
+ * With the Search tab out, a search button stands in the top bar of the Library. Arsound's "My Wave" tab
+ * (`WaveNavigationTarget`) is put after Home in the same lists. Part of the "Arsound" patch, not shown on its own.
  */
 val bottomTabsPatch = bytecodePatch {
-    dependsOn(settingsPatch)
+    dependsOn(settingsPatch, waveTabResourcePatch)
 
     compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 

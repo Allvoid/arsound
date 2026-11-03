@@ -66,4 +66,29 @@ public class TabOrderTest {
         assertEquals(Arrays.asList("home", "library"), input);
         assertEquals(Arrays.asList("library", "home"), arranged.tabs);
     }
+
+    @Test
+    public void theWaveComesRightAfterHome() {
+        List<String> tabs = TabOrder.withExtra(TABS, "wave", "home"::equals, "wave"::equals);
+        assertEquals(Arrays.asList("home", "wave", "feed", "search", "library"), tabs);
+    }
+
+    @Test
+    public void withoutHomeTheWaveComesFirst() {
+        List<String> tabs = TabOrder.withExtra(Arrays.asList("feed", "library"), "wave", "home"::equals, "wave"::equals);
+        assertEquals(Arrays.asList("wave", "feed", "library"), tabs);
+    }
+
+    @Test
+    public void theWaveIsNotAddedTwice() {
+        List<String> once = TabOrder.withExtra(TABS, "wave", "home"::equals, "wave"::equals);
+        assertEquals(once, TabOrder.withExtra(once, "wave", "home"::equals, "wave"::equals));
+    }
+
+    @Test
+    public void aHiddenHomeLeavesTheWaveFirstOfTheShownTabs() {
+        List<String> tabs = TabOrder.withExtra(TABS, "wave", "home"::equals, "wave"::equals);
+        TabOrder.Arranged<String> arranged = arrange(tabs, "home");
+        assertEquals(Arrays.asList("wave", "feed", "search", "library", "home"), arranged.tabs);
+    }
 }
