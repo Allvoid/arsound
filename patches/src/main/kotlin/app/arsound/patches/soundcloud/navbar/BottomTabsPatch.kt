@@ -11,15 +11,21 @@ import app.arsound.util.getNode
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstructions
+import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
+import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.returnType
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 
 private const val BOTTOM_TABS = "Lapp/revanced/extension/soundcloud/navbar/BottomTabs;"
 private const val LIBRARY_SEARCH_BUTTON = "Lapp/revanced/extension/soundcloud/navbar/LibrarySearchButton;"
@@ -53,6 +59,20 @@ private val BytecodePatchContext.setupMenuItemsMethod by gettingFirstMethodDecla
     returnType("V")
     parameterTypes("Lcom/google/android/material/navigation/NavigationBarView;")
 }
+
+/** Makes the navigation controller: the fragment holder gets one stack of screens per tab, a fixed number of them. */
+private val BytecodePatchContext.initNavControllerMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/listeners/navigation/MainNavController;")
+    name("j")
+    returnType("V")
+    parameterTypes("Lcom/soundcloud/android/ui/main/MainActivity;", "Landroid/os/Bundle;")
+}
+
+/** The most tabs the bar can hold: the stock four, the Upgrade tab and "My Wave". */
+private const val MAX_TABS = 6
+
+/** SoundCloud makes five stacks of screens (four tabs and Upgrade); with "My Wave" the Upgrade tab, sixth, has none. */
+private const val STOCK_STACKS = 5
 
 private val BytecodePatchContext.libraryMenuMethod by gettingFirstMethodDeclaratively {
     definingClass("Lcom/soundcloud/android/features/library/LibraryFragment;")
@@ -114,6 +134,21 @@ val bottomTabsPatch = bytecodePatch {
         setupMenuItemsMethod.insertBeforeLastReturnVoid(
             "invoke-static { p1 }, $BOTTOM_TABS->hideButtons(Landroid/view/View;)V",
         )
+
+        // One stack of screens per tab: "My Wave" is a sixth tab next to the stock five, and a tap on the Upgrade tab
+        // (index 5) ended in IndexOutOfBoundsException "Can't switch to a tab that hasn't been initialized".
+        initNavControllerMethod.apply {
+            val count = implementation!!.instructions.withIndex().firstOrNull { (index, instruction) ->
+                instruction.opcode == Opcode.CONST_4 &&
+                    (instruction as NarrowLiteralInstruction).narrowLiteral == STOCK_STACKS &&
+                    getInstruction(index + 1).opcode == Opcode.IF_GE &&
+                    getInstruction(index + 2).let {
+                        it.opcode == Opcode.NEW_INSTANCE && (it as ReferenceInstruction).reference.toString() == "Ljava/util/Stack;"
+                    }
+            }?.index ?: throw PatchException("The number of stacks of the navigation controller is not where expected")
+            val register = getInstruction<OneRegisterInstruction>(count).registerA
+            replaceInstruction(count, "const/4 v$register, $MAX_TABS")
+        }
 
         libraryMenuMethod.addInstructions(0, "invoke-static { p1 }, $LIBRARY_SEARCH_BUTTON->onPrepareMenu(Landroid/view/Menu;)V")
     }
