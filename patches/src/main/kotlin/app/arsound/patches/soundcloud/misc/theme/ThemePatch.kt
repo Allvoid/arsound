@@ -10,7 +10,10 @@ import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.extensions.wideLiteral
+import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.instructions
+import app.revanced.patcher.method
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
@@ -19,6 +22,7 @@ import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.returnType
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 
 /** The dark veil over the "Your likes" bar on the home screen; two copies of that bar exist in SoundCloud. */
 private val BytecodePatchContext.shortcutHeaderStaticMethod by gettingFirstMethodDeclaratively {
@@ -28,6 +32,18 @@ private val BytecodePatchContext.shortcutHeaderStaticMethod by gettingFirstMetho
 private val BytecodePatchContext.sectionsShortcutsStaticMethod by gettingFirstMethodDeclaratively {
     name("<clinit>")
     definingClass("Lcom/soundcloud/android/sections/ui/components/ShortcutsKt;")
+}
+
+private const val ASYNC_IMAGE = "Lcoil/compose/SingletonAsyncImageKt;"
+
+/** The hearts picture of the "Your likes" bar on the home screen, in each of its two copies: drawn by AsyncImage. */
+private val BytecodePatchContext.likesBarPictureMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/sdui/components/composables/shortcuts/ShortcutActionHeaderKt;")
+    instructions(method { definingClass == ASYNC_IMAGE && name == "b" })
+}
+private val BytecodePatchContext.sectionsLikesBarPictureMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/sections/ui/components/ShortcutsKt;")
+    instructions(method { definingClass == ASYNC_IMAGE && name == "b" })
 }
 
 /** The picture behind a page title ("Your likes", purchases): CollapsableAppBarBackground.Drawable(resource, 1f). */
@@ -114,6 +130,32 @@ val themePatch = bytecodePatch {
                 "invoke-static { v$resource }, Lapp/revanced/extension/soundcloud/theme/HeaderArtwork;->alpha(I)F",
             )
             addInstruction(index + 1, "move-result v$register")
+        }
+        // The hearts of the "Your likes" bar come from the server as a picture: they get the theme's colour filter
+        // where they are drawn. AsyncImage(model, description, modifier, alignment, scale, colorFilter, composer,
+        // changed, changed1, defaults) is called with a register range: the filter is its sixth register, and the
+        // last one is Kotlin's mask of the parameters left to their defaults, where SoundCloud marks the filter (bit 8:
+        // the mask counts Coil's parameters as written, before the shrinking took some out).
+        // That bit is taken off, or the filter passed would be ignored; the default filter is none anyway.
+        for (method in listOf(likesBarPictureMethod, sectionsLikesBarPictureMethod)) {
+            method.apply {
+                val index = indexOfFirstInstructionOrThrow {
+                    opcode == Opcode.INVOKE_STATIC_RANGE && methodReference?.definingClass == ASYNC_IMAGE &&
+                        methodReference?.name == "b"
+                }
+                val start = getInstruction<RegisterRangeInstruction>(index).startRegister
+                val filter = start + 5
+                val defaults = start + 9
+                addInstructions(
+                    index,
+                    """
+                        invoke-static/range { v$filter .. v$filter }, Lapp/revanced/extension/soundcloud/theme/HomeLikesHeart;->filter(Landroidx/compose/ui/graphics/ColorFilter;)Landroidx/compose/ui/graphics/ColorFilter;
+                        move-result-object v$filter
+                        invoke-static/range { v$defaults .. v$defaults }, Lapp/revanced/extension/soundcloud/theme/HomeLikesHeart;->useFilter(I)I
+                        move-result v$defaults
+                    """,
+                )
+            }
         }
         // The theme may lighten the veil over the "Your likes" bar, so the bar shows the theme's colours.
         for (method in listOf(shortcutHeaderStaticMethod, sectionsShortcutsStaticMethod)) {

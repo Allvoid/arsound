@@ -17,7 +17,7 @@ import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
  * The pictures behind the title of some pages: the orange hearts of "Your likes" and the golden cards of the
  * purchases page, and the hearts of the liked tracks cell in Downloads. They are images, not drawn from the colour
  * tokens, so a theme left them in SoundCloud's colours. (The hearts on the home screen's "Your likes" bar come from
- * the server as a picture link and stay as they are.)
+ * the server as a picture link: {@link HomeLikesHeart} recolours them as they are drawn.)
  * <p>
  * The theme recolours them into its accent when it is built ({@link #tint}), and a setting hides them. The pictures
  * behind a page title lose their dark ground on the way, so over a plain page they look as designed. Over a wallpaper
@@ -90,6 +90,22 @@ public final class HeaderArtwork {
         return result;
     }
 
+    /**
+     * The colour matrix of a drawing that keeps its dark ground: the brightness of each pixel (its red channel, the
+     * brightest in SoundCloud's orange hearts) becomes that much of the accent, the transparency stays.
+     */
+    static float[] solid(int accent) {
+        float r = ((accent >> 16) & 0xFF) / 255f;
+        float g = ((accent >> 8) & 0xFF) / 255f;
+        float b = (accent & 0xFF) / 255f;
+        return new float[]{
+                r, 0, 0, 0, 0,
+                g, 0, 0, 0, 0,
+                b, 0, 0, 0, 0,
+                0, 0, 0, 1, 0,
+        };
+    }
+
     private static byte[] tinted(Bitmap bitmap, int accent, String name) {
         Bitmap tinted = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
         float r = ((accent >> 16) & 0xFF) / 255f;
@@ -97,12 +113,7 @@ public final class HeaderArtwork {
         float b = (accent & 0xFF) / 255f;
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
         paint.setColorFilter(new ColorMatrixColorFilter(new ColorMatrix(SOLID.equals(name)
-                ? new float[]{
-                r, 0, 0, 0, 0,
-                g, 0, 0, 0, 0,
-                b, 0, 0, 0, 0,
-                0, 0, 0, 1, 0,
-        }
+                ? solid(accent)
                 : new float[]{
                 0, 0, 0, 0, r * 255,
                 0, 0, 0, 0, g * 255,
