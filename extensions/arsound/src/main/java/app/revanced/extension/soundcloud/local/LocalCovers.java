@@ -476,6 +476,17 @@ public final class LocalCovers {
         return playlistCovers().containsKey(playlistUrn);
     }
 
+    /** The cover set on this device for one playlist goes to another. */
+    static void movePlaylistCover(String from, String to) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return;
+        String stored = preferences.getString(PLAYLIST_PREFIX + from, null);
+        if (stored == null) return;
+        preferences.edit().remove(PLAYLIST_PREFIX + from).putString(PLAYLIST_PREFIX + to, stored).commit();
+        String address = playlistCovers().remove(from);
+        if (address != null) playlistCovers().put(to, address);
+    }
+
     /** Sets the cover of a playlist on this device, or removes it for a null image. Blocks. */
     public static boolean setPlaylistCover(String playlistUrn, byte[] image) {
         try {

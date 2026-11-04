@@ -2,7 +2,7 @@
  * Recommendations: hide duplicate uploads, "Not for me" dislikes and the daily "For you" playlist.
  *
  * <p>User view: re-uploads of the same song and tracks marked "Not for me" disappear from the home screen and autoplay;
- * a private "For you" playlist is rebuilt every midnight from what the user likes and plays (artists and songs found
+ * a "For you" playlist of this phone only is rebuilt every midnight from what the user likes and plays (artists and songs found
  * through Last.fm, names only, no account, matched back to SoundCloud tracks).
  *
  * <p>Entry points:
@@ -22,7 +22,7 @@
  * {@code SongKeys}/{@code SongFingerprint}/{@code SongRef} (what makes two titles the same song); dislikes -
  * {@code DislikeStore}, {@code DislikeMenuRow}; For you - {@code ForYou} (facade for the settings screen),
  * {@code LibrarySeeds} (seed songs from the phone), {@code LastFm}, {@code ForYouCandidates},
- * {@code SoundCloudMatcher} (best candidates, at most two per artist), {@code ForYouPlaylist} (the private playlist),
+ * {@code SoundCloudMatcher} (best candidates, at most two per artist), {@code ForYouPlaylist} (the playlist, on this phone only),
  * {@code ForYouPrefs}, {@code MatchCache}; My Wave - {@code MyWave} (start, stop, refill when four tracks are left,
  * called by {@code player.PlaybackEvents}), {@code WaveBuilder} (taste, sources, matching to SoundCloud), {@code WaveMixer}
  * (order and the never-again rules), {@code WaveSource} (SoundCloud related / Last.fm / Deezer, ticked in the settings),
@@ -43,7 +43,7 @@
  * {@code settings.RecommendationsScreen}.
  *
  * <p>Gotchas: dislikes never touch likes, playlists or search. "For you" only reads names from the phone and sends only
- * names to Last.fm; all {@code LastFm} calls block, run them off the main thread. The "For you" playlist is empty on
- * the server; its tracks are added on this phone (see {@code local}).
+ * names to Last.fm; all {@code LastFm} calls block, run them off the main thread. The "For you" playlist lives on
+ * this phone only (see {@code local.LocalPlaylists}).
  */
 package app.revanced.extension.soundcloud.recommendations;

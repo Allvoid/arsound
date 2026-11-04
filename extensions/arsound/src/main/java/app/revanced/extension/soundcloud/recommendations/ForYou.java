@@ -22,8 +22,8 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * with it; for the main artists also similar artists and their best songs, more of them when Last.fm does not know
  * the songs themselves ({@link ForYouCandidates}). Songs already
  * in the library and disliked ones are left out, at most two per artist. The rest is looked up on SoundCloud
- * ({@link SoundCloudMatcher}) and put into a private SoundCloud playlist ({@link ForYouPlaylist}), which stays empty
- * on the server: like "Imported", its tracks are added on this phone. Refreshed once a day and by hand.
+ * ({@link SoundCloudMatcher}) and put into a playlist that lives on this phone only ({@link ForYouPlaylist}), like
+ * "Imported". Refreshed once a day and by hand.
  * <p>
  * This class is what the settings, the midnight job and the listening statistics call.
  */
@@ -57,6 +57,11 @@ public final class ForYou {
             return;
         }
         ForYouJob.schedule(context, lastRefresh());
+    }
+
+    /** An older version kept the list on SoundCloud: it moves to this phone. Blocks; runs on a background thread. */
+    public static void moveToPhone() throws Exception {
+        ForYouPlaylist.moveToPhone();
     }
 
     /** Switched in the settings: the midnight update is planned or cancelled. */

@@ -59,6 +59,25 @@ public final class PlaylistMerge {
         MenuRows.append(menuItems, row);
     }
 
+    /** The list of the menu data that holds its rows, or null. The field names are obfuscated, so all lists are looked at. */
+    static List<?> menuItems(Object menuData) {
+        if (menuData == null) return null;
+        try {
+            for (Field field : menuData.getClass().getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers()) || !List.class.isAssignableFrom(field.getType())) continue;
+                field.setAccessible(true);
+                Object value = field.get(menuData);
+                if (!(value instanceof List)) continue;
+                for (Object item : (List<?>) value) {
+                    if (item != null && item.getClass().getName().contains("PlaylistMenuItem$")) return (List<?>) value;
+                }
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not read the playlist menu", ex);
+        }
+        return null;
+    }
+
     /** Whether a list in the menu data holds an item of this class. The field names are obfuscated, so all lists are looked at. */
     private static boolean hasMenuItem(Object menuData, String className) {
         if (menuData == null) return false;

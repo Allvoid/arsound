@@ -23,15 +23,13 @@ import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
- * Keeps the "Imported" playlist on SoundCloud in step with the app: creates it when it is missing, finds it again
- * after a reinstall, renames it, and hides or deletes the copies that older versions left behind. All of it runs
- * on a background thread, some time after the app starts.
+ * Keeps the "Imported" playlist in step with the app: makes it on this phone when it is missing, and hides or deletes the
+ * copies that older versions left on the account. All of it runs on a background thread, some time after the app starts.
  */
 final class SavedPlaylistSync {
     private static final String API = "https://api-v2.soundcloud.com/";
-    // The earlier local-only rename stored "saved_playlist_title"; a new key makes it run again on the server.
-    private static final String PLAYLIST_TITLE = "saved_playlist_server_title";
-    private static final String COPIES_DELETED = "saved_playlist_copies_deleted_v2";
+    // A new key: the playlist this phone used on the server has become one of the copies.
+    private static final String COPIES_DELETED = "saved_playlist_copies_deleted_v3";
     /** Titles this playlist had in any language and version. */
     private static final Set<String> KNOWN_TITLES = new HashSet<>(Arrays.asList(
             SavedPlaylist.TITLE_RU, SavedPlaylist.TITLE_EN, "Скачанные и импортированные", "Downloaded and imported"));
@@ -41,74 +39,28 @@ final class SavedPlaylistSync {
     private SavedPlaylistSync() {
     }
 
-    /** Makes sure the playlist exists; runs on a background thread. */
+    /**
+     * Makes sure the playlist exists on this phone; runs on a background thread. An older version kept it as an empty playlist on
+     * SoundCloud: what it held moves to the local one, and the empty playlist leaves the account.
+     */
     static void ensureExists() throws Exception {
         SharedPreferences preferences = SavedPlaylist.preferences();
         Logger.printInfo(() -> "Checking saved playlist, enabled: " + Settings.isSavedPlaylistEnabled()
                 + ", stored: " + (preferences == null ? null : preferences.getString(SavedPlaylist.PLAYLIST_URN, null)));
         if (!Settings.isSavedPlaylistEnabled() || preferences == null) return;
-
-        String urn = preferences.getString(SavedPlaylist.PLAYLIST_URN, null);
-        if (urn != null) {
-            String[] response = DownloadTrackPatch.apiGet(API + "playlists/" + Urns.idOf(urn));
-            // Only a definite "not found" means it was deleted; network errors keep the playlist.
-            if (!"404".equals(response[0])) {
-                renameIfNeeded(preferences, urn);
-                hideOtherCopies(preferences, urn);
-                deleteEmptyCopies(preferences, urn);
-                forgetDeletedCopies();
-                return;
+        String urn = LocalPlaylists.IMPORTED;
+        if (!LocalPlaylists.ensure(urn, SavedPlaylist.title())) return;
+        String stored = preferences.getString(SavedPlaylist.PLAYLIST_URN, null);
+        if (!urn.equals(stored)) {
+            if (stored != null) {
+                OwnPlaylists.remember(stored);  // the app used it as its own: it may go
+                LocalPlaylists.move(stored, urn);
             }
-            Logger.printInfo(() -> "Saved tracks playlist was deleted, creating it again");
+            preferences.edit().putString(SavedPlaylist.PLAYLIST_URN, urn).apply();
         }
-        // After a reinstall the stored urn is gone, but the playlist still exists on the server.
-        if (urn == null && adoptExisting(preferences)) return;
-        create(preferences);
-    }
-
-    /**
-     * Playlists created by older versions were called "Downloaded and imported". Renamed on the server:
-     * a local edit through the app was overwritten by the next sync. Runs on a background thread.
-     */
-    private static void renameIfNeeded(SharedPreferences preferences, String urn) {
-        String title = SavedPlaylist.title();
-        if (title.equals(preferences.getString(PLAYLIST_TITLE, null))) return;
-        try {
-            String id = Urns.idOf(urn);
-            JSONObject body = new JSONObject().put("playlist", new JSONObject().put("title", title));
-            int code = DownloadTrackPatch.apiSend("PUT", API + "playlists/" + id, body.toString());
-            if (code / 100 != 2) {
-                Logger.printInfo(() -> "Could not rename the saved tracks playlist: HTTP " + code);
-                return;
-            }
-            preferences.edit().putString(PLAYLIST_TITLE, title).apply();
-            PlaylistOps operations = PlaylistOps.current();
-            if (operations != null) operations.sync(operations.playlistUrn(urn));
-            Logger.printInfo(() -> "Renamed the saved tracks playlist to " + title);
-        } catch (Exception ex) {
-            Logger.printException(() -> "Could not rename the saved tracks playlist", ex);
-        }
-    }
-
-    /**
-     * Finds the playlist created before the app data was lost, instead of creating another one.
-     * All empty library playlists with a known title count: the oldest one is used, the others are hidden.
-     */
-    private static boolean adoptExisting(SharedPreferences preferences) {
-        List<String> found = findCopies(PlaylistPreloader.libraryItems("LOCAL_ONLY"));
-        if (found.isEmpty()) found = findCopies(PlaylistPreloader.libraryItems("SYNCED"));
-        if (found.isEmpty()) return false;
-
-        // Ids grow over time: the smallest is the first playlist created.
-        Collections.sort(found, (first, second) -> Long.compare(numericId(first), numericId(second)));
-        String urn = found.get(0);
-        Set<String> duplicates = new HashSet<>(found.subList(1, found.size()));
-        preferences.edit()
-                .putString(SavedPlaylist.PLAYLIST_URN, urn)
-                .putStringSet(SavedPlaylist.DUPLICATES, duplicates)
-                .apply();
-        Logger.printInfo(() -> "Using the existing saved tracks playlist " + urn + ", hidden copies: " + duplicates.size());
-        return true;
+        hideOtherCopies(preferences, urn);
+        deleteEmptyCopies(preferences, urn);
+        forgetDeletedCopies();
     }
 
     /** Hides copies made by older versions next to the playlist in use. Checked once. */
@@ -201,7 +153,7 @@ final class SavedPlaylistSync {
             if (posted instanceof List) {
                 for (Object post : (List<?>) posted) copies.add(Urns.textOf(post));
             }
-            copies.remove(SavedPlaylist.getUrn());
+            copies.removeIf(LocalPlaylists::isLocal);
             for (String copy : copies) {
                 String id = Urns.idOf(copy);
                 String[] response = DownloadTrackPatch.apiGet(API + "playlists/" + id);
@@ -231,33 +183,5 @@ final class SavedPlaylistSync {
             }
         }
         return urns;
-    }
-
-    private static long numericId(String urn) {
-        try {
-            return Long.parseLong(Urns.idOf(urn));
-        } catch (NumberFormatException ex) {
-            return Long.MAX_VALUE;
-        }
-    }
-
-    private static void create(SharedPreferences preferences) throws Exception {
-        Object operations = SavedPlaylist.playlistOperations();
-        if (operations == null) return;
-
-        Object single = operations.getClass()
-                .getMethod("createNewPlaylist", String.class, boolean.class, List.class)
-                .invoke(operations, SavedPlaylist.title(), false, Collections.emptyList());
-        Object result = Rx.blockingFirst(single, 30, TimeUnit.SECONDS);
-        if (result == null || !result.getClass().getName().endsWith("PlaylistCreationResult$Success")) {
-            Logger.printInfo(() -> "Could not create the saved tracks playlist: " + result);
-            return;
-        }
-
-        Object playlist = result.getClass().getMethod("getPlaylist").invoke(result);
-        String urn = Urns.textOf(playlist);
-        OwnPlaylists.remember(urn);
-        preferences.edit().putString(SavedPlaylist.PLAYLIST_URN, urn).putString(PLAYLIST_TITLE, SavedPlaylist.title()).apply();
-        Logger.printInfo(() -> "Created the saved tracks playlist " + urn);
     }
 }

@@ -36,6 +36,9 @@
  * {@code arsound_local_covers}, {@code arsound_playlist_tracks}, {@code arsound_removed_tracks},
  * {@code arsound_watch_folder}. Screen: {@code settings.LocalMusicScreen}.
  *
+ * <p>{@code LocalPlaylists}: "Imported" and "For you" live on this phone only, as rows of SoundCloud's own database under numbers
+ * the server never gives. The patch keeps the sync, the requests for a changed track and "Add music" away from these numbers, and
+ * {@code AdditionsMenus} takes what needs a page on SoundCloud out of their menu (public, share, repost, like, copy, edit, delete).
  * <p>Gotchas:
  * <ul>
  * <li>Methods named in patches must not be renamed. Local urns (a {@code LocalTrackUrn} made from a file path) must
