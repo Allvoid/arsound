@@ -23,6 +23,9 @@
  * <li>{@code SquarePlayerWidget.onPlayerWidget(Object presenter, RemoteViews)} - start of
  * {@code PlayerWidgetPresenter.b(RemoteViews)}; when a square is on the home screen, runs SoundCloud's builder once
  * more with a proxy of its resource provider that gives the square's layout and icons.</li>
+ * <li>{@code WidgetDiagnostics.onButtonsWired}, {@code onTap}, {@code onProviderReceive} - log lines about the player
+ * widget (buttons built, a tap that arrived, what the phone allows in the background); the Kotlin patch is
+ * {@code widget/WidgetDiagnosticsPatch.kt}.</li>
  * </ul>
  *
  * <p>Other classes: {@code CoverColor} (hue of a cover), {@code HeartColor} (fits it to the card),

@@ -48,6 +48,7 @@ import app.arsound.patches.soundcloud.region.regionHintPatch
 import app.arsound.patches.soundcloud.upsell.hideSubscriptionOffersPatch
 import app.arsound.patches.soundcloud.widget.likesWidgetPatch
 import app.arsound.patches.soundcloud.widget.playerWidgetHeartPatch
+import app.arsound.patches.soundcloud.widget.widgetDiagnosticsPatch
 import app.arsound.patches.soundcloud.widget.squarePlayerWidgetPatch
 import app.revanced.patcher.patch.Patch
 import app.revanced.patcher.patch.bytecodePatch
@@ -102,6 +103,7 @@ val arsoundBaseGroup = arsoundGroup(
     vivoMusicCardPatch,
     likesWidgetPatch,
     playerWidgetHeartPatch,
+    widgetDiagnosticsPatch,
     squarePlayerWidgetPatch,
 )
 
