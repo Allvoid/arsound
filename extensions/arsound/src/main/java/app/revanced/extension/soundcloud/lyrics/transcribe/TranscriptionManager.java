@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.lyrics.transcribe;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Process;
@@ -288,8 +290,14 @@ public final class TranscriptionManager {
         String blocker = null;
         List<String> warnings = new ArrayList<>();
         for (Guards.Concern concern : Guards.concerns(device, model, separatesVoice())) {
-            if (concern.blocking) blocker = concern.message();
-            else warnings.add(concern.message());
+            if (concern.blocking) {
+                // The numbers tell a phone that is short of memory from a mistaken reading, and go to the log the user sends.
+                long needed = Guards.neededBytes(model, separatesVoice());
+                Logger.printInfo(() -> "Transcribe: not enough memory, free " + Sizes.format(device.availableMemoryBytes)
+                        + ", needed " + Sizes.format(needed) + ", total " + Sizes.format(DeviceState.totalMemory(context)));
+                blocker = concern.message() + "\n\n" + text("Свободно сейчас: ", "Free now: ")
+                        + Sizes.format(device.availableMemoryBytes) + text(", нужно: ", ", needed: ") + Sizes.format(needed) + ".";
+            } else warnings.add(concern.message());
         }
         return new Advice(blocker, Guards.lighterModelFits(device, model), warnings,
                 AsrInstaller.missingBytes(context, model, separatesVoice()), DeviceState.isMetered(context));

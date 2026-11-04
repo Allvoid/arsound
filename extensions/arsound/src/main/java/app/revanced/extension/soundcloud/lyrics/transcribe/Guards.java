@@ -19,8 +19,10 @@ final class Guards {
     /** A thing the user should know before the work starts. */
     enum Concern {
         /** Not enough free memory for the chosen model. The work must not start. */
-        NOT_ENOUGH_MEMORY(true, "Не хватает свободной памяти для этой модели. Закройте другие приложения и попробуйте снова.",
-                "There is not enough free memory for this model. Close other apps and try again."),
+        NOT_ENOUGH_MEMORY(true, "Не хватает свободной оперативной памяти (ОЗУ) для этой модели. Это не место для файлов, а память, в "
+                        + "которой работают приложения. Закройте другие приложения и попробуйте снова.",
+                "There is not enough free RAM for this model. This is not storage space for files but the memory "
+                        + "apps run in. Close other apps and try again."),
         /** The battery is low and the phone is not charging. */
         LOW_BATTERY(false, "Заряд батареи низкий, а телефон не на зарядке. Распознавание заметно её расходует.",
                 "The battery is low and the phone is not charging. Recognition drains it noticeably."),
@@ -70,13 +72,18 @@ final class Guards {
     /** The same when the voice is taken out of the music first: the separation needs more memory than the models. */
     static List<Concern> concerns(Device device, AsrModel model, boolean separate) {
         List<Concern> concerns = new ArrayList<>();
-        long needed = separate ? Math.max(model.minAvailableBytes, VoiceModel.MIN_AVAILABLE_BYTES) : model.minAvailableBytes;
+        long needed = neededBytes(model, separate);
         if (device.availableMemoryBytes < needed) concerns.add(Concern.NOT_ENOUGH_MEMORY);
         if (!device.charging && device.batteryPercent >= 0 && device.batteryPercent < LOW_BATTERY_PERCENT) {
             concerns.add(Concern.LOW_BATTERY);
         }
         if (device.powerSaver) concerns.add(Concern.POWER_SAVER);
         return concerns;
+    }
+
+    /** The free memory the work needs: the model's, or the voice separation's when that comes first and needs more. */
+    static long neededBytes(AsrModel model, boolean separate) {
+        return separate ? Math.max(model.minAvailableBytes, VoiceModel.MIN_AVAILABLE_BYTES) : model.minAvailableBytes;
     }
 
     /** Whether the fast model would fit where the chosen one does not. */

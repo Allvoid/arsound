@@ -58,6 +58,15 @@ final class DeviceState {
         return info.availMem;
     }
 
+    /** All the memory (RAM) of the phone in bytes; 0 where the system does not tell. */
+    static long totalMemory(Context context) {
+        ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager == null) return 0;
+        ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+        manager.getMemoryInfo(info);
+        return info.totalMem;
+    }
+
     /** The heat level of Android's PowerManager (0 none to 6 shutdown); 0 where the phone does not tell. */
     static int thermalStatus(Context context) {
         if (Build.VERSION.SDK_INT < 29) return 0;
