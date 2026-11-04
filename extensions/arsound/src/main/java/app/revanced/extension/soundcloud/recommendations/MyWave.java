@@ -157,6 +157,7 @@ public final class MyWave {
                     "Nothing to offer yet: like a few tracks or tick a source"));
             return;
         }
+        takeOutAddedTracks();
         synchronized (QUEUED) {
             QUEUED.addAll(entries);
         }
@@ -167,6 +168,33 @@ public final class MyWave {
         }
         building = false;
         extend(entries.get(0));
+        Utils.runOnMainThreadDelayed(() -> logQueue("after start"), 2500);
+    }
+
+    /** What the player's queue holds against the wave's own list; for the log the user sends. */
+    private static void logQueue(String when) {
+        List<String> inQueue = AutoplayQueue.stayingUrns();
+        List<String> own;
+        synchronized (QUEUED) {
+            own = new ArrayList<>(QUEUED);
+        }
+        StringBuilder marks = new StringBuilder();
+        for (String urn : inQueue) marks.append(own.contains(urn) ? 'W' : '.');
+        int size = inQueue.size();
+        int ownCount = own.size();
+        int at = AutoplayQueue.position();
+        Logger.printInfo(() -> "My Wave: " + when + ", the queue holds " + size + " tracks, the wave has " + ownCount
+                + ", playing at " + at + ", the wave's places: " + marks);
+    }
+
+    /**
+     * A new queue keeps what was put into the old one by hand ("added by you": the person's own picks and the batches an
+     * earlier wave added) right after its first track, ahead of the new wave, so a swipe landed on those. A new wave
+     * starts from a clean queue: they are taken out first.
+     */
+    private static void takeOutAddedTracks() {
+        int removed = AutoplayQueue.removeAdded();
+        Logger.printInfo(() -> "My Wave: " + removed + " tracks added to the queue earlier taken out");
     }
 
     private static void fail(String message) {
@@ -308,6 +336,7 @@ public final class MyWave {
         boolean wasActive = active;
         active = true;
         problem = null;
+        takeOutAddedTracks();
         if (!LocalMusic.playTracks(from)) {
             active = wasActive;
             problem = text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second");
@@ -330,6 +359,7 @@ public final class MyWave {
             }
             persist();
             Logger.printInfo(() -> "My Wave: " + entries.size() + " tracks added");
+            logQueue("after adding");
         }
     }
 

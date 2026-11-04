@@ -101,6 +101,17 @@ public final class AutoplayQueue {
         }
     }
 
+    /** The place of the playing track in the queue, -1 if it cannot be read. */
+    static int position() {
+        Object manager = queueManager.get();
+        if (manager == null) return -1;
+        try {
+            return positionOf(manager);
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
     /** The class loader of SoundCloud's classes, once the queue manager exists; null before. */
     static ClassLoader classLoader() {
         Object manager = queueManager.get();
@@ -140,6 +151,42 @@ public final class AutoplayQueue {
             Logger.printException(() -> "Autoplay: could not add tracks to the queue", ex);
             return false;
         }
+    }
+
+    /**
+     * Takes the tracks put into the queue by hand ("Play next", "Play last", and the batches the wave adds) out of the
+     * part that waits. A new queue keeps every such item that waited in the old one and puts it right after the first
+     * track (SoundCloud's {@code PlayQueueFactory.reapplyAnyItemsExplicitlyAdded}), ahead of the rest of the new list.
+     * Only the places after the playing one are touched, so the playing track keeps its number. Main thread only.
+     *
+     * @return How many items were taken out.
+     */
+    static int removeAdded() {
+        Object manager = queueManager.get();
+        if (manager == null) return 0;
+        try {
+            Object queue = queueOf(manager);
+            int position = positionOf(manager);
+            List<?> entries = (List<?>) queue.getClass().getMethod("getEntries").invoke(queue);
+            int removed = 0;
+            synchronized (entries) {
+                for (int index = entries.size() - 1; index > position; index--) {
+                    if (!isAddedByUser(Getters.get(entries.get(index), "getPlayQueueItem"))) continue;
+                    entries.remove(index);
+                    removed++;
+                }
+            }
+            return removed;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Autoplay: could not take the added tracks out of the queue", ex);
+            return 0;
+        }
+    }
+
+    /** A {@code PlayQueueItem} that was put into the queue by hand ("Play next", "Play last"): its context is {@code Explicit}. */
+    private static boolean isAddedByUser(Object item) throws Exception {
+        Object context = Getters.get(item, "getPlaybackContext");
+        return context != null && "Explicit".equals(context.getClass().getSimpleName());
     }
 
     private static Object queueOf(Object manager) throws Exception {
