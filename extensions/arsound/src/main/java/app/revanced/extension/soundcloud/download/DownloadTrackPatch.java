@@ -1714,7 +1714,19 @@ public final class DownloadTrackPatch {
         DownloadIndex.Entry entry = downloadedEntry(trackId, true);
         Context context = Utils.getContext();
         String downloaded = entry == null || context == null ? null : entry.playable(context);
-        return downloaded != null ? downloaded : PrefetchedTracks.playable(trackId);
+        return asPlayerAddress(downloaded != null ? downloaded : PrefetchedTracks.playable(trackId));
+    }
+
+    /**
+     * The player reads the source of a file stream with {@code Uri.parse}, so a path with {@code #} or {@code ?} in the
+     * file name (a title such as "Song #2016") was cut at that character and the file was not found: "Track cannot be
+     * played". A {@code %} was read as an escape the same way. Such a path is handed over as a {@code file:} address
+     * with the characters escaped; any other path, and any content address, stays as it was.
+     */
+    static String asPlayerAddress(String source) {
+        if (source == null || !source.startsWith("/")) return source;
+        if (source.indexOf('#') < 0 && source.indexOf('?') < 0 && source.indexOf('%') < 0) return source;
+        return android.net.Uri.fromFile(new java.io.File(source)).toString();
     }
 
     /** When each running job was last found running, so lists that ask for many files do not ask the system each time. */
