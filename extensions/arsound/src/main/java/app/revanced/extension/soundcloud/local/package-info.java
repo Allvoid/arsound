@@ -31,6 +31,10 @@
  * {@code MergeReport}), {@code DragReorder} with {@code ManualOrder}, {@code RemovedTracks} (tracks SoundCloud deleted
  * keep their place), {@code SavedPlaylist}/{@code SavedPlaylistSync}, {@code BatchRunner}/{@code TrackFinder}.
  *
+ * <p>The quality of an imported file ("FLAC 24/96", "MP3 320") shows in the line under its title: {@code QualityMarks},
+ * hooks {@code onLineStart/withMark} at the start and every return of {@code MetaLabelsKt.e}; the words are
+ * {@code QualityLabel}, the marks are kept in the preferences {@code arsound_quality}.
+ *
  * <p>Settings ({@code settings.Settings}): {@code imported_in_likes}, {@code like_on_import}, {@code saved_playlist},
  * {@code saved_playlist_hidden}, {@code playlist_order}. Own preference files: {@code arsound_local_additions},
  * {@code arsound_local_covers}, {@code arsound_playlist_tracks}, {@code arsound_removed_tracks},

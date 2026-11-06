@@ -13,6 +13,7 @@ import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
 import app.arsound.patches.soundcloud.misc.hooks.GuardExit
 import app.arsound.patches.soundcloud.misc.hooks.insertGuard
+import app.arsound.patches.soundcloud.misc.hooks.wrapEveryReturn
 import app.arsound.patches.soundcloud.misc.resources.ensureValuesFile
 import app.arsound.util.getNode
 import app.arsound.util.indexOfFirstInstructionOrThrow
@@ -23,6 +24,8 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val EXTENSION_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/local/TrackCellMarks;"
+
+private const val QUALITY_MARKS = "Lapp/revanced/extension/soundcloud/local/QualityMarks;"
 
 private const val CELL_ICON_DESCRIPTOR = "Lcom/soundcloud/android/ui/components/compose/listviews/CellIcon;"
 
@@ -44,6 +47,12 @@ private val BytecodePatchContext.playlistTrackCellTapMethod by gettingFirstMetho
     definingClass("Lcom/soundcloud/android/playlist/view/renderers/c;")
 }
 
+/** Builds the line under the title of a track in the lists: plays, length and the like. */
+private val BytecodePatchContext.trackLineMethod by gettingFirstMethodDeclaratively {
+    name("e")
+    definingClass("Lcom/soundcloud/android/uievo/statemappers/MetaLabelsKt;")
+}
+
 private val importedTrackStringPatch = resourcePatch {
     apply {
         mapOf("values" to "Imported track", "values-ru" to "Импортированный трек").forEach { (folder, text) ->
@@ -63,12 +72,24 @@ private val importedTrackStringPatch = resourcePatch {
 
 /**
  * Track cells of the playlist screen: a note icon next to "more" for imported tracks, greyed-out cells for
- * tracks deleted on SoundCloud. Part of "Local music".
+ * tracks deleted on SoundCloud. In every list, the quality of an imported track under its title.
+ * Part of "Local music".
  */
 internal val trackCellMarksPatch = bytecodePatch {
     dependsOn(importedTrackStringPatch)
 
     apply {
+        // The registers of this method are above v15; the mark goes in at each of its many returns.
+        trackLineMethod.apply {
+            addInstructions(0, "invoke-static/range { p0 .. p0 }, $QUALITY_MARKS->onLineStart(Ljava/lang/Object;)V")
+            wrapEveryReturn(
+                Opcode.RETURN_OBJECT,
+                "$QUALITY_MARKS->withMark(Ljava/lang/Object;)Ljava/lang/Object;",
+                castTo = "Lcom/soundcloud/android/ui/components/labels/MetaLabel\$ViewState;",
+                useRange = true,
+            )
+        }
+
         // The icon is a new value of the CellIcon enum, created by the extension.
         firstClassDef(CELL_ICON_DESCRIPTOR).methods.first { it.name == "<init>" }.apply {
             accessFlags = (accessFlags and AccessFlags.PRIVATE.value.inv()) or AccessFlags.PUBLIC.value

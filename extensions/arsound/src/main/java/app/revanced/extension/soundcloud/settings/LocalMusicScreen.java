@@ -23,6 +23,7 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.LocalMusic;
+import app.revanced.extension.soundcloud.local.QualityMarks;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 
 /** "My files": the audio files imported from the phone, with the button to import more. */
@@ -95,6 +96,7 @@ final class LocalMusicScreen extends SettingsScreen {
         int generation = ++localLoadGeneration;
         Utils.runOnBackgroundThread(() -> {
             List<LocalMusic.Track> tracks = LocalMusic.getTracks(activity);
+            QualityMarks.readAll();
             Utils.runOnMainThread(() -> {
                 if (generation != localLoadGeneration || activity.isFinishing() || activity.isDestroyed()) return;
                 showLocalTracks(tracks);
@@ -131,8 +133,10 @@ final class LocalMusicScreen extends SettingsScreen {
             LocalMusic.Track track = localTracks.get(position);
             long seconds = track.durationMs / 1000;
             row.title().setText(track.title);
+            String mark = QualityMarks.of(track.file);
             row.description().setText((track.artist.isEmpty() ? "" : track.artist + " · ")
-                    + String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60));
+                    + String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60)
+                    + (mark.isEmpty() ? "" : " · " + mark));
             row.setOnClickListener(v -> playLocal(position, false));
             row.setOnLongClickListener(v -> {
                 askAbout(track);
