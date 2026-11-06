@@ -24,6 +24,10 @@ build/
 *.rve
 *.log
 
+# Python and the code index
+__pycache__/
+.codegraph/
+
 # IDE
 .idea/
 *.iml
