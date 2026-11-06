@@ -21,6 +21,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val LIKES = "Lapp/revanced/extension/soundcloud/local/ImportedLikes;"
 private const val HEARTS = "Lapp/revanced/extension/soundcloud/local/LikeHearts;"
+private const val SOUNDCLOUD_LIKES = "Lapp/revanced/extension/soundcloud/local/SoundCloudLikes;"
 
 private const val ROOM_LIKES_STORAGE = "Lcom/soundcloud/android/collections/data/likes/RoomLikesReadStorage;"
 private const val OBSERVABLE = "Lio/reactivex/rxjava3/core/Observable;"
@@ -56,6 +57,12 @@ private val BytecodePatchContext.isLikedMethod by gettingFirstMethodDeclarativel
 /** What the heart calls: writes the like to the database and sends it to the server. */
 private val BytecodePatchContext.toggleTrackLikeMethod by gettingFirstMethodDeclaratively {
     name("toggleTrackLike")
+    definingClass("Lcom/soundcloud/android/collections/data/likes/LikeToggler;")
+}
+
+/** Holds what a like needs; a transfer from Yandex Music likes its tracks through it. */
+private val BytecodePatchContext.likeTogglerConstructorMethod by gettingFirstMethodDeclaratively {
+    name("<init>")
     definingClass("Lcom/soundcloud/android/collections/data/likes/LikeToggler;")
 }
 
@@ -160,6 +167,7 @@ internal val importedLikesPatch = bytecodePatch {
             """,
         )
 
+        likeTogglerConstructorMethod.hookConstructorEnd("$SOUNDCLOUD_LIKES->setToggler(Ljava/lang/Object;)V")
         likesStateProviderConstructorMethod.hookConstructorEnd("$HEARTS->setStateProvider(Ljava/lang/Object;)V")
         trackRepositoryConstructorMethod.hookConstructorEnd("$LIKES->setTrackRepository(Ljava/lang/Object;)V")
     }

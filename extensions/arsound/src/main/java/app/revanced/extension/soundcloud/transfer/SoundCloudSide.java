@@ -5,10 +5,12 @@ import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntConsumer;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.download.ClientProfiles;
 import app.revanced.extension.soundcloud.local.SavedPlaylist;
+import app.revanced.extension.soundcloud.local.SoundCloudLikes;
 import app.revanced.extension.soundcloud.local.SongChoice;
 import app.revanced.extension.soundcloud.shared.Rx;
 
@@ -19,14 +21,20 @@ final class SoundCloudSide {
     /** A title-only search is tried for titles at least this long: a short one finds too many other songs. */
     private static final int TITLE_ONLY_MIN = 5;
     private static final long[] RETRY_WAITS_MS = {2_000, 5_000};
+    /** Likes go one at a time, and each is a request of its own: a pause, so a long list does not flood the server. */
+    private static final long LIKE_PAUSE_MS = 250;
+    /** A longer pause after a like that failed, which is mostly the server asking to slow down. */
+    private static final long LIKE_FAILURE_PAUSE_MS = 3_000;
+    /** This many failed likes in a row stop the likes: the server does not take them now. */
+    private static final int LIKE_FAILURES = 8;
 
     private SoundCloudSide() {
     }
 
-    /** SoundCloud's playlists could not be made: the app has not set up its playlist service yet. */
+    /** SoundCloud's playlists or likes could not be used: the app has not set up that service yet. */
     static final class NotReadyException extends IOException {
         NotReadyException() {
-            super("No playlist operations yet");
+            super("The SoundCloud service is not set up yet");
         }
     }
 
@@ -121,6 +129,50 @@ final class SoundCloudSide {
         Logger.printInfo(() -> "Transfer: made the playlist " + urn + " with " + urns.size() + " tracks");
         app.revanced.extension.soundcloud.shared.OwnPlaylists.remember(urn);
         return urn;
+    }
+
+    /**
+     * Likes the tracks that are not liked yet, see {@link LikePlan}. A like that fails is skipped: the rest of the list
+     * still gets theirs.
+     *
+     * @param progress Told how many of the tracks are liked so far.
+     * @return How many of the tracks are liked now.
+     * @throws LikesStoppedException If SoundCloud stopped taking likes.
+     */
+    static int like(List<String> trackUrns, IntConsumer progress) throws Exception {
+        if (!SoundCloudLikes.isReady()) throw new NotReadyException();
+        List<String> plan = LikePlan.of(trackUrns, SoundCloudLikes.alreadyLiked(trackUrns));
+        int liked = trackUrns.size() - plan.size();
+        int alreadyLiked = liked;
+        Logger.printInfo(() -> "Transfer: liking " + plan.size() + " tracks, " + alreadyLiked + " are liked already");
+        progress.accept(liked);
+        int failuresInRow = 0;
+        for (String urn : plan) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            Throwable failure = SoundCloudLikes.like(urn);
+            if (failure == null) {
+                failuresInRow = 0;
+                progress.accept(++liked);
+                Thread.sleep(LIKE_PAUSE_MS);
+                continue;
+            }
+            Logger.printInfo(() -> "Transfer: could not like " + urn + ": " + failure);
+            if (++failuresInRow >= LIKE_FAILURES) throw new LikesStoppedException(liked, trackUrns.size());
+            Thread.sleep(LIKE_FAILURE_PAUSE_MS);
+        }
+        return liked;
+    }
+
+    /** SoundCloud stopped taking likes; the playlists are made, and the likes given so far stay. */
+    static final class LikesStoppedException extends IOException {
+        final int liked;
+        final int total;
+
+        LikesStoppedException(int liked, int total) {
+            super("Liked " + liked + " of " + total);
+            this.liked = liked;
+            this.total = total;
+        }
     }
 
     /** SoundCloud did not answer in time whether it made the playlist; it may have. */

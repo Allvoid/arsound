@@ -26,14 +26,20 @@ final class HeartRefresh {
         stateProvider = provider;
     }
 
+    /** The latest {@code LikedStatuses}, or null when there are none yet. Waits for the relay: off the main thread. */
+    static Object latestStatuses() throws Exception {
+        Object provider = stateProvider;
+        if (provider == null) return null;
+        Object observable = provider.getClass().getMethod("likedStatuses").invoke(provider);
+        return Rx.blockingFirst(observable, 2, TimeUnit.SECONDS);
+    }
+
     static void emitAgain() {
         Object provider = stateProvider;
         if (provider == null) return;
-        // Reading the latest value waits for the relay; never on the main thread.
         Utils.runOnBackgroundThread(() -> {
             try {
-                Object observable = provider.getClass().getMethod("likedStatuses").invoke(provider);
-                Object latest = Rx.blockingFirst(observable, 2, TimeUnit.SECONDS);
+                Object latest = latestStatuses();
                 if (latest == null) return;
                 Object relay = statusesRelay(provider);
                 Utils.runOnMainThread(() -> accept(relay, latest));

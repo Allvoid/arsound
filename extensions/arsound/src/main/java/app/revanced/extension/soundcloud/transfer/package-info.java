@@ -5,7 +5,8 @@
  * link from Yandex Music's "Share" (a playlist, an album, the likes of an open profile) is pasted, or, after signing in
  * to Yandex, one of the account's own lists is picked (closed likes, private playlists). Arsound looks each track up on
  * SoundCloud and makes a private playlist of the ones found, with the same name and order (one more, numbered, per 500
- * tracks). The tracks not found are listed and can be copied. It runs on while the settings are closed, in the
+ * tracks). With the tick "Like all the tracks found" they are liked too, for those who listen through their likes. The
+ * tracks not found are listed and can be copied. It runs on while the settings are closed, in the
  * foreground service {@code shared.ForegroundWork} (a notification), and a transfer the app was closed in the middle
  * of is remembered in {@code running.json}, with the playlists it made, so the screen offers to go on.
  *
@@ -19,6 +20,11 @@
  * {@code PlaylistOperations.createNewPlaylist}), {@code TransferJob} (the run, one at a time) and
  * {@code TransferStore} (JSON in {@code files/arsound-transfer}: the match of every Yandex track for 60 days, a miss
  * for 3, and the last 20 transfers with their missing tracks).
+ *
+ * <p>Likes: {@code SoundCloudSide.like} goes through {@code local.SoundCloudLikes}, SoundCloud's own
+ * {@code LikeToggler}, one track at a time with a pause, from the last track to the first ({@code LikePlan}), so the
+ * first track of the list ends on top of the likes; tracks already liked are skipped, which is also how a repeat goes
+ * on from where it stopped. A like that was written but not sent stays pending in SoundCloud's database.
  *
  * <p>Gotchas: the token is kept in the private preferences {@code arsound_yandex} and sent only to
  * {@code api.music.yandex.net}. A closed profile shows empty likes to everyone else: that is told apart from an empty

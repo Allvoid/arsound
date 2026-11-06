@@ -5,10 +5,13 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.util.TypedValue;
 import android.view.View;
+import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.text.DateFormat;
@@ -18,6 +21,7 @@ import java.util.List;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
+import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.transfer.TransferJob;
 import app.revanced.extension.soundcloud.transfer.TransferRecord;
 import app.revanced.extension.soundcloud.transfer.YandexAccount;
@@ -128,9 +132,12 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         input.setHint("https://music.yandex.ru/…");
         String clip = clipboardText();
         if (YandexLink.find(clip) != null) input.setText(clip.trim());
-        FrameLayout box = new FrameLayout(activity);
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(ui.dimen("spacing_m"), ui.dp(8), ui.dimen("spacing_m"), 0);
         box.addView(input);
+        CheckBox like = likeTick();
+        box.addView(likeOption(like));
         new ArsoundDialog(activity)
                 .setTitle(text("Ссылка из Яндекс Музыки", "Yandex Music link"))
                 .setView(box)
@@ -142,7 +149,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                         return;
                     }
                     dialog.dismiss();
-                    start(link);
+                    start(link, like.isChecked());
                 })
                 .setNegativeButton(text("Отмена", "Cancel"), null)
                 .show();
@@ -161,8 +168,34 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         }
     }
 
-    private void start(YandexLink link) {
-        if (!TransferJob.start(link)) refuseWhileRunning();
+    /** Off until the user asks: a like shows on the profile, while the playlist stays private. */
+    private CheckBox likeTick() {
+        CheckBox tick = new CheckBox(activity);
+        tick.setText(text("Лайкнуть все найденные треки", "Like all the tracks found"));
+        tick.setTextColor(ArsoundTheme.palette(activity, "primary"));
+        tick.setButtonTintList(ColorStateList.valueOf(ArsoundTheme.palette(activity, "special")));
+        return tick;
+    }
+
+    /** The tick with a line under it on what it does. */
+    private LinearLayout likeOption(CheckBox tick) {
+        LinearLayout option = new LinearLayout(activity);
+        option.setOrientation(LinearLayout.VERTICAL);
+        option.addView(tick);
+        TextView note = new TextView(activity);
+        note.setText(text("Для тех, кто слушает через лайки. Они видны в вашем профиле SoundCloud, плейлист остаётся "
+                        + "приватным.",
+                "For those who listen through their likes. They show on your SoundCloud profile, the playlist stays "
+                        + "private."));
+        note.setTextColor(ArsoundTheme.palette(activity, "secondary"));
+        note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        note.setPadding(ui.dp(4), 0, 0, ui.dp(8));
+        option.addView(note);
+        return option;
+    }
+
+    private void start(YandexLink link, boolean like) {
+        if (!TransferJob.start(link, like)) refuseWhileRunning();
     }
 
     private boolean refuseWhileRunning() {
@@ -214,18 +247,19 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
     /** A transfer the app was closed in the middle of: a tap goes on with it, the playlists made are reused. */
     private void fillInterrupted() {
-        String key = interrupted[0];
-        String title = interrupted[1].isEmpty() ? text("Перенос", "Transfer") : interrupted[1];
+        String[] marked = interrupted;
+        String title = marked[1].isEmpty() ? text("Перенос", "Transfer") : marked[1];
+        boolean like = Boolean.parseBoolean(marked[2]);
         progressPart.addView(ui.createSubHeading(text("Сейчас", "Now")));
         ActionRow row = ui.createActionRow(title, text("Прерван: приложение закрылось во время переноса. Нажмите, чтобы "
                 + "продолжить; найденное и созданные плейлисты не повторятся.", "Interrupted: the app was closed during "
                 + "the transfer. Tap to go on; what was found and the playlists made are not done again."), v ->
                 new ArsoundDialog(activity)
                         .setTitle(text("Продолжить перенос?", "Go on with the transfer?"))
-                        .setMessage(title)
+                        .setMessage(like ? title + text("\n\nТреки будут лайкнуты.", "\n\nThe tracks will be liked.") : title)
                         .setPositiveButton(text("Продолжить", "Go on"), (dialog, which) -> {
                             interrupted = null;
-                            if (!TransferJob.resume(key)) refuseWhileRunning();
+                            if (!TransferJob.resume(marked)) refuseWhileRunning();
                         })
                         .setNeutralButton(text("Забыть", "Forget it"), (dialog, which) -> {
                             interrupted = null;
@@ -322,13 +356,17 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
             Toast.makeText(activity, text("В этом списке нет треков", "This list has no tracks"), Toast.LENGTH_SHORT).show();
             return;
         }
+        CheckBox like = likeTick();
+        LinearLayout option = likeOption(like);
+        option.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), 0);
         new ArsoundDialog(activity)
                 .setTitle(text("Перенести «", "Transfer \"") + playlist.title + text("»?", "\"?"))
                 .setMessage(text("Arsound найдёт " + Numerals.russianTracks(playlist.trackCount) + " в SoundCloud и соберёт "
                                 + "найденные в приватный плейлист. Это займёт пару минут на каждую сотню; можно закрыть настройки.",
                         "Arsound will look for " + Numerals.tracks(playlist.trackCount) + " on SoundCloud and put the ones "
                                 + "found into a private playlist. It takes a couple of minutes per hundred; the settings can be closed."))
-                .setPositiveButton(text("Перенести", "Transfer"), (dialog, which) -> start(playlist.link))
+                .setView(option)
+                .setPositiveButton(text("Перенести", "Transfer"), (dialog, which) -> start(playlist.link, like.isChecked()))
                 .setNegativeButton(text("Отмена", "Cancel"), null)
                 .show();
     }
@@ -361,6 +399,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         for (TransferRecord record : history) {
             String line = text("В плейлисте ", "In the playlist ") + record.found + text(" из ", " of ") + record.total
                     + " · " + format.format(new Date(record.time)) + ". "
+                    + (record.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text("В лайках: ", "In likes: ") + record.liked + ". ")
                     + (record.missing.isEmpty() ? text("Нашлись все.", "All were found.")
                     : text("Не нашлись " + record.missing.size() + ": нажмите, чтобы посмотреть.",
                     record.missing.size() + " not found: tap to see them."));

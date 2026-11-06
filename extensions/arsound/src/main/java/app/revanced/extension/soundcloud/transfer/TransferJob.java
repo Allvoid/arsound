@@ -21,14 +21,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.ClientProfiles;
+import app.revanced.extension.soundcloud.local.SoundCloudLikes;
 import app.revanced.extension.soundcloud.shared.ForegroundWork;
 
 /**
  * One transfer at a time, from a Yandex Music collection to private SoundCloud playlists: the tracks are read, each
  * is looked up on SoundCloud (a few at once, remembered in {@link TransferStore}), and the ones found become the
- * playlist in the same order. It runs on while the settings are closed, in a foreground service with a notification
- * ({@link ForegroundWork}), so a phone that ends apps in the background does not end it; the screen follows it
- * through a listener. A transfer the app was closed in the middle of is remembered and can be gone on with.
+ * playlist in the same order; when the user asked for it, they are liked too. It runs on while the settings are
+ * closed, in a foreground service with a notification ({@link ForegroundWork}), so a phone that ends apps in the
+ * background does not end it; the screen follows it through a listener. A transfer the app was closed in the middle
+ * of is remembered and can be gone on with.
  */
 public final class TransferJob {
     public interface Listener {
@@ -36,7 +38,7 @@ public final class TransferJob {
         void onChanged();
     }
 
-    public enum Phase {IDLE, READING, SEARCHING, CREATING, DONE, FAILED}
+    public enum Phase {IDLE, READING, SEARCHING, CREATING, LIKING, DONE, FAILED}
 
     private static final int SEARCH_THREADS = 3;
     /** This many failed searches in a row mean SoundCloud is out of reach: the connection is gone, not the songs. */
@@ -53,6 +55,7 @@ public final class TransferJob {
     private static volatile int total;
     private static volatile int checked;
     private static volatile int found;
+    private static volatile int liked;
     /** What went wrong, for the user; null unless the phase is FAILED. */
     private static volatile String failure;
     private static volatile TransferRecord result;
@@ -67,7 +70,8 @@ public final class TransferJob {
 
     public static boolean isRunning() {
         Phase current = phase;
-        return current == Phase.READING || current == Phase.SEARCHING || current == Phase.CREATING;
+        return current == Phase.READING || current == Phase.SEARCHING || current == Phase.CREATING
+                || current == Phase.LIKING;
     }
 
     /** One line about the transfer in progress or just finished. */
@@ -80,6 +84,8 @@ public final class TransferJob {
                         + text(", найдено ", ", found ") + found;
             case CREATING:
                 return text("Создаю плейлист в SoundCloud…", "Making the SoundCloud playlist…");
+            case LIKING:
+                return text("Лайкаю треки: ", "Liking the tracks: ") + liked + text(" из ", " of ") + found;
             case DONE:
                 TransferRecord entry = result;
                 return entry == null ? "" : summary(entry);
@@ -94,7 +100,8 @@ public final class TransferJob {
     public static String summary(TransferRecord entry) {
         return text("Перенесено ", "Transferred ") + entry.found + text(" из ", " of ") + entry.total
                 + text(" в «", " to \"") + entry.title + text("»", "\"")
-                + (entry.playlists.size() > 1 ? text(" (плейлистов: ", " (playlists: ") + entry.playlists.size() + ")" : "");
+                + (entry.playlists.size() > 1 ? text(" (плейлистов: ", " (playlists: ") + entry.playlists.size() + ")" : "")
+                + (entry.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text(", в лайках: ", ", in likes: ") + entry.liked);
     }
 
     /** The collection being transferred, empty before it is read. */
@@ -110,13 +117,17 @@ public final class TransferJob {
         LISTENERS.remove(listener);
     }
 
-    /** @return False if a transfer is already running. */
-    public static synchronized boolean start(YandexLink link) {
+    /**
+     * @param like Whether the tracks found are also liked.
+     * @return False if a transfer is already running.
+     */
+    public static synchronized boolean start(YandexLink link, boolean like) {
         if (isRunning()) return false;
         title = "";
         total = 0;
         checked = 0;
         found = 0;
+        liked = 0;
         failure = null;
         result = null;
         phase = Phase.READING;
@@ -125,15 +136,15 @@ public final class TransferJob {
         if (context != null) {
             ForegroundWork.begin(context, text("Перенос из Яндекс Музыки", "Transfer from Yandex Music"), status());
         }
-        Thread thread = new Thread(() -> run(link), "Arsound transfer");
+        Thread thread = new Thread(() -> run(link, like), "Arsound transfer");
         worker = thread;
         thread.start();
         return true;
     }
 
     /**
-     * The collection of a transfer that the app was closed in the middle of, with its title, or null. Not one that
-     * runs now.
+     * A transfer that the app was closed in the middle of, to give to {@link #resume}: its collection, its title and
+     * "true" or "false" for its likes. Null if there is none; not one that runs now.
      */
     public static String[] interrupted() {
         if (isRunning()) return null;
@@ -141,10 +152,15 @@ public final class TransferJob {
         return marked == null || YandexLink.fromKey(marked[0]) == null ? null : marked;
     }
 
-    /** Goes on with a transfer the app was closed in the middle of. @return False if it cannot. */
-    public static boolean resume(String key) {
-        YandexLink link = YandexLink.fromKey(key);
-        return link != null && start(link);
+    /**
+     * Goes on with a transfer the app was closed in the middle of.
+     *
+     * @param marked What {@link #interrupted} gave.
+     * @return False if it cannot.
+     */
+    public static boolean resume(String[] marked) {
+        YandexLink link = YandexLink.fromKey(marked[0]);
+        return link != null && start(link, Boolean.parseBoolean(marked[2]));
     }
 
     /** Forgets a transfer the app was closed in the middle of: the user does not want to go on with it. */
@@ -158,14 +174,16 @@ public final class TransferJob {
         if (thread != null) thread.interrupt();
     }
 
-    private static void run(YandexLink link) {
+    private static void run(YandexLink link, boolean like) {
         try {
             // Remembered first: a transfer the app is closed in the middle of can be gone on with.
-            TransferStore.markRunning(link.key(), "");
+            TransferStore.markRunning(link.key(), "", like);
+            // Told before the long search, not after it.
+            if (like && !SoundCloudLikes.isReady()) throw new SoundCloudSide.NotReadyException();
             YandexMusic.Collection collection = read(link);
             title = collection.title;
             total = collection.tracks.size();
-            TransferStore.markRunning(link.key(), collection.title);
+            TransferStore.markRunning(link.key(), collection.title, like);
             phase = Phase.SEARCHING;
             changed();
             List<String> missing = new ArrayList<>();
@@ -177,8 +195,17 @@ public final class TransferJob {
             phase = Phase.CREATING;
             changed();
             List<String> playlists = SoundCloudSide.createPlaylists(link.key(), collection.title, urns);
+            int likes = TransferRecord.LIKES_NOT_ASKED;
+            if (like) {
+                phase = Phase.LIKING;
+                changed();
+                likes = SoundCloudSide.like(urns, count -> {
+                    liked = count;
+                    changed();
+                });
+            }
             TransferRecord entry = new TransferRecord(link.key(), collection.title, System.currentTimeMillis(),
-                    total, urns.size(), playlists, missing);
+                    total, urns.size(), playlists, missing, likes);
             TransferStore.addToHistory(entry);
             TransferStore.clearRunning();
             result = entry;
@@ -203,6 +230,14 @@ public final class TransferJob {
                             + "повтор продолжит с того же места и не создаст их снова.",
                     "Playlists made: " + ex.made + " of " + ex.parts + ", then it failed. They are in your library; "
                             + "a new try goes on from there and does not make them again."));
+        } catch (SoundCloudSide.LikesStoppedException ex) {
+            Logger.printException(() -> "Transfer: the likes stopped", ex);
+            fail(text("Плейлист создан, но SoundCloud перестал принимать лайки: поставлено " + ex.liked + " из " + ex.total
+                            + ". Перенесите этот список снова с галочкой позже: плейлист не создастся второй раз, "
+                            + "лайки продолжатся с того же места.",
+                    "The playlist is made, but SoundCloud stopped taking likes: " + ex.liked + " of " + ex.total
+                            + " given. Transfer this list again with the tick later: the playlist is not made a second "
+                            + "time and the likes go on from there."));
         } catch (SoundCloudSide.UnknownOutcomeException ex) {
             fail(text("SoundCloud не ответил, создан ли плейлист «" + ex.name + "». Посмотрите библиотеку, прежде чем повторять.",
                     "SoundCloud did not say whether it made the playlist \"" + ex.name + "\". Look at your library before trying again."));

@@ -19,8 +19,13 @@ public final class TransferRecord {
     public final List<String> playlists;
     /** "Artist — Title" of the tracks not found. */
     public final List<String> missing;
+    /** How many of the tracks found are liked, or {@link #LIKES_NOT_ASKED}. */
+    public final int liked;
 
-    TransferRecord(String key, String title, long time, int total, int found, List<String> playlists, List<String> missing) {
+    public static final int LIKES_NOT_ASKED = -1;
+
+    TransferRecord(String key, String title, long time, int total, int found, List<String> playlists, List<String> missing,
+                   int liked) {
         this.key = key;
         this.title = title;
         this.time = time;
@@ -28,17 +33,19 @@ public final class TransferRecord {
         this.found = found;
         this.playlists = playlists;
         this.missing = missing;
+        this.liked = liked;
     }
 
     JSONObject toJson() throws Exception {
         return new JSONObject().put("key", key).put("title", title).put("time", time).put("total", total)
-                .put("found", found).put("playlists", new JSONArray(playlists)).put("missing", new JSONArray(missing));
+                .put("found", found).put("playlists", new JSONArray(playlists)).put("missing", new JSONArray(missing))
+                .put("liked", liked);
     }
 
     static TransferRecord fromJson(JSONObject json) {
         return new TransferRecord(json.optString("key"), json.optString("title"), json.optLong("time"),
                 json.optInt("total"), json.optInt("found"), strings(json.optJSONArray("playlists")),
-                strings(json.optJSONArray("missing")));
+                strings(json.optJSONArray("missing")), json.optInt("liked", LIKES_NOT_ASKED));
     }
 
     private static List<String> strings(JSONArray array) {
