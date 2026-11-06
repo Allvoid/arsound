@@ -184,9 +184,11 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         option.addView(tick);
         TextView note = new TextView(activity);
         note.setText(text("Для тех, кто слушает через лайки. Они видны в вашем профиле SoundCloud, плейлист остаётся "
-                        + "приватным.",
+                        + "приватным.\n\nНестабильно: SoundCloud блокирует лайки, поставленные автоматически, и "
+                        + "может принять лишь часть. Надёжнее ставить лайки вручную.",
                 "For those who listen through their likes. They show on your SoundCloud profile, the playlist stays "
-                        + "private."));
+                        + "private.\n\nUnstable: SoundCloud blocks likes given automatically and may take only a "
+                        + "part. It is more reliable to like by hand."));
         note.setTextColor(ArsoundTheme.palette(activity, "secondary"));
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         note.setPadding(ui.dp(4), 0, 0, ui.dp(8));
