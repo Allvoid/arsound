@@ -455,6 +455,13 @@ public class SettingsTransferTest {
     }
 
     @Test
+    public void aValueLeftOutOfTheFileKeepsThePhonesOwn() throws Exception {
+        TransferBackup backup = SettingsTransfer.parse(fileWith(SETTINGS, "\"boolean\": {\"crossfade\": \"yes\", \"ok\": true}"));
+        TransferChanges changes = SettingsTransfer.plan(backup, phone(SETTINGS, map("crossfade", true, "gone", true)));
+        assertEquals(Collections.singleton("gone"), changes.removals.get(SETTINGS));
+    }
+
+    @Test
     public void aKeyThePhoneKeepsAsAnotherTypeIsLeftAlone() throws Exception {
         TransferBackup backup = backupOf(SETTINGS, map("size", 5, "fine", true));
         Map<String, Map<String, ?>> here = phone(SETTINGS, map("size", 7L, "fine", false));

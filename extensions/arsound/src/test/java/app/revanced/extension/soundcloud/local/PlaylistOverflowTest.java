@@ -109,8 +109,8 @@ public class PlaylistOverflowTest {
     }
 
     @Test
-    public void withoutTheServerListTheTailPastTheLimitMoves() {
-        assertEquals(tracks(501, 503), PlaylistOverflow.beyondLimit(saved(tracks(1, 503)), null, LIMIT));
+    public void withoutTheServerListNothingMoves() {
+        assertTrue(PlaylistOverflow.beyondLimit(saved(tracks(1, 503)), null, LIMIT).isEmpty());
     }
 
     @Test

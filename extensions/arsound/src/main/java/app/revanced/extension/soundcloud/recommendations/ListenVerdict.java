@@ -31,11 +31,9 @@ public enum ListenVerdict {
      */
     public static ListenVerdict of(long playedMs, long durationMs) {
         long length = isKnownLength(durationMs) ? durationMs : 0;
-        // A track shorter than the skip limit is never "skipped" by playing all of it.
-        if (length > 0 && playedMs >= length * 9 / 10) return HEARD;
+        // A short track heard through its larger part is heard, even when that is below the skip limit.
+        if (length > 0 && playedMs * 100 >= length * 60) return HEARD;
         if (playedMs < SKIP_BELOW_MS) return SKIPPED;
-        if (playedMs >= HEARD_FROM_MS) return HEARD;
-        // A short track heard through its larger part is heard too.
-        return length > 0 && playedMs * 100 >= length * 60 ? HEARD : BETWEEN;
+        return playedMs >= HEARD_FROM_MS ? HEARD : BETWEEN;
     }
 }

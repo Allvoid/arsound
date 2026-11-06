@@ -16,8 +16,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import java.lang.ref.WeakReference;
-import java.util.Map;
-import java.util.WeakHashMap;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.ResourceType;
@@ -46,7 +44,6 @@ public final class WholeCover {
     /** A cover smaller than this would look lost: below it the cover takes the width and lets the waveform overlap. */
     private static final float MIN_SIDE_DP = 160;
 
-    private static final Map<View, Page> pages = new WeakHashMap<>();
     private static int holderId = -1, imageId, overlayId, headerId, timestampId;
 
     private WholeCover() {
@@ -63,11 +60,13 @@ public final class WholeCover {
     public static boolean skipSlide(View artwork) {
         try {
             if (!isEnabled() || !(artwork instanceof FrameLayout)) return false;
-            Page page = pages.get(artwork);
+            loadIds();
+            // Kept on the view and not in a map: the page holds the view, so a map would hold both for good.
+            Page page = (Page) artwork.getTag(holderId);
             if (page == null) {
                 page = Page.create((FrameLayout) artwork);
                 if (page == null) return false;
-                pages.put(artwork, page);
+                artwork.setTag(holderId, page);
             }
             page.place();
             return true;

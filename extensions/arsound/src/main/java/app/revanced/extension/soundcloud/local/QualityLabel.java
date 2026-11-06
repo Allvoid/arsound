@@ -31,7 +31,7 @@ final class QualityLabel {
         String format = format(extension, lossless);
         if (lossless) {
             boolean plain = bitsPerSample <= 16 && (sampleRate == 44_100 || sampleRate == 48_000 || sampleRate == 0);
-            return plain || bitsPerSample <= 0 ? format : format + " " + bitsPerSample + "/" + kilohertz(sampleRate);
+            return plain || bitsPerSample <= 0 || sampleRate <= 0 ? format : format + " " + bitsPerSample + "/" + kilohertz(sampleRate);
         }
         return bitRate <= 0 ? format : format + " " + rounded(bitRate / 1000);
     }

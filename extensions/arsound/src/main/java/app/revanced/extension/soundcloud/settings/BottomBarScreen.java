@@ -55,6 +55,7 @@ final class BottomBarScreen extends SectionScreen {
         int shown = 1;
         for (TabKind kind : TabKind.values()) if (!kind.hiddenSetting().get()) shown++;
         if (!BoolSettings.HIDE_UPGRADE_TAB.get()) shown++;
+        if (!BoolSettings.HIDE_TAB_WAVE.get()) shown++;
         return text("Вкладок: ", "Tabs: ") + shown;
     }
 

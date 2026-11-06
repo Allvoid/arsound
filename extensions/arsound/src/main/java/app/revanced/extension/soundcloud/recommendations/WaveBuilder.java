@@ -202,8 +202,10 @@ final class WaveBuilder {
     }
 
     /** The urns of the likes of the account, the newest first; empty if SoundCloud does not answer. */
-    private static synchronized List<String> liked() {
-        if (cachedLikes != null && System.currentTimeMillis() - likesReadAt < LIKES_FRESH_MS) return cachedLikes;
+    private static List<String> liked() {
+        List<String> kept = freshLikes();
+        if (kept != null) return kept;
+        // Asked outside the lock: a request that hangs must not hold up the other builds.
         List<String> liked = new ArrayList<>();
         try {
             String[] me = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
@@ -223,8 +225,12 @@ final class WaveBuilder {
         return keep(liked);
     }
 
+    private static synchronized List<String> freshLikes() {
+        return cachedLikes != null && System.currentTimeMillis() - likesReadAt < LIKES_FRESH_MS ? cachedLikes : null;
+    }
+
     /** Keeps the likes read; an empty answer (no network) is not kept, so the next wave asks again. */
-    private static List<String> keep(List<String> liked) {
+    private static synchronized List<String> keep(List<String> liked) {
         if (!liked.isEmpty()) {
             cachedLikes = liked;
             likesReadAt = System.currentTimeMillis();

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntConsumer;
 
@@ -141,7 +142,10 @@ final class SoundCloudSide {
      */
     static int like(List<String> trackUrns, IntConsumer progress) throws Exception {
         if (!SoundCloudLikes.isReady()) throw new NotReadyException();
-        List<String> plan = LikePlan.of(trackUrns, SoundCloudLikes.alreadyLiked(trackUrns));
+        Set<String> alreadyInLikes = SoundCloudLikes.alreadyLiked(trackUrns);
+        // Not liked blindly: a like again moves a track up the likes.
+        if (alreadyInLikes == null) throw new NotReadyException();
+        List<String> plan = LikePlan.of(trackUrns, alreadyInLikes);
         int liked = trackUrns.size() - plan.size();
         int alreadyLiked = liked;
         Logger.printInfo(() -> "Transfer: liking " + plan.size() + " tracks, " + alreadyLiked + " are liked already");

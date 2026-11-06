@@ -4,6 +4,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -226,6 +228,7 @@ final class SettingsTransfer {
         if (files == null) throw new TransferException(TransferException.Reason.NOT_SETTINGS, "no files");
 
         Map<String, Map<String, Object>> kept = new LinkedHashMap<>();
+        Map<String, Set<String>> leftOut = new HashMap<>();
         int[] counts = new int[2];
         for (Map.Entry<String, Object> file : files.entrySet()) {
             Map<String, Object> sections = objectOf(file.getValue());
@@ -239,17 +242,22 @@ final class SettingsTransfer {
                 counts[0] += countValues(sections);
                 continue;
             }
-            readFile(source, sections, kept.computeIfAbsent(source.file, name -> new LinkedHashMap<>()), counts);
+            readFile(source, sections, kept.computeIfAbsent(source.file, name -> new LinkedHashMap<>()),
+                    leftOut.computeIfAbsent(source.file, name -> new HashSet<>()), counts);
         }
 
         TransferBackup backup = new TransferBackup((int) (long) (Long) version, shortText(top.get("appVersion")),
-                dayOf(top.get("exportedOn")), kept, counts[0], counts[1]);
+                dayOf(top.get("exportedOn")), kept, counts[0], counts[1], leftOut);
         if (backup.valueCount() == 0) throw new TransferException(TransferException.Reason.NOTHING_TO_IMPORT, "no values");
         return backup;
     }
 
-    /** Reads the typed sections of one file into {@code into}; {@code counts} is {ignored, wrongType}. */
-    private static void readFile(TransferPlan.Source source, Map<String, Object> sections, Map<String, Object> into, int[] counts) {
+    /**
+     * Reads the typed sections of one file into {@code into}; the keys whose value is not taken go to {@code leftOut};
+     * {@code counts} is {ignored, wrongType}.
+     */
+    private static void readFile(TransferPlan.Source source, Map<String, Object> sections, Map<String, Object> into,
+                                 Set<String> leftOut, int[] counts) {
         for (Map.Entry<String, Object> section : sections.entrySet()) {
             Map<String, Object> values = objectOf(section.getValue());
             if (values == null) {
@@ -259,6 +267,7 @@ final class SettingsTransfer {
             if (!isKnownType(section.getKey())) {
                 // A type a newer version added.
                 counts[0] += values.size();
+                leftOut.addAll(values.keySet());
                 continue;
             }
             for (Map.Entry<String, Object> value : values.entrySet()) {
@@ -270,6 +279,7 @@ final class SettingsTransfer {
                 // The same key in two sections cannot be told apart: the first stays, the other counts as wrong.
                 if (typed == null || into.containsKey(value.getKey())) {
                     counts[1]++;
+                    leftOut.add(value.getKey());
                     continue;
                 }
                 into.put(value.getKey(), typed);
@@ -365,8 +375,11 @@ final class SettingsTransfer {
                 }
                 changes.writesOf(file.getKey()).put(value.getKey(), value.getValue());
             }
+            Set<String> leftOut = backup.leftOut.getOrDefault(file.getKey(), Collections.emptySet());
             for (String key : here.keySet()) {
-                if (source.carries(key) && !file.getValue().containsKey(key)) changes.removalsOf(file.getKey()).add(key);
+                if (source.carries(key) && !file.getValue().containsKey(key) && !leftOut.contains(key)) {
+                    changes.removalsOf(file.getKey()).add(key);
+                }
             }
         }
         return changes;

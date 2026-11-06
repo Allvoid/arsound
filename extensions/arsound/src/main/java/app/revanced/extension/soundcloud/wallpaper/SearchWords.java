@@ -346,7 +346,9 @@ public final class SearchWords {
     }
 
     private static void addPlaces() {
-        add("mountains", "гора", "горный");
+        // Not by the stem: "гор" would also catch "горе".
+        exactOnly("mountains", "гора", "горы", "гору", "горой", "горах", "горам", "горами", "гор");
+        add("mountains", "горный");
         add("sea", "море", "морской");
         add("ocean", "океан");
         add("forest", "лес", "лесной", "чаща");

@@ -23,6 +23,7 @@ public class QualityLabelTest {
     public void anUnknownDepthAtAPlainRateIsJustTheFormat() {
         assertEquals("FLAC", QualityLabel.of("a.flac", "audio/flac", 44_100, 0, 0));
         assertEquals("FLAC", QualityLabel.of("a.flac", "audio/flac", 96_000, 0, 0));
+        assertEquals("FLAC", QualityLabel.of("a.flac", "audio/flac", 0, 24, 0));
     }
 
     @Test

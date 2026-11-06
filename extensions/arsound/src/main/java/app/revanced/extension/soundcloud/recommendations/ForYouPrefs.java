@@ -13,6 +13,8 @@ import app.revanced.extension.shared.Utils;
 final class ForYouPrefs {
     private static final String PREFERENCES_NAME = "arsound_for_you";
     private static final String PLAYLIST_URN = "playlist_urn";
+    /** The empty copies an older version left on the server are yet to be deleted. */
+    private static final String SERVER_COPIES_LEFT = "server_copies_left";
     /** The last refresh after which nothing is left for the day (filled, or nothing to add). */
     private static final String LAST_REFRESH = "last_refresh";
     private static final String LAST_ATTEMPT = "last_attempt";
@@ -37,6 +39,16 @@ final class ForYouPrefs {
     static void storePlaylistUrn(String urn) {
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().putString(PLAYLIST_URN, urn).apply();
+    }
+
+    static boolean serverCopiesLeft() {
+        SharedPreferences preferences = preferences();
+        return preferences != null && preferences.getBoolean(SERVER_COPIES_LEFT, false);
+    }
+
+    static void setServerCopiesLeft(boolean left) {
+        SharedPreferences preferences = preferences();
+        if (preferences != null) preferences.edit().putBoolean(SERVER_COPIES_LEFT, left).apply();
     }
 
     /** When the playlist was last updated (or found nothing to add), 0 if never. */

@@ -188,12 +188,17 @@ public final class NativeOffline {
 
     /** Called when the app starts: requests of an earlier run are followed again. */
     public static void onAppStart(Context context) {
-        if (preferences(context).getAll().isEmpty()) return;
-        watchNetwork(context);
-        // Requests of an earlier run get the same grace as a fresh one before they count as waiting for Wi-Fi.
-        lastRequestAt = System.currentTimeMillis();
-        Utils.runOnMainThreadDelayed(DownloadProgress::onNativeWaitChanged, WifiWait.IDLE_MS + 500);
-        scheduleCheck(context.getApplicationContext());
+        // The first read of the file waits for the disk: not on the main thread, at the start of the app.
+        Utils.runOnBackgroundThread(() -> {
+            if (preferences(context).getAll().isEmpty()) return;
+            Utils.runOnMainThread(() -> {
+                watchNetwork(context);
+                // Requests of an earlier run get the same grace as a fresh one before they count as waiting for Wi-Fi.
+                lastRequestAt = System.currentTimeMillis();
+                Utils.runOnMainThreadDelayed(DownloadProgress::onNativeWaitChanged, WifiWait.IDLE_MS + 500);
+                scheduleCheck(context.getApplicationContext());
+            });
+        });
     }
 
     private static void scheduleCheck(Context context) {

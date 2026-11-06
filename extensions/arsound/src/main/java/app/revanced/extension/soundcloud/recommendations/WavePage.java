@@ -304,7 +304,7 @@ public final class WavePage extends Fragment {
         if (!missing.isEmpty()) {
             Map<String, String[]> stored = TrackTitleResolver.storedTitles(missing);
             tracks.putAll(stored);
-            WaveSession.putTracks(stored, WaveSession.queue());
+            WaveSession.putTracks(stored, MyWave.queue());
             missing.removeAll(stored.keySet());
         }
         if (!missing.isEmpty()) {
@@ -323,7 +323,7 @@ public final class WavePage extends Fragment {
         missing.removeAll(WaveSession.tracks().keySet());
         Map<String, String[]> found = TrackTitleResolver.fetchTracks(missing);
         if (found.isEmpty()) return found;
-        WaveSession.putTracks(found, WaveSession.queue());
+        WaveSession.putTracks(found, MyWave.queue());
         Map<String, String[]> all = new java.util.HashMap<>(known);
         all.putAll(found);
         return all;

@@ -83,7 +83,7 @@ final class PlaylistLimit {
      * The tracks the playlist has on the server right now, from SoundCloud's database. The edit is stored only after
      * the hook returns, so this is the list the edit was made from.
      *
-     * @return Null if it could not be read in time; then the caller falls back to the position in the list.
+     * @return Null if it could not be read in time; then nothing moves to the phone.
      */
     private static List<Object> serverTracks(Object playlistUrn) {
         try {

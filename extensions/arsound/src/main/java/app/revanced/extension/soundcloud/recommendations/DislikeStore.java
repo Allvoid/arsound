@@ -68,7 +68,8 @@ final class DislikeStore {
 
     /** Remembers a track at once under its urn; the title comes later, see {@link #setTitle}. */
     static void add(String urn) {
-        setTitle(urn, urn);
+        // Disliked again: the title it has stays, the phone may be offline now.
+        if (!contains(urn)) setTitle(urn, urn);
     }
 
     static void setTitle(String urn, String title) {

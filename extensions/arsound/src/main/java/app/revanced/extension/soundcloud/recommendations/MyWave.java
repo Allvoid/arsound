@@ -40,6 +40,10 @@ public final class MyWave {
     private static volatile String current;
     /** Whether the last wave was read from the phone ({@link WaveSession}); once, before the first look at the queue. */
     private static boolean restored;
+    /** A track that is not the wave's does not end it before this time: the wave is starting. */
+    private static volatile long holdUntil;
+    /** How long after the start the player may still report the track it played before. */
+    private static final long START_HOLD_MS = 3_000;
     private static volatile boolean building;
     private static volatile boolean preparing;
     /** What the last start ran into, for the tab; null when it went well. */
@@ -81,6 +85,14 @@ public final class MyWave {
      */
     static int windowStart(int at, int size, int before, int total) {
         return Math.max(0, Math.min(at - before, size - total));
+    }
+
+    /** All the wave's tracks in their order. */
+    public static List<String> queue() {
+        restore();
+        synchronized (QUEUED) {
+            return new ArrayList<>(QUEUED);
+        }
     }
 
     /** The wave's track that plays now, or null. */
@@ -126,6 +138,7 @@ public final class MyWave {
         if (building) return;
         building = true;
         active = true;
+        holdUntil = Long.MAX_VALUE;
         current = null;
         problem = null;
         synchronized (QUEUED) {
@@ -157,15 +170,20 @@ public final class MyWave {
                     "Nothing to offer yet: like a few tracks or tick a source"));
             return;
         }
+        if (!LocalMusic.canPlay()) {
+            fail(notReady());
+            return;
+        }
         takeOutAddedTracks();
         synchronized (QUEUED) {
             QUEUED.addAll(entries);
         }
         persist();
         if (!LocalMusic.playTracks(entries)) {
-            fail(text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second"));
+            fail(notReady());
             return;
         }
+        holdUntil = System.currentTimeMillis() + START_HOLD_MS;
         building = false;
         extend(entries.get(0));
         Utils.runOnMainThreadDelayed(() -> logQueue("after start"), 2500);
@@ -197,9 +215,14 @@ public final class MyWave {
         Logger.printInfo(() -> "My Wave: " + removed + " tracks added to the queue earlier taken out");
     }
 
+    private static String notReady() {
+        return text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second");
+    }
+
     private static void fail(String message) {
         active = false;
         building = false;
+        holdUntil = 0;
         problem = message;
     }
 
@@ -275,9 +298,9 @@ public final class MyWave {
         if (!active || urn == null) return;
         String key = TrackUrn.normalize(urn);
         synchronized (QUEUED) {
-            // The person started something else: the wave lets go.
+            // The person started something else: the wave lets go, a batch being built included (add looks at active).
             if (!QUEUED.contains(key)) {
-                if (!building) active = false;
+                if (System.currentTimeMillis() >= holdUntil) active = false;
                 return;
             }
             current = key;
@@ -333,13 +356,17 @@ public final class MyWave {
             from = new ArrayList<>(all.subList(at, all.size()));
         }
         if (building) return;
+        if (!LocalMusic.canPlay()) {
+            problem = notReady();
+            return;
+        }
         boolean wasActive = active;
         active = true;
         problem = null;
         takeOutAddedTracks();
         if (!LocalMusic.playTracks(from)) {
             active = wasActive;
-            problem = text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second");
+            problem = notReady();
             return;
         }
         current = urn;

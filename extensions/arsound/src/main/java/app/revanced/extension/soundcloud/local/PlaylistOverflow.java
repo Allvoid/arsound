@@ -31,8 +31,9 @@ final class PlaylistOverflow {
      *
      * @param saved The whole list the edit saves, in its order.
      * @param before The tracks the server list had right before the edit, or null if that could not be read. Then
-     *               nothing tells the new tracks from the old ones and the tracks past position {@code limit} are taken,
-     *               as the new ones are expected last.
+     *               nothing tells the new tracks from the old ones, and nothing moves: the edit may only reorder a long
+     *               playlist, and moving its tail would take those tracks off the server. At worst SoundCloud refuses
+     *               the save, which the user sees and can repeat.
      * @param limit How many tracks the server keeps in a playlist.
      * @return The tracks to keep on this phone only, in the order of {@code saved}; empty if the edit does not make
      * the playlist grow past the limit. The arguments are not changed.
@@ -41,13 +42,7 @@ final class PlaylistOverflow {
         List<T> overflow = new ArrayList<>();
         // Cannot be over the limit: also what a removal or a new order of a short playlist ends in.
         if (saved.size() <= limit) return overflow;
-        if (before == null) {
-            int index = 0;
-            for (T track : saved) {
-                if (index++ >= limit) overflow.add(track);
-            }
-            return overflow;
-        }
+        if (before == null) return overflow;
         Set<String> had = new HashSet<>();
         for (Object track : before) had.add(String.valueOf(track));
         int kept = 0;

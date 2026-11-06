@@ -118,23 +118,19 @@ public final class Settings {
     }
 
     public static String getDnsPreset() {
-        SharedPreferences preferences = preferences();
-        return preferences == null ? "xbox" : preferences.getString(DNS_PRESET, "xbox");
+        return getString(DNS_PRESET, "xbox");
     }
 
     public static String getDnsMode() {
-        SharedPreferences preferences = preferences();
-        return preferences == null ? "auto" : preferences.getString(DNS_MODE, "auto");
+        return getString(DNS_MODE, "auto");
     }
 
     public static String getCustomDohUrl() {
-        SharedPreferences preferences = preferences();
-        return preferences == null ? "" : preferences.getString(CUSTOM_DOH_URL, "");
+        return getString(CUSTOM_DOH_URL, "");
     }
 
     public static String getCustomDnsServers() {
-        SharedPreferences preferences = preferences();
-        return preferences == null ? "" : preferences.getString(CUSTOM_DNS_SERVERS, "");
+        return getString(CUSTOM_DNS_SERVERS, "");
     }
 
     public static void putBoolean(String key, boolean value) {
@@ -162,19 +158,38 @@ public final class Settings {
         if (preferences != null) preferences.edit().putString(key, value).commit();
     }
 
+    /**
+     * The reads below take a value of another type as not set: a settings file edited by hand can bring one, for a key
+     * this phone had not saved yet, and {@code SharedPreferences} throws on it at every read, at the start of the app too.
+     */
     public static boolean getBoolean(String key, boolean defaultValue) {
         SharedPreferences preferences = preferences();
-        return preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
+        if (preferences == null) return defaultValue;
+        try {
+            return preferences.getBoolean(key, defaultValue);
+        } catch (ClassCastException ex) {
+            return defaultValue;
+        }
     }
 
     public static String getString(String key, String defaultValue) {
         SharedPreferences preferences = preferences();
-        return preferences == null ? defaultValue : preferences.getString(key, defaultValue);
+        if (preferences == null) return defaultValue;
+        try {
+            return preferences.getString(key, defaultValue);
+        } catch (ClassCastException ex) {
+            return defaultValue;
+        }
     }
 
     public static long getLong(String key, long defaultValue) {
         SharedPreferences preferences = preferences();
-        return preferences == null ? defaultValue : preferences.getLong(key, defaultValue);
+        if (preferences == null) return defaultValue;
+        try {
+            return preferences.getLong(key, defaultValue);
+        } catch (ClassCastException ex) {
+            return defaultValue;
+        }
     }
 
     public static void putLong(String key, long value) {

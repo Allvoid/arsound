@@ -32,8 +32,7 @@ public final class BoolSetting {
 
     /** The stored value; the default while the app context is not available yet. */
     public boolean get() {
-        SharedPreferences preferences = Settings.preferences();
-        return preferences == null ? defaultValue : preferences.getBoolean(key, defaultValue);
+        return Settings.getBoolean(key, defaultValue);
     }
 
     public void set(boolean value) {

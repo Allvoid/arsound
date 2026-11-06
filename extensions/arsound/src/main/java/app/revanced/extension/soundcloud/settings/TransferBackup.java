@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.settings;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A settings file that was read and checked: what it holds, typed the way SharedPreferences wants it, and how many
@@ -24,15 +25,26 @@ final class TransferBackup {
     final int ignored;
     /** Values whose shape does not match their type (a text under "boolean", a fraction under "int"). */
     final int wrongType;
+    /**
+     * Preferences file name to the keys the file names with a value that was left out. They are not missing from the
+     * file: this phone keeps its own value for them.
+     */
+    final Map<String, Set<String>> leftOut;
 
     TransferBackup(int formatVersion, String appVersion, String date, Map<String, Map<String, Object>> files,
                    int ignored, int wrongType) {
+        this(formatVersion, appVersion, date, files, ignored, wrongType, Collections.emptyMap());
+    }
+
+    TransferBackup(int formatVersion, String appVersion, String date, Map<String, Map<String, Object>> files,
+                   int ignored, int wrongType, Map<String, Set<String>> leftOut) {
         this.formatVersion = formatVersion;
         this.appVersion = appVersion;
         this.date = date;
         this.files = Collections.unmodifiableMap(files);
         this.ignored = ignored;
         this.wrongType = wrongType;
+        this.leftOut = Collections.unmodifiableMap(leftOut);
     }
 
     /** How many values the file brings. */

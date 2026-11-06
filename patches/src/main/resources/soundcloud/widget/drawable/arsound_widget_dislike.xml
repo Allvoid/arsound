@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Not for me" button: a heart with a crack, drawn like SoundCloud's own icons (1.5 stroke, rounded). White: the
+     button, the notification and the widget tint it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,20.25L4.2,12.6C2.6,11 2.6,8.4 4.2,6.8C5.8,5.2 8.4,5.2 10,6.8L12,8.8L14,6.8C15.6,5.2 18.2,5.2 19.8,6.8C21.4,8.4 21.4,11 19.8,12.6Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M12,8.8L10.4,11.4L13.3,13.1L11.6,16.2"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -61,7 +61,9 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
      */
     private static final int COVER_SIZE = 300;
     /** The cover last cut, and what it was cut from: a pause or a heart does not cut it again. Work thread only. */
-    private static Bitmap coverSource, coverCut;
+    /** Weak: SoundCloud's full-size bitmap must not stay in memory for a comparison. */
+    private static java.lang.ref.WeakReference<Bitmap> coverSource = new java.lang.ref.WeakReference<>(null);
+    private static Bitmap coverCut;
     /** The fields of SoundCloud's classes, found once per class and kind. */
     private static final Map<String, Field> FIELDS = new ConcurrentHashMap<>();
     private static final Field NO_FIELD;
@@ -238,11 +240,11 @@ public final class SquarePlayerWidget extends AppWidgetProvider {
         if (cover == null || cover.isRecycled()) return null;
         int side = Math.max(cover.getWidth(), cover.getHeight());
         if (side <= COVER_SIZE) return cover;
-        if (cover != coverSource) {
+        if (cover != coverSource.get()) {
             float scale = COVER_SIZE / (float) side;
             coverCut = Bitmap.createScaledBitmap(cover, Math.max(1, Math.round(cover.getWidth() * scale)),
                     Math.max(1, Math.round(cover.getHeight() * scale)), true);
-            coverSource = cover;
+            coverSource = new java.lang.ref.WeakReference<>(cover);
         }
         return coverCut;
     }

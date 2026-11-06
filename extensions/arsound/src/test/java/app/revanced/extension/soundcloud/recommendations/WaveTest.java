@@ -39,6 +39,8 @@ public class WaveTest {
     public void aShortTrackHeardThroughIsHeardEvenIfShorterThanTheLimits() {
         assertEquals(ListenVerdict.HEARD, ListenVerdict.of(10_000, 10_500));
         assertEquals(ListenVerdict.HEARD, ListenVerdict.of(30_000, 40_000));
+        assertEquals(ListenVerdict.HEARD, ListenVerdict.of(9_000, 12_000));
+        assertEquals(ListenVerdict.SKIPPED, ListenVerdict.of(6_000, 12_000));
         assertEquals(ListenVerdict.BETWEEN, ListenVerdict.of(20_000, 100_000));
     }
 

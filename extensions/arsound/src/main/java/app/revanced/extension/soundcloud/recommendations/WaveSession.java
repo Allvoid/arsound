@@ -102,7 +102,7 @@ final class WaveSession {
      * Adds the tracks found to those known; only the tracks of {@code keepFor} (the wave's) stay, so the file does not
      * grow with every wave.
      */
-    static void putTracks(Map<String, String[]> found, List<String> keepFor) {
+    static synchronized void putTracks(Map<String, String[]> found, List<String> keepFor) {
         SharedPreferences preferences = preferences();
         if (preferences == null || found.isEmpty()) return;
         Map<String, String[]> all = tracks();

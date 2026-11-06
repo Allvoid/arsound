@@ -79,16 +79,30 @@ final class TransferStore {
         synchronized (LOCK) {
             JSONObject running = read(RUNNING);
             try {
+                if (running == null) running = new JSONObject();
                 // The same collection again keeps the playlists made by the try before.
-                if (running == null || !key.equals(running.optString("key"))) {
-                    running = new JSONObject().put("key", key).put("playlists", new JSONArray());
-                }
+                if (!key.equals(running.optString("key"))) switchRunning(running, key);
                 running.put("title", title).put("like", like);
                 write(RUNNING, running.toString());
             } catch (Exception ex) {
                 Logger.printException(() -> "Transfer: could not mark the transfer", ex);
             }
         }
+    }
+
+    /**
+     * Another collection goes first: the playlists of the one before wait in "left", under its key, so transferring that
+     * collection again does not make them a second time.
+     */
+    private static void switchRunning(JSONObject running, String key) throws Exception {
+        JSONObject left = running.optJSONObject("left");
+        if (left == null) left = new JSONObject();
+        JSONArray made = running.optJSONArray("playlists");
+        String before = running.optString("key");
+        if (!before.isEmpty() && made != null && made.length() > 0) left.put(before, made);
+        JSONArray back = left.optJSONArray(key);
+        left.remove(key);
+        running.put("key", key).put("playlists", back == null ? new JSONArray() : back).put("left", left);
     }
 
     /** Remembers a playlist the transfer made, the moment it is made: a later failure must not lose it. */
@@ -118,11 +132,22 @@ final class TransferStore {
         return made;
     }
 
-    /** The transfer ended, finished or not: nothing more to go on with. */
+    /** The transfer ended, finished or not: nothing more to go on with. What other collections left stays. */
     static void clearRunning() {
         synchronized (LOCK) {
             File folder = folder();
-            if (folder != null) new File(folder, RUNNING).delete();
+            if (folder == null) return;
+            JSONObject running = read(RUNNING);
+            JSONObject left = running == null ? null : running.optJSONObject("left");
+            if (left == null || left.length() == 0) {
+                new File(folder, RUNNING).delete();
+                return;
+            }
+            try {
+                write(RUNNING, new JSONObject().put("left", left).toString());
+            } catch (Exception ex) {
+                Logger.printException(() -> "Transfer: could not clear the transfer", ex);
+            }
         }
     }
 

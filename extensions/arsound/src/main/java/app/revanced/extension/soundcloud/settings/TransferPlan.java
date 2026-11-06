@@ -84,6 +84,8 @@ final class TransferPlan {
             "arsound_theme_forced_night", "arsound_splash_style",
             "arsound_wallpaper_enabled",
             "download_folder",
+            // A private DNS address can carry a personal token in the path.
+            "custom_doh_url",
             "stream_cache_available", "stream_cache_used", "stream_cache_clear",
             "file_logging", "developer_mode", "developer_network_delay_seconds", "playback_log",
             "lyrics_ai_heavy_notice_seen")));

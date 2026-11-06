@@ -35,12 +35,12 @@ public final class SoundCloudLikes {
 
     /**
      * @param urns Urns of tracks, as {@code "soundcloud:tracks:123"}.
-     * @return Those that are already liked; none when the likes cannot be read yet.
+     * @return Those that are already liked, or null when the likes cannot be read yet.
      */
     public static Set<String> alreadyLiked(List<String> urns) throws Exception {
-        Set<String> liked = new HashSet<>();
         Object statuses = HeartRefresh.latestStatuses();
-        if (statuses == null) return liked;
+        if (statuses == null) return null;
+        Set<String> liked = new HashSet<>();
         Class<?> urnClass = Class.forName(URN, false, statuses.getClass().getClassLoader());
         Method isLiked = statuses.getClass().getMethod("isLiked", urnClass);
         for (String urn : urns) {

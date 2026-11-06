@@ -2,8 +2,10 @@ package app.arsound.patches.soundcloud.widget
 
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.manifest.addApplicationComponent
+import app.arsound.patches.soundcloud.misc.resources.ensureValuesFile
 import app.arsound.util.ResourceGroup
 import app.arsound.util.copyResources
+import app.arsound.util.getNode
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.gettingFirstMethodDeclaratively
@@ -41,9 +43,23 @@ private val squarePlayerWidgetResourcePatch = resourcePatch {
                 "arsound_widget_next.xml",
                 "arsound_widget_heart.xml",
                 "arsound_widget_heart_active.xml",
+                "arsound_widget_dislike.xml",
             ),
             ResourceGroup("xml", "arsound_widget_square_info.xml"),
         )
+        mapOf("values" to "Not for me", "values-ru" to "Не нравится").forEach { (folder, text) ->
+            val path = "res/$folder/strings.xml"
+            ensureValuesFile(path)
+            document(path).use { document ->
+                document.getNode("resources").appendChild(
+                    document.createElement("string").apply {
+                        setAttribute("name", "arsound_widget_dislike")
+                        textContent = text
+                    },
+                )
+            }
+        }
+
         document("AndroidManifest.xml").use { document ->
             val receiver = document.addApplicationComponent(
                 "receiver",

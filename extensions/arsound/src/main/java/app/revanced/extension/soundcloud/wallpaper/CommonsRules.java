@@ -143,13 +143,16 @@ public final class CommonsRules {
     /**
      * Words that keep a picture out. Commons has no safe search and even its best sets (quality images, featured
      * pictures) hold nudes, so the title and the categories of every file are read for these (whole words only, in the
-     * lower case). The list is English because the categories of Commons are; the search itself also leaves out the
-     * category "Nudity" ({@code CommonsRequest}), but that only reaches part of its subcategories.
+     * lower case). The list is mostly English because the categories of Commons are, with the Russian words a title may
+     * have; the search itself also leaves out the category "Nudity" ({@code CommonsRequest}), but that only reaches part
+     * of its subcategories.
      */
     private static final Set<String> UNWANTED_WORDS = new HashSet<>(Arrays.asList(
             "nude", "nudes", "nudity", "nudism", "nudist", "nudists", "naked", "topless", "erotic", "erotica", "porn",
             "pornography", "pornographic", "pornstar", "pornstars", "fetish", "sexual", "sexy", "lingerie", "bdsm", "genital",
-            "genitals", "penis", "vagina", "vulva", "breast", "breasts", "nipple", "nipples", "buttocks"));
+            "genitals", "penis", "vagina", "vulva", "breast", "breasts", "nipple", "nipples", "buttocks", "sex", "sexuality",
+            "hentai", "orgasm", "masturbation", "обнажённая", "обнаженная", "обнажённый", "обнаженный", "голая", "голый",
+            "эротика", "порно"));
 
     /**
      * True when the text holds one of the unwanted words as a whole word, in any case. A word ends at anything that is not

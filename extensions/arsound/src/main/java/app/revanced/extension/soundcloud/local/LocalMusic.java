@@ -394,6 +394,11 @@ public final class LocalMusic {
      * @param entries {@code soundcloud:tracks:ID} or {@code file:path} entries.
      * @return False if the player is not ready yet or nothing is playable.
      */
+    /** False until the player has been set up in this run; nothing can be played before that. */
+    public static boolean canPlay() {
+        return playbackInitiator != null;
+    }
+
     private static boolean playEntries(List<String> entries, int startIndex, boolean shuffle) {
         Object initiator = playbackInitiator;
         if (initiator == null || entries.isEmpty()) return false;
