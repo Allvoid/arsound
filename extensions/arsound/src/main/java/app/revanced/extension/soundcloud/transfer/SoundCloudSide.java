@@ -28,6 +28,9 @@ final class SoundCloudSide {
     private static final long LIKE_FAILURE_PAUSE_MS = 3_000;
     /** This many failed likes in a row stop the likes: the server does not take them now. */
     private static final int LIKE_FAILURES = 8;
+    /** The server is asked this many times how many likes it has, this long apart, after the likes. */
+    private static final int VERIFY_ATTEMPTS = 4;
+    private static final long VERIFY_PAUSE_MS = 15_000;
 
     private SoundCloudSide() {
     }
@@ -137,7 +140,7 @@ final class SoundCloudSide {
      * still gets theirs.
      *
      * @param progress Told how many of the tracks are liked so far.
-     * @return How many of the tracks are liked now.
+     * @return How many of the tracks the server has in the likes now (what the phone says, if the server cannot be asked).
      * @throws LikesStoppedException If SoundCloud stopped taking likes.
      */
     static int like(List<String> trackUrns, IntConsumer progress) throws Exception {
@@ -164,7 +167,39 @@ final class SoundCloudSide {
             if (++failuresInRow >= LIKE_FAILURES) throw new LikesStoppedException(liked, trackUrns.size());
             Thread.sleep(LIKE_FAILURE_PAUSE_MS);
         }
-        return liked;
+        return verified(trackUrns, liked, progress);
+    }
+
+    /**
+     * How many of the tracks the server has in the likes. The phone says a like is done when it wrote it down, but
+     * the server may not take it (its own limits): then the like is gone with the next sync of the likes, and the
+     * count of "liked" the transfer would show is wrong. The server is asked after the likes, again after a pause
+     * while the number still grows, and the last answer is the result.
+     *
+     * @param given How many the phone says are liked; the answer when the server cannot be asked.
+     */
+    private static int verified(List<String> trackUrns, int given, IntConsumer progress) throws InterruptedException {
+        int best = -1;
+        int unchanged = 0;
+        for (int attempt = 0; attempt < VERIFY_ATTEMPTS; attempt++) {
+            if (attempt > 0) Thread.sleep(VERIFY_PAUSE_MS);
+            List<String> ids = app.revanced.extension.soundcloud.download.DownloadPlaylistPatch.serverLikedTrackIds();
+            if (ids == null) break;
+            Set<String> onServer = new java.util.HashSet<>(ids);
+            int count = 0;
+            for (String urn : trackUrns) {
+                if (onServer.contains(urn.substring(urn.lastIndexOf(':') + 1))) count++;
+            }
+            unchanged = count == best ? unchanged + 1 : 0;
+            best = count;
+            progress.accept(count);
+            if (count >= trackUrns.size() || unchanged >= 1) break;
+        }
+        if (best < 0) return given;
+        final int serverHas = best;
+        Logger.printInfo(() -> "Transfer: the phone says " + given + " of " + trackUrns.size()
+                + " are liked, the server has " + serverHas);
+        return best;
     }
 
     /** SoundCloud stopped taking likes; the playlists are made, and the likes given so far stay. */

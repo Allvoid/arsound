@@ -101,7 +101,7 @@ public final class TransferJob {
         return text("Перенесено ", "Transferred ") + entry.found + text(" из ", " of ") + entry.total
                 + text(" в «", " to \"") + entry.title + text("»", "\"")
                 + (entry.playlists.size() > 1 ? text(" (плейлистов: ", " (playlists: ") + entry.playlists.size() + ")" : "")
-                + (entry.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text(", в лайках: ", ", in likes: ") + entry.liked);
+                + (entry.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text(", в лайках: ", ", in likes: ") + entry.liked + text(" из ", " of ") + entry.found);
     }
 
     /** The collection being transferred, empty before it is read. */

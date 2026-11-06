@@ -399,7 +399,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         for (TransferRecord record : history) {
             String line = text("В плейлисте ", "In the playlist ") + record.found + text(" из ", " of ") + record.total
                     + " · " + format.format(new Date(record.time)) + ". "
-                    + (record.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text("В лайках: ", "In likes: ") + record.liked + ". ")
+                    + (record.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text("В лайках: ", "In likes: ") + record.liked + text(" из ", " of ") + record.found + ". ")
                     + (record.missing.isEmpty() ? text("Нашлись все.", "All were found.")
                     : text("Не нашлись " + record.missing.size() + ": нажмите, чтобы посмотреть.",
                     record.missing.size() + " not found: tap to see them."));

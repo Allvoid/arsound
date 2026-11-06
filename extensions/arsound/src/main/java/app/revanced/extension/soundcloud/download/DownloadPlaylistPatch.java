@@ -255,6 +255,20 @@ public final class DownloadPlaylistPatch {
     }
 
     /** The ids of all liked tracks, newest first, from the server; null if it did not answer. */
+    /**
+     * The tracks the server has in the likes of the user, asked now (not the phone's own list).
+     *
+     * @return The track ids, or null if the server did not answer.
+     */
+    public static List<String> serverLikedTrackIds() {
+        try {
+            return likedTrackIds();
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "Liked tracks of the server were not read: " + ex);
+            return null;
+        }
+    }
+
     private static List<String> likedTrackIds() throws Exception {
         String[] me = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/me");
         if (me[1] == null) {
