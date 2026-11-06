@@ -9,7 +9,9 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceRequest;
@@ -62,6 +64,11 @@ public final class YandexLoginActivity extends Activity {
                 }
 
                 @Override
+                public void onPageFinished(WebView view, String url) {
+                    view.requestFocus(View.FOCUS_DOWN);
+                }
+
+                @Override
                 public void onPageStarted(WebView view, String url, Bitmap favicon) {
                     if (url != null && takeToken(Uri.parse(url))) view.stopLoading();
                 }
@@ -84,7 +91,13 @@ public final class YandexLoginActivity extends Activity {
                     return true;
                 }
             });
+            // The page asks for a phone number in a field it focuses itself; for the keyboard to come up the view
+            // must take the focus (also by touch) and the window must be resized, not covered, by the keyboard.
+            web.setFocusable(true);
+            web.setFocusableInTouchMode(true);
+            getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             setContentView(web);
+            web.requestFocus(View.FOCUS_DOWN);
             web.loadUrl(START_URL);
         } catch (RuntimeException | LinkageError ex) {
             // No usable system WebView (disabled, removed, being updated): the screen closes, the app stays.
