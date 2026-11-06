@@ -15,7 +15,7 @@ import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
  * The pictures behind the title of some pages: the orange hearts of "Your likes" and the golden cards of the
- * purchases page, and the hearts of the liked tracks cell in Downloads. They are images, not drawn from the colour
+ * purchases page, the arrow of the Downloads page, and the hearts of the liked tracks cell in Downloads. They are images, not drawn from the colour
  * tokens, so a theme left them in SoundCloud's colours. (The hearts on the home screen's "Your likes" bar come from
  * the server as a picture link: {@link HomeLikesHeart} recolours them as they are drawn.)
  * <p>
@@ -25,7 +25,7 @@ import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
  */
 public final class HeaderArtwork {
     /** The pictures, by resource name. */
-    static final String[] NAMES = {"your_likes_banner", "collection_header", "liked_tracks_artwork"};
+    static final String[] NAMES = {"your_likes_banner", "collection_header", "liked_tracks_artwork", "downloads_banner"};
     /** The cell of the liked tracks is a cover in a list: it keeps its dark ground. */
     private static final String SOLID = "liked_tracks_artwork";
 
@@ -39,6 +39,15 @@ public final class HeaderArtwork {
     @SuppressWarnings("unused")
     public static float alpha(int resource) {
         return Settings.isHeaderArtworkHidden() || WallpaperStore.isActive() ? 0f : 1f;
+    }
+
+    /**
+     * Called by the header of the Downloads page for the opacity of its picture and of the veil over it (both are
+     * plain Image calls there, 1 in SoundCloud). Same rule as {@link #alpha}.
+     */
+    @SuppressWarnings("unused")
+    public static float downloadsAlpha() {
+        return alpha(0);
     }
 
     /**

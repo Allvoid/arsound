@@ -81,6 +81,7 @@ Playlist / likes bulk download. `onPlaylistMenu` :111, `checkPlaylist` :326, `ch
 - Playback of saved files (read only): `EXT/offline/DownloadedPlaybackPatch.java`, `InstantFilePlayback.java` -> `getDownloadedFile`.
 
 ### Smali hooks (`PAT/download/`)
+- Downloads screen has two designs: old `DownloadsDataSource$loadTracksAndPlaylists$2` (`downloadsFilterMethod`) and new Compose `DownloadsV2DataSource$loadContent$offlineCollectablesFlow$1` (`downloadsV2FilterMethod`, the one the emulator account gets). Both call `DownloadsScreen` (`addArsoundTracks` / `withArsoundTracks`, `beforeState` + `stateOnScreen`). The Library row: `upsell/PaywallScreensPatch.kt` forces `isOfflineContentEnabled` in the old `LibraryPresenter$attachView$14` and in the new `LibraryViewModel$observeLibrarySections$1...$map$1$2.emit` (otherwise the row is the Upsell state and opens the hidden paywall).
 - `DownloadTrackPatch.kt` — `setOAuth` (:103, OAuth class), `onTrackMenu` (:119), `onPlaylistMenu` (:144), icons (:158/:169/:179), Downloads screen (:84-97); adds `DOWNLOAD_WITHOUT_NOTIFICATION` to manifest (:27).
 - `Fingerprints.kt` — target classes (OAuth, TrackBottomSheetFragment, PlaylistBottomSheetDialogFragment, MetaLabelsKt).
 - `DownloadButtonsPatch.kt`, `HeaderDownloadButtonPatch.kt` — button hooks.

@@ -85,6 +85,18 @@ private val BytecodePatchContext.libraryDownloadsClickMethod by gettingFirstMeth
     definingClass("Lcom/soundcloud/android/features/library/LibraryPresenter${'$'}attachView${'$'}14;")
 }
 
+/**
+ * The Downloads row of the new library: builds the row's state from the plan. Without a subscription the state is
+ * "Upsell", a tap on it opens the offer (replaced by an empty screen), so the row did nothing.
+ */
+private val BytecodePatchContext.librarySectionsMethod by gettingFirstMethodDeclaratively {
+    name("emit")
+    definingClass(
+        "Lcom/soundcloud/android/features/library/main/presentation/" +
+            "LibraryViewModel\$observeLibrarySections\$1\$invokeSuspend\$\$inlined\$map\$1\$2;",
+    )
+}
+
 private val emptyActivityPatch = resourcePatch {
     apply {
         document("AndroidManifest.xml").use { document ->
@@ -143,6 +155,20 @@ internal val paywallScreensPatch = bytecodePatch {
             }
             val register = getInstruction<OneRegisterInstruction>(checkIndex + 1).registerA
             addInstructions(checkIndex + 2, "const/4 v$register, 0x1")
+        }
+
+        // The same in the new library: the row is built as a normal Downloads row, which opens the downloads screen.
+        // Both checks of the plan are answered "enabled"; the last one first, so the index of the first stays right.
+        librarySectionsMethod.apply {
+            val checks = implementation!!.instructions.withIndex().filter { (_, instruction) ->
+                instruction.opcode == Opcode.INVOKE_INTERFACE &&
+                    (instruction as ReferenceInstruction).reference.toString().endsWith("->isOfflineContentEnabled()Z")
+            }.map { it.index }
+            require(checks.isNotEmpty()) { "The library rows do not check isOfflineContentEnabled" }
+            for (checkIndex in checks.reversed()) {
+                val register = getInstruction<OneRegisterInstruction>(checkIndex + 1).registerA
+                addInstructions(checkIndex + 2, "const/4 v$register, 0x1")
+            }
         }
 
         paywallSetupUiMethod.insertGuard(

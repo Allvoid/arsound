@@ -53,6 +53,16 @@ private val BytecodePatchContext.appBarPictureMethod by gettingFirstMethodDeclar
     returnType("Lcom/soundcloud/android/ui/components/compose/toolbars/CollapsableAppBarBackground\$Drawable;")
 }
 
+/**
+ * The Downloads page of the new design draws its own picture and the dark veil over it with two plain Image calls
+ * (ln/e, the lambda of the page header), not with CollapsableAppBarBackground.
+ */
+private val BytecodePatchContext.downloadsHeaderMethod by gettingFirstMethodDeclaratively {
+    name("invoke")
+    definingClass("Lln/e;")
+    parameterTypes("Ljava/lang/Object;", "Ljava/lang/Object;")
+}
+
 /** Builds the rows of the Library tab ("Your likes", "Playlists", ...), each without a leading icon. */
 private val BytecodePatchContext.libraryHeaderItemConstructorMethod by gettingFirstMethodDeclaratively {
     name("<init>")
@@ -130,6 +140,35 @@ val themePatch = bytecodePatch {
                 "invoke-static { v$resource }, Lapp/revanced/extension/soundcloud/theme/HeaderArtwork;->alpha(I)F",
             )
             addInstruction(index + 1, "move-result v$register")
+        }
+        // The picture of the Downloads page and the veil over it take their opacity from HeaderArtwork too: both
+        // Image calls get the alpha as an argument (the "default" bit of the alpha is taken off the mask).
+        downloadsHeaderMethod.apply {
+            val bannerIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.SGET && (this as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                    .reference.toString().endsWith("R\$drawable;->downloads_banner:I")
+            }
+            val isImage: com.android.tools.smali.dexlib2.iface.instruction.Instruction.() -> Boolean = {
+                opcode == Opcode.INVOKE_STATIC_RANGE &&
+                    (this as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                        .reference.toString().startsWith("Landroidx/compose/foundation/ImageKt;->Image(")
+            }
+            val bannerImage = indexOfFirstInstructionOrThrow(bannerIndex, isImage)
+            val veilImage = indexOfFirstInstructionOrThrow(bannerImage + 1, isImage)
+            // Later call first, so the index of the earlier one stays right.
+            for (call in listOf(veilImage, bannerImage)) {
+                val start = getInstruction<RegisterRangeInstruction>(call).startRegister
+                val alpha = start + 5
+                val mask = start + 9
+                addInstructions(
+                    call,
+                    """
+                        invoke-static { }, Lapp/revanced/extension/soundcloud/theme/HeaderArtwork;->downloadsAlpha()F
+                        move-result v$alpha
+                        and-int/lit8 v$mask, v$mask, -0x21
+                    """,
+                )
+            }
         }
         // The hearts of the "Your likes" bar come from the server as a picture: they get the theme's colour filter
         // where they are drawn. AsyncImage(model, description, modifier, alignment, scale, colorFilter, composer,

@@ -74,6 +74,15 @@ private val BytecodePatchContext.downloadsFilterMethod by gettingFirstMethodDecl
     definingClass("Lcom/soundcloud/android/features/library/downloads/DownloadsDataSource${'$'}loadTracksAndPlaylists${'$'}2;")
 }
 
+/**
+ * The same step on the new Downloads screen (a Compose one, behind an experiment): joins the lists of what is kept
+ * offline and keeps those whose offline state is not "not offline" / "unavailable".
+ */
+private val BytecodePatchContext.downloadsV2FilterMethod by gettingFirstMethodDeclaratively {
+    name("invokeSuspend")
+    definingClass("Lcom/soundcloud/android/features/library/downloadsv2/DownloadsV2DataSource${'$'}loadContent${'$'}offlineCollectablesFlow${'$'}1;")
+}
+
 /** Holds the offline states the Downloads screen listens to. */
 private val BytecodePatchContext.offlinePropertiesProviderConstructorMethod by gettingFirstMethodDeclaratively {
     name("<init>")
@@ -106,6 +115,39 @@ val downloadTrackPatch = bytecodePatch {
             // The urn register receives the state, so the urn is kept before the call.
             addInstruction(stateIndex, "invoke-static { v$urnRegister }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->beforeState(Ljava/lang/Object;)V")
             addInstruction(0, "invoke-static { p1 }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->addArsoundTracks(Ljava/lang/Object;)V")
+        }
+        // The new Downloads screen: the same, tracks and playlists downloaded by Arsound join its lists and count as downloaded.
+        downloadsV2FilterMethod.apply {
+            val stateIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL &&
+                    (this as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                        .reference.toString().endsWith("->toOfflineState(Lcom/soundcloud/android/foundation/domain/Urn;)Lcom/soundcloud/android/foundation/domain/offline/OfflineState;")
+            }
+            val urnRegister = getInstruction<com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction>(stateIndex).registerD
+            val stateRegister = getInstruction<OneRegisterInstruction>(stateIndex + 1).registerA
+            addInstructions(
+                stateIndex + 2,
+                """
+                    invoke-static { v$stateRegister }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->stateOnScreen(Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v$stateRegister
+                    check-cast v$stateRegister, Lcom/soundcloud/android/foundation/domain/offline/OfflineState;
+                """,
+            )
+            addInstruction(stateIndex, "invoke-static { v$urnRegister }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->beforeState(Ljava/lang/Object;)V")
+            // The first list (v0 holds it after the checks of the arguments) gets the Arsound tracks and playlists.
+            val startIndex = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_STATIC &&
+                    (this as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                        .reference.toString().endsWith("->throwOnFailure(Ljava/lang/Object;)V")
+            }
+            addInstructions(
+                startIndex + 1,
+                """
+                    invoke-static { v0 }, Lapp/revanced/extension/soundcloud/download/DownloadsScreen;->withArsoundTracks(Ljava/lang/Object;)Ljava/lang/Object;
+                    move-result-object v0
+                    check-cast v0, Ljava/util/List;
+                """,
+            )
         }
         // Kept so the Downloads screen can be told to filter its list again after Arsound downloads change.
         offlinePropertiesProviderConstructorMethod.apply {

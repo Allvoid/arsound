@@ -205,11 +205,11 @@ final class AppearanceScreen extends SectionScreen {
                 BoolSettings.HIDE_HOME_GREETING
         ).icon("home").brief(text("Убирает «Привет, … Что послушаем?».", "Removes \"Hello, … What shall we play?\".")));
         list.addView(ui.createToggleRow(
-                text("Без картинки в шапке «Ваши лайки»", "No picture at the top of \"Your likes\""),
-                text("Убирает сердца за заголовком «Ваши лайки» и карточки за заголовком покупок: остаётся фон темы. "
+                text("Без картинки в шапке «Ваши лайки» и «Загрузки»", "No picture at the top of \"Your likes\" and \"Downloads\""),
+                text("Убирает сердца за заголовком «Ваши лайки», стрелку за заголовком «Загрузки» и карточки за заголовком покупок: остаётся фон темы. "
                                 + "Выключено — картинка в цвете темы. С обоями картинки нет всегда, шапка не закрывает обои. "
                                 + "Открытая страница меняется, когда её откроют снова.",
-                        "Removes the hearts behind the \"Your likes\" title and the cards behind the purchases title: "
+                        "Removes the hearts behind the \"Your likes\" title, the arrow behind the \"Downloads\" title and the cards behind the purchases title: "
                                 + "the theme's background stays. Off: the picture in the theme's colour. With a wallpaper "
                                 + "there is never a picture, so the header does not cover the wallpaper. A page already "
                                 + "open changes when it is opened again."),

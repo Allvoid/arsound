@@ -37,47 +37,65 @@ public final class DownloadsScreen {
      */
     public static void addArsoundTracks(Object prepared) {
         try {
-            Context context = Utils.getContext();
-            if (context == null) return;
             java.lang.reflect.Field field = prepared.getClass().getDeclaredField("a");
             field.setAccessible(true);
-            List<Object> items = new ArrayList<>((List<?>) field.get(prepared));
-
-            ClassLoader loader = prepared.getClass().getClassLoader();
-            Class<?> urnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.Urn");
-            Class<?> trackClass = Reflect.type(loader, "com.soundcloud.android.offline.data.db.SelectiveSyncTrack");
-            java.lang.reflect.Constructor<?> constructor = trackClass.getConstructor(urnClass, Date.class);
-            java.lang.reflect.Method forTrack = urnClass.getMethod("forTrack", String.class);
-
-            Set<String> present = new HashSet<>();
-            for (Object item : items) present.add(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)));
-            int added = 0;
-            for (String id : DownloadTrackPatch.getDownloadedTracks()) {
-                if (DownloadTrackPatch.getDownloadState(context, id) != DownloadTrackPatch.DownloadState.DOWNLOADED) continue;
-                Object urn = forTrack.invoke(null, id);
-                if (present.contains(String.valueOf(urn))) continue;
-                DownloadIndex.Entry file = DownloadIndex.known(id);
-                // Newest downloads first, like SoundCloud sorts its own: by the time of the file.
-                items.add(constructor.newInstance(urn, new Date(file != null ? file.modifiedMs() : 0)));
-                added++;
-            }
-            // A playlist is a collectable just like a track: an urn and a date. The screen then loads
-            // the stored playlist by its urn.
-            java.lang.reflect.Method forPlaylist = urnClass.getMethod("forPlaylist", String.class);
-            int addedPlaylists = 0;
-            for (java.util.Map.Entry<String, Long> playlist : DownloadPlaylistPatch.getDownloadedPlaylists().entrySet()) {
-                Object urn = forPlaylist.invoke(null, playlist.getKey());
-                if (present.contains(String.valueOf(urn))) continue;
-                items.add(constructor.newInstance(urn, new Date(playlist.getValue())));
-                addedPlaylists++;
-            }
-            field.set(prepared, items);
-            int count = added;
-            int playlists = addedPlaylists;
-            Logger.printInfo(() -> "Downloads screen: added " + count + " tracks and " + playlists + " playlists downloaded by Arsound");
+            field.set(prepared, withArsound((List<?>) field.get(prepared), prepared.getClass().getClassLoader()));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not add Arsound downloads to the Downloads screen", ex);
         }
+    }
+
+    /**
+     * Injection point of the new Downloads screen: the start of the step that joins its lists and keeps the downloaded.
+     *
+     * @param collectables a list of what SoundCloud keeps offline (tracks as {@code SelectiveSyncTrack}).
+     * @return the list with the tracks and playlists downloaded by Arsound added; the list given if that fails.
+     */
+    public static Object withArsoundTracks(Object collectables) {
+        try {
+            return withArsound((List<?>) collectables, DownloadsScreen.class.getClassLoader());
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not add Arsound downloads to the Downloads screen", ex);
+            return collectables;
+        }
+    }
+
+    /** The items, and after them the tracks and playlists Arsound downloaded that are not among them yet. */
+    private static List<Object> withArsound(List<?> existing, ClassLoader loader) throws Exception {
+        Context context = Utils.getContext();
+        List<Object> items = new ArrayList<>(existing);
+        if (context == null) return items;
+        Class<?> urnClass = Reflect.type(loader, "com.soundcloud.android.foundation.domain.Urn");
+        Class<?> trackClass = Reflect.type(loader, "com.soundcloud.android.offline.data.db.SelectiveSyncTrack");
+        java.lang.reflect.Constructor<?> constructor = trackClass.getConstructor(urnClass, Date.class);
+        java.lang.reflect.Method forTrack = urnClass.getMethod("forTrack", String.class);
+
+        Set<String> present = new HashSet<>();
+        for (Object item : items) present.add(String.valueOf(item.getClass().getMethod("getUrn").invoke(item)));
+        int added = 0;
+        for (String id : DownloadTrackPatch.getDownloadedTracks()) {
+            if (DownloadTrackPatch.getDownloadState(context, id) != DownloadTrackPatch.DownloadState.DOWNLOADED) continue;
+            Object urn = forTrack.invoke(null, id);
+            if (present.contains(String.valueOf(urn))) continue;
+            DownloadIndex.Entry file = DownloadIndex.known(id);
+            // Newest downloads first, like SoundCloud sorts its own: by the time of the file.
+            items.add(constructor.newInstance(urn, new Date(file != null ? file.modifiedMs() : 0)));
+            added++;
+        }
+        // A playlist is a collectable just like a track: an urn and a date. The screen then loads
+        // the stored playlist by its urn.
+        java.lang.reflect.Method forPlaylist = urnClass.getMethod("forPlaylist", String.class);
+        int addedPlaylists = 0;
+        for (java.util.Map.Entry<String, Long> playlist : DownloadPlaylistPatch.getDownloadedPlaylists().entrySet()) {
+            Object urn = forPlaylist.invoke(null, playlist.getKey());
+            if (present.contains(String.valueOf(urn))) continue;
+            items.add(constructor.newInstance(urn, new Date(playlist.getValue())));
+            addedPlaylists++;
+        }
+        int count = added;
+        int playlists = addedPlaylists;
+        Logger.printInfo(() -> "Downloads screen: added " + count + " tracks and " + playlists + " playlists downloaded by Arsound");
+        return items;
     }
 
     private static volatile Object offlinePropertiesProvider;
