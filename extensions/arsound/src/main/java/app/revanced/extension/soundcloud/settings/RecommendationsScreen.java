@@ -8,13 +8,11 @@ import android.widget.TextView;
 
 import java.util.Map;
 
-import app.revanced.extension.shared.Utils;
-import app.revanced.extension.soundcloud.recommendations.ForYou;
 import app.revanced.extension.soundcloud.recommendations.TrackDislikes;
 import app.revanced.extension.soundcloud.recommendations.WaveMemory;
 import app.revanced.extension.soundcloud.recommendations.WaveSource;
 
-/** The "For you" playlist of Last.fm, hiding duplicates, the "Not for me" list. */
+/** My Wave, hiding duplicates, the "Not for me" list. */
 final class RecommendationsScreen extends SectionScreen {
     static final String ID = "recommendations";
 
@@ -34,7 +32,7 @@ final class RecommendationsScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Плейлист «Для вас» от Last.fm, дубликаты, «Не нравится»", "\"For you\" playlist by Last.fm, duplicates, dislikes");
+        return text("Моя волна, дубликаты, «Не нравится»", "My Wave, duplicates, dislikes");
     }
 
     @Override
@@ -44,15 +42,13 @@ final class RecommendationsScreen extends SectionScreen {
 
     @Override
     String summary() {
-        return text("«Для вас»: ", "\"For you\": ") + (ForYou.isEnabled() ? text("вкл", "on") : text("выкл", "off"))
-                + text(" · скрывать дубликаты: ", " · hide duplicates: ")
+        return text("Скрывать дубликаты: ", "Hide duplicates: ")
                 + (BoolSettings.DUPLICATE_FILTER.get() ? text("да", "yes") : text("нет", "no"));
     }
 
     @Override
     void fill(LinearLayout list) {
         addWaveOptions(list);
-        addForYouOptions(list);
         list.addView(ui.createSubHeading(text("Дубликаты", "Duplicates")));
         SubRows duplicateOptions = ui.createSubRows();
         list.addView(ui.createToggleRow(
@@ -86,56 +82,6 @@ final class RecommendationsScreen extends SectionScreen {
                         "The tab of the bottom bar, the sources and what the wave remembers. The wave itself starts on its tab, "
                                 + "right after Home."),
                 WaveScreen.ID).icon("recs"));
-    }
-
-    private void addForYouOptions(LinearLayout list) {
-        list.addView(ui.createSubHeading(text("Плейлист «Для вас»", "\"For you\" playlist")));
-        SubRows options = ui.createSubRows();
-        list.addView(ui.createToggleRow(
-                text("Подбирать треки через Last.fm", "Pick tracks with Last.fm"),
-                text("Arsound смотрит ваши лайки, плейлисты, импортированные треки и то, что вы слушаете чаще, "
-                                + "спрашивает у Last.fm, что слушают вместе с ними, и кладёт новые для вас треки в плейлист «Для вас». "
-                                + "В Last.fm уходят только названия треков и исполнителей, без аккаунта.",
-                        "Arsound looks at your likes, playlists, imported tracks and what you play most, asks Last.fm "
-                                + "what people listen to along with them and puts tracks new to you into the \"For you\" playlist. "
-                                + "Only track and artist names go to Last.fm, no account."),
-                ForYou.isEnabled(),
-                (button, checked) -> {
-                    ForYou.setEnabled(checked);
-                    options.setVisibility(checked ? View.VISIBLE : View.GONE);
-                }
-        ).icon("recs").brief(text("Новые для вас треки по вашим лайкам и прослушиваниям, через Last.fm.",
-                "Tracks new to you, picked from your likes and plays through Last.fm.")));
-        options.setVisibility(ForYou.isEnabled() ? View.VISIBLE : View.GONE);
-        TextView schedule = ui.createText("Body.Secondary", text(
-                "Плейлист обновляется каждый день в 00:00. Если в это время нет интернета или IP российский "
-                        + "(Last.fm и SoundCloud его не обслуживают — нужен VPN), обновление сработает при первой возможности. "
-                        + "Приложение для этого открывать не нужно; при низком заряде батареи обновление ждёт.",
-                "The playlist updates every day at 00:00. If there is no connection then, or the IP is Russian "
-                        + "(Last.fm and SoundCloud do not serve it, a VPN is needed), it updates at the first chance. "
-                        + "The app does not need to be open; on a low battery the update waits."));
-        schedule.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dimen("spacing_s"));
-        options.addView(schedule);
-        String status = ForYou.status();
-        ActionRow refreshRow = ui.createActionRow(text("Обновить сейчас", "Update now"),
-                status.isEmpty() ? text("Ещё не обновлялся", "Not updated yet") : text("Последнее обновление: ", "Last update: ") + status,
-                null);
-        TextView description = refreshRow.description();
-        refreshRow.setOnClickListener(v -> {
-            if (ForYou.isRunning()) return;
-            description.setText(text("Начинаю…", "Starting…"));
-            // The update can take minutes: the listener holds the row weakly, so a closed screen is not kept for it.
-            java.lang.ref.WeakReference<TextView> row = new java.lang.ref.WeakReference<>(description);
-            Utils.runOnBackgroundThread(() -> ForYou.refresh(message -> {
-                TextView shown = row.get();
-                if (shown == null || activity.isDestroyed()) return;
-                // While it runs: the step; at the end: the time and the result, as when the screen opens.
-                shown.setText(ForYou.isRunning() ? message
-                        : text("Последнее обновление: ", "Last update: ") + ForYou.status());
-            }));
-        });
-        options.addView(refreshRow);
-        list.addView(options);
     }
 
     private void addDislikeOptions(LinearLayout list) {

@@ -22,7 +22,6 @@ import app.arsound.patches.soundcloud.misc.branding.brandingPatch
 import app.arsound.patches.soundcloud.misc.translation.russianTranslationPatch
 import app.arsound.patches.soundcloud.misc.theme.themePatch
 import app.arsound.patches.soundcloud.misc.theme.waveformColourPatch
-import app.arsound.patches.soundcloud.recommendations.forYouPatch
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.patches.soundcloud.network.networkPatch
 import app.arsound.patches.soundcloud.offline.downloadedPlaybackPatch
@@ -77,7 +76,6 @@ private val basePatch = bytecodePatch {
         russianTranslationPatch,
         themePatch,
         waveformColourPatch,
-        forYouPatch,
         // Renames the package after every other patch.
         changePackageNamePatch,
     )

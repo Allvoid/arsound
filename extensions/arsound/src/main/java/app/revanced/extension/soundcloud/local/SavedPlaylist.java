@@ -13,7 +13,6 @@ import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
-import app.revanced.extension.soundcloud.recommendations.ForYou;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.Lang;
 import app.revanced.extension.soundcloud.shared.Rx;
@@ -88,13 +87,13 @@ public final class SavedPlaylist {
         playlistOperations = instance;
         if (checked) return;
         checked = true;
-        ForYou.onAppStart();
+        LegacyForYou.cancelJob();
         // Give the app time to sign in and start; this never blocks the UI.
         Utils.runOnBackgroundThread(() -> {
             try {
                 Thread.sleep(CHECK_DELAY_MS);
                 SavedPlaylistSync.ensureExists();
-                ForYou.moveToPhone();
+                LegacyForYou.removePlaylist();
             } catch (IOException ex) {
                 // No network or requests blocked by the region guard: tried again on the next start.
                 Logger.printInfo(() -> "Saved tracks playlist not checked: " + ex.getMessage());

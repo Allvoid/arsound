@@ -12,7 +12,7 @@ final class DislikeTitles {
     }
 
     /**
-     * The title is for the list in the settings, the song for the "For you" playlist.
+     * The title is for the list in the settings, the song for My Wave.
      *
      * @param urn A track urn of the "tracks" kind.
      */

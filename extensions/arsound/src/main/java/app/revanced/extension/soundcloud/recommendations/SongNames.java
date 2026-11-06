@@ -2,13 +2,13 @@ package app.revanced.extension.soundcloud.recommendations;
 
 import java.util.Locale;
 
-/** Artist and title names as the "For you" playlist compares them. Pure text work, no Android. */
-final class ForYouNames {
-    private ForYouNames() {
+/** Artist and title names as My Wave, the statistics and the duplicate filter compare them. Pure text work, no Android. */
+public final class SongNames {
+    private SongNames() {
     }
 
     /** Artist and title of a SoundCloud upload: "Artist - Title" uploads name the artist in the title. */
-    static String[] artistAndTitle(String title, String uploader) {
+    public static String[] artistAndTitle(String title, String uploader) {
         if (title == null) return null;
         for (String dash : new String[]{" - ", " – ", " — "}) {
             int index = title.indexOf(dash);
@@ -20,7 +20,7 @@ final class ForYouNames {
         return new String[]{uploader.trim(), title.trim()};
     }
 
-    static String artistKey(String artist) {
+    public static String artistKey(String artist) {
         String value = artist == null ? "" : artist.toLowerCase(Locale.ROOT);
         // The first of several artists: "A, B", "A & B", "A feat. B".
         String[] parts = value.split("\\s*(,|&|\\bfeat\\.?|\\bft\\.?|\\bx\\b|\\bи\\b)\\s*");

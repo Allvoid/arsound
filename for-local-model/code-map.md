@@ -19,7 +19,7 @@
 | navbar | bottom bar tabs on/off, search button in the library | BottomTabs, TabOrder |
 | player | equalizer, track versions (slowed/speed up/reverb/bass), sleep timer, play mode, not-for-me button, stats, stream cache, vivo card | AudioEqualizer, TrackVersions, SleepTimer, PlayModeButton |
 | power | power saving | PowerSavingPatch |
-| recommendations | duplicate filter, dislikes, "For you", "My Wave" | DuplicateFilter, ForYou, TrackDislikes, MyWave |
+| recommendations | duplicate filter, dislikes, "My Wave" | DuplicateFilter, TrackDislikes, MyWave |
 | region | "?" badge on "not available in your country" | RegionHint |
 | screenshot | screenshot share dialog | ScreenshotShare |
 | search | YouTube Music search under search bar | SearchSourceSwitch, OtherSource |

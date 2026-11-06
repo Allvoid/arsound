@@ -122,7 +122,7 @@ final class SynonymTable {
                     "18+ adult nsfw sketchy взрослый взрослых возраст age explicit",
                     "wallhaven обои"},
             {"RECOMMENDATIONS",
-                    "рекомендации рекомендация recommendation recommendations подбор подобрать suggest suggestions для_вас for_you lastfm ластфм",
+                    "рекомендации рекомендация recommendation recommendations подбор подобрать suggest suggestions lastfm ластфм",
                     "лайки likes дубликаты не_нравится dislike радио radio"},
             {"DUPLICATES",
                     "дубликат дубликаты duplicate duplicates копии copies повторы remix ремикс ремиксы slowed sped",

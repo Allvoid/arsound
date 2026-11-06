@@ -173,7 +173,7 @@ final class WaveBuilder {
         if (response[1] == null) throw new java.io.IOException("SoundCloud did not answer: HTTP " + response[0]);
         JSONObject track = new JSONObject(response[1]);
         JSONObject user = track.optJSONObject("user");
-        return ForYouNames.artistAndTitle(track.optString("title"), user == null ? "" : user.optString("username"));
+        return SongNames.artistAndTitle(track.optString("title"), user == null ? "" : user.optString("username"));
     }
 
     /** Looks names up on SoundCloud, a few at a time. */

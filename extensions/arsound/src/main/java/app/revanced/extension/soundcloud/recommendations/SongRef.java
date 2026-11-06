@@ -25,7 +25,7 @@ final class SongRef {
 
     /**
      * The same song under two titles and lengths, whatever the user chose for the lists: a remix or another speed is
-     * another song here. For the "For you" playlist.
+     * another song here. For My Wave.
      */
     boolean isSameSongAs(SongRef other) {
         return fingerprint(false).sameAs(other.fingerprint(false));

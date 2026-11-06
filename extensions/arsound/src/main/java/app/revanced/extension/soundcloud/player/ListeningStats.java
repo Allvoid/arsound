@@ -12,7 +12,7 @@ import java.util.Map;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.UnplayedDownloads;
-import app.revanced.extension.soundcloud.recommendations.ForYou;
+import app.revanced.extension.soundcloud.recommendations.SongNames;
 import app.revanced.extension.soundcloud.recommendations.WaveMemory;
 import app.revanced.extension.soundcloud.settings.Settings;
 
@@ -284,7 +284,7 @@ public final class ListeningStats {
         Map<String, Map<String, Long>> spellings = new HashMap<>();
         for (Entry track : tracks) {
             if (track.artist == null || track.artist.trim().isEmpty()) continue;
-            String key = ForYou.artistKey(track.artist);
+            String key = SongNames.artistKey(track.artist);
             if (key.isEmpty()) key = track.artist.trim().toLowerCase(Locale.ROOT);
             Entry artist = entry(artists, key);
             artist.plays += track.plays;

@@ -19,7 +19,7 @@ import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
- * The playlists that live on this phone only, "Imported" and "For you". Each is a row in SoundCloud's own database, with a
+ * The playlists that live on this phone only, "Imported". Each is a row in SoundCloud's own database, with a
  * private playlist's fields and a number the server never gives out, and a post of the user: to the library, the playlist
  * screen, shuffle and the play queue it is a playlist like any other, and the tracks are added on this phone as they were for
  * a playlist on the server. Nothing about it reaches SoundCloud: the patch keeps the sync away from these numbers
@@ -33,6 +33,7 @@ public final class LocalPlaylists {
     /** SoundCloud's numbers are about ten digits long: it will not come here. */
     private static final long FIRST_ID = 900_000_000_000_001L;
     public static final String IMPORTED = PREFIX + FIRST_ID;
+    /** The "For you" playlist of an earlier version: only {@link LegacyForYou} uses it, to take it out. */
     public static final String FOR_YOU = PREFIX + (FIRST_ID + 1);
     private static final String STORED_TITLE = "local_playlist_title:";
     private static final long READ_TIMEOUT_SECONDS = 20;

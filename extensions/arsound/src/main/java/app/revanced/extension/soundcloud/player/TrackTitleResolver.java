@@ -22,7 +22,7 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.local.LocalMusic;
-import app.revanced.extension.soundcloud.recommendations.ForYou;
+import app.revanced.extension.soundcloud.recommendations.SongNames;
 
 /**
  * Finds the title and the artist of the tracks in the statistics. Titles of SoundCloud tracks are looked up once and
@@ -30,7 +30,7 @@ import app.revanced.extension.soundcloud.recommendations.ForYou;
  * their tags.
  * <p>
  * Uploads by others are often titled "Artist - Title" under the uploader's name: the artist is taken from the title
- * then, the same way as for the "For you" playlist.
+ * then, the same way as My Wave does.
  */
 public final class TrackTitleResolver {
     private static final String TITLES = "titles";
@@ -146,7 +146,7 @@ public final class TrackTitleResolver {
     }
 
     private static void name(ListeningStats.Entry entry, String title, String uploader) {
-        String[] names = ForYou.artistAndTitle(title, uploader);
+        String[] names = SongNames.artistAndTitle(title, uploader);
         entry.artist = names != null ? names[0] : "";
         entry.title = names != null ? names[1] : title;
     }

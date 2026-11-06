@@ -90,7 +90,7 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `navbar` | вкладки нижней панели (убрать «Главная», «Лента», «Поиск»; Библиотека остаётся), кнопка поиска в Библиотеке | `BottomTabs`, `TabOrder`, `LibrarySearchButton` |
 | `player` | эквалайзер, версии трека (slowed, speed up, reverb, bass boost), таймер сна, кнопка режима воспроизведения и кнопка «Не нравится», статистика, кэш потока, обложка уведомления, плеер vivo, плавный переход, загрузка следующего трека, всплывающие комментарии | `AudioEqualizer`, `TrackVersions`, `SleepTimer`, `PlayModeButton`, `PlaybackEvents` |
 | `power` | экономия энергии: реже опрос, без фоновых отчётов | `PowerSavingPatch` |
-| `recommendations` | фильтр дублей, «Не для меня», плейлист «Для вас», «Моя волна» (бесконечная очередь по вкусу), очередь автовоспроизведения | `DuplicateFilter`, `AutoplayQueue`, `ForYou`, `TrackDislikes`, `MyWave` |
+| `recommendations` | фильтр дублей, «Не для меня», «Моя волна» (бесконечная очередь по вкусу), очередь автовоспроизведения | `DuplicateFilter`, `AutoplayQueue`, `ForYou`, `TrackDislikes`, `MyWave` |
 | `region` | значок «?» у пометки «Недоступно в вашей стране» | `RegionHint` |
 | `screenshot` | окно «Поделиться скриншотом» | `ScreenshotShare` |
 | `search` | поиск Arsound по YouTube Music под строкой поиска (не поиск настроек) | `SearchSourceSwitch`, `OtherSource` |
@@ -231,7 +231,7 @@ local/
   tools/apktool_*.jar, tools/jadx/       разбор APK
   arsound.keystore                       ключ подписи мода: BKS, запись «Arsound», сертификат CN=Arsound
   arsound.keystore.password              пароль ключа (один для хранилища и записи)
-  lastfm.properties                      (необязательно) api_key=... — ключ Last.fm для плейлиста «Для вас»
+  lastfm.properties                      (необязательно) api_key=... — ключ Last.fm для «Моей волны»
                                          (last.fm/api/account/create). Без него плейлист не собирается.
                                          Вместо файла можно задать переменную ARSOUND_LASTFM_API_KEY
   out/                                   готовые APK и логи
