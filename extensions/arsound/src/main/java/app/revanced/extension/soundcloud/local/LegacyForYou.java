@@ -40,7 +40,7 @@ public final class LegacyForYou {
      * Takes the playlist out of the library and clears what it kept, once. Blocks; runs on a background thread.
      * Tried again on the next start when the library is not ready yet.
      */
-    public static void removePlaylist() {
+    public static synchronized void removePlaylist() {
         try {
             Context context = Utils.getContext();
             SharedPreferences preferences = SavedPlaylist.preferences();

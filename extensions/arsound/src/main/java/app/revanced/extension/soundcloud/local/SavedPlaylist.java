@@ -113,6 +113,8 @@ public final class SavedPlaylist {
             try {
                 Thread.sleep(POSTS_CHECK_DELAY_MS);
                 SavedPlaylistSync.forgetDeletedCopies();
+                // The posts are known now; the first try (above) may have come before them.
+                LegacyForYou.removePlaylist();
             } catch (InterruptedException ignored) {
             }
         });
