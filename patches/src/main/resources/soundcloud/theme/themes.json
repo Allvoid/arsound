@@ -91,6 +91,206 @@
       "colors": {"extended_palette_grey_950": "#121C25", "extended_palette_grey_900": "#1A242D", "extended_palette_grey_800": "#2B3741", "extended_palette_grey_700": "#3B4853", "extended_palette_grey_600": "#46535E", "extended_palette_grey_500": "#5B6A76", "extended_palette_grey_400": "#6F7F8C", "extended_palette_grey_300": "#94A6B4", "extended_palette_grey_200": "#B9C6D0", "extended_palette_grey_100": "#E6EBEE", "extended_palette_grey_50": "#F3F5F7", "extended_palette_orange_900": "#9FDDF0", "sdui_blue": "#9FDDF0", "sdui_green": "#CAECF7", "sdui_magenta": "#B7E6F4", "sdui_orange": "#77A6B4", "sdui_purple": "#94A6B4", "sdui_red": "#9FDDF0", "sdui_teal": "#CAECF7", "sdui_violet": "#B7E6F4", "sdui_yellow": "#77A6B4"}
     },
     {
+      "id": "storm",
+      "name": {
+        "ru": "Гроза",
+        "en": "Storm"
+      },
+      "description": {
+        "ru": "Чёрно-лиловая ночь, косой дождь, круги на воде и редкая ветвистая молния со вспышкой неба. Всегда тёмная.",
+        "en": "Violet-black night, slanted rain, rings on the water and a rare forked bolt that lights up the sky. Always dark."
+      },
+      "darkOnly": true,
+      "dark": {
+        "surface": "#09090D",
+        "primary": "#FFFFFF",
+        "secondary": "#ADAAC1",
+        "highlight": "#191728",
+        "special": "#8B7CFF",
+        "error": "#FF8A80",
+        "overlay": "#09090DB3",
+        "imageBorders": "#FFFFFF00",
+        "dialog": "#14121E"
+      },
+      "light": {
+        "surface": "#F9F9FD",
+        "primary": "#090619",
+        "secondary": "#6B6975",
+        "highlight": "#FFFFFFEB",
+        "special": "#8B7CFF",
+        "error": "#C62E3A",
+        "overlay": "#09061966",
+        "imageBorders": "#09061924",
+        "dialog": "#FFFFFF"
+      },
+      "fonts": {
+        "regular": "manrope_500",
+        "semibold": "manrope_600",
+        "bold": "manrope_800",
+        "extrabold": "manrope_800",
+        "numbers": "manrope_500"
+      },
+      "radii": {
+        "card": 10,
+        "miniPlayer": 20
+      },
+      "tokens": {
+        "bg": "#09090D",
+        "surface": "#14121E",
+        "surface2": "#211D37",
+        "deep": "#1D1552",
+        "border": "#211D37",
+        "accent": "#8B7CFF",
+        "pink": "#C4BCFF",
+        "muted": "#ADAAC1",
+        "text2": "#C7C4D6",
+        "tabbar": "#0E0D16",
+        "mini": "#17132DE5",
+        "miniBorder": "#C4BCFF47"
+      },
+      "parts": [
+        "lucideIcons",
+        "homeGreeting",
+        "libraryIcons",
+        "miniPlayer",
+        "playerButtons",
+        "tabBar",
+        "playerSkin"
+      ],
+      "decor": {
+        "settingsGlow": "#1D1552",
+        "settingsBadge": "#8B7CFF",
+        "settingsStrips": [
+          "#33287B"
+        ],
+        "homeHelloColor": "#C4BCFF",
+        "shortcutScrim": "#00000040"
+      },
+      "colors": {
+        "extended_palette_grey_950": "#14121E",
+        "extended_palette_grey_900": "#181625",
+        "extended_palette_grey_800": "#211D37",
+        "extended_palette_grey_700": "#36334C",
+        "extended_palette_grey_600": "#44415A",
+        "extended_palette_grey_500": "#605D76",
+        "extended_palette_grey_400": "#7C7991",
+        "extended_palette_grey_300": "#ADAAC1",
+        "extended_palette_grey_200": "#C7C4D6",
+        "extended_palette_grey_100": "#EBEAF0",
+        "extended_palette_grey_50": "#F5F4F8",
+        "extended_palette_orange_900": "#4B37CD",
+        "sdui_blue": "#4B37CD",
+        "sdui_green": "#A296F3",
+        "sdui_magenta": "#7869DA",
+        "sdui_orange": "#38299A",
+        "sdui_purple": "#ADAAC1",
+        "sdui_red": "#4B37CD",
+        "sdui_teal": "#A296F3",
+        "sdui_violet": "#7869DA",
+        "sdui_yellow": "#38299A"
+      }
+    },
+    {
+      "id": "vinyl",
+      "name": {
+        "ru": "Винил",
+        "en": "Vinyl"
+      },
+      "description": {
+        "ru": "Тёплый чёрный и янтарь. На фоне большая пластинка: крутится, только пока играет музыка, а на паузе замедляется и поднимает звукосниматель. Всегда тёмная.",
+        "en": "Warm black and amber. A big record in the background turns only while music plays; on pause it runs down and lifts the arm. Always dark."
+      },
+      "darkOnly": true,
+      "dark": {
+        "surface": "#0D0B09",
+        "primary": "#FFFFFF",
+        "secondary": "#C0B6AB",
+        "highlight": "#272018",
+        "special": "#E8A33D",
+        "error": "#FF7A66",
+        "overlay": "#0D0B09B3",
+        "imageBorders": "#FFFFFF00",
+        "dialog": "#1D1813"
+      },
+      "light": {
+        "surface": "#FDFBF9",
+        "primary": "#181007",
+        "secondary": "#746F6A",
+        "highlight": "#FFFFFFEB",
+        "special": "#E8A33D",
+        "error": "#C62E3A",
+        "overlay": "#18100766",
+        "imageBorders": "#18100724",
+        "dialog": "#FFFFFF"
+      },
+      "fonts": {
+        "regular": "golostext_400",
+        "semibold": "golostext_700",
+        "bold": "unbounded_600",
+        "extrabold": "unbounded_600",
+        "numbers": "golostext_500"
+      },
+      "radii": {
+        "card": 6,
+        "miniPlayer": 30
+      },
+      "tokens": {
+        "bg": "#0D0B09",
+        "surface": "#1D1813",
+        "surface2": "#362B1E",
+        "deep": "#503517",
+        "border": "#362B1E",
+        "accent": "#E8A33D",
+        "pink": "#F5CF8E",
+        "muted": "#C0B6AB",
+        "text2": "#D5CEC5",
+        "tabbar": "#16120D",
+        "mini": "#2C2114E5",
+        "miniBorder": "#F5CF8E47"
+      },
+      "parts": [
+        "lucideIcons",
+        "homeGreeting",
+        "libraryIcons",
+        "miniPlayer",
+        "playerButtons",
+        "tabBar",
+        "playerSkin"
+      ],
+      "decor": {
+        "settingsGlow": "#503517",
+        "settingsBadge": "#E8A33D",
+        "settingsStrips": [
+          "#78542B"
+        ],
+        "homeHelloColor": "#F5CF8E",
+        "shortcutScrim": "#00000040"
+      },
+      "colors": {
+        "extended_palette_grey_950": "#1D1813",
+        "extended_palette_grey_900": "#251E16",
+        "extended_palette_grey_800": "#362B1E",
+        "extended_palette_grey_700": "#4B4034",
+        "extended_palette_grey_600": "#594E42",
+        "extended_palette_grey_500": "#756A5E",
+        "extended_palette_grey_400": "#90867A",
+        "extended_palette_grey_300": "#C0B6AB",
+        "extended_palette_grey_200": "#D5CEC5",
+        "extended_palette_grey_100": "#F0EDEA",
+        "extended_palette_grey_50": "#F8F6F4",
+        "extended_palette_orange_900": "#C9873B",
+        "sdui_blue": "#C9873B",
+        "sdui_green": "#F0C799",
+        "sdui_magenta": "#D6A56D",
+        "sdui_orange": "#96652D",
+        "sdui_purple": "#C0B6AB",
+        "sdui_red": "#C9873B",
+        "sdui_teal": "#F0C799",
+        "sdui_violet": "#D6A56D",
+        "sdui_yellow": "#96652D"
+      }
+    },
+    {
       "id": "monet",
       "runtime": "monet",
       "name": {"ru": "Monet", "en": "Monet"},

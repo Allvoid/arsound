@@ -65,4 +65,22 @@ public class KeyframesTest {
         assertNull(EffectKind.fromId("soundcloud"));
         assertNull(EffectKind.fromId(null));
     }
+
+    @Test
+    public void strikesStayRareAndInOrder() {
+        for (long number = 0; number < 200; number++) {
+            float gap = StormScene.strikeTime(number + 1) - StormScene.strikeTime(number);
+            org.junit.Assert.assertTrue("gap " + gap, gap >= 7);
+            org.junit.Assert.assertEquals(number, StormScene.lastStrike(StormScene.strikeTime(number) + .01f));
+        }
+        org.junit.Assert.assertEquals(0, StormScene.flash(10), 0);
+    }
+
+    @Test
+    public void theRecordRunsDownToAStopAndComesBackUpToSpeed() {
+        float speed = VinylScene.nextSpeed(0, true, 100);
+        org.junit.Assert.assertEquals(100, speed, 0);
+        org.junit.Assert.assertEquals(0, VinylScene.nextSpeed(speed, false, 100), 0);
+        org.junit.Assert.assertEquals(50, VinylScene.nextSpeed(100, false, .75f), .01f);
+    }
 }

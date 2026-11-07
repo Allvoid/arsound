@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.theme.effect;
 
+import app.revanced.extension.soundcloud.player.CurrentPlayState;
+
 /** The animated backgrounds there are, each made for the theme whose id it carries. */
 public enum EffectKind {
     /** Sparks rising from a glow at the bottom. */
@@ -42,6 +44,20 @@ public enum EffectKind {
         @Override
         public EffectScene scene(EffectBrush brush, float density) {
             return new SnowScene(brush, density);
+        }
+    },
+    /** Rain, rings on the water and a rare forked bolt. */
+    STORM("storm") {
+        @Override
+        public EffectScene scene(EffectBrush brush, float density) {
+            return new StormScene(brush, density);
+        }
+    },
+    /** A record that turns while the music plays. */
+    VINYL("vinyl") {
+        @Override
+        public EffectScene scene(EffectBrush brush, float density) {
+            return new VinylScene(brush, density, CurrentPlayState::isPlaying);
         }
     };
 
