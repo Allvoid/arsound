@@ -380,7 +380,7 @@ public final class MyWave {
         ClassLoader loader = AutoplayQueue.classLoader();
         if (loader == null) return;
         List<Object> urns = LocalAdditions.toUrns(loader, entries);
-        if (AutoplayQueue.playLast("arsound:wave", urns)) {
+        if (AutoplayQueue.playLast(AutoplayQueue.WAVE_PAGE, urns)) {
             synchronized (QUEUED) {
                 QUEUED.addAll(entries);
             }

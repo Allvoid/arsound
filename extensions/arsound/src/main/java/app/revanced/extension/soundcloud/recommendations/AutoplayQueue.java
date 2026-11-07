@@ -27,6 +27,8 @@ import app.revanced.extension.soundcloud.shared.Getters;
 @SuppressWarnings("unused")
 public final class AutoplayQueue {
     private static final String AUTO_PLAY = "AUTO_PLAY";
+    /** The start page of the tracks the wave adds to the queue; SoundCloud keeps it with the queue on the phone. */
+    static final String WAVE_PAGE = "arsound:wave";
     /** How far back and ahead of the playing track the queue is read: a queue of all likes can be long. */
     private static final int WINDOW = 500;
 
@@ -183,9 +185,30 @@ public final class AutoplayQueue {
         }
     }
 
+    /**
+     * Injection point. Replaces the check of SoundCloud's {@code PlayQueueFactory.reapplyAnyItemsExplicitlyAdded}, which
+     * carries what was added by hand into every new queue, right after the track the person tapped. The wave adds its
+     * batches the same way, so the tracks left of a wave that was over came after a track of any playlist. What the person
+     * added stays; the wave's tracks stay with the wave.
+     *
+     * @param context The {@code PlaybackContext} of an item of the old queue.
+     */
+    public static boolean keepsInNewQueue(Object context) {
+        if (!isExplicit(context)) return false;
+        try {
+            return !WAVE_PAGE.equals(Getters.get(context, "getStartPage"));
+        } catch (Exception ex) {
+            Logger.printException(() -> "Autoplay: could not read where a queue item came from", ex);
+            return true;
+        }
+    }
+
     /** A {@code PlayQueueItem} that was put into the queue by hand ("Play next", "Play last"): its context is {@code Explicit}. */
     private static boolean isAddedByUser(Object item) throws Exception {
-        Object context = Getters.get(item, "getPlaybackContext");
+        return isExplicit(Getters.get(item, "getPlaybackContext"));
+    }
+
+    private static boolean isExplicit(Object context) {
         return context != null && "Explicit".equals(context.getClass().getSimpleName());
     }
 

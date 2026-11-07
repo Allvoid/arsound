@@ -31,6 +31,8 @@ private const val QUEUE_MANAGER_DESCRIPTOR = "Lcom/soundcloud/android/features/p
 
 private const val REMOVE_RECOMMENDATIONS = "Lcom/soundcloud/android/foundation/playqueue/PlayQueue;->removeRecommendations()V"
 
+private const val EXPLICIT_CONTEXT = "Lcom/soundcloud/android/foundation/playqueue/PlaybackContext\$Explicit;"
+
 private const val AUTOPLAY_DESCRIPTOR =
     "Lcom/soundcloud/android/features/playqueue/extender/PlayQueueExtenderOperations\$loadRelatedForRemoteTrack\$1;"
 
@@ -54,6 +56,12 @@ private val BytecodePatchContext.autoplayItemsMethod by gettingFirstMethodDeclar
 private val BytecodePatchContext.queueManagerConstructorMethod by gettingFirstMethodDeclaratively {
     definingClass(QUEUE_MANAGER_DESCRIPTOR)
     name("<init>")
+}
+
+/** Carries what was added to the old queue by hand into a new one, right after the track that was tapped. */
+private val BytecodePatchContext.reapplyAddedItemsMethod by gettingFirstMethodDeclaratively {
+    name("apply")
+    definingClass("Lcom/soundcloud/android/features/playqueue/PlayQueueFactory\$reapplyAnyItemsExplicitlyAdded\$1;")
 }
 
 /** Server-driven home screen views that hold lists of items. */
@@ -122,6 +130,20 @@ val duplicateFilterPatch = bytecodePatch {
             }
         }
         if (replaced == 0) throw PatchException("$REMOVE_RECOMMENDATIONS is not called by the queue manager any more")
+
+        // The tracks of a wave that is over are not carried into the next queue, what the person added is.
+        reapplyAddedItemsMethod.apply {
+            val index = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INSTANCE_OF && (this as ReferenceInstruction).reference.toString() == EXPLICIT_CONTEXT
+            }
+            val instruction = getInstruction<TwoRegisterInstruction>(index)
+            val result = instruction.registerA
+            replaceInstruction(
+                index,
+                "invoke-static { v${instruction.registerB} }, $AUTOPLAY_QUEUE_DESCRIPTOR->keepsInNewQueue(Ljava/lang/Object;)Z",
+            )
+            addInstructions(index + 1, "move-result v$result")
+        }
 
         autoplayItemsMethod.apply {
             // invoke-interface {v1}, Iterable;->iterator(); move-result-object v17

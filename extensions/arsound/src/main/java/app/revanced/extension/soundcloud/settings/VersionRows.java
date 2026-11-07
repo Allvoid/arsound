@@ -27,7 +27,7 @@ final class VersionRows {
 
     void addTo(LinearLayout list) {
         list.addView(ui.createSubHeading(text("Версии трека", "Versions of the track")));
-        list.addView(ui.createActionRow(
+        speedRow = ui.createActionRow(
                 text("Скорость и тон", "Speed and pitch"),
                 text("Каждый трек играет быстрее или медленнее, а тон идёт за скоростью, как у пластинки: slowed "
                                 + "медленнее и ниже, speed up быстрее и выше. На ходу, без отдельных файлов. Треки, в "
@@ -39,10 +39,10 @@ final class VersionRows {
                                 + "Tracks whose title already says slowed, sped up or nightcore are left as they are: "
                                 + "there is no point in changing them twice. The lyrics and the progress bar stay "
                                 + "right: time runs by the track itself. The button in the full-screen player does the same."),
-                v -> chooseSpeed()
-        ).icon("playback").brief(text("Обычная, slowed или speed up.", "Normal, slowed or speed up.")));
-        speedRow = (ActionRow) list.getChildAt(list.getChildCount() - 1);
+                v -> chooseSpeed());
+        speedRow.icon("playback").brief(text("Обычная, slowed или speed up.", "Normal, slowed or speed up."));
         speedRow.value(TrackVersions.speed().label());
+        list.addView(speedRow);
         list.addView(ui.createChoiceRow(text("Насколько замедлять", "How much to slow"), null,
                 TrackVersions.SLOWED_PERCENT, TrackVersions.DEFAULT_SLOWED_PERCENT, TrackVersions.SLOWED_PERCENTS,
                 new String[]{"90 %", text("85 % (обычный slowed)", "85 % (usual slowed)"), "80 %", "75 %", "70 %", "65 %"},

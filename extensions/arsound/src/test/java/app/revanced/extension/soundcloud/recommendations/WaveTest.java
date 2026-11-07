@@ -19,6 +19,35 @@ public class WaveTest {
         return new WaveMixer.Offer(urn, score);
     }
 
+    /** Named as SoundCloud's context of what was added to the queue by hand. */
+    public static final class Explicit {
+        private final String startPage;
+
+        Explicit(String startPage) {
+            this.startPage = startPage;
+        }
+
+        public String getStartPage() {
+            return startPage;
+        }
+    }
+
+    // region New queue
+
+    @Test
+    public void aNewQueueKeepsWhatThePersonAddedButNotTheWave() {
+        assertTrue(AutoplayQueue.keepsInNewQueue(new Explicit("soundcloud:search")));
+        assertFalse(AutoplayQueue.keepsInNewQueue(new Explicit(AutoplayQueue.WAVE_PAGE)));
+    }
+
+    @Test
+    public void aNewQueueLeavesEverythingElseBehind() {
+        assertFalse(AutoplayQueue.keepsInNewQueue("a playlist"));
+        assertFalse(AutoplayQueue.keepsInNewQueue(null));
+    }
+
+    // endregion
+
     // region ListenVerdict
 
     @Test

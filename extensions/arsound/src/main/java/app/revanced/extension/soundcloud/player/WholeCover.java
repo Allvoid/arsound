@@ -76,6 +76,19 @@ public final class WholeCover {
         }
     }
 
+    /**
+     * Injection point, right after the artwork view took its new size. SoundCloud's "width changed" reaches
+     * {@link #skipSlide} through a listener the view forgets when it leaves the window, and nothing sets it again. A
+     * page taken off the screen before its first layout then never heard of its size and kept the stretched cover.
+     *
+     * @param listener The view's "width changed" listener; null when it is gone.
+     */
+    public static void onArtworkSized(View artwork, Object listener) {
+        if (listener == null && skipSlide(artwork)) {
+            Logger.printInfo(() -> "Whole cover: a page without the width listener set up by its size");
+        }
+    }
+
     private static void loadIds() {
         if (holderId >= 0) return;
         holderId = id("artwork_holder");
