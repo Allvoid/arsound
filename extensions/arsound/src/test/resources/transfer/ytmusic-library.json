@@ -1,0 +1,14 @@
+{
+ "_note": "Synthetic, in the shape of FEmusic_liked_playlists for a signed-in account (gridRenderer of musicTwoRowItemRenderer). No real account data.",
+ "responseContext": {"serviceTrackingParams": [{"service": "GFEEDBACK", "params": [{"key": "logged_in", "value": "1"}]}]},
+ "contents": {"singleColumnBrowseResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"gridRenderer": {
+  "items": [
+   {"musicTwoRowItemRenderer": {"title": {"runs": [{"text": "New playlist"}]}, "navigationEndpoint": {"createPlaylistEndpoint": {}}}},
+   {"musicTwoRowItemRenderer": {"title": {"runs": [{"text": "Liked music"}]}, "subtitle": {"runs": [{"text": "Auto playlist"}]}, "navigationEndpoint": {"browseEndpoint": {"browseId": "VLLM"}}}},
+   {"musicTwoRowItemRenderer": {"title": {"runs": [{"text": "Road trip"}]}, "subtitle": {"runs": [{"text": "Playlist"}, {"text": " • "}, {"text": "You"}, {"text": " • "}, {"text": "1,025 songs"}]}, "navigationEndpoint": {"browseEndpoint": {"browseId": "VLPLroadtrip123"}}}},
+   {"musicTwoRowItemRenderer": {"title": {"runs": [{"text": "Episodes for later"}]}, "navigationEndpoint": {"browseEndpoint": {"browseId": "VLSE"}}}},
+   {"musicTwoRowItemRenderer": {"title": {"runs": [{"text": "Saved album"}]}, "subtitle": {"runs": [{"text": "Album"}, {"text": " • "}, {"text": "Someone"}]}, "navigationEndpoint": {"browseEndpoint": {"browseId": "VLOLAK5uy_album"}}}}
+  ],
+  "continuations": [{"nextContinuationData": {"continuation": "LIBRARY-PAGE-2"}}]
+ }}]}}}}]}}
+}

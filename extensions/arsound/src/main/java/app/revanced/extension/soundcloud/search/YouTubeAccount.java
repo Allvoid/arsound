@@ -51,6 +51,19 @@ public final class YouTubeAccount {
     }
 
     /**
+     * The cookie header of the signed-in account, or null; for the transfer from YouTube Music, which reads the
+     * account's liked music and playlists. It goes only to youtube.com.
+     */
+    public static String sessionCookies() {
+        return YouTubeSession.cookies();
+    }
+
+    /** The "SAPISIDHASH" header that proves the session to a page of this origin. */
+    public static String authorization(String cookies, String origin) throws Exception {
+        return YouTubeSession.authorization(cookies, origin);
+    }
+
+    /**
      * The best audio of an age-restricted track, asked for with the account.
      *
      * @throws SignInRequiredException If no account is signed in.

@@ -7,6 +7,8 @@ dependencies {
     implementation(project(":extensions:arsound:newpipe", configuration = "shadowRuntimeElements"))
     // JVM tests of the pure logic (no Android): ./gradlew :extensions:arsound:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    // The real org.json for the tests of the transfer's parsers: android.jar has only stubs of it.
+    testImplementation("org.json:json:20240303")
 }
 
 android {

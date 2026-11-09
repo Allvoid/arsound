@@ -2,8 +2,11 @@ package app.revanced.extension.soundcloud.transfer;
 
 import java.util.List;
 
-/** A track as Yandex Music lists it: what is needed to find it on SoundCloud and to name it in the report. */
-final class YandexTrack {
+/**
+ * A track as a source lists it: what is needed to find it on SoundCloud and to name it in the report. The id is the
+ * key of its match in {@link TransferStore}: the bare number for Yandex Music, "vk:" and "yt:" for the others.
+ */
+final class SourceTrack {
     final String id;
     /** The main artist first; may be empty for a podcast episode or a removed track. */
     final List<String> artists;
@@ -13,7 +16,7 @@ final class YandexTrack {
     /** 0 if unknown. */
     final long durationMs;
 
-    YandexTrack(String id, List<String> artists, String title, String version, long durationMs) {
+    SourceTrack(String id, List<String> artists, String title, String version, long durationMs) {
         this.id = id;
         this.artists = artists;
         this.title = title;

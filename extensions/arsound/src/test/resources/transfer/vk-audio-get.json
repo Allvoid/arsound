@@ -1,0 +1,15 @@
+{
+ "_note": "Synthetic, in the shape of VK's audio.get (API 5.246). No real account data.",
+ "response": {
+  "count": 412,
+  "items": [
+   {"id": 456239017, "owner_id": 1234, "artist": "Земфира", "title": "Хочешь?", "duration": 213,
+    "main_artists": [{"name": "Земфира", "id": "111"}]},
+   {"id": 456239016, "owner_id": -2001, "artist": "Скриптонит feat. Андрей Леницкий", "title": "Космос", "duration": 190,
+    "subtitle": "Remix",
+    "main_artists": [{"name": "Скриптонит"}], "featured_artists": [{"name": "Андрей Леницкий"}]},
+   {"id": 456239015, "owner_id": 1234, "artist": "Unknown, Other & Third", "title": "No catalog", "duration": 61},
+   {"id": 456239014, "owner_id": 1234, "artist": "Nobody", "title": "  ", "duration": 10}
+  ]
+ }
+}

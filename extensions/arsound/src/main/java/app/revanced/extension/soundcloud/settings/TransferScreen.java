@@ -22,17 +22,17 @@ import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.transfer.SourceList;
 import app.revanced.extension.soundcloud.transfer.TransferJob;
+import app.revanced.extension.soundcloud.transfer.TransferLink;
 import app.revanced.extension.soundcloud.transfer.TransferRecord;
-import app.revanced.extension.soundcloud.transfer.YandexAccount;
-import app.revanced.extension.soundcloud.transfer.YandexLink;
-import app.revanced.extension.soundcloud.transfer.YandexLoginActivity;
-import app.revanced.extension.soundcloud.transfer.YandexPlaylist;
+import app.revanced.extension.soundcloud.transfer.TransferSource;
 
 /**
- * "Transfer from Yandex Music": a link, or a list of the signed-in Yandex account, becomes a private SoundCloud
- * playlist. The parts that change (the account's lists, the transfer in progress, the transfers done) are pages of
- * their own, filled again when their state changes.
+ * "Transfer from other services": a link of Yandex Music, VK or YouTube Music (told apart by the link itself), or a
+ * list of the account signed in to one of them, becomes a private SoundCloud playlist. The account part shows one
+ * service at a time, picked by its one choice row. The parts that change (the account's lists, the transfer in
+ * progress, the transfers done) are pages of their own, filled again when their state changes.
  */
 final class TransferScreen extends ScrollingScreen implements TransferJob.Listener {
     static final String ID = "yandex_transfer";
@@ -40,9 +40,15 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     private LinearLayout progressPart;
     private LinearLayout accountPart;
     private LinearLayout historyPart;
+    /** The service whose account is shown, {@link TransferSource#id} kept in the settings. */
+    static final String SOURCE_SETTING = "transfer_source";
+
     /** The account's lists, null until they are read. */
-    private List<YandexPlaylist> library;
+    private List<SourceList> library;
     private boolean libraryFailed;
+    /** The service no longer takes the sign-in: the sign-in row is offered again. */
+    private boolean libraryExpired;
+    private TransferSource source;
     /** Bumped by every read of the lists, so an older read that finishes late is dropped. */
     private int libraryGeneration;
     private TransferJob.Phase shownPhase;
@@ -66,9 +72,10 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         LinearLayout[] holder = new LinearLayout[1];
         LinearLayout root = createScreen(holder);
         LinearLayout list = holder[0];
-        list.addView(ui.createSectionHeader("import", text("Перенос из Яндекс Музыки", "Transfer from Yandex Music"),
-                text("Плейлист или лайки становятся приватным плейлистом SoundCloud",
-                        "A playlist or likes become a private SoundCloud playlist")));
+        source = TransferSource.byId(Settings.getString(SOURCE_SETTING, "yandex"));
+        list.addView(ui.createSectionHeader("import", text("Перенос из других сервисов", "Transfer from other services"),
+                text("Плейлист или лайки из Яндекс Музыки, VK или YouTube Music становятся приватным плейлистом SoundCloud",
+                        "A playlist or likes from Yandex Music, VK or YouTube Music become a private SoundCloud playlist")));
 
         progressPart = SettingsPage.nested(ui);
         list.addView(progressPart);
@@ -76,12 +83,14 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         list.addView(ui.createSubHeading(text("По ссылке", "By link")));
         list.addView(ui.createActionRow(
                 text("Вставить ссылку", "Paste a link"),
-                text("Плейлист, альбом или «Мне нравится» открытого профиля. В Яндекс Музыке: «⋯» → «Поделиться» → "
-                                + "«Скопировать ссылку». Arsound найдёт каждый трек в SoundCloud и соберёт найденные "
-                                + "в приватный плейлист с тем же названием и порядком.",
-                        "A playlist, an album or the likes of an open profile. In Yandex Music: \"⋯\" → \"Share\" → "
-                                + "\"Copy link\". Arsound finds each track on SoundCloud and puts the ones found into a "
-                                + "private playlist with the same name and order."),
+                text("Плейлист или альбом Яндекс Музыки, VK или YouTube Music, «Мне нравится» открытого профиля "
+                                + "Яндекса: «⋯» → «Поделиться» → «Скопировать ссылку». Ссылки VK читаются после входа в VK. "
+                                + "Arsound найдёт каждый трек в SoundCloud и соберёт найденные в приватный плейлист с "
+                                + "тем же названием и порядком.",
+                        "A playlist or an album of Yandex Music, VK or YouTube Music, the likes of an open Yandex "
+                                + "profile: \"⋯\" → \"Share\" → \"Copy link\". VK links are read after signing in to "
+                                + "VK. Arsound finds each track on SoundCloud and puts the ones found into a private "
+                                + "playlist with the same name and order."),
                 v -> askLink()
         ).icon("link"));
 
@@ -101,8 +110,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     void onResume() {
         if (!signingIn) return;
         signingIn = false;
-        library = null;
-        libraryFailed = false;
+        resetLibrary();
         fillAccount();
     }
 
@@ -129,9 +137,9 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         if (refuseWhileRunning()) return;
         EditText input = new EditText(activity);
         input.setSingleLine(true);
-        input.setHint("https://music.yandex.ru/…");
+        input.setHint(text("Ссылка на плейлист", "Playlist link"));
         String clip = clipboardText();
-        if (YandexLink.find(clip) != null) input.setText(clip.trim());
+        if (TransferSource.findLink(clip) != null) input.setText(clip.trim());
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(ui.dimen("spacing_m"), ui.dp(8), ui.dimen("spacing_m"), 0);
@@ -139,13 +147,19 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         CheckBox like = likeTick();
         box.addView(likeOption(like));
         new ArsoundDialog(activity)
-                .setTitle(text("Ссылка из Яндекс Музыки", "Yandex Music link"))
+                .setTitle(text("Ссылка на плейлист", "Playlist link"))
                 .setView(box)
                 .setPositiveButtonKeepingOpen(text("Перенести", "Transfer"), (dialog, which) -> {
-                    YandexLink link = YandexLink.find(input.getText().toString());
+                    TransferLink link = TransferSource.findLink(input.getText().toString());
                     if (link == null) {
-                        Toast.makeText(activity, text("Это не ссылка на плейлист, альбом или лайки Яндекс Музыки",
-                                "This is not a link to a Yandex Music playlist, album or likes"), Toast.LENGTH_LONG).show();
+                        Toast.makeText(activity, text("Это не ссылка на плейлист Яндекс Музыки, VK или YouTube Music",
+                                "This is not a link to a Yandex Music, VK or YouTube Music playlist"), Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (link.source().needsSignInForLinks() && !link.source().isSignedIn()) {
+                        Toast.makeText(activity, text("VK отдаёт музыку только после входа: выберите VK в «Сервис» ниже и войдите",
+                                "VK gives music only after signing in: pick VK under \"Service\" below and sign in"),
+                                Toast.LENGTH_LONG).show();
                         return;
                     }
                     dialog.dismiss();
@@ -196,7 +210,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         return option;
     }
 
-    private void start(YandexLink link, boolean like) {
+    private void start(TransferLink link, boolean like) {
         if (!TransferJob.start(link, like)) refuseWhileRunning();
     }
 
@@ -277,29 +291,54 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
     // region Account
 
+    private void resetLibrary() {
+        library = null;
+        libraryFailed = false;
+        libraryExpired = false;
+        // A read still under way is of the account shown before: it is dropped.
+        libraryGeneration++;
+    }
+
+    /** The one choice of this screen: whose account is shown below it. */
+    private ActionRow sourceRow() {
+        List<TransferSource> sources = TransferSource.all();
+        String[] labels = new String[sources.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = sources.get(i).name();
+        ActionRow row = ui.createActionRow(text("Сервис", "Service"), "", v -> new ArsoundDialog(activity)
+                .setTitle(text("Сервис", "Service"))
+                .setSingleChoiceItems(labels, sources.indexOf(source), (dialog, which) -> {
+                    dialog.dismiss();
+                    if (sources.get(which) == source) return;
+                    source = sources.get(which);
+                    Settings.putString(SOURCE_SETTING, source.id());
+                    resetLibrary();
+                    fillAccount();
+                })
+                .show());
+        row.value(source.name());
+        row.icon("import");
+        return row;
+    }
+
     private void fillAccount() {
         accountPart.removeAllViews();
-        accountPart.addView(ui.createSubHeading(text("Ваш аккаунт Яндекса", "Your Yandex account")));
-        if (!YandexAccount.isSignedIn()) {
-            accountPart.addView(ui.createActionRow(
-                    text("Войти в Яндекс", "Sign in to Yandex"),
-                    text("Для закрытых лайков и своих плейлистов: после входа они появятся здесь списком. Пароль "
-                                    + "вводится на странице Яндекса, Arsound его не видит. Доступ хранится только на "
-                                    + "этом телефоне и отправляется только в Яндекс Музыку.",
-                            "For private likes and your own playlists: after signing in they are listed here. The "
-                                    + "password is typed into Yandex's page; Arsound does not see it. The access stays "
-                                    + "on this phone and goes only to Yandex Music."),
+        accountPart.addView(ui.createSubHeading(text("Ваш аккаунт", "Your account")));
+        accountPart.addView(sourceRow());
+        TransferSource shown = source;
+        if (!shown.isSignedIn() || libraryExpired) {
+            accountPart.addView(ui.createActionRow(shown.signInTitle(), libraryExpired
+                            ? text("Вход устарел: войдите ещё раз.", "The sign-in expired: sign in again.")
+                            : shown.signInNote(),
                     v -> {
                         signingIn = true;
-                        YandexLoginActivity.start(activity);
+                        shown.signIn(activity);
                     }
             ).icon("account").chevron());
-            return;
-        }
-        if (library == null && !libraryFailed) {
+            if (!shown.isSignedIn()) return;
+        } else if (library == null && !libraryFailed) {
             accountPart.addView(ui.createActionRow(text("Читаю ваши списки…", "Reading your lists…"), "", v -> {
             }).icon("music"));
-            loadLibrary();
+            loadLibrary(shown);
         } else if (libraryFailed) {
             accountPart.addView(ui.createActionRow(text("Списки не прочитались", "Could not read the lists"),
                     text("Нажмите, чтобы попробовать снова.", "Tap to try again."), v -> {
@@ -307,52 +346,54 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                         fillAccount();
                     }).icon("reset"));
         } else {
-            for (YandexPlaylist playlist : library) {
-                accountPart.addView(ui.createActionRow(playlist.title, Numerals.tracks(playlist.trackCount),
-                        v -> confirmTransfer(playlist)).icon(playlist.link.kind == YandexLink.Kind.LIKES ? "recs" : "music"));
+            for (SourceList playlist : library) {
+                String count = playlist.trackCount == SourceList.UNKNOWN_COUNT ? "" : Numerals.tracks(playlist.trackCount);
+                accountPart.addView(ui.createActionRow(playlist.title, count,
+                        v -> confirmTransfer(playlist)).icon(playlist.likes ? "recs" : "music"));
             }
         }
-        String name = YandexAccount.name();
+        String name = shown.accountName();
         accountPart.addView(ui.createActionRow(
-                text("Выйти из Яндекса", "Sign out of Yandex"),
+                shown.signOutTitle(),
                 name.isEmpty() ? text("Вход выполнен.", "Signed in.") : text("Вход выполнен: ", "Signed in: ") + name + ".",
                 v -> {
-                    YandexAccount.signOut();
-                    library = null;
+                    shown.signOut();
+                    resetLibrary();
                     fillAccount();
-                    Toast.makeText(activity, text("Вы вышли из Яндекса", "Signed out of Yandex"), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(activity, text("Вы вышли: ", "Signed out: ") + shown.name(), Toast.LENGTH_SHORT).show();
                 }
         ).icon("account"));
     }
 
-    private void loadLibrary() {
+    private void loadLibrary(TransferSource shown) {
         int generation = ++libraryGeneration;
         Utils.runOnBackgroundThread(() -> {
-            List<YandexPlaylist> lists = null;
+            List<SourceList> lists = null;
             boolean failed = false;
             try {
-                lists = YandexAccount.library();
+                lists = shown.library();
             } catch (Exception ex) {
-                Logger.printInfo(() -> "Transfer: could not read the Yandex lists: " + ex);
+                Logger.printInfo(() -> "Transfer: could not read the lists of " + shown.id() + ": " + ex);
                 failed = true;
             }
-            List<YandexPlaylist> read = lists;
+            List<SourceList> read = lists;
             boolean readFailed = failed;
             Utils.runOnMainThread(() -> {
                 if (generation != libraryGeneration || activity.isFinishing()) return;
-                if (read == null && !readFailed) {
-                    // The sign-in expired and was forgotten.
-                    Toast.makeText(activity, text("Вход в Яндекс устарел: войдите ещё раз",
-                            "The Yandex sign-in expired: sign in again"), Toast.LENGTH_LONG).show();
-                }
                 library = read;
                 libraryFailed = readFailed;
+                // Yandex and VK forget a sign-in that expired; YouTube Music's stays the search's until it is renewed.
+                libraryExpired = read == null && !readFailed;
+                if (libraryExpired) {
+                    Toast.makeText(activity, text("Вход устарел: войдите ещё раз", "The sign-in expired: sign in again"),
+                            Toast.LENGTH_LONG).show();
+                }
                 fillAccount();
             });
         });
     }
 
-    private void confirmTransfer(YandexPlaylist playlist) {
+    private void confirmTransfer(SourceList playlist) {
         if (refuseWhileRunning()) return;
         if (playlist.trackCount == 0) {
             Toast.makeText(activity, text("В этом списке нет треков", "This list has no tracks"), Toast.LENGTH_SHORT).show();
@@ -361,12 +402,15 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         CheckBox like = likeTick();
         LinearLayout option = likeOption(like);
         option.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), 0);
+        boolean counted = playlist.trackCount != SourceList.UNKNOWN_COUNT;
         new ArsoundDialog(activity)
                 .setTitle(text("Перенести «", "Transfer \"") + playlist.title + text("»?", "\"?"))
-                .setMessage(text("Arsound найдёт " + Numerals.russianTracks(playlist.trackCount) + " в SoundCloud и соберёт "
-                                + "найденные в приватный плейлист. Это займёт пару минут на каждую сотню; можно закрыть настройки.",
-                        "Arsound will look for " + Numerals.tracks(playlist.trackCount) + " on SoundCloud and put the ones "
-                                + "found into a private playlist. It takes a couple of minutes per hundred; the settings can be closed."))
+                .setMessage(text("Arsound найдёт " + (counted ? Numerals.russianTracks(playlist.trackCount) : "треки")
+                                + " в SoundCloud и соберёт найденные в приватный плейлист. Это займёт пару минут на "
+                                + "каждую сотню; можно закрыть настройки.",
+                        "Arsound will look for " + (counted ? Numerals.tracks(playlist.trackCount) : "the tracks")
+                                + " on SoundCloud and put the ones found into a private playlist. It takes a couple of "
+                                + "minutes per hundred; the settings can be closed."))
                 .setView(option)
                 .setPositiveButton(text("Перенести", "Transfer"), (dialog, which) -> start(playlist.link, like.isChecked()))
                 .setNegativeButton(text("Отмена", "Cancel"), null)
@@ -399,7 +443,9 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         historyPart.addView(ui.createSubHeading(text("Уже перенесено", "Transferred")));
         DateFormat format = DateFormat.getDateInstance(DateFormat.SHORT);
         for (TransferRecord record : history) {
-            String line = text("В плейлисте ", "In the playlist ") + record.found + text(" из ", " of ") + record.total
+            TransferLink from = TransferSource.linkOfKey(record.key);
+            String line = (from == null ? "" : from.source().name() + " · ")
+                    + text("В плейлисте ", "In the playlist ") + record.found + text(" из ", " of ") + record.total
                     + " · " + format.format(new Date(record.time)) + ". "
                     + (record.liked == TransferRecord.LIKES_NOT_ASKED ? "" : text("В лайках: ", "In likes: ") + record.liked + text(" из ", " of ") + record.found + ". ")
                     + (record.missing.isEmpty() ? text("Нашлись все.", "All were found.")

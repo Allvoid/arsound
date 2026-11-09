@@ -372,11 +372,11 @@ public class SearchIndexTest {
     }
 
     @Test
-    public void theYandexTransferIsFound() {
+    public void theTransferIsFound() {
         SearchIndex index = SearchFixture.index();
         for (String query : new String[]{"яндекс", "яндекс музыка", "перенос", "перенести плейлист", "yandex",
-                "transfer", "переехать с яндекса"}) {
-            assertFinds(index, query, "Перенос из Яндекс Музыки");
+                "transfer", "переехать с яндекса", "вк", "вконтакте", "vk", "ютуб музыка", "youtube music"}) {
+            assertFinds(index, query, "Перенос из Яндекс Музыки, VK и YouTube Music");
         }
     }
 

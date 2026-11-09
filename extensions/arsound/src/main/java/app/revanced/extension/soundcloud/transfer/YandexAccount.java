@@ -40,12 +40,12 @@ public final class YandexAccount {
         return preferences.getString(TOKEN, null);
     }
 
-    public static boolean isSignedIn() {
+    static boolean isSignedIn() {
         return token() != null;
     }
 
     /** The name of the account as Yandex shows it; empty until it is known. */
-    public static String name() {
+    static String name() {
         SharedPreferences preferences = preferences();
         return preferences == null ? "" : preferences.getString(NAME, "");
     }
@@ -72,21 +72,21 @@ public final class YandexAccount {
      * The likes and the playlists of the account, likes first; null if not signed in or Yandex no longer takes the
      * token (then it is forgotten). Remembers the account's name. Blocks: call it off the main thread.
      */
-    public static List<YandexPlaylist> library() throws Exception {
+    static List<SourceList> library() throws Exception {
         String token = token();
         if (token == null) return null;
         try {
             YandexMusic.Account account = YandexMusic.account(token);
             saveName(account.name);
             return YandexMusic.library(token, account);
-        } catch (YandexMusic.SignInExpiredException ex) {
+        } catch (TransferSource.SignInExpiredException ex) {
             forgetToken();
             return null;
         }
     }
 
     /** Forgets the token and the session of the sign-in page, so the next sign-in asks again. */
-    public static void signOut() {
+    static void signOut() {
         SharedPreferences preferences = preferences();
         if (preferences != null) preferences.edit().clear().apply();
         try {

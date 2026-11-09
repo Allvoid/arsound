@@ -60,7 +60,7 @@ public final class SettingsEntry {
         return Unit.INSTANCE;
     };
 
-    /** Opens "Transfer from Yandex Music" of the Arsound settings. */
+    /** Opens the transfer from Yandex Music, VK and YouTube Music of the Arsound settings. */
     static final Function0<Unit> OPEN_TRANSFER = () -> {
         try {
             Context context = Utils.getContext();
@@ -96,10 +96,10 @@ public final class SettingsEntry {
                 0,
                 DEFAULT_PARAMETERS_MASK
         );
-        // SoundCloud's own import has no Yandex Music: the row opens Arsound's transfer.
+        // SoundCloud's own import has no Yandex Music, VK or YouTube Music: the row opens Arsound's transfer.
         ActionListItemKt.a(
                 Lang.russian()
-                        ? "Перенос из Яндекс Музыки" : "Transfer from Yandex Music",
+                        ? "Перенос из Яндекс Музыки, VK и YouTube Music" : "Transfer from Yandex Music, VK and YouTube Music",
                 OPEN_TRANSFER,
                 null,
                 false,

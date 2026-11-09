@@ -43,7 +43,7 @@ final class SoundCloudSide {
     }
 
     /** The SoundCloud upload of the track, or null if there is none. */
-    static ClientProfiles.FoundTrack find(YandexTrack track) throws Exception {
+    static ClientProfiles.FoundTrack find(SourceTrack track) throws Exception {
         ClientProfiles.FoundTrack pick = SongChoice.pick(search(track.query()), track.artists, track.wantedTitle(),
                 track.durationMs);
         if (pick != null || track.durationMs <= 0 || track.artists.isEmpty()

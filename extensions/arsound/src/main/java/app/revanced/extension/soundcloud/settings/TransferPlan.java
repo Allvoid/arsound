@@ -128,11 +128,12 @@ final class TransferPlan {
      * <ul>
      * <li>{@code arsound_yandex}: the Yandex Music token of the transfer.</li>
      * <li>{@code arsound_youtube_account}: the cookies of the YouTube Music sign-in.</li>
+     * <li>{@code arsound_vk}: who is signed in to VK for the transfer (the session itself is in the WebView's cookies).</li>
      * </ul>
      * SoundCloud's own account lives in Android's account manager and in files of SoundCloud's, which are not read at all.
      */
     static final Set<String> CREDENTIAL_FILES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "arsound_yandex", "arsound_youtube_account")));
+            "arsound_yandex", "arsound_youtube_account", "arsound_vk")));
 
     /**
      * The files that travel, in the order they stand in the settings file.

@@ -212,8 +212,9 @@ final class SynonymTable {
                     "прозрачная прозрачность transparent размытие blur затемнение градиент верхняя панель сверху наверху верх"},
             {"TRANSFER",
                     "перенос перенести перенесу переносить перенеси переезд переехать transfer migrate migration "
-                            + "яндекс yandex яндекс_музыка yandex_music ямузыка",
-                    "плейлист плейлисты playlist лайки likes импорт import импортировать другой сервис service"},
+                            + "яндекс yandex яндекс_музыка yandex_music ямузыка вк vk вконтакте vkontakte vk_музыка "
+                            + "youtube_music ютуб_музыка ytmusic",
+                    "плейлист плейлисты playlist лайки likes импорт import импортировать другой сервис service youtube ютуб"},
             {"GREETING",
                     "приветствие привет приветик здравствуйте greeting hello hi welcome что_послушаем",
                     "надпись заголовок шапка header главная home имя name сверху"},

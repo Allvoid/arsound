@@ -57,8 +57,8 @@ private val yandexTileResourcePatch = resourcePatch {
 }
 
 /**
- * The rows "Import files from this phone" and "Transfer from Yandex Music" on SoundCloud's "Import my music" screen,
- * and a Yandex Music tile among the apps of its "Import from another app".
+ * The rows "Import files from this phone" and "Transfer from Yandex Music, VK and YouTube Music" on SoundCloud's
+ * "Import my music" screen, and a Yandex Music tile among the apps of its "Import from another app".
  */
 internal val importEntryPatch = bytecodePatch {
     dependsOn(yandexTileResourcePatch)

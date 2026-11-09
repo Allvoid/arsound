@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
  * album. The link may sit inside the text the app's "Share" gives ("Слушаю … https://music.yandex.ru/…"). Pure text;
  * no network and no Android.
  */
-public final class YandexLink {
+public final class YandexLink implements TransferLink {
     public enum Kind {PLAYLIST, LIKES, ALBUM}
 
     private static final Pattern URL = Pattern.compile(
@@ -77,9 +77,15 @@ public final class YandexLink {
         }
     }
 
-    /** One key per collection, to tell a collection transferred before. */
+    /** "KIND:owner:id", without a prefix of its source: the keys of transfers made before VK and YouTube Music came. */
+    @Override
     public String key() {
         return kind + ":" + (owner == null ? "" : owner) + ":" + (id == null ? "" : id);
+    }
+
+    @Override
+    public TransferSource source() {
+        return YandexSource.INSTANCE;
     }
 
     @Override

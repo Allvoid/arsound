@@ -42,7 +42,7 @@ local/                            Локальные файлы, в Git не п�
 | **Play downloaded files** | Скачанный трек играет из файла (`Stream$FileStream`): элемент воспроизведения собирается сразу в `PlaybackMediaProvider.j`, без ожидания `TrackRepository` (`SYNC_MISSING`), метаданные уведомления ждут не больше 2 с. Таймаут обложки уведомления, повтор при сбое потока. Разрешение `READ_MEDIA_AUDIO` для файлов, скачанных до переустановки. |
 | **Network** | Свой DNS (DoH/UDP) для всех клиентов OkHttp, блокировка запросов к SoundCloud с российского IP (проверка через Cloudflare), вопрос перед проверкой устройства DataDome, значок статуса сети над плеером. |
 | **Region hint** | Значок «?» справа от пометки «Недоступно в вашей стране» (`RegionHint`): метку рисуют два пути, и в оба вставлено по два вызова — `noteLabels` (в списке типов меток есть `MetaLabelType.IconWithText` с иконкой-замком `ic_labels_geo_locked`, `GeoLabel`) и `appendBadge` (Compose, `MetaLabelKt.a`: к списку частей перед `FlowRow` добавляется `AndroidView` с `RegionHintBadge`) или `appendBadgeView` (View, `MetaLabel.n`: к списку видов перед Flow), плюс баннер страницы трека (`GeoBlockedBannerRendererKt.a`, `bannerBadge`). Значок покачивается раз в 4,2 с (`ShakeCurve`), по нажатию окно `RegionHintDialog` с галочкой «Больше не показывать»; настройка `region_hint`, по умолчанию включена. |
-| **Local music** | Импорт файлов, плейлист «Импортированные», локальные добавления в любые плейлисты, свой порядок плейлистов в библиотеке и треков в плейлисте (`DragReorder`, порядок применяется к `playlistTrackUrns`). Импортированные файлы в «Ваших лайках» (`ImportedLikesPatch` + `ImportedLikes`): хуки на `RoomLikesReadStorage.pagedLiveLoadTrackLikes` (первая страница; смещения следующих страниц переводит `LikesPaging`, живой список — `LikesFeed`), `loadLikedTrackPlayItems` (очередь), число в шапке `TrackLikesPresenter`, сердечко (`LikedStatuses.isLiked`, `LikeToggler.toggleTrackLike`, `LikeHearts`: убранные из лайков файлы помнит `HiddenLikes`); в таблицу `Likes` и на сервер локальные urn не попадают, `RelatedLikersService.getUsersLikedTracks` их отбрасывает. Настройка `imported_in_likes`, по умолчанию включена. В манифест этот патч добавляет и `transfer.YandexLoginActivity` (страница входа Яндекса для переноса из Яндекс Музыки). |
+| **Local music** | Импорт файлов, плейлист «Импортированные», локальные добавления в любые плейлисты, свой порядок плейлистов в библиотеке и треков в плейлисте (`DragReorder`, порядок применяется к `playlistTrackUrns`). Импортированные файлы в «Ваших лайках» (`ImportedLikesPatch` + `ImportedLikes`): хуки на `RoomLikesReadStorage.pagedLiveLoadTrackLikes` (первая страница; смещения следующих страниц переводит `LikesPaging`, живой список — `LikesFeed`), `loadLikedTrackPlayItems` (очередь), число в шапке `TrackLikesPresenter`, сердечко (`LikedStatuses.isLiked`, `LikeToggler.toggleTrackLike`, `LikeHearts`: убранные из лайков файлы помнит `HiddenLikes`); в таблицу `Likes` и на сервер локальные urn не попадают, `RelatedLikersService.getUsersLikedTracks` их отбрасывает. Настройка `imported_in_likes`, по умолчанию включена. В манифест этот патч добавляет и `transfer.YandexLoginActivity` и `transfer.VkLoginActivity` (страницы входа Яндекса и VK для переноса). |
 | **Power saving** | Реже опрос входящих, без фоновых отчётов SDK, без WifiLock при проигрывании файла. |
 | **Hide duplicate recommendations** | Фильтр перезаливов в автовоспроизведении и на серверной главной (`SDUIView`). Автовоспроизведение не добавляет треки, которые уже в очереди (`AutoplayQueue.stayingUrns`), а `PlayQueue.removeRecommendations()` в `PlayQueueManager.a(List)` заменён на `AutoplayQueue.removeUpcomingRecommendations`: уходят только рекомендации после играющего трека, номер его места в очереди остаётся верным. |
 | **Hide subscription offers** | Экран покупки Go/Go+, окна MoEngage, вкладка Upgrade, серверные блоки главной `UpsellPlaceholder` и `BannerAdPlaceholder`, кнопка «Get Pro» в шапке. |
@@ -99,7 +99,7 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `settings` | значения настроек и все экраны настроек; резервная копия настроек в файл | `Settings`, `BoolSettings`, `SettingsScreens`, `SettingsEntry`, `SettingsTransfer`, `TransferPlan` |
 | `settings/search` | движок поиска по настройкам, без Android | `SearchIndex` |
 | `shared` | общие помощники: язык, размеры, цвета, Reflect, Rx, диалоги, строгий разбор JSON | `Lang`, `Reflect`, `ArsoundDialog`, `StrictJson` |
-| `transfer` | перенос из Яндекс Музыки: ссылка или аккаунт Яндекса → приватный плейлист SoundCloud | `TransferJob`, `YandexMusic`, `YandexLink` |
+| `transfer` | перенос из Яндекс Музыки, VK и YouTube Music: ссылка или аккаунт сервиса → приватный плейлист SoundCloud. Сервис — реализация `TransferSource`, остальное общее; эндпоинты в `docs/transfer-sources.md` | `TransferJob`, `TransferSource`, `TrackSearch`, `YandexSource`, `VkSource`, `YouTubeMusicSource` |
 | `theme` | темы поверх интерфейса SoundCloud, цвета, шрифты, стартовый экран | `ArsoundTheme`, `ThemeLifecycle` |
 | `theme/effect` | анимированные фоны тем (искры, звёзды, лепестки, снег) | `EffectKind`, `EffectScene` |
 | `update` | проверка обновлений и реестр реакций на экраны (`ScreenHooks`) | `UpdateChecker` |
@@ -142,6 +142,11 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 ```bash
 ./gradlew :extensions:arsound:testDebugUnitTest
 ```
+
+Разборщики ответов сервисов переноса читают JSON через `org.json`: в `android.jar` есть только его заглушки, поэтому
+тестам подключён настоящий `org.json:json` (`testImplementation`). Ответы лежат фикстурами в
+`extensions/arsound/src/test/resources/transfer`: публичный плейлист YouTube Music обрезан из живого ответа, ответы
+с аккаунтом (понравившиеся, библиотека YouTube Music, VK) синтетические, без данных настоящих аккаунтов.
 
 ### Распознавание текста нейросетью
 

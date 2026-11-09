@@ -1,0 +1,12 @@
+{
+ "_note": "Synthetic, in the shape of VK's audio.getPlaylists (API 5.246): an own playlist and a followed copy with its original. No real account data.",
+ "response": {
+  "count": 2,
+  "items": [
+   {"id": 12, "owner_id": 1234, "type": 0, "title": "В дорогу", "count": 57, "access_key": "abc123"},
+   {"id": 13, "owner_id": 1234, "type": 1, "title": "Альбом, на который подписан", "count": 11,
+    "original": {"owner_id": -2000123, "playlist_id": 4567, "access_key": "def456"}},
+   {"id": 14, "owner_id": 1234, "title": "", "count": 3}
+  ]
+ }
+}

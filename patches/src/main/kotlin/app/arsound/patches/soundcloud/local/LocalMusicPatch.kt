@@ -34,7 +34,15 @@ private val importActivityPatch = resourcePatch {
                 "android:theme" to "@android:style/Theme.Material.NoActionBar",
                 "android:configChanges" to "orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|fontScale",
             )
-            // Keeps the app alive with a notification while a long transfer from Yandex Music runs. SoundCloud's own
+            // VK's sign-in page for the transfer from VK: VK gives music only to a signed-in session.
+            document.addApplicationComponent(
+                "activity",
+                "android:name" to "app.revanced.extension.soundcloud.transfer.VkLoginActivity",
+                "android:exported" to "false",
+                "android:theme" to "@android:style/Theme.Material.NoActionBar",
+                "android:configChanges" to "orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|fontScale",
+            )
+            // Keeps the app alive with a notification while a long transfer (Yandex Music, VK, YouTube Music) runs. SoundCloud's own
             // manifest already asks for FOREGROUND_SERVICE and FOREGROUND_SERVICE_DATA_SYNC.
             document.addApplicationComponent(
                 "service",

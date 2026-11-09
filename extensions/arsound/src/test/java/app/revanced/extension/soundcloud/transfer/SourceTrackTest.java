@@ -8,10 +8,10 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.Collections;
 
-public class YandexTrackTest {
+public class SourceTrackTest {
     @Test
     public void versionGoesToTheWantedTitleOnly() {
-        YandexTrack track = new YandexTrack("1", Arrays.asList("VILLIAN", "madk1d"), "Монолог", "Remix", 150_000);
+        SourceTrack track = new SourceTrack("1", Arrays.asList("VILLIAN", "madk1d"), "Монолог", "Remix", 150_000);
         assertEquals("Монолог (Remix)", track.wantedTitle());
         assertEquals("VILLIAN Монолог", track.query());
         assertEquals("VILLIAN, madk1d — Монолог (Remix)", track.label());
@@ -19,7 +19,7 @@ public class YandexTrackTest {
 
     @Test
     public void blankVersionIsNone() {
-        YandexTrack track = new YandexTrack("2", Collections.emptyList(), "Intro", "  ", 0);
+        SourceTrack track = new SourceTrack("2", Collections.emptyList(), "Intro", "  ", 0);
         assertNull(track.version);
         assertEquals("Intro", track.wantedTitle());
         assertEquals("Intro", track.label());

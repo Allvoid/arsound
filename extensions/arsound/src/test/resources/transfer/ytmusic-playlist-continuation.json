@@ -1,0 +1,201 @@
+{
+ "responseContext": {},
+ "onResponseReceivedActions": [
+  {
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "musicResponsiveListItemRenderer": {
+       "flexColumns": [
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Holy Night / Cantique de Noël (The Chosen Performance)",
+             "navigationEndpoint": {
+              "watchEndpoint": {
+               "videoId": "1STyaZA7-BY",
+               "playlistId": "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
+               "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                 "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Virginia Bocelli",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UC0A3CRJdM6rfSlWtL16OPmQ",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                }
+               }
+              }
+             }
+            },
+            {
+             "text": ", "
+            },
+            {
+             "text": "Matteo Bocelli",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCMS8xRalYk1dIY6yZQZseKA",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                }
+               }
+              }
+             }
+            },
+            {
+             "text": " & "
+            },
+            {
+             "text": "Andrea Bocelli",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCN0yeXZgAizy8VhiLj0-tIg",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {}
+         }
+        }
+       ],
+       "fixedColumns": [
+        {
+         "musicResponsiveListItemFixedColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "4:26"
+            }
+           ]
+          }
+         }
+        }
+       ],
+       "playlistItemData": {
+        "videoId": "1STyaZA7-BY",
+        "voteSortValue": 1704207624
+       }
+      }
+     },
+     {
+      "musicResponsiveListItemRenderer": {
+       "flexColumns": [
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Federal Contraband 2",
+             "navigationEndpoint": {
+              "watchEndpoint": {
+               "videoId": "Ke9A6XV2H38",
+               "playlistId": "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
+               "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": {
+                 "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Pooh Shiesty",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCHP-7P6ChK4-jiFoz62RcUg",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         }
+        },
+        {
+         "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "Federal Contraband 2",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "MPREb_eMVLDe27KCd",
+               "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {
+                 "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         }
+        }
+       ],
+       "fixedColumns": [
+        {
+         "musicResponsiveListItemFixedColumnRenderer": {
+          "text": {
+           "runs": [
+            {
+             "text": "7:18"
+            }
+           ]
+          }
+         }
+        }
+       ],
+       "playlistItemData": {
+        "videoId": "Ke9A6XV2H38",
+        "voteSortValue": 1704207624
+       }
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

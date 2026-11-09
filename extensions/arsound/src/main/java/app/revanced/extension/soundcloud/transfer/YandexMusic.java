@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import app.revanced.extension.soundcloud.network.StreamText;
+import app.revanced.extension.soundcloud.transfer.TransferSource.NotAvailableException;
+import app.revanced.extension.soundcloud.transfer.TransferSource.SignInExpiredException;
 
 /**
  * Yandex Music's own API (the one its apps use): playlists, albums and likes as lists of tracks. Public collections
@@ -27,31 +29,6 @@ final class YandexMusic {
     /** Tracks asked for at once by their numbers. */
     private static final int TRACKS_PER_REQUEST = 200;
     private static final int MAX_PAGES = 100;
-
-    /** The service answered, but not with the collection: it is private, removed, or the link is wrong. */
-    static final class NotAvailableException extends IOException {
-        NotAvailableException(String message) {
-            super(message);
-        }
-    }
-
-    /** The token is no longer accepted: sign in again. */
-    static final class SignInExpiredException extends IOException {
-        SignInExpiredException() {
-            super("Yandex token expired");
-        }
-    }
-
-    /** A collection to transfer. */
-    static final class Collection {
-        final String title;
-        final List<YandexTrack> tracks;
-
-        Collection(String title, List<YandexTrack> tracks) {
-            this.title = title;
-            this.tracks = tracks;
-        }
-    }
 
     /** The signed-in account. */
     static final class Account {
@@ -70,19 +47,19 @@ final class YandexMusic {
     }
 
     /** The title and tracks of what the link points at. @param token Null without an account. */
-    static Collection load(YandexLink link, String token) throws Exception {
+    static SourceCollection load(YandexLink link, String token) throws Exception {
         switch (link.kind) {
             case LIKES:
-                return new Collection(likesTitle(), likes(link.owner, token));
+                return new SourceCollection(likesTitle(), likes(link.owner, token));
             case ALBUM: {
                 JSONObject album = call("/albums/" + link.id + "/with-tracks", token, null);
-                List<YandexTrack> tracks = new ArrayList<>();
+                List<SourceTrack> tracks = new ArrayList<>();
                 JSONArray volumes = album.optJSONArray("volumes");
                 for (int v = 0; volumes != null && v < volumes.length(); v++) {
                     JSONArray volume = volumes.optJSONArray(v);
                     for (int i = 0; volume != null && i < volume.length(); i++) addTrack(tracks, volume.optJSONObject(i));
                 }
-                return new Collection(album.optString("title", text("Альбом", "Album")), tracks);
+                return new SourceCollection(album.optString("title", text("Альбом", "Album")), tracks);
             }
             default:
                 return playlist(link, token);
@@ -93,11 +70,11 @@ final class YandexMusic {
         return text("Мне нравится из Яндекс Музыки", "Liked on Yandex Music");
     }
 
-    private static Collection playlist(YandexLink link, String token) throws Exception {
+    private static SourceCollection playlist(YandexLink link, String token) throws Exception {
         String path = link.owner == null ? "/playlist/" + link.id
                 : "/users/" + encode(link.owner) + "/playlists/" + link.id;
         JSONObject playlist = call(path, token, null);
-        List<YandexTrack> tracks = new ArrayList<>();
+        List<SourceTrack> tracks = new ArrayList<>();
         List<String> bare = new ArrayList<>();
         readItems(playlist.optJSONArray("tracks"), tracks, bare);
         // Long playlists may come in pages.
@@ -119,11 +96,11 @@ final class YandexMusic {
         String title = playlist.optString("title", "");
         // The likes as a playlist ("/users/<login>/playlists/3") have the same name as the likes of SoundCloud.
         if ("3".equals(link.id) && link.owner != null) title = likesTitle();
-        return new Collection(title.isEmpty() ? text("Плейлист из Яндекс Музыки", "Yandex Music playlist") : title, tracks);
+        return new SourceCollection(title.isEmpty() ? text("Плейлист из Яндекс Музыки", "Yandex Music playlist") : title, tracks);
     }
 
     /** Items of a playlist: with the track, or only with its number (then asked for separately). */
-    private static void readItems(JSONArray items, List<YandexTrack> tracks, List<String> bare) {
+    private static void readItems(JSONArray items, List<SourceTrack> tracks, List<String> bare) {
         for (int i = 0; items != null && i < items.length(); i++) {
             JSONObject item = items.optJSONObject(i);
             if (item == null) continue;
@@ -134,7 +111,7 @@ final class YandexMusic {
     }
 
     /** The likes of a person: only numbers in the list, the tracks are asked for by them. */
-    private static List<YandexTrack> likes(String owner, String token) throws Exception {
+    private static List<SourceTrack> likes(String owner, String token) throws Exception {
         JSONObject result = call("/users/" + encode(owner) + "/likes/tracks", token, null);
         JSONObject library = result.optJSONObject("library");
         JSONArray items = library == null ? null : library.optJSONArray("tracks");
@@ -158,8 +135,8 @@ final class YandexMusic {
     }
 
     /** The tracks for their numbers, in the same order. */
-    private static List<YandexTrack> tracksById(List<String> keys, String token) throws Exception {
-        List<YandexTrack> tracks = new ArrayList<>();
+    private static List<SourceTrack> tracksById(List<String> keys, String token) throws Exception {
+        List<SourceTrack> tracks = new ArrayList<>();
         for (int start = 0; start < keys.size(); start += TRACKS_PER_REQUEST) {
             List<String> part = keys.subList(start, Math.min(keys.size(), start + TRACKS_PER_REQUEST));
             String body = "track-ids=" + encode(String.join(",", part)) + "&with-positions=false";
@@ -169,7 +146,7 @@ final class YandexMusic {
         return tracks;
     }
 
-    private static void addTrack(List<YandexTrack> tracks, JSONObject track) {
+    private static void addTrack(List<SourceTrack> tracks, JSONObject track) {
         if (track == null) return;
         String title = track.optString("title", "").trim();
         if (title.isEmpty()) return;
@@ -181,33 +158,34 @@ final class YandexMusic {
             if (!name.isEmpty()) artists.add(name);
         }
         String version = track.isNull("version") ? null : track.optString("version", null);
-        tracks.add(new YandexTrack(track.optString("id"), artists, title, version, track.optLong("durationMs", 0)));
+        tracks.add(new SourceTrack(track.optString("id"), artists, title, version, track.optLong("durationMs", 0)));
     }
 
     /** Who the token belongs to. */
     static Account account(String token) throws Exception {
         JSONObject status = call("/account/status", token, null);
         JSONObject account = status.optJSONObject("account");
-        if (account == null || !account.has("uid")) throw new SignInExpiredException();
+        if (account == null || !account.has("uid")) throw new SignInExpiredException("Yandex token expired");
         String login = account.optString("login", "");
         String name = account.optString("displayName", account.optString("fullName", login));
         return new Account(account.optString("uid"), login, name.isEmpty() ? login : name);
     }
 
     /** The likes and the playlists of the account, likes first. */
-    static List<YandexPlaylist> library(String token, Account account) throws Exception {
-        List<YandexPlaylist> entries = new ArrayList<>();
+    static List<SourceList> library(String token, Account account) throws Exception {
+        List<SourceList> entries = new ArrayList<>();
         JSONObject likes = call("/users/" + account.uid + "/likes/tracks", token, null);
         JSONObject library = likes.optJSONObject("library");
         JSONArray liked = library == null ? null : library.optJSONArray("tracks");
-        entries.add(new YandexPlaylist(new YandexLink(YandexLink.Kind.LIKES, account.uid, null),
-                text("Мне нравится", "Liked tracks"), liked == null ? 0 : liked.length()));
+        entries.add(new SourceList(new YandexLink(YandexLink.Kind.LIKES, account.uid, null),
+                text("Мне нравится", "Liked tracks"), liked == null ? 0 : liked.length(), true));
         JSONArray playlists = callArray("/users/" + account.uid + "/playlists/list", token, null);
         for (int i = 0; i < playlists.length(); i++) {
             JSONObject playlist = playlists.optJSONObject(i);
             if (playlist == null) continue;
-            entries.add(new YandexPlaylist(new YandexLink(YandexLink.Kind.PLAYLIST, account.uid,
-                    String.valueOf(playlist.optLong("kind"))), playlist.optString("title"), playlist.optInt("trackCount")));
+            entries.add(new SourceList(new YandexLink(YandexLink.Kind.PLAYLIST, account.uid,
+                    String.valueOf(playlist.optLong("kind"))), playlist.optString("title"), playlist.optInt("trackCount"),
+                    false));
         }
         return entries;
     }
@@ -253,7 +231,7 @@ final class YandexMusic {
                     }
                 }
                 drain(connection);
-                if (code == 401 && token != null) throw new SignInExpiredException();
+                if (code == 401 && token != null) throw new SignInExpiredException("Yandex token expired");
                 if (code == 400 || code == 403 || code == 404 || code == 401) {
                     throw new NotAvailableException("Yandex Music answered HTTP " + code + " for " + path);
                 }
