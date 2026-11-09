@@ -87,6 +87,7 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `login` | кнопка «Сохранить журналы» на экране входа | `LoginLogsButton` |
 | `lyrics` | синхронный текст песни из LRCLIB (запасной источник — NetEase Cloud Music) в полноэкранном плеере | `LyricsHooks`, `LyricsLayer`, `LyricsRepository` |
 | `lyrics/transcribe` | распознавание слов песни нейросетью Whisper на телефоне | `TranscriptionManager`, `TranscriptionJob` |
+| `motion` | размытие в движении: быстро летящий список или страницы размываются вдоль движения (`RenderEffect`, Android 12+); без патча, окно экрана оборачивается при первом показе с включённой функцией | `MotionBlur`, `MotionBlurRun`, `MotionBlurMath` |
 | `network` | свой DNS, блокировка по стране IP, значок сети, вопрос перед DataDome, общие обложки | `NetworkPatch`, `RegionGuard` |
 | `offline` | сохранённое показывается сразу, скачанное играет из файла, повтор при сбое сети | `OfflineFirstPatch`, `InstantFilePlayback` |
 | `permissions` | приветствие при первом запуске, объяснение разрешений, переключатель языка (имя историческое) | `WelcomePermissions` |

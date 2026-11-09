@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,6 +19,7 @@ import java.util.Set;
 import java.util.TimeZone;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.local.PlaylistCoverBackup;
 import app.revanced.extension.soundcloud.update.UpdateChecker;
 
 /**
@@ -29,13 +31,30 @@ final class TransferFiles {
     private TransferFiles() {
     }
 
-    /** The current values of every preferences file that travels, as {@code getAll()} gives them. */
-    static Map<String, Map<String, ?>> read(Context context) {
+    /** The file whose only traveling value is made, not stored: the covers of playlists ({@link PlaylistCoversMerge}). */
+    private static final String COVERS_FILE = "arsound_local_covers";
+
+    /**
+     * The current values of every preferences file that travels, as {@code getAll()} gives them. The playlist covers
+     * stand in for the made-up value: with the pictures when {@code withPictures} (the export), else only a mark that
+     * there are some (enough to plan an import, and without cutting every cover down).
+     */
+    static Map<String, Map<String, ?>> read(Context context, boolean withPictures) {
         Map<String, Map<String, ?>> current = new LinkedHashMap<>();
         for (TransferPlan.Source source : TransferPlan.SOURCES) {
+            if (COVERS_FILE.equals(source.file)) {
+                current.put(source.file, coverValues(withPictures));
+                continue;
+            }
             current.put(source.file, context.getSharedPreferences(source.file, Context.MODE_PRIVATE).getAll());
         }
         return current;
+    }
+
+    private static Map<String, ?> coverValues(boolean withPictures) {
+        Map<String, String> pictures = withPictures ? PlaylistCoverBackup.snapshot() : Collections.emptyMap();
+        if (pictures.isEmpty()) return Collections.emptyMap();
+        return Collections.singletonMap(PlaylistCoversMerge.KEY, PlaylistCoversMerge.write(pictures));
     }
 
     /** The name to offer for a file made now. */
@@ -45,7 +64,7 @@ final class TransferFiles {
 
     /** Writes the settings into the file the user created with the system's picker. */
     static TransferExport export(Context context, Uri destination) throws IOException, TransferException {
-        TransferExport export = SettingsTransfer.export(read(context), UpdateChecker.VERSION,
+        TransferExport export = SettingsTransfer.export(read(context, true), UpdateChecker.VERSION,
                 SettingsTransfer.dateOf(System.currentTimeMillis(), TimeZone.getDefault()));
         byte[] bytes = export.json.getBytes(StandardCharsets.UTF_8);
         ContentResolver resolver = context.getContentResolver();
@@ -89,10 +108,14 @@ final class TransferFiles {
      * exception, the files before it stay written.
      */
     static TransferChanges apply(Context context, TransferBackup backup) throws IOException {
-        TransferChanges changes = SettingsTransfer.plan(backup, read(context));
+        TransferChanges changes = SettingsTransfer.plan(backup, read(context, false));
         Set<String> files = new HashSet<>(changes.writes.keySet());
         files.addAll(changes.removals.keySet());
         for (String file : files) {
+            if (COVERS_FILE.equals(file)) {
+                restoreCovers(changes.writes.get(file));
+                continue;
+            }
             SharedPreferences.Editor editor = context.getSharedPreferences(file, Context.MODE_PRIVATE).edit();
             Set<String> removals = changes.removals.get(file);
             if (removals != null) {
@@ -105,6 +128,13 @@ final class TransferFiles {
             if (!editor.commit()) throw new IOException("Could not write the preferences " + file);
         }
         return changes;
+    }
+
+    /** Sets the covers of the file on their playlists; they are files of the app, not a preference. */
+    private static void restoreCovers(Map<String, Object> writes) {
+        Object value = writes == null ? null : writes.get(PlaylistCoversMerge.KEY);
+        Map<String, String> pictures = PlaylistCoversMerge.read(value);
+        if (pictures != null && !pictures.isEmpty()) PlaylistCoverBackup.restore(pictures);
     }
 
     /** One value into an editor, by its type. */

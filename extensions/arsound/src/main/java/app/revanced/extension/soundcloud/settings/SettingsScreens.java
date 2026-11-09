@@ -28,6 +28,7 @@ final class SettingsScreens {
         return Arrays.asList(
                 new AppearanceScreen(ui),
                 new CustomThemeScreen(ui),
+                new MotionBlurScreen(ui),
                 new BottomBarScreen(ui),
                 new PlaybackScreen(ui),
                 new EqualizerScreen(ui),

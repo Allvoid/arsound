@@ -38,7 +38,9 @@
  * {@code WallhavenScreen}), equalizer UI ({@code EqualizerPanel}, {@code EqualizerGraph}), {@code DataReset}
  * ("Reset data" keeps logins, settings and imports), {@code StorageUsage}, {@code TransferScreen} (the transfer from
  * Yandex Music, VK and YouTube Music, opened from "Your music"; one "Service" row picks whose account is shown; the
- * work itself is in {@code transfer}).</li>
+ * work itself is in {@code transfer}), {@code MotionBlurScreen} (the motion blur, opened from Appearance; the work is in
+ * {@code motion}). The settings backup file is {@code SettingsTransfer} (pure) with {@code TransferFiles} (the disk);
+ * the covers of playlists travel in it as one made-up value ({@code PlaylistCoversMerge}).</li>
  * </ul>
  *
  * <p>Gotchas: saved keys must never change; users already have them. A section that is not listed in

@@ -129,6 +129,10 @@ final class AppearanceScreen extends SectionScreen {
                 new String[]{text("Меньше", "Fewer"), text("Как в макете", "As designed"), text("Больше", "More")},
                 activity::recreate));
         list.addView(effectOptions);
+        list.addView(ui.openScreenRow(text("Размытие в движении", "Motion blur"),
+                text("Быстрая прокрутка и свайпы размывают список по направлению движения. Выключено по умолчанию.",
+                        "Fast scrolls and swipes blur the list along the movement. Off by default."),
+                MotionBlurScreen.ID).icon("animation"));
     }
 
     /** The new player and what belongs to it. */

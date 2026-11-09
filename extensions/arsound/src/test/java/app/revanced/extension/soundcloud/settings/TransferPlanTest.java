@@ -28,7 +28,7 @@ public class TransferPlanTest {
             assertTrue(source.file + " twice", seen.add(source.file));
             assertEquals(source, TransferPlan.find(source.file));
         }
-        assertEquals(6, seen.size());
+        assertEquals(7, seen.size());
     }
 
     @Test

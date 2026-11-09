@@ -104,4 +104,10 @@ public final class BoolSettings {
      * the banner comes back on its own after it is closed.
      */
     public static final BoolSetting HIDE_IMPORT_BANNER = new BoolSetting(Settings.HIDE_IMPORT_BANNER, true);
+    /** Motion blur of a list or a pager while it moves fast (motion/MotionBlur). Off by default. */
+    public static final BoolSetting MOTION_BLUR = new BoolSetting(Settings.MOTION_BLUR, false);
+    /** Motion blur for scrolling up and down. On by default; counts only with {@link #MOTION_BLUR}. */
+    public static final BoolSetting MOTION_BLUR_SCROLL = new BoolSetting(Settings.MOTION_BLUR_SCROLL, true);
+    /** Motion blur for swipes to the sides (tabs, pagers). On by default; counts only with {@link #MOTION_BLUR}. */
+    public static final BoolSetting MOTION_BLUR_SWIPES = new BoolSetting(Settings.MOTION_BLUR_SWIPES, true);
 }

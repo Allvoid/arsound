@@ -472,6 +472,20 @@ public final class LocalCovers {
         }
     }
 
+    /** The covers set on this device for playlists, playlist urn to the file of the cover. */
+    static Map<String, File> playlistCoverFiles() {
+        Map<String, File> files = new LinkedHashMap<>();
+        SharedPreferences preferences = preferences();
+        File directory = directory();
+        if (preferences == null || directory == null) return files;
+        for (Map.Entry<String, ?> entry : preferences.getAll().entrySet()) {
+            if (!entry.getKey().startsWith(PLAYLIST_PREFIX)) continue;
+            File file = CoverImages.coverFile(directory, String.valueOf(entry.getValue()));
+            if (file.isFile()) files.put(entry.getKey().substring(PLAYLIST_PREFIX.length()), file);
+        }
+        return files;
+    }
+
     public static boolean hasPlaylistCover(String playlistUrn) {
         return playlistCovers().containsKey(playlistUrn);
     }

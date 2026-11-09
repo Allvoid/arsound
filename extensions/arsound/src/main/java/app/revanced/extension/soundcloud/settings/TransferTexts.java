@@ -40,12 +40,26 @@ final class TransferTexts {
                     "\n\nThe SoundCloud tracks added on the phone only replace their own in " + playlists
                             + (playlists == 1 ? " playlist" : " playlists") + "; the imported files in them stay.");
         }
+        int covers = playlistCovers(backup);
+        if (covers > 0) {
+            message += text("\n\nСвои обложки плейлистов (" + covers + ") заменят обложки этих же плейлистов; остальные "
+                            + "обложки на телефоне останутся.",
+                    "\n\nThe playlist covers you set (" + covers + ") replace the covers of the same playlists; the other "
+                            + "covers on the phone stay.");
+        }
         int left = backup.ignored + backup.wrongType;
         if (left > 0) {
             message += text("\n\nПропущено: " + values(left) + " — они не переносятся или не подходят этой версии.",
                     "\n\nLeft out: " + values(left) + " — not carried over, or not fitting this version.");
         }
         return message;
+    }
+
+    /** How many playlist covers the file brings. */
+    static int playlistCovers(TransferBackup backup) {
+        java.util.Map<String, Object> local = backup.files.get("arsound_local_covers");
+        java.util.Map<String, String> covers = local == null ? null : PlaylistCoversMerge.read(local.get(PlaylistCoversMerge.KEY));
+        return covers == null ? 0 : covers.size();
     }
 
     /** How many playlists get tracks added on the phone from the file. */

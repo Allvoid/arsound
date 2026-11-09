@@ -147,12 +147,15 @@ final class TransferPlan {
      * {@code track_order_*}) and the SoundCloud tracks added to playlists on this phone ({@code additions}, through
      * {@link AdditionsMerge}: the imported files in it stay, they are files of this phone). The rest of that file is tied
      * to files on the phone (likes of imported music), caches (titles) or the account's playlists.</li>
+     * <li>{@code arsound_local_covers}: only the covers the user set on playlists, and not as the real keys (those name
+     * files on disk) but as one made-up value {@code playlist_covers}, small pictures in a JSON text
+     * ({@link PlaylistCoversMerge}); {@code TransferFiles} makes it on export and sets the covers from it on import.</li>
      * </ul>
      * Not here, on purpose: {@code arsound_for_you} and {@code arsound_own_playlists} (playlists of one account),
      * {@code arsound_listening_stats} (a listen in progress), {@code arsound_followings}, {@code arsound_playlist_preload},
      * {@code arsound_native_offline}, {@code arsound_unavailable_tracks} (caches), {@code revanced_soundcloud_downloads},
      * {@code arsound_downloaded_playlists}, {@code revanced_soundcloud_download_parts}, {@code arsound_played_downloads},
-     * {@code arsound_search_downloads}, {@code arsound_pending_deletes} (downloads), {@code arsound_local_covers},
+     * {@code arsound_search_downloads}, {@code arsound_pending_deletes} (downloads), the rest of {@code arsound_local_covers},
      * {@code arsound_playlist_tracks}, {@code arsound_removed_tracks}, {@code arsound_watch_folder} (imported music and
      * folders of this phone), {@code arsound_music_access}, {@code arsound_welcome}, {@code arsound_vivo_music_card},
      * {@code arsound_app_icon} (permissions, hints and the launcher icon, which Android keeps itself),
@@ -165,7 +168,9 @@ final class TransferPlan {
             Source.except("arsound_wave"),
             Source.except("arsound_sleep_timer", "stop_at"),
             Source.only("arsound_local_additions", "playlist_order", "track_order_")
-                    .merging("additions", new AdditionsMerge()))));
+                    .merging("additions", new AdditionsMerge()),
+            Source.only("arsound_local_covers", PlaylistCoversMerge.KEY)
+                    .merging(PlaylistCoversMerge.KEY, new PlaylistCoversMerge()))));
 
     /** The words in a key name that mark a secret. Checked on every key of every file, as a second lock. */
     private static final String[] SECRET_WORDS = {

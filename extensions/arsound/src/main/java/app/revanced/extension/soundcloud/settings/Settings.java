@@ -514,4 +514,15 @@ public final class Settings {
     public static void setTelemetryEnabled(boolean enabled) {
         BoolSettings.TELEMETRY_ENABLED.set(enabled);
     }
+
+    /** Motion blur of fast scrolls and swipes (motion/MotionBlur). */
+    public static final String MOTION_BLUR = "arsound_motion_blur";
+    /** Motion blur for scrolling up and down. */
+    public static final String MOTION_BLUR_SCROLL = "arsound_motion_blur_scroll";
+    /** Motion blur for swipes to the sides. */
+    public static final String MOTION_BLUR_SWIPES = "arsound_motion_blur_swipes";
+    /** How strong the blur is, 0 to 100 (default 48). */
+    public static final String MOTION_BLUR_AMOUNT = "arsound_motion_blur_amount";
+    /** How much longer the blur is along the movement than across it, in hundredths (default 204, that is 2.04x). */
+    public static final String MOTION_BLUR_STRETCH = "arsound_motion_blur_stretch";
 }

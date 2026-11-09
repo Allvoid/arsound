@@ -173,7 +173,8 @@ public class SettingsTransferTest {
                 + "      }\n"
                 + "    },\n"
                 + "    \"arsound_sleep_timer\": {},\n"
-                + "    \"arsound_local_additions\": {}\n"
+                + "    \"arsound_local_additions\": {},\n"
+                + "    \"arsound_local_covers\": {}\n"
                 + "  }\n"
                 + "}\n";
         assertEquals(expected, SettingsTransfer.export(current, "1.0.1", "2026-11-03").json);
