@@ -1,10 +1,7 @@
 package app.revanced.extension.soundcloud.player;
 
 import android.os.Handler;
-import android.os.Looper;
 import android.os.SystemClock;
-
-import java.lang.reflect.Method;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.BoolSettings;
@@ -17,7 +14,7 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * <p>
  * The player reports its position about twice a second ({@link #onProgress}); in between it is counted from the
  * clock, and while a fade runs the volume is set every {@link #TICK_MS} on the player's own thread. The volume is
- * SoundCloud's player volume ({@code BaseExoPlayer.setVolume}), not the phone's: the volume buttons are untouched.
+ * SoundCloud's player volume ({@link PlayerVolume}), shared with the sleep timer's fade.
  */
 public final class Crossfade {
     private static final long TICK_MS = 40;
@@ -33,15 +30,10 @@ public final class Crossfade {
     private static final Object lock = new Object();
     private static final Runnable TICK = Crossfade::tick;
     private static Handler handler;
-    private static Object player;
-    private static Method setVolume;
     private static boolean fadingIn;
     /** Whether the playing track has reported a position yet: until then it is not heard, so no time is counted. */
     private static boolean reported;
     private static long position, duration, reportedAt;
-    /** The last volume set here; 1 when nothing is touched. */
-    private static float volume = 1f;
-
     private Crossfade() {
     }
 
@@ -62,12 +54,8 @@ public final class Crossfade {
     static void onPlay(Object exoPlayer, boolean newTrack) {
         try {
             synchronized (lock) {
-                if (handler == null || player != exoPlayer) {
-                    Looper looper = Looper.myLooper();
-                    handler = new Handler(looper != null ? looper : Looper.getMainLooper());
-                    player = exoPlayer;
-                    setVolume = exoPlayer.getClass().getMethod("setVolume", float.class);
-                }
+                PlayerVolume.bind(exoPlayer);
+                handler = PlayerVolume.handler();
                 if (!newTrack) return;
                 boolean ended = duration > 0
                         && SystemClock.uptimeMillis() - reportedAt < REPORT_GAP_MS + ENDED_SLACK_MS
@@ -113,7 +101,7 @@ public final class Crossfade {
             boolean starting = fadingIn && !reported && now - reportedAt < START_WAIT_MS;
             again = (reporting || starting) && target < 1f;
         }
-        apply(target);
+        PlayerVolume.set(PlayerVolume.Source.CROSSFADE, target);
         if (again) handler.postDelayed(TICK, TICK_MS);
     }
 
@@ -135,24 +123,5 @@ public final class Crossfade {
         if (duration > 0 && duration - position < fade) level = Math.min(level, (duration - position) / (float) fade);
         level = Math.max(0f, Math.min(1f, level));
         return level * level;
-    }
-
-    private static void apply(float target) {
-        Object current;
-        Method method;
-        synchronized (lock) {
-            // Full volume is set once. During a fade the level is set on every tick: SoundCloud sets full volume
-            // itself when an item starts, and the fade must win over it at once.
-            if (target >= 1f && volume >= 1f) return;
-            volume = target;
-            current = player;
-            method = setVolume;
-        }
-        if (current == null) return;
-        try {
-            method.invoke(current, target);
-        } catch (Throwable ex) {
-            Logger.printException(() -> "Crossfade: could not set the volume", ex);
-        }
     }
 }

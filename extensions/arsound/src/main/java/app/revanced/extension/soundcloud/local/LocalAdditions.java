@@ -186,6 +186,8 @@ public final class LocalAdditions {
         if (!skipped.isEmpty()) Logger.printInfo(() -> "Local additions of " + key + " not shown: " + skipped);
         RemovedTracks.placeKept(key, urns, loader, !playback);
         Object ordered = TrackOrder.apply(key, urns);
+        // The search and the order of "Imported", for the screen and for playback alike.
+        if (SavedPlaylist.isSavedPlaylist(key)) ordered = ImportedView.apply(ordered);
         if (!playback) PlaylistHeader.onScreenTracks(key, (List<?>) ordered, serverSize);
         return ordered;
     }

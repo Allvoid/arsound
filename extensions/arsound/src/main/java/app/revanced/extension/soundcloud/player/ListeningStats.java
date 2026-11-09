@@ -218,12 +218,15 @@ public final class ListeningStats {
         public int tracks;
         public final List<Entry> topTracks = new ArrayList<>();
         public final List<Entry> topArtists = new ArrayList<>();
+        /** The time listened by day, month or year for the chart; null when it was not asked for. */
+        public ListenBuckets buckets;
 
-        /** Adds a listen of the track to the totals and to its entry. */
-        void addListen(Entry track, long played) {
+        /** Adds a listen of the track that started at {@code start} to the totals, to its entry and to its bar. */
+        void addListen(Entry track, long start, long played) {
             track.addListen(played);
             playedMs += played;
             if (played >= PLAY_THRESHOLD_MS) plays++;
+            if (buckets != null) buckets.add(start, played);
         }
     }
 
@@ -246,13 +249,23 @@ public final class ListeningStats {
      * @param since Epoch milliseconds, 0 for all time.
      */
     public static Summary summarize(long since, int limit) {
+        return summarize(since, limit, null);
+    }
+
+    /**
+     * {@link #summarize(long, int)} with the time listened counted into the bars of the chart in the same pass.
+     *
+     * @param buckets The bars of the period, or null.
+     */
+    public static Summary summarize(long since, int limit, ListenBuckets buckets) {
         Summary summary = new Summary();
+        summary.buckets = buckets;
         Map<String, Entry> tracks = new HashMap<>();
         HistoryFile.forEachLine(line -> {
             // One damaged line must not hide the rest of the history.
             ListenRecord record = ListenRecord.parse(line);
             if (record == null || record.start < since) return;
-            summary.addListen(entry(tracks, record.urn), record.playedMs);
+            summary.addListen(entry(tracks, record.urn), record.start, record.playedMs);
         });
         addCurrent(summary, tracks, since);
         summary.tracks = tracks.size();
@@ -320,7 +333,7 @@ public final class ListeningStats {
             if (current == null) return;
         }
         if (current.start < since || current.playedMs < MIN_LISTEN_MS) return;
-        summary.addListen(entry(tracks, current.urn), current.playedMs);
+        summary.addListen(entry(tracks, current.urn), current.start, current.playedMs);
     }
 
     // endregion

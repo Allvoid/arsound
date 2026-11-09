@@ -11,15 +11,18 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.util.List;
+import java.util.TimeZone;
 
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.player.ListenBuckets;
 import app.revanced.extension.soundcloud.player.ListeningStats;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.Colors;
 
 /**
- * What was listened to and for how long, kept on this phone only. The results are three cards: the totals, the top
- * tracks and the top artists, each top a ranked list whose thin bar shows the plays against the most played.
+ * What was listened to and for how long, kept on this phone only. The results are three cards: the totals with a bar
+ * chart of the time by day, month or year, the top tracks and the top artists, each top a ranked list whose thin bar
+ * shows the plays against the most played.
  */
 final class StatsScreen extends SectionScreen {
     static final String ID = "stats";
@@ -106,8 +109,9 @@ final class StatsScreen extends SectionScreen {
         content.addView(waiting);
         long days = Settings.getLong("stats_period", 30);
         long since = days == 0 ? 0 : System.currentTimeMillis() - days * 24L * 60 * 60 * 1000;
+        ListenBuckets buckets = ListenBuckets.forPeriod(days, System.currentTimeMillis(), TimeZone.getDefault());
         Utils.runOnBackgroundThread(() -> {
-            ListeningStats.Summary summary = ListeningStats.summarize(since, 10);
+            ListeningStats.Summary summary = ListeningStats.summarize(since, 10, buckets);
             Utils.runOnMainThread(() -> {
                 if (content.getTag() != token || activity.isFinishing() || activity.isDestroyed()) return;
                 content.removeAllViews();
@@ -140,6 +144,17 @@ final class StatsScreen extends SectionScreen {
         figures.addView(createFigure(summary.tracks, text(Numerals.russianForm(summary.tracks, "разный трек",
                 "разных трека", "разных треков"), summary.tracks == 1 ? "different track" : "different tracks")), figureParams());
         box.addView(figures);
+        if (summary.buckets != null && summary.playedMs > 0) {
+            // The time by day, month or year, in the same card: no new row on the screen.
+            TextView sample = ui.createText("Body.Primary", "");
+            StatsChart chart = new StatsChart(activity, ui.accent(), sample.getCurrentTextColor(), ui.secondary(),
+                    sample.getTypeface(), StatsScreen::duration);
+            LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            chartParams.topMargin = ui.dp(16);
+            box.addView(chart, chartParams);
+            chart.setData(summary.buckets);
+        }
         card.addView(box);
         return card;
     }
@@ -244,7 +259,7 @@ final class StatsScreen extends SectionScreen {
         return text(plays + " " + Numerals.russianForm(plays, "раз", "раза", "раз"), plays + (plays == 1 ? " play" : " plays"));
     }
 
-    private static String duration(long ms) {
+    static String duration(long ms) {
         long minutes = ms / 60_000;
         if (minutes == 0) return text(ms / 1000 + " с", ms / 1000 + " s");
         if (minutes < 60) return text(minutes + " мин", minutes + " min");

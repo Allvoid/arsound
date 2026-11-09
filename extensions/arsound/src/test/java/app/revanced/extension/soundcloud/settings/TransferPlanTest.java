@@ -72,11 +72,14 @@ public class TransferPlanTest {
     }
 
     @Test
-    public void ofTheLocalFileOnlyTheDraggedOrdersTravel() {
+    public void ofTheLocalFileOnlyTheDraggedOrdersAndTheAdditionsTravel() {
         TransferPlan.Source local = TransferPlan.find("arsound_local_additions");
         assertTrue(local.carries("playlist_order"));
         assertTrue(local.carries("track_order_soundcloud:playlists:123"));
-        for (String key : Arrays.asList("additions", "recent_playlists", "titles", "titles_missing", "likes_known", "likes_liked",
+        // The additions travel only through their merge, which leaves the files of the phone out.
+        assertTrue(local.carries("additions"));
+        assertTrue(local.mergeOf("additions") instanceof AdditionsMerge);
+        for (String key : Arrays.asList("recent_playlists", "titles", "titles_missing", "likes_known", "likes_liked",
                 "likes_unliked", "saved_playlist_urn", "saved_playlist_duplicates", "covers_squared")) {
             assertFalse(key, local.carries(key));
         }

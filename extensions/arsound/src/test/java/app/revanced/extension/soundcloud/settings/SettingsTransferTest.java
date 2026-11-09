@@ -415,8 +415,9 @@ public class SettingsTransferTest {
                 + "\"arsound_sleep_timer\": {\"long\": {\"stop_at\": 99}, \"boolean\": {\"at_clock\": true}},"
                 + "\"arsound_local_additions\": {\"string\": {\"additions\": \"{}\", \"playlist_order\": \"a\"}}}}");
         assertEquals(map("at_clock", true), backup.files.get("arsound_sleep_timer"));
-        assertEquals(map("playlist_order", "a"), backup.files.get("arsound_local_additions"));
-        assertEquals(2, backup.ignored);
+        // "additions" travels now (its SoundCloud tracks; the import merges it with the files of the phone).
+        assertEquals(map("additions", "{}", "playlist_order", "a"), backup.files.get("arsound_local_additions"));
+        assertEquals(1, backup.ignored);
     }
 
     @Test
@@ -571,4 +572,47 @@ public class SettingsTransferTest {
     }
 
     // endregion
+
+    @Test
+    public void soundCloudTracksAddedToPlaylistsTravelAndFilesStay() throws Exception {
+        Map<String, Map<String, ?>> current = new LinkedHashMap<>();
+        current.put("arsound_local_additions", map("additions",
+                "{\"soundcloud:playlists:1\":[\"file:/data/a.mp3\",\"soundcloud:tracks:5\"],"
+                        + "\"soundcloud:playlists:2\":[\"file:/data/b.flac\"]}"));
+        TransferBackup backup = SettingsTransfer.parse(SettingsTransfer.export(current, "1", "2026-11-09").json);
+        String carried = (String) backup.files.get("arsound_local_additions").get("additions");
+        assertEquals("{\"soundcloud:playlists:1\":[\"soundcloud:tracks:5\"]}", carried);
+        assertFalse(carried.contains("file:"));
+    }
+
+    @Test
+    public void importedAdditionsKeepTheFilesOfThisPhone() throws Exception {
+        TransferBackup backup = backupOf("arsound_local_additions", map("additions",
+                "{\"p1\":[\"soundcloud:tracks:7\",\"file:/elsewhere/x.mp3\"],\"p3\":[\"soundcloud:tracks:9\"]}"));
+        Map<String, Map<String, ?>> here = new LinkedHashMap<>();
+        here.put("arsound_local_additions", map("additions",
+                "{\"p1\":[\"file:/data/a.mp3\",\"soundcloud:tracks:5\"],\"p2\":[\"soundcloud:tracks:6\"]}"));
+        TransferChanges changes = SettingsTransfer.plan(backup, here);
+        assertEquals("{\"p1\":[\"soundcloud:tracks:7\",\"file:/data/a.mp3\"],\"p2\":[\"soundcloud:tracks:6\"],"
+                        + "\"p3\":[\"soundcloud:tracks:9\"]}",
+                changes.writes.get("arsound_local_additions").get("additions"));
+    }
+
+    @Test
+    public void aFileWithoutAdditionsLeavesThemAlone() throws Exception {
+        TransferBackup backup = backupOf("arsound_local_additions", map("playlist_order", "c"));
+        Map<String, Map<String, ?>> here = new LinkedHashMap<>();
+        here.put("arsound_local_additions", map("additions", "{\"p\":[\"soundcloud:tracks:5\"]}", "playlist_order", "a"));
+        TransferChanges changes = SettingsTransfer.plan(backup, here);
+        assertFalse(changes.writes.get("arsound_local_additions").containsKey("additions"));
+        Set<String> removed = changes.removals.get("arsound_local_additions");
+        assertTrue(removed == null || !removed.contains("additions"));
+    }
+
+    @Test
+    public void damagedAdditionsInAFileAreNotWritten() throws Exception {
+        TransferBackup backup = backupOf("arsound_local_additions", map("additions", "not json", "playlist_order", "c"));
+        TransferChanges changes = SettingsTransfer.plan(backup, new LinkedHashMap<>());
+        assertFalse(changes.writes.get("arsound_local_additions").containsKey("additions"));
+    }
 }

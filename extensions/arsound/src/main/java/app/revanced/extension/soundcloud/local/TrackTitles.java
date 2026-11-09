@@ -70,6 +70,19 @@ final class TrackTitles {
      * Entries that already wait for their turn are not queued again.
      */
     static void rememberAll(Collection<String> entries) {
+        rememberAll(entries, null);
+    }
+
+    /** Runs to call when the worker has no titles left to load. */
+    private static final List<Runnable> whenLoaded = new ArrayList<>();
+
+    /**
+     * {@link #rememberAll(Collection)}, and {@code done} runs on the main thread when the worker has loaded them (or
+     * given up). Nothing to load: {@code done} does not run.
+     *
+     * @return Whether titles are being loaded (and {@code done} will run).
+     */
+    static boolean rememberAll(Collection<String> entries, Runnable done) {
         List<String> uncached = new ArrayList<>();
         Snapshot titles = snapshot();
         Set<String> gone = missing();
@@ -77,14 +90,16 @@ final class TrackTitles {
             if (titles.has(entry) || gone.contains(entry) || Entry.parse(entry).trackIdToLoad() == null) continue;
             uncached.add(entry);
         }
-        if (uncached.isEmpty()) return;
+        if (uncached.isEmpty()) return false;
         boolean start;
         synchronized (pendingTitles) {
+            if (done != null) whenLoaded.add(done);
             pendingTitles.addAll(uncached);
             start = !titleWorkerRunning;
             titleWorkerRunning = true;
         }
         if (start) Utils.runOnBackgroundThread(TrackTitles::loadPendingTitles);
+        return true;
     }
 
     private static void loadPendingTitles() {
@@ -94,6 +109,9 @@ final class TrackTitles {
                 Iterator<String> next = pendingTitles.iterator();
                 if (!next.hasNext()) {
                     titleWorkerRunning = false;
+                    List<Runnable> done = new ArrayList<>(whenLoaded);
+                    whenLoaded.clear();
+                    for (Runnable run : done) Utils.runOnMainThread(run);
                     return;
                 }
                 entry = next.next();

@@ -117,7 +117,8 @@ public final class ThemeEffect extends Drawable implements Runnable {
         return rate;
     }
 
-    private static boolean isStill(Context context) {
+    /** True in battery saving and with the system animations off: then nothing moves. */
+    public static boolean isStill(Context context) {
         try {
             PowerManager power = context.getSystemService(PowerManager.class);
             if (power != null && power.isPowerSaveMode()) return true;

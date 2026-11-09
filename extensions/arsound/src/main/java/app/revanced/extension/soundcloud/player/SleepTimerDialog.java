@@ -17,6 +17,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
@@ -108,6 +109,21 @@ final class SleepTimerDialog {
         summaryParams.topMargin = dp(14);
         summaryParams.bottomMargin = dp(4);
         root.addView(summary, summaryParams);
+
+        // One tick, small and in the summary's colour: the window keeps its look and nearly its height.
+        CheckBox fade = new CheckBox(context);
+        fade.setText(text("Плавно затихать в последние 45 секунд", "Fade out over the last 45 seconds"));
+        fade.setTextColor(secondary);
+        fade.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        fade.setButtonTintList(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}},
+                new int[]{accent, secondary}));
+        fade.setChecked(SleepTimerScheduler.fadeEnabled(context));
+        fade.setOnCheckedChangeListener((button, checked) -> SleepTimerScheduler.setFadeEnabled(context, checked));
+        LinearLayout.LayoutParams fadeParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fadeParams.gravity = Gravity.CENTER_HORIZONTAL;
+        fadeParams.bottomMargin = dp(2);
+        root.addView(fade, fadeParams);
 
         hours.setOnValueChangedListener((picker, old, value) -> refresh());
         minutes.setOnValueChangedListener((picker, old, value) -> refresh());

@@ -32,11 +32,30 @@ final class TransferPlan {
         private final List<String> onlyPrefixes;
         /** Keys that never travel, whatever else is true. */
         private final Set<String> never;
+        /** Keys that travel changed: only their part that is not tied to this phone. */
+        private final java.util.Map<String, Merge> merges;
 
-        private Source(String file, List<String> onlyPrefixes, Set<String> never) {
+        private Source(String file, List<String> onlyPrefixes, Set<String> never, java.util.Map<String, Merge> merges) {
             this.file = file;
             this.onlyPrefixes = onlyPrefixes;
             this.never = never;
+            this.merges = merges;
+        }
+
+        private Source(String file, List<String> onlyPrefixes, Set<String> never) {
+            this(file, onlyPrefixes, never, Collections.emptyMap());
+        }
+
+        /** This source, and one more key that travels through a {@link Merge}. */
+        Source merging(String key, Merge merge) {
+            java.util.Map<String, Merge> more = new java.util.HashMap<>(merges);
+            more.put(key, merge);
+            return new Source(file, onlyPrefixes, never, Collections.unmodifiableMap(more));
+        }
+
+        /** The merge of a key, or null for a key that travels as it is. */
+        Merge mergeOf(String key) {
+            return merges.get(key);
         }
 
         /** The whole file except the keys named. */
@@ -52,12 +71,25 @@ final class TransferPlan {
         /** Whether the value of this key travels. A key that looks like a secret never does, in any file. */
         boolean carries(String key) {
             if (key == null || key.isEmpty() || never.contains(key) || looksSecret(key)) return false;
-            if (onlyPrefixes.isEmpty()) return true;
+            if (onlyPrefixes.isEmpty() || merges.containsKey(key)) return true;
             for (String prefix : onlyPrefixes) {
                 if (key.startsWith(prefix)) return true;
             }
             return false;
         }
+    }
+
+    /**
+     * A value that holds both the user's choices and what belongs to this phone: only the first part goes into the
+     * file, and coming back it joins the part this phone has. A key with a merge is never removed by an import: a file
+     * of an earlier version, which did not carry it, leaves it as it is.
+     */
+    interface Merge {
+        /** The value written to the file, made from the value on this phone; null leaves the key out. */
+        Object outgoing(Object here);
+
+        /** The value written on this phone for the value in the file and the value the phone has (or null). */
+        Object incoming(Object fromFile, Object here);
     }
 
     /**
@@ -110,9 +142,10 @@ final class TransferPlan {
      * <li>{@code arsound_wave}: what the wave learned of the taste (skipped and heard tracks), bounded and short.</li>
      * <li>{@code arsound_sleep_timer}: the choices of the timer window ({@code at_clock}, the mode last used, and the
      * {@code minutes} and {@code clock} last picked); {@code stop_at} is a running timer of this phone.</li>
-     * <li>{@code arsound_local_additions}: only the orders the user dragged ({@code playlist_order},
-     * {@code track_order_*}). The rest of that file is tied to files on the phone (likes and additions of imported
-     * music), caches (titles) or the account's playlists.</li>
+     * <li>{@code arsound_local_additions}: the orders the user dragged ({@code playlist_order},
+     * {@code track_order_*}) and the SoundCloud tracks added to playlists on this phone ({@code additions}, through
+     * {@link AdditionsMerge}: the imported files in it stay, they are files of this phone). The rest of that file is tied
+     * to files on the phone (likes of imported music), caches (titles) or the account's playlists.</li>
      * </ul>
      * Not here, on purpose: {@code arsound_for_you} and {@code arsound_own_playlists} (playlists of one account),
      * {@code arsound_listening_stats} (a listen in progress), {@code arsound_followings}, {@code arsound_playlist_preload},
@@ -130,7 +163,8 @@ final class TransferPlan {
             Source.except("arsound_dislike_songs"),
             Source.except("arsound_wave"),
             Source.except("arsound_sleep_timer", "stop_at"),
-            Source.only("arsound_local_additions", "playlist_order", "track_order_"))));
+            Source.only("arsound_local_additions", "playlist_order", "track_order_")
+                    .merging("additions", new AdditionsMerge()))));
 
     /** The words in a key name that mark a secret. Checked on every key of every file, as a second lock. */
     private static final String[] SECRET_WORDS = {

@@ -32,12 +32,37 @@ final class TransferTexts {
                         + "current settings, the \"Not for me\" list, what My Wave learned and your own track orders in "
                         + "playlists, then the app restarts.\n\nSign-ins and downloaded tracks do not change. "
                         + "Import only a file you saved yourself.");
+        int playlists = playlistsWithAdditions(backup);
+        if (playlists > 0) {
+            message += text("\n\nТреки SoundCloud, добавленные только на телефоне, заменят свои в "
+                            + playlists + " " + Numerals.russianForm(playlists, "плейлисте", "плейлистах", "плейлистах")
+                            + "; импортированные файлы в них останутся.",
+                    "\n\nThe SoundCloud tracks added on the phone only replace their own in " + playlists
+                            + (playlists == 1 ? " playlist" : " playlists") + "; the imported files in them stay.");
+        }
         int left = backup.ignored + backup.wrongType;
         if (left > 0) {
             message += text("\n\nПропущено: " + values(left) + " — они не переносятся или не подходят этой версии.",
                     "\n\nLeft out: " + values(left) + " — not carried over, or not fitting this version.");
         }
         return message;
+    }
+
+    /** How many playlists get tracks added on the phone from the file. */
+    static int playlistsWithAdditions(TransferBackup backup) {
+        java.util.Map<String, Object> local = backup.files.get("arsound_local_additions");
+        java.util.Map<String, java.util.List<String>> additions = local == null ? null : AdditionsMerge.read(local.get("additions"));
+        if (additions == null) return 0;
+        int count = 0;
+        for (java.util.List<String> entries : additions.values()) {
+            for (String entry : entries) {
+                if (!entry.startsWith("file:")) {
+                    count++;
+                    break;
+                }
+            }
+        }
+        return count;
     }
 
     /** Why a file was refused. */

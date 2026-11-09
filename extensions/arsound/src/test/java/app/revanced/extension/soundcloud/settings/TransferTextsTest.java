@@ -137,4 +137,20 @@ public class TransferTextsTest {
         assertEquals("Настройки сохранены в файл: 5 значений.", TransferTexts.exported(new TransferExport("{}", 5, 0)));
         assertTrue(TransferTexts.imported(changes).startsWith("Настройки применены: 2 значения."));
     }
+
+    @Test
+    public void theQuestionSaysHowManyPlaylistsGetTracksAddedOnThePhone() {
+        Locale.setDefault(new Locale("ru"));
+        TransferBackup plain = backup("1.1.1", "2026-11-09", 3, 0, 0);
+        assertEquals(0, TransferTexts.playlistsWithAdditions(plain));
+        assertFalse(TransferTexts.confirmation(plain).contains("добавленные только на телефоне"));
+
+        Map<String, Object> local = new LinkedHashMap<>();
+        local.put("additions", "{\"p1\":[\"soundcloud:tracks:1\"],\"p2\":[\"file:/x.mp3\"],\"p3\":[\"soundcloud:tracks:2\"]}");
+        Map<String, Map<String, Object>> files = new LinkedHashMap<>(plain.files);
+        files.put("arsound_local_additions", local);
+        TransferBackup withAdditions = new TransferBackup(1, "1.1.1", "2026-11-09", files, 0, 0);
+        assertEquals(2, TransferTexts.playlistsWithAdditions(withAdditions));
+        assertTrue(TransferTexts.confirmation(withAdditions).contains("в 2 плейлистах"));
+    }
 }

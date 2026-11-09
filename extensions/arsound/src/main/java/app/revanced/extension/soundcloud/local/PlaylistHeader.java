@@ -78,6 +78,9 @@ public final class PlaylistHeader {
             String playlistUrn = playlistUrnOf(metadata);
             if (playlistUrn == null) return;
             shownPlaylist = playlistUrn;
+            // A search or an order of "Imported" that is on: said at the end of the line.
+            String view = SavedPlaylist.isSavedPlaylist(playlistUrn) ? ImportedView.headerPart() : null;
+            if (view != null) parts.add(view);
             Integer count = PlaylistTracks.downloadedCount(playlistUrn);
             if (count == null || count <= 0) return;
             // Right after the number of tracks: before the duration, which is last when it is there.

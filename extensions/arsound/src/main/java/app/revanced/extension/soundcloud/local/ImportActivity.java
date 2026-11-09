@@ -39,6 +39,9 @@ public final class ImportActivity extends LocalActivity {
     private static final int REQUEST_COVER = 2;
     private static final int REQUEST_FOLDER = 3;
     private static final String EXTRA_WATCH_FOLDER = "arsound_watch_folder";
+    private static final String EXTRA_EXPORT_PLAYLIST = "arsound_export_playlist";
+    private static final String EXTRA_EXPORT_NAME = "arsound_export_name";
+    private static final int REQUEST_EXPORT = 4;
     /** A picked picture bigger than this is refused: it is read into memory before it is made smaller. */
     private static final int MAX_PICTURE_BYTES = 32 * 1024 * 1024;
     /**
@@ -48,6 +51,16 @@ public final class ImportActivity extends LocalActivity {
     private static final int MAX_KEPT_ACCESS = 100;
     /** Files whose kept access an import in progress still needs. */
     private static final Set<Uri> COPYING = ConcurrentHashMap.newKeySet();
+
+    /** Asks where to save a playlist as M3U8 ({@link PlaylistExport}); the file name is suggested. */
+    static void exportPlaylist(Context context, String playlistUrn, String fileName) {
+        try {
+            context.startActivity(newIntent(context).putExtra(EXTRA_EXPORT_PLAYLIST, playlistUrn)
+                    .putExtra(EXTRA_EXPORT_NAME, fileName));
+        } catch (Exception ex) {
+            Logger.printException(() -> "Could not open the save screen", ex);
+        }
+    }
 
     /** Opens the folder picker for the watched folder. */
     public static void pickWatchFolder(Context context) {
@@ -104,6 +117,18 @@ public final class ImportActivity extends LocalActivity {
         if (savedInstanceState != null) return;
         if (isCoverPick()) {
             openGallery();
+            return;
+        }
+        if (getIntent().hasExtra(EXTRA_EXPORT_PLAYLIST)) {
+            try {
+                startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("audio/x-mpegurl")
+                        .putExtra(Intent.EXTRA_TITLE, getIntent().getStringExtra(EXTRA_EXPORT_NAME)), REQUEST_EXPORT);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Could not open the save screen", ex);
+                finish();
+            }
             return;
         }
         if (getIntent().hasExtra(EXTRA_WATCH_FOLDER)) {
@@ -197,7 +222,11 @@ public final class ImportActivity extends LocalActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         finish();
-        if (requestCode == REQUEST_FOLDER) {
+        if (requestCode == REQUEST_EXPORT) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                PlaylistExport.write(getApplicationContext(), getIntent().getStringExtra(EXTRA_EXPORT_PLAYLIST), data.getData());
+            }
+        } else if (requestCode == REQUEST_FOLDER) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) onFolderPicked(data.getData());
         } else if (requestCode == REQUEST_COVER) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) onCoverPicked(data.getData());

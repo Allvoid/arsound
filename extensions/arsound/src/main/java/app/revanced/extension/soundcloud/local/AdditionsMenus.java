@@ -149,10 +149,18 @@ final class AdditionsMenus {
             MenuRows.append(menuItems, MenuRows.opening(dialog, text("Импортировать музыку сюда", "Import music here"),
                     "ic_actions_upload", activity -> ImportActivity.start(activity, playlistUrn)));
 
-            // The "Imported" playlist lists the files by itself: nothing is merged into it.
-            if (!SavedPlaylist.isSavedPlaylist(playlistUrn)) PlaylistMerge.addMenuRow(dialog, menuItems, playlistUrn, menuData);
+            // The "Imported" playlist lists the files by itself: nothing is merged into it. It can be searched and sorted.
+            if (SavedPlaylist.isSavedPlaylist(playlistUrn)) {
+                MenuRows.append(menuItems, MenuRows.opening(dialog, text("Поиск и сортировка", "Search and sort"),
+                        "ic_actions_search", ImportedView::show));
+            } else {
+                PlaylistMerge.addMenuRow(dialog, menuItems, playlistUrn, menuData);
+            }
 
             addPlaylistCoverRows(dialog, menuItems, playlistUrn);
+
+            MenuRows.append(menuItems, MenuRows.opening(dialog, text("Сохранить как M3U8", "Save as M3U8"),
+                    "ic_actions_share", activity -> PlaylistExport.start(activity, playlistUrn)));
         } catch (Exception ex) {
             Logger.printException(() -> "Could not add local additions row", ex);
         }

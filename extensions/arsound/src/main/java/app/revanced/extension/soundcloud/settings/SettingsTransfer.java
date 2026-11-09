@@ -129,8 +129,11 @@ final class SettingsTransfer {
             if (values != null) sorted.putAll(values);
             for (Map.Entry<String, Object> entry : sorted.entrySet()) {
                 if (!source.carries(entry.getKey())) continue;
-                String text = jsonOf(entry.getValue());
-                String type = typeOf(entry.getValue());
+                TransferPlan.Merge merge = source.mergeOf(entry.getKey());
+                Object outgoing = merge == null ? entry.getValue() : merge.outgoing(entry.getValue());
+                if (outgoing == null) continue;
+                String text = jsonOf(outgoing);
+                String type = typeOf(outgoing);
                 if (text == null || type == null) {
                     skipped++;
                     continue;
@@ -373,10 +376,15 @@ final class SettingsTransfer {
                     changes.typeConflicts++;
                     continue;
                 }
-                changes.writesOf(file.getKey()).put(value.getKey(), value.getValue());
+                TransferPlan.Merge merge = source.mergeOf(value.getKey());
+                Object incoming = merge == null ? value.getValue() : merge.incoming(value.getValue(), old);
+                if (incoming == null) continue;
+                changes.writesOf(file.getKey()).put(value.getKey(), incoming);
             }
             Set<String> leftOut = backup.leftOut.getOrDefault(file.getKey(), Collections.emptySet());
             for (String key : here.keySet()) {
+                // A merged key is part of this phone too: never removed.
+                if (source.mergeOf(key) != null) continue;
                 if (source.carries(key) && !file.getValue().containsKey(key) && !leftOut.contains(key)) {
                     changes.removalsOf(file.getKey()).add(key);
                 }
