@@ -7,7 +7,7 @@ Files here (short on purpose):
 - `code-map.md` — package -> purpose -> start file.
 - `downloads.md` — track download flow (non-DRM).
 
-Find code with codegraph, always pass `projectPath: "C:/Users/Matvey/IdeaProjects/arsound"`:
+Find code with codegraph, always pass `projectPath: "C:/Ar/arsound"`:
 - `codegraph_explore "<question or Class method>"` first; `codegraph_search` by name; `codegraph_callers` before changing a method.
 - Each Java package has `package-info.java` with entry points and gotchas. Read it before the package.
 
