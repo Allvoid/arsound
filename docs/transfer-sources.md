@@ -35,8 +35,8 @@
 - Загрузки слушателей (`MUSIC_VIDEO_TYPE_UGC`) называют канал вместо исполнителя: исполнитель берётся из названия
   «Артист - Песня», приписки «(Official Video)», «[Lyrics]» и т. п. убираются.
 - С аккаунтом (тот же вход, что в поиске Arsound, `YouTubeAccount`): cookie сессии +
-  `Authorization: SAPISIDHASH …` + `X-Goog-AuthUser: 0`. Понравившиеся — `browseId: FEmusic_liked_videos`
-  (ссылка `list=LM` значит то же), плейлисты библиотеки — `FEmusic_liked_playlists` (`gridRenderer` →
+  `Authorization: SAPISIDHASH …` + `X-Goog-AuthUser: 0`. Понравившиеся — список лайков `browseId: VLLM`
+  (ссылка `list=LM` — он же; так же читает desktop; `FEmusic_liked_videos` — другой список, песни библиотеки), плейлисты библиотеки — `FEmusic_liked_playlists` (`gridRenderer` →
   `musicTwoRowItemRenderer`, `browseId` `VL…`; `VLLM` и `VLSE` пропускаются). Вход проверяется по
   `responseContext.serviceTrackingParams` → `logged_in`: ответ «не вошёл» на запрос с cookie = сессия устарела.
   С аккаунтом вживую не проверялось (чужой аккаунт использовать нельзя); формы ответа — по ytmusicapi и общему

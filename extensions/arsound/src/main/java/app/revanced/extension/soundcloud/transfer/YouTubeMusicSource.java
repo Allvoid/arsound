@@ -69,7 +69,9 @@ final class YouTubeMusicSource extends TransferSource {
         String cookies = YouTubeAccount.sessionCookies();
         if (YouTubeMusicLink.LIKES.equals(source.kind)) {
             if (cookies == null) throw new SignInRequiredException("YouTube Music likes need the sign-in");
-            SourceCollection likes = read("FEmusic_liked_videos", cookies);
+            // The liked songs are the list "LM" ("Liked music"), as the desktop reads them; FEmusic_liked_videos is another list,
+            // the songs of the library.
+            SourceCollection likes = read("VLLM", cookies);
             return new SourceCollection(likesTitle(), likes.tracks);
         }
         try {
