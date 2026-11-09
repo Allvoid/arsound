@@ -75,13 +75,23 @@ final class WaveBuilder {
         never.addAll(disliked);
         never.addAll(alreadyQueued);
         if (playing != null) never.add(playing);
-        List<String> likes = liked();
+        boolean byArtists = WaveArtists.isOn();
+        List<String> likes = byArtists ? new ArrayList<>() : liked();
 
-        // The playing track weighs most, then the likes, then what was heard to a good length.
+        // "By artists": the seeds are the picked artists' own tracks (the playing one weighs most when it is theirs), and the likes
+        // and what was heard stay out. "By taste": the playing track weighs most, then the likes, then what was heard to a good length.
+        List<String> theirs = byArtists ? WaveArtists.tracks() : new ArrayList<>();
         Map<String, Integer> pool = new LinkedHashMap<>();
-        if (playing != null && !ledger.isSkipped(playing) && !disliked.contains(playing)) pool.put(playing, 4);
-        for (String urn : ledger.heardNewestFirst()) if (!never.contains(urn) && !pool.containsKey(urn)) pool.put(urn, 2);
-        for (String urn : likes) if (!never.contains(urn)) pool.put(urn, 3);
+        if (byArtists) {
+            if (playing != null && theirs.contains(playing) && !ledger.isSkipped(playing) && !disliked.contains(playing)) pool.put(playing, 4);
+            // Seeds may be in the wave already (they are few): only what was skipped or disliked is no seed. The offers still
+            // leave out what is queued.
+            for (String urn : theirs) if (!disliked.contains(urn) && !ledger.isSkipped(urn) && !pool.containsKey(urn)) pool.put(urn, 3);
+        } else {
+            if (playing != null && !ledger.isSkipped(playing) && !disliked.contains(playing)) pool.put(playing, 4);
+            for (String urn : ledger.heardNewestFirst()) if (!never.contains(urn) && !pool.containsKey(urn)) pool.put(urn, 2);
+            for (String urn : likes) if (!never.contains(urn)) pool.put(urn, 3);
+        }
         if (pool.isEmpty()) return new ArrayList<>();
 
         List<WaveMixer.Offer> offers = new ArrayList<>();
@@ -112,6 +122,12 @@ final class WaveBuilder {
         } finally {
             askers.shutdownNow();
         }
+        if (byArtists) {
+            // A share of the artists' own tracks plays too: the wave is theirs, not only their neighbours'.
+            List<String> own = new ArrayList<>(theirs);
+            java.util.Collections.shuffle(own, random);
+            for (String urn : own.subList(0, Math.min(own.size(), Math.max(2, count / 3)))) offers.add(new WaveMixer.Offer(urn, 1.0));
+        }
         List<String> mixed = new WaveMixer(never, likes, random).mix(offers, count * 2);
         // A track already in the queue under another urn kind, or a re-upload of a disliked song, is left out.
         List<SongRef> dislikedSongs = TrackDislikes.songs();
@@ -122,7 +138,8 @@ final class WaveBuilder {
             if (song != null && song.isCopyOfAny(dislikedSongs)) continue;
             result.add(urn);
         }
-        Logger.printInfo(() -> "My Wave: " + result.size() + " tracks from " + sources + ", seeds " + pool.size());
+        Logger.printInfo(() -> "My Wave: " + result.size() + " tracks from " + sources + ", seeds " + pool.size()
+                + (byArtists ? " of the picked artists" : ""));
         return result;
     }
 

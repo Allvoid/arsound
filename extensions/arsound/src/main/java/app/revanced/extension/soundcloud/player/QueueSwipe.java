@@ -241,8 +241,9 @@ public final class QueueSwipe {
     }
 
     /**
-     * The track of the row plays next. A track still ahead moves to the place after the playing one (no copy in the
-     * queue); a track already played, or the playing one, is put there again as SoundCloud's "Play next" does.
+     * The track of the row plays next, after the tracks put next before it, as the "Play next" of the menus does
+     * ({@link PlayNext}). A track still ahead is moved there (the copy put next takes its place, the row it came from goes); a track
+     * already played, or the playing one, is put there again.
      */
     private static void playNext(Context context, Object uiItem) throws Exception {
         Object manager = PlayModeButton.queueManager();
@@ -250,27 +251,34 @@ public final class QueueSwipe {
         if (manager == null || playItem == null) return;
         Object queue = PlayQueueApi.queue(manager);
         int playing = PlayQueueApi.position(manager);
-        Class<?> itemClass = Class.forName("com.soundcloud.android.foundation.playqueue.PlayQueueItem", false,
-                manager.getClass().getClassLoader());
+        ClassLoader loader = manager.getClass().getClassLoader();
+        Class<?> itemClass = Class.forName("com.soundcloud.android.foundation.playqueue.PlayQueueItem", false, loader);
         int from = (int) queue.getClass().getMethod("indexOfPlayQueueItem", itemClass).invoke(queue, playItem);
-        String message;
-        if (from == playing + 1) {
-            message = text("Уже следующий", "Already next");
-        } else if (from > playing + 1) {
-            queue.getClass().getMethod("moveItem", int.class, int.class).invoke(queue, from, playing + 1);
-            publishReordered(manager);
-            message = text("Сыграет следующим", "Plays next");
-        } else {
-            Object urn = playItem.getClass().getMethod("getUrn").invoke(playItem);
-            Class<?> trackUrn = Class.forName("com.soundcloud.android.foundation.domain.TrackUrn", false,
-                    manager.getClass().getClassLoader());
-            if (!trackUrn.isInstance(urn)) return;
-            Object array = java.lang.reflect.Array.newInstance(trackUrn, 1);
-            java.lang.reflect.Array.set(array, 0, urn);
-            manager.getClass().getMethod("p", String.class, array.getClass()).invoke(manager, CONTEXT, array);
-            message = text("Сыграет следующим", "Plays next");
+        int place = PlayNext.placeOf(manager);
+        if (from > playing && from < place) {
+            // Already among the tracks put next.
+            Toast.makeText(context, text("Уже сыграет следующим", "Already plays next"), Toast.LENGTH_SHORT).show();
+            return;
         }
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show();
+        Object urn = playItem.getClass().getMethod("getUrn").invoke(playItem);
+        Class<?> trackUrn = Class.forName("com.soundcloud.android.foundation.domain.TrackUrn", false, loader);
+        if (!trackUrn.isInstance(urn)) return;
+        Object array = java.lang.reflect.Array.newInstance(trackUrn, 1);
+        java.lang.reflect.Array.set(array, 0, urn);
+        List<?> entries = (List<?>) queue.getClass().getMethod("getEntries").invoke(queue);
+        int sizeBefore = entries.size();
+        // Through the manager's own "Play next": the patched place, an item that counts as put next, the queue event.
+        manager.getClass().getMethod("p", String.class, array.getClass()).invoke(manager, CONTEXT, array);
+        if (from > playing) {
+            // The row it came from is one further down now: taken out, so the track is in the queue once. Only when exactly one
+            // row came in: otherwise the queue changed under the swipe, and nothing else is touched.
+            synchronized (entries) {
+                int old = from + 1;
+                if (entries.size() == sizeBefore + 1 && old < entries.size()) entries.remove(old);
+            }
+            publishReordered(manager);
+        }
+        Toast.makeText(context, text("Сыграет следующим", "Plays next"), Toast.LENGTH_SHORT).show();
     }
 
     /** The queue screen and the player read the new order from this event, as after a drag of a row. */

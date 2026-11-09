@@ -64,6 +64,9 @@ public final class WavePage extends Fragment {
     private TextView action;
     private TextView status;
     private LinearLayout chips;
+    /** "By taste" and "By artists", and the line with the artists picked. */
+    private LinearLayout modes;
+    private TextView artistsLine;
     private String chipStates = "";
     /** What the last tap asked of the player, shown until {@link #expectedUntil}; null when nothing was asked. */
     private Boolean expected;
@@ -127,6 +130,21 @@ public final class WavePage extends Fragment {
         LinearLayout.LayoutParams statusParams = matchWidth();
         statusParams.topMargin = Dimens.dp(context, 4);
         column.addView(status, statusParams);
+
+        modes = new LinearLayout(context);
+        modes.setOrientation(LinearLayout.HORIZONTAL);
+        modes.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams modesParams = matchWidth();
+        modesParams.topMargin = Dimens.dp(context, 12);
+        column.addView(modes, modesParams);
+        artistsLine = label(context, "Body.Secondary", "");
+        artistsLine.setGravity(Gravity.CENTER);
+        artistsLine.setMaxLines(2);
+        artistsLine.setEllipsize(TextUtils.TruncateAt.END);
+        artistsLine.setPadding(0, Dimens.dp(context, 6), 0, 0);
+        artistsLine.setOnClickListener(v -> pickArtists(context, accent));
+        column.addView(artistsLine, matchWidth());
+        fillModes(context, accent);
 
         column.addView(heading(context, text("Откуда брать треки", "Where the tracks come from")));
         chips = new LinearLayout(context);
@@ -213,6 +231,60 @@ public final class WavePage extends Fragment {
         }
     }
 
+    /**
+     * The kind of wave: "By taste" (the likes and what was heard, as before) or "By artists" (the tracks of a few artists picked
+     * here). One tap switches; a tap on "By artists" when it is on, or on the line of names, opens the picker. A wave that plays
+     * starts again in the new kind at once.
+     */
+    private void fillModes(Context context, int accent) {
+        modes.removeAllViews();
+        int textColor = ArsoundTheme.palette(context, "primary");
+        int plain = Colors.withAlpha(textColor, 0x14);
+        boolean byArtists = WaveArtists.isOn();
+        WaveChip taste = new WaveChip(context, text("По вкусу", "By taste"), !byArtists, accent, plain, textColor);
+        taste.setToggle(nowOn -> {
+            if (!nowOn) return false;  // a mode is switched by its partner
+            WaveArtists.setOn(false);
+            modes.post(() -> fillModes(context, accent));
+            MyWave.kindChanged(context);
+            return true;
+        });
+        WaveChip artists = new WaveChip(context, text("По музыкантам", "By artists"), byArtists, accent, plain, textColor);
+        artists.setToggle(nowOn -> {
+            if (!nowOn || WaveArtists.chosen().isEmpty()) {
+                pickArtists(context, accent);
+                return false;
+            }
+            WaveArtists.setOn(true);
+            modes.post(() -> fillModes(context, accent));
+            MyWave.kindChanged(context);
+            return true;
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.rightMargin = Dimens.dp(context, 8);
+        modes.addView(taste, params);
+        modes.addView(artists, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (byArtists) {
+            artistsLine.setText(WaveArtists.names(WaveArtists.chosen()) + " · " + text("изменить", "change"));
+            artistsLine.setVisibility(View.VISIBLE);
+        } else {
+            artistsLine.setVisibility(View.GONE);
+        }
+    }
+
+    private void pickArtists(Context context, int accent) {
+        boolean wasOn = WaveArtists.isOn();
+        java.util.Set<WaveArtists.Artist> before = new java.util.HashSet<>(WaveArtists.chosen());
+        WaveArtistPicker.show(context, artists -> {
+            WaveArtists.setOn(true);
+            if (modes != null && modes.isAttachedToWindow()) fillModes(context, accent);
+            // The same artists again, in the same mode: the wave that plays goes on as it was.
+            if (wasOn && before.equals(new java.util.HashSet<>(artists))) return;
+            MyWave.kindChanged(context);
+        });
+    }
+
     /** The sources on and off, one character each, to see they were changed elsewhere. */
     private static String currentStates() {
         StringBuilder states = new StringBuilder();
@@ -260,11 +332,15 @@ public final class WavePage extends Fragment {
         action.setText(!on ? text("Слушать волну", "Play the wave")
                 : sounds ? text("Волна играет", "The wave is playing") : text("Волна на паузе", "The wave is paused"));
         String problem = MyWave.problem();
+        boolean byArtists = WaveArtists.isOn();
         status.setText(on
-                ? added > 0 ? text("По вашему вкусу, без конца · треков в волне: " + added,
-                        "To your taste, without end · tracks in the wave: " + added)
+                ? added > 0 ? (byArtists ? text("По музыкантам, без конца · треков в волне: " + added,
+                        "By artists, without end · tracks in the wave: " + added)
+                        : text("По вашему вкусу, без конца · треков в волне: " + added,
+                        "To your taste, without end · tracks in the wave: " + added))
                 : text("Подбираю треки…", "Picking the tracks…")
                 : problem != null ? problem
+                : byArtists ? text("Музыка в духе выбранных музыкантов без конца", "Music in the style of the picked artists without end")
                 : text("Музыка по вашему вкусу без конца", "Music to your taste without end"));
         if (!on) MyWave.prepare();
         historyHeading.setText(MyWave.isPast() ? text("В прошлый раз", "Last time") : text("В волне", "In the wave"));

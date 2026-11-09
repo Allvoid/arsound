@@ -45,6 +45,10 @@ public final class MyWave {
     /** How long after the start the player may still report the track it played before. */
     private static final long START_HOLD_MS = 3_000;
     private static volatile boolean building;
+    /** Grows at each change of the kind of wave: a batch built for an older kind is dropped when it comes. */
+    private static volatile int generation;
+    /** The kind changed while a batch was being built: the wave starts again when that build ends. */
+    private static volatile boolean restartPending;
     private static volatile boolean preparing;
     /** What the last start ran into, for the tab; null when it went well. */
     private static volatile String problem;
@@ -151,10 +155,19 @@ public final class MyWave {
             play(ready);
             return;
         }
+        int kind = generation;
         Utils.runOnBackgroundThread(() -> {
             try {
                 List<String> entries = new WaveBuilder(new ArrayList<>()).buildQuick(QUICK_BATCH);
-                Utils.runOnMainThread(() -> play(entries));
+                Utils.runOnMainThread(() -> {
+                    if (kind != generation) {
+                        building = false;
+                        restartPending = false;
+                        start(Utils.getContext());
+                        return;
+                    }
+                    play(entries);
+                });
             } catch (Exception ex) {
                 Logger.printException(() -> "My Wave: could not start", ex);
                 Utils.runOnMainThread(() -> fail(text("Волна не включилась: проверьте интернет",
@@ -163,10 +176,40 @@ public final class MyWave {
         });
     }
 
+    /**
+     * The kind of wave was changed ("By taste" or "By artists", or other artists picked): the tracks picked ahead are of the old
+     * kind and go; a wave that plays starts again at once in the new kind.
+     */
+    public static void kindChanged(Context context) {
+        generation++;
+        synchronized (QUEUED) {
+            prepared = null;
+        }
+        preparedTriedAt = 0;
+        if (building || preparing) {
+            // Started again when the build in hand ends; its tracks are of the old kind and are dropped.
+            restartPending = active;
+            return;
+        }
+        if (active) start(context);
+        else prepare();
+    }
+
+    /** A build ended: a change of kind that came meanwhile is carried out now. Main thread. */
+    private static void afterBuild() {
+        if (!restartPending || building) return;
+        restartPending = false;
+        if (active) start(Utils.getContext());
+        else prepare();
+    }
+
     /** Plays the first tracks, then at once looks for the rest with every source, while those play. */
     private static void play(List<String> entries) {
         if (entries.isEmpty()) {
-            fail(text("Пока нечего предложить: полайкайте пару треков или включите источник",
+            fail(WaveArtists.isOn()
+                    ? text("Не нашлось треков выбранных музыкантов: проверьте интернет или выберите других",
+                    "No tracks of the picked artists were found: check the connection or pick others")
+                    : text("Пока нечего предложить: полайкайте пару треков или включите источник",
                     "Nothing to offer yet: like a few tracks or tick a source"));
             return;
         }
@@ -243,10 +286,11 @@ public final class MyWave {
         }
         preparing = true;
         preparedTriedAt = System.currentTimeMillis();
+        int kind = generation;
         Utils.runOnBackgroundThread(() -> {
             try {
                 List<String> entries = new WaveBuilder(new ArrayList<>()).buildQuick(QUICK_BATCH);
-                if (entries.isEmpty()) return;
+                if (entries.isEmpty() || kind != generation) return;
                 synchronized (QUEUED) {
                     prepared = entries;
                     preparedAt = System.currentTimeMillis();
@@ -255,6 +299,7 @@ public final class MyWave {
                 Logger.printInfo(() -> "My Wave: nothing picked ahead: " + ex);
             } finally {
                 preparing = false;
+                Utils.runOnMainThread(MyWave::afterBuild);
             }
         });
     }
@@ -277,6 +322,7 @@ public final class MyWave {
     private static void extend(String playing) {
         if (!active || building) return;
         building = true;
+        int kind = generation;
         Utils.runOnBackgroundThread(() -> {
             try {
                 Set<String> queued;
@@ -284,11 +330,14 @@ public final class MyWave {
                     queued = new LinkedHashSet<>(QUEUED);
                 }
                 List<String> entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
-                Utils.runOnMainThread(() -> add(entries));
+                Utils.runOnMainThread(() -> {
+                    if (kind == generation) add(entries);
+                });
             } catch (Exception ex) {
                 Logger.printException(() -> "My Wave: could not build the next batch", ex);
             } finally {
                 building = false;
+                Utils.runOnMainThread(MyWave::afterBuild);
             }
         });
     }
@@ -317,6 +366,7 @@ public final class MyWave {
         if (waiting < 0) waiting = ownUpcoming(playing);
         if (waiting > REFILL_AT) return;
         building = true;
+        int kind = generation;
         Utils.runOnBackgroundThread(() -> {
             try {
                 Set<String> queued;
@@ -324,11 +374,14 @@ public final class MyWave {
                     queued = new LinkedHashSet<>(QUEUED);
                 }
                 List<String> entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
-                Utils.runOnMainThread(() -> add(entries));
+                Utils.runOnMainThread(() -> {
+                    if (kind == generation) add(entries);
+                });
             } catch (Exception ex) {
                 Logger.printException(() -> "My Wave: could not build the next batch", ex);
             } finally {
                 building = false;
+                Utils.runOnMainThread(MyWave::afterBuild);
             }
         });
     }

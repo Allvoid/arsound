@@ -27,7 +27,9 @@ private val BytecodePatchContext.queueRowBindMethod by gettingFirstMethodDeclara
 private val queueMethods = listOf(
     Triple(QUEUE_MANAGER, "p", listOf("Ljava/lang/String;", "[Lcom/soundcloud/android/foundation/domain/TrackUrn;")),
     Triple(QUEUE_MANAGER, "z", listOf("Lcom/soundcloud/android/foundation/playqueue/PlayQueueEvent;")),
-    Triple(PLAY_QUEUE, "moveItem", listOf("I", "I")),
+    Triple(QUEUE_MANAGER, "i", emptyList()),
+    Triple(QUEUE_MANAGER, "k", emptyList()),
+    Triple(PLAY_QUEUE, "getEntries", emptyList()),
     Triple(PLAY_QUEUE, "items", emptyList()),
     Triple(PLAY_QUEUE, "indexOfPlayQueueItem", listOf("Lcom/soundcloud/android/foundation/playqueue/PlayQueueItem;")),
 )
@@ -38,7 +40,7 @@ private val queueMethods = listOf(
  * Part of the "Arsound" patch, not shown on its own.
  */
 val queueSwipePatch = bytecodePatch {
-    dependsOn(settingsPatch, playModePatch)
+    dependsOn(settingsPatch, playModePatch, playNextPatch)
 
     compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
