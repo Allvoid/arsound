@@ -146,6 +146,7 @@ final class LyricsCache {
     }
 
     synchronized void clear() {
+        LyricsSearch.invalidate();
         File[] files = directory.listFiles();
         if (files == null) return;
         for (File file : files) file.delete();

@@ -48,7 +48,8 @@ final class ImportedQuery {
 
         /** A track of the playlist that is not a file (a SoundCloud track): only its title is known, if at all. */
         static Item other(Object urn, String title) {
-            return new Item(urn, false, title, "", "", "", 0, 0, 0, false);
+            // Its title is all a SoundCloud track has: with one it sorts among the files by title.
+            return new Item(urn, title != null && !title.isEmpty(), title, "", "", "", 0, 0, 0, false);
         }
     }
 

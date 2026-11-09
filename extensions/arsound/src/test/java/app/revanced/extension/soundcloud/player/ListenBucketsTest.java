@@ -84,4 +84,11 @@ public class ListenBucketsTest {
         assertEquals(30, starts.length);
         for (long value : buckets.values(starts)) assertEquals(0, value);
     }
+
+    @Test
+    public void aDamagedRecordFrom1970DoesNotStretchTheYears() {
+        ListenBuckets buckets = ListenBuckets.forPeriod(0, at(2026, 11, 9, 15), MOSCOW);
+        buckets.add(5_000, 4 * MINUTE);
+        assertEquals(ListenBuckets.MIN_YEARS, buckets.starts().length);
+    }
 }

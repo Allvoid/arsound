@@ -24,6 +24,9 @@ public final class ListenBuckets {
         }
     }
 
+    /** Listens before this (2000-01-01) are damaged records: they would stretch the years back to 1970. */
+    static final long EARLIEST = 946_684_800_000L;
+
     /** All time is shown by years, at least this many, so one year of history is not one lonely bar. */
     static final int MIN_YEARS = 3;
 
@@ -55,7 +58,7 @@ public final class ListenBuckets {
 
     /** Counts a listen that started at {@code start} into its bar. Outside the bars (a clock set back) it is left. */
     public void add(long start, long playedMs) {
-        if (playedMs <= 0) return;
+        if (playedMs <= 0 || start < EARLIEST) return;
         long bar = start(start);
         if (bar > current || (unit != Unit.YEAR && bar < first)) return;
         sums.merge(bar, playedMs, Long::sum);

@@ -101,4 +101,12 @@ public class ImportedQueryTest {
         assertEquals(0, FileTags.leadingNumber("/12"));
         assertEquals(0, FileTags.leadingNumber(null));
     }
+
+    @Test
+    public void aSoundCloudTrackWithATitleSortsAmongTheFiles() {
+        ImportedQuery.Item cloud = ImportedQuery.Item.other("sc", "Bravo");
+        ImportedQuery.Item a = item("a", "Alpha", "", "", 0, 0, 0, false);
+        ImportedQuery.Item c = item("c", "Charlie", "", "", 0, 0, 0, false);
+        assertEquals(Arrays.asList("a", "sc", "c"), ImportedQuery.apply(Arrays.asList(c, cloud, a), "", false, ImportedQuery.Sort.TITLE));
+    }
 }

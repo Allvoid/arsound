@@ -33,9 +33,12 @@ public final class LyricsSearch {
     private static final Pattern TRACK_URN = Pattern.compile("soundcloud:tracks:\\d+");
     private static final Pattern SAFE_TRACK = Pattern.compile("soundcloud_tracks_(\\d+)");
 
-    private static final Map<String, String> TEXTS = new ConcurrentHashMap<>();
-    private static final Object LOAD = new Object();
-    private static volatile boolean loaded;
+    /** The texts are read again after this: files the stores pruned are forgotten. */
+    private static final long RELOAD_MS = 30 * 60 * 1000;
+
+    private static volatile Map<String, String> texts = new ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicBoolean LOADING = new java.util.concurrent.atomic.AtomicBoolean();
+    private static volatile long loadedAt;
     private static volatile Set<String> lastMatches = Collections.emptySet();
     private static volatile String lastWords = "";
     private static volatile long lastAt;
@@ -46,7 +49,14 @@ public final class LyricsSearch {
     /** A text was saved: it can be found from now on. Any thread. */
     public static void onSaved(String urn, String[] lines) {
         if (urn == null || lines == null) return;
-        TEXTS.put(urn, SearchText.normalize(String.join(" ", lines)));
+        texts.put(urn, SearchText.normalize(String.join(" ", lines)));
+    }
+
+    /** The stored texts were deleted (the user cleared them): they are read again at the next search. */
+    public static void invalidate() {
+        texts = new ConcurrentHashMap<>();
+        loadedAt = 0;
+        clearMarks();
     }
 
     /** The urn of an older cache file, whose name is the urn made safe: only track urns can be read back. */
@@ -55,32 +65,40 @@ public final class LyricsSearch {
         return matcher.matches() ? "soundcloud:tracks:" + matcher.group(1) : null;
     }
 
-    private static void loadOnce() {
-        if (loaded) return;
-        synchronized (LOAD) {
-            if (loaded) return;
+    /**
+     * Reads the stored texts in the background, never on the thread that asks: the first search must not hold SoundCloud's
+     * database while hundreds of files are read. Read again every {@link #RELOAD_MS}, so pruned files drop out.
+     */
+    static void loadSoon() {
+        if (loadedAt != 0 && System.currentTimeMillis() - loadedAt < RELOAD_MS) return;
+        if (!LOADING.compareAndSet(false, true)) return;
+        Thread thread = new Thread(() -> {
             long start = System.currentTimeMillis();
+            Map<String, String> fresh = new ConcurrentHashMap<>();
             try {
-                LyricsRepository.forEachCached(LyricsSearch::putIfAbsent);
+                LyricsRepository.forEachCached((urn, lines) -> fresh.put(urn, SearchText.normalize(String.join(" ", lines))));
             } catch (Throwable ex) {
                 Logger.printException(() -> "Lyrics search: could not read the stored lyrics", ex);
             }
             try {
-                TranscriptionManager.forEachTranscript(LyricsSearch::putIfAbsent);
+                TranscriptionManager.forEachTranscript((urn, lines) ->
+                        fresh.putIfAbsent(urn, SearchText.normalize(String.join(" ", lines))));
             } catch (Throwable ex) {
                 Logger.printException(() -> "Lyrics search: could not read the recognised lyrics", ex);
             }
-            loaded = true;
-            long took = System.currentTimeMillis() - start;
-            Logger.printInfo(() -> "Lyrics search: " + TEXTS.size() + " texts read in " + took + " ms");
-        }
+            // Texts saved while this ran stay.
+            fresh.putAll(texts);
+            texts = fresh;
+            loadedAt = System.currentTimeMillis();
+            LOADING.set(false);
+            long took = loadedAt - start;
+            Logger.printInfo(() -> "Lyrics search: " + fresh.size() + " texts read in " + took + " ms");
+        }, "arsound-lyrics-search");
+        thread.setPriority(Thread.MIN_PRIORITY);
+        thread.start();
     }
 
-    private static void putIfAbsent(String urn, String[] lines) {
-        TEXTS.putIfAbsent(urn, SearchText.normalize(String.join(" ", lines)));
-    }
-
-    /** The tracks whose lyrics hold every word of the query, at most {@link #MAX_MATCHES}. Blocks at the first call. */
+    /** The tracks whose lyrics hold every word of the query, at most {@link #MAX_MATCHES}. */
     static List<String> matching(String query, Map<String, String> texts) {
         String[] words = SearchText.words(query);
         List<String> result = new ArrayList<>();
@@ -103,13 +121,15 @@ public final class LyricsSearch {
     public static String widen(String sql, String query) {
         try {
             if (sql == null || query == null || SearchText.normalize(query).length() < MIN_QUERY) {
-                // The plain list of likes, or a query too short: no row is marked.
+                // The plain list of likes, or a query too short: no row is marked. The texts are read now, ahead of a search.
                 clearMarks();
+                loadSoon();
                 return sql;
             }
-            loadOnce();
+            // The texts read so far: the first search right after the start may not have them all yet.
+            loadSoon();
             Set<String> urns = new LinkedHashSet<>();
-            for (String urn : matching(query, TEXTS)) if (TRACK_URN.matcher(urn).matches()) urns.add(urn);
+            for (String urn : matching(query, texts)) if (TRACK_URN.matcher(urn).matches()) urns.add(urn);
             lastMatches = urns;
             lastWords = SearchText.normalize(query);
             lastAt = System.currentTimeMillis();

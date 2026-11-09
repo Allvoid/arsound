@@ -49,7 +49,8 @@ public final class QueueSwipe {
     /** The start page of the tracks put next from here, as SoundCloud's own "Play next" has one. */
     private static final String CONTEXT = "arsound:queue";
 
-    private static final Map<View, Gesture> GESTURES = new WeakHashMap<>();
+    /** Rows to their gesture. The gesture is held only weakly here (it holds its row): the row keeps it as its listener. */
+    private static final Map<View, java.lang.ref.WeakReference<Gesture>> GESTURES = new WeakHashMap<>();
 
     private QueueSwipe() {
     }
@@ -77,10 +78,11 @@ public final class QueueSwipe {
         try {
             View row = (View) holder.getClass().getField("itemView").get(holder);
             if (row == null) return;
-            Gesture gesture = GESTURES.get(row);
+            java.lang.ref.WeakReference<Gesture> kept = GESTURES.get(row);
+            Gesture gesture = kept == null ? null : kept.get();
             if (gesture == null) {
                 gesture = new Gesture(row);
-                GESTURES.put(row, gesture);
+                GESTURES.put(row, new java.lang.ref.WeakReference<>(gesture));
                 row.setOnTouchListener(gesture);
             }
             gesture.item = item;

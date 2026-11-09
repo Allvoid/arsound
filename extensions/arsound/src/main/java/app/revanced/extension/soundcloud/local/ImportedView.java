@@ -46,9 +46,9 @@ final class ImportedView {
     private static volatile String query = "";
     private static volatile boolean losslessOnly;
     private static volatile ImportedQuery.Sort sort;
-    /** SoundCloud tracks whose title was asked for once while the app runs: a track with none is not asked again. */
-    private static final java.util.Set<String> ASKED_TITLES = java.util.Collections.newSetFromMap(
-            new java.util.concurrent.ConcurrentHashMap<>());
+    /** SoundCloud tracks whose title was asked for, and when: a failed load (no network) is asked again later. */
+    private static final java.util.Map<String, Long> ASKED_TITLES = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long ASK_AGAIN_MS = 60_000;
 
     private ImportedView() {
     }
@@ -86,8 +86,7 @@ final class ImportedView {
         List<String> untitled = new ArrayList<>();
         for (Object urn : urns) {
             ImportedQuery.Item item = item(urn);
-            if (!query.isEmpty() && !Urns.isLocalFile(urn) && item.title.isEmpty()
-                    && ASKED_TITLES.add(String.valueOf(urn))) {
+            if (!query.isEmpty() && !Urns.isLocalFile(urn) && item.title.isEmpty() && askNow(String.valueOf(urn))) {
                 untitled.add(String.valueOf(urn));
             }
             items.add(item);
@@ -99,6 +98,14 @@ final class ImportedView {
         Logger.printInfo(() -> "Imported: " + result.size() + " of " + urns.size() + " shown (search \"" + query
                 + "\", lossless only " + losslessOnly + ", order " + sort() + ")");
         return result;
+    }
+
+    private static boolean askNow(String urn) {
+        long now = android.os.SystemClock.uptimeMillis();
+        Long asked = ASKED_TITLES.get(urn);
+        if (asked != null && now - asked < ASK_AGAIN_MS) return false;
+        ASKED_TITLES.put(urn, now);
+        return true;
     }
 
     private static ImportedQuery.Item item(Object urn) {

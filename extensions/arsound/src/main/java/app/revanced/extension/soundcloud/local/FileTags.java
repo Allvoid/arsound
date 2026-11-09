@@ -68,6 +68,8 @@ final class FileTags {
     /** Path of a file to its tags. */
     private static final Map<String, Tags> TAGS = new ConcurrentHashMap<>();
     private static final AtomicBoolean LOOKING = new AtomicBoolean();
+    /** Asked for while a look ran: files may have come after its listing, so it looks once more. */
+    private static final AtomicBoolean AGAIN = new AtomicBoolean();
     private static volatile long lookedAt;
 
     private FileTags() {
@@ -83,6 +85,7 @@ final class FileTags {
     /** Reads the tags of all files now. Blocks: off the main thread. */
     static void readAll() {
         if (LOOKING.compareAndSet(false, true)) lookAndRelease();
+        else AGAIN.set(true);
     }
 
     private static void lookSoon() {
@@ -100,6 +103,7 @@ final class FileTags {
             lookedAt = SystemClock.uptimeMillis();
             LOOKING.set(false);
         }
+        if (AGAIN.getAndSet(false) && LOOKING.compareAndSet(false, true)) lookAndRelease();
     }
 
     private static void look() {

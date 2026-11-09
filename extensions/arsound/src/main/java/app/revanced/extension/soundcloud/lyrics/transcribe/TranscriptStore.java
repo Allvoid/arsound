@@ -131,6 +131,7 @@ final class TranscriptStore {
     }
 
     synchronized void clear() {
+        app.revanced.extension.soundcloud.lyrics.LyricsSearch.invalidate();
         File[] files = directory.listFiles();
         if (files == null) return;
         for (File file : files) {
