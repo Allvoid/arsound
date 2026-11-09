@@ -70,11 +70,28 @@ final class TranscriptStore {
                 && Math.abs(transcript.durationMs - durationMs) <= 2000;
     }
 
+    /** Every finished transcript with words, in no order: for the search by lyrics. Reads files; off the main thread. */
+    void forEachDone(java.util.function.BiConsumer<String, String[]> action) {
+        File[] files;
+        synchronized (this) {
+            files = directory.listFiles();
+        }
+        if (files == null) return;
+        for (File file : files) {
+            if (!file.getName().endsWith(".txt")) continue;
+            Transcript transcript = readFile(file);
+            if (transcript != null && transcript.isDone() && transcript.lines.length > 0) {
+                action.accept(transcript.urn, transcript.lines);
+            }
+        }
+    }
+
     synchronized void write(Transcript transcript) throws IOException {
         if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("No folder " + directory);
         File target = file(transcript.urn, transcript.modelId);
         AtomicFiles.write(new File(directory, target.getName() + ".tmp"), target,
                 TranscriptCodec.encode(transcript).getBytes(StandardCharsets.UTF_8));
+        if (transcript.isDone()) app.revanced.extension.soundcloud.lyrics.LyricsSearch.onSaved(transcript.urn, transcript.lines);
         if (++writesSincePrune >= 25) {
             writesSincePrune = 0;
             prune();

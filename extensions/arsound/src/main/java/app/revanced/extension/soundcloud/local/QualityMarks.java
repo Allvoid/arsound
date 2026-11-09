@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.lyrics.LyricsSearch;
 import app.revanced.extension.shared.Utils;
 
 /**
@@ -62,8 +63,13 @@ public final class QualityMarks {
         BUILDING.remove();
         if (line == null || trackItem == null) return line;
         try {
-            File file = LikeObjects.fileOf(Urns.of(trackItem));
-            if (file == null) return line;
+            Object urn = Urns.of(trackItem);
+            File file = LikeObjects.fileOf(urn);
+            if (file == null) {
+                String lyrics = lyricsMark(trackItem, urn);
+                if (lyrics != null) typeField(line).set(line, lyrics);
+                return line;
+            }
             String mark = MARKS.get(file.getPath());
             if (mark == null) lookSoon();
             else if (!mark.isEmpty()) typeField(line).set(line, mark);
@@ -71,6 +77,30 @@ public final class QualityMarks {
             Logger.printException(() -> "Could not add the quality mark", ex);
         }
         return line;
+    }
+
+    /**
+     * "в тексте" for a row of the likes search found by its lyrics ({@link LyricsSearch}); null elsewhere. The stack is
+     * looked at only for the few rows the last search found: the mark belongs to the search screen alone.
+     */
+    private static String lyricsMark(Object trackItem, Object urn) {
+        if (urn == null) return null;
+        String title = text(trackItem, "getTitle"), artist = text(trackItem, "getCreatorName");
+        String mark = LyricsSearch.markFor(String.valueOf(urn), title, artist);
+        if (mark == null) return null;
+        for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+            if (frame.getClassName().contains(".search.")) return mark;
+        }
+        return null;
+    }
+
+    private static String text(Object item, String getter) {
+        try {
+            Object value = item.getClass().getMethod(getter).invoke(item);
+            return value == null ? "" : String.valueOf(value);
+        } catch (Exception ex) {
+            return "";
+        }
     }
 
     /** The mark of an imported file, empty when none is known yet. */

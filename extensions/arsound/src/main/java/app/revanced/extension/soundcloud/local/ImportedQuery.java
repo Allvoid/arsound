@@ -6,6 +6,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
+import app.revanced.extension.soundcloud.shared.SearchText;
+
 /**
  * The search and the order of the "Imported" playlist, without Android: which tracks match the words typed, whether
  * only lossless files are shown, and the order they are shown in. {@link ImportedView} feeds it the tags kept by
@@ -53,31 +55,14 @@ final class ImportedQuery {
     private ImportedQuery() {
     }
 
-    /** Lower case, "ё" as "е", runs of anything but letters and digits as one space. */
+    /** Lower case, "ё" as "е", runs of anything but letters and digits as one space ({@link SearchText}). */
     static String normalize(String text) {
-        if (text == null) return "";
-        String lower = text.toLowerCase(Locale.ROOT).replace('ё', 'е');
-        StringBuilder result = new StringBuilder(lower.length());
-        boolean space = true;
-        for (int i = 0; i < lower.length(); i++) {
-            char c = lower.charAt(i);
-            if (Character.isLetterOrDigit(c)) {
-                result.append(c);
-                space = false;
-            } else if (!space) {
-                result.append(' ');
-                space = true;
-            }
-        }
-        int end = result.length();
-        if (end > 0 && result.charAt(end - 1) == ' ') result.setLength(end - 1);
-        return result.toString();
+        return SearchText.normalize(text);
     }
 
     /** The words of a query; none for an empty one. */
     static String[] words(String query) {
-        String normal = normalize(query);
-        return normal.isEmpty() ? new String[0] : normal.split(" ");
+        return SearchText.words(query);
     }
 
     /** Every word is somewhere in the title, the artist, the album or the file name. */
@@ -85,8 +70,7 @@ final class ImportedQuery {
         if (losslessOnly && !item.lossless) return false;
         if (words.length == 0) return true;
         String haystack = normalize(item.title + " " + item.artist + " " + item.album + " " + item.fileName);
-        for (String word : words) if (!haystack.contains(word)) return false;
-        return true;
+        return SearchText.containsAll(haystack, words);
     }
 
     /** The urns to show, in the order to show them. The order of {@link Sort#ADDED} and of ties is the given one. */

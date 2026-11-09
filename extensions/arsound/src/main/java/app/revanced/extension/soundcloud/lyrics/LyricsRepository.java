@@ -94,6 +94,11 @@ public final class LyricsRepository {
     private LyricsRepository() {
     }
 
+    /** Every stored text of the online lookups: for the search by lyrics. Blocks. */
+    public static void forEachCached(java.util.function.BiConsumer<String, String[]> action) {
+        cache().forEachFound(action);
+    }
+
     private static synchronized LyricsCache cache() {
         if (cache == null) {
             Context context = Utils.getContext();

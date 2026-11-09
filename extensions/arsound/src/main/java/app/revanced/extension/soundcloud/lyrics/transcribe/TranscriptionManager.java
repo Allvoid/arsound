@@ -142,6 +142,11 @@ public final class TranscriptionManager {
     // region Questions
 
     /** Whether this phone can do it at all: a 64-bit ARM phone. Elsewhere the whole feature is hidden. */
+    /** Every finished transcript on the phone, whether recognition is on or off: for the search by lyrics. Blocks. */
+    public static void forEachTranscript(java.util.function.BiConsumer<String, String[]> action) {
+        store().forEachDone(action);
+    }
+
     public static boolean isSupportedDevice() {
         return DeviceState.isSupportedDevice();
     }

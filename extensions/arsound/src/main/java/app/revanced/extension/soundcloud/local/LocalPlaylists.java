@@ -19,7 +19,7 @@ import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
 import app.revanced.extension.soundcloud.shared.Rx;
 
 /**
- * The playlists that live on this phone only, "Imported". Each is a row in SoundCloud's own database, with a
+ * The playlists that live on this phone only: "Imported" and the saved play queue. Each is a row in SoundCloud's own database, with a
  * private playlist's fields and a number the server never gives out, and a post of the user: to the library, the playlist
  * screen, shuffle and the play queue it is a playlist like any other, and the tracks are added on this phone as they were for
  * a playlist on the server. Nothing about it reaches SoundCloud: the patch keeps the sync away from these numbers
@@ -35,6 +35,8 @@ public final class LocalPlaylists {
     public static final String IMPORTED = PREFIX + FIRST_ID;
     /** The "For you" playlist of an earlier version: only {@link LegacyForYou} uses it, to take it out. */
     public static final String FOR_YOU = PREFIX + (FIRST_ID + 1);
+    /** The play queue saved by a long swipe of a queue row ({@link SavedQueue}); a new save replaces it. */
+    public static final String SAVED_QUEUE = PREFIX + (FIRST_ID + 2);
     private static final String STORED_TITLE = "local_playlist_title:";
     private static final long READ_TIMEOUT_SECONDS = 20;
 
@@ -46,7 +48,7 @@ public final class LocalPlaylists {
     /** Whether the playlist exists on this phone only. Called by the patch: the sync and the deletion of posts leave it alone. */
     public static boolean isLocal(Object urn) {
         String text = String.valueOf(urn);
-        return IMPORTED.equals(text) || FOR_YOU.equals(text);
+        return IMPORTED.equals(text) || FOR_YOU.equals(text) || SAVED_QUEUE.equals(text);
     }
 
     /**

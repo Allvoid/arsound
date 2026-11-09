@@ -44,6 +44,8 @@ import app.arsound.patches.soundcloud.player.smoothSheetPatch
 import app.arsound.patches.soundcloud.player.streamCachePatch
 import app.arsound.patches.soundcloud.player.trackTransitionsPatch
 import app.arsound.patches.soundcloud.player.vivoMusicCardPatch
+import app.arsound.patches.soundcloud.player.lyricsSearchPatch
+import app.arsound.patches.soundcloud.player.queueSwipePatch
 import app.arsound.patches.soundcloud.player.wholeCoverPatch
 import app.arsound.patches.soundcloud.recommendations.duplicateFilterPatch
 import app.arsound.patches.soundcloud.region.regionHintPatch
@@ -168,7 +170,7 @@ val arsoundPlayerGroup = arsoundGroup(
     "Arsound: плеер",
     "Эквалайзер, размер и срок хранения кэша потоков, статистика прослушиваний, игра вместе с другими приложениями, " +
         "плавное сворачивание плеера, кольцо прогресса без лишних кадров, Лента без бегущей строки и без мигания подсказки, тексты песен, плавный переход между треками, загрузка следующего трека заранее, " +
-        "скрытие всплывающих комментариев, обложка целиком в полноэкранном плеере.",
+        "скрытие всплывающих комментариев, обложка целиком в полноэкранном плеере, свайп строки очереди («играть следующим», «сохранить очередь»), поиск в лайках по тексту песни.",
     streamCachePatch,
     listeningStatsPatch,
     equalizerPatch,
@@ -181,4 +183,6 @@ val arsoundPlayerGroup = arsoundGroup(
     trackTransitionsPatch,
     playerCommentsPatch,
     wholeCoverPatch,
+    queueSwipePatch,
+    lyricsSearchPatch,
 )

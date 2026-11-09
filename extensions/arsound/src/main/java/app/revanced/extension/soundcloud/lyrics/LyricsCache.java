@@ -85,6 +85,8 @@ final class LyricsCache {
             json.put("sig", signature);
             json.put("at", System.currentTimeMillis());
             json.put("status", result.status.cacheKey);
+            // The file name is the urn made safe, which cannot always be read back: the search by lyrics needs it.
+            json.put("urn", urn);
             if (result.status == LyricsResult.Status.FOUND) {
                 json.put("lines", new JSONArray(Arrays.asList(result.lyrics.lines)));
                 json.put("source", result.lyrics.source.name());
@@ -99,12 +101,38 @@ final class LyricsCache {
             // Written whole or not at all: a track opened right now never reads half a file.
             AtomicFiles.write(new File(directory, file.getName() + ".tmp"), file,
                     json.toString().getBytes(StandardCharsets.UTF_8));
+            if (result.status == LyricsResult.Status.FOUND) LyricsSearch.onSaved(urn, result.lyrics.lines);
             if (++writesSincePrune >= 25) {
                 writesSincePrune = 0;
                 prune();
             }
         } catch (IOException | JSONException ex) {
             // Not stored: the next play looks the track up again.
+        }
+    }
+
+    /**
+     * Every stored text, in no order: the urn (from the file, or read back from the file name of an older file) and its
+     * lines. For the search by lyrics; reads files, off the main thread.
+     */
+    synchronized void forEachFound(java.util.function.BiConsumer<String, String[]> action) {
+        File[] files = directory.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            String name = file.getName();
+            if (!name.endsWith(".json")) continue;
+            try {
+                JSONObject json = new JSONObject(new String(readAll(file), StandardCharsets.UTF_8));
+                if (LyricsResult.Status.fromCacheKey(json.optString("status")) != LyricsResult.Status.FOUND) continue;
+                String urn = json.optString("urn", LyricsSearch.urnOfSafeName(name.substring(0, name.length() - 5)));
+                JSONArray lines = json.optJSONArray("lines");
+                if (urn == null || urn.isEmpty() || lines == null) continue;
+                String[] text = new String[lines.length()];
+                for (int i = 0; i < text.length; i++) text[i] = lines.optString(i);
+                action.accept(urn, text);
+            } catch (IOException | JSONException ignored) {
+                // A broken file has nothing to find.
+            }
         }
     }
 
