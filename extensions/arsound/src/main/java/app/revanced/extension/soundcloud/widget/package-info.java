@@ -27,6 +27,10 @@
  * widget (buttons built, a tap that arrived and what the player did with it, what the phone allows in the
  * background); the Kotlin patch is {@code widget/WidgetDiagnosticsPatch.kt}. {@code onTap} gets the receiver itself,
  * to read the player's state after the tap.</li>
+ * <li>{@code WidgetDiagnostics.runSelfTest(Context, String)} - sends the app's own {@code player.PlayModeReceiver} a
+ * harmless broadcast (plain and through a PendingIntent) and logs whether it arrived; run at a process start and by
+ * {@code debug.sections.WidgetStateSection}. {@code PlayModeReceiver} hands the broadcast to
+ * {@code WidgetDiagnostics.onSelfTest}. Never send SoundCloud's own widget receiver a test: with no action it throws.</li>
  * <li>{@code WidgetDiagnostics.onApplicationStart(Application)} - called by {@code theme.ArsoundTheme.onApplicationCreate}
  * at every process start: why the process started (Android 15 start history) and what the widgets look like.</li>
  * </ul>

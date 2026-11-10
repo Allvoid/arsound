@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 
 import app.revanced.extension.soundcloud.recommendations.DislikeAction;
+import app.revanced.extension.soundcloud.widget.WidgetDiagnostics;
 
 /** The play mode button of the media notification on Android 12L and older. Not exported: only the notification calls it. */
 public final class PlayModeReceiver extends BroadcastReceiver {
@@ -13,5 +14,6 @@ public final class PlayModeReceiver extends BroadcastReceiver {
         if (intent == null) return;
         if (PlayModeButton.ACTION.equals(intent.getAction())) PlayModeButton.cycle();
         else if (PlayModeButton.DISLIKE_ACTION.equals(intent.getAction())) DislikeAction.run(context);
+        else if (WidgetDiagnostics.SELF_TEST_ACTION.equals(intent.getAction())) WidgetDiagnostics.onSelfTest(context, intent);
     }
 }

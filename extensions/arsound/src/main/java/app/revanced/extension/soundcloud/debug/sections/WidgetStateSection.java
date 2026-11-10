@@ -38,6 +38,8 @@ public final class WidgetStateSection implements LogSection {
         lines.probe("home screen app", () -> WidgetDiagnostics.describeLauncher(context));
         lines.probe("widgets", () -> WidgetDiagnostics.describeWidgets(context));
         lines.probe("recent starts of the app, newest first", () -> WidgetDiagnostics.describeStarts(context, 10));
+        // Last: it waits for the broadcasts (a moment when the phone lets them through, up to a few seconds when not).
+        lines.probe("tap delivery", () -> WidgetDiagnostics.runSelfTest(context, "saving the logs"));
         out.write(lines.toString().getBytes(StandardCharsets.UTF_8));
     }
 }

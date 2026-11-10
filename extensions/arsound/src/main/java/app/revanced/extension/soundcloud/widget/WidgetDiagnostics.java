@@ -28,6 +28,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import app.revanced.extension.soundcloud.player.PlayModeReceiver;
 
 import app.revanced.extension.shared.Logger;
 
@@ -192,6 +197,84 @@ public final class WidgetDiagnostics {
         return "process importance " + info.importance + " (100 foreground, 125 foreground service, 400 cached)";
     }
 
+    // ---- delivery self-test ----
+
+    /** The action of the test broadcast; the app's own receiver ({@link PlayModeReceiver}) hands it to {@link #onSelfTest}. */
+    public static final String SELF_TEST_ACTION = "app.revanced.extension.soundcloud.widget.SELF_TEST";
+    private static final String SELF_TEST_ID = "id";
+    private static final int SELF_TEST_REQUEST_CODE = 0x5E1F;
+    /** How long a test broadcast is waited for; the receiver runs on the main thread, which can be busy at a start. */
+    private static final long SELF_TEST_WAIT_MS = 8_000;
+    private static final AtomicInteger selfTestCounter = new AtomicInteger();
+    /** Test id to the time its broadcast arrived (elapsed realtime). */
+    private static final Map<String, Long> selfTestArrived = new ConcurrentHashMap<>();
+
+    /** Called by the app's own receiver when a test broadcast arrives, on the main thread. */
+    public static void onSelfTest(Context context, Intent intent) {
+        try {
+            String id = intent == null ? null : intent.getStringExtra(SELF_TEST_ID);
+            if (id != null) selfTestArrived.put(id, SystemClock.elapsedRealtime());
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Widget: could not note the test broadcast", ex);
+        }
+    }
+
+    /**
+     * Sends the app's own receiver a harmless broadcast two ways, as a plain broadcast and through a PendingIntent
+     * (the way the launcher sends a tap), and waits for both. Tells whether the phone lets a broadcast reach the app at
+     * all, which is what a tap on the widget needs; a tap that never arrives while this passes was stopped by the
+     * launcher, one that fails together with this was stopped by the system. Blocks up to
+     * {@value #SELF_TEST_WAIT_MS} ms: call it off the main thread, which the receiver needs. The result is also written
+     * to the log and to the widget's file.
+     */
+    public static String runSelfTest(Context context, String when) {
+        String result;
+        try {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                result = "not run on the main thread";
+            } else {
+                String base = Process.myPid() + "-" + selfTestCounter.incrementAndGet();
+                String plain = base + "-plain";
+                String pending = base + "-pending";
+                long sent = SystemClock.elapsedRealtime();
+                String problem = "";
+                try {
+                    context.sendBroadcast(selfTestIntent(context, plain));
+                } catch (Throwable ex) {
+                    problem += ", the plain broadcast could not be sent (" + ex + ")";
+                }
+                try {
+                    PendingIntent.getBroadcast(context, SELF_TEST_REQUEST_CODE, selfTestIntent(context, pending),
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE).send();
+                } catch (Throwable ex) {
+                    problem += ", the PendingIntent could not be sent (" + ex + ")";
+                }
+                while (SystemClock.elapsedRealtime() - sent < SELF_TEST_WAIT_MS
+                        && !(selfTestArrived.containsKey(plain) && selfTestArrived.containsKey(pending))) {
+                    Thread.sleep(25);
+                }
+                Long plainAt = selfTestArrived.remove(plain);
+                Long pendingAt = selfTestArrived.remove(pending);
+                result = "plain broadcast " + (plainAt == null ? "NOT delivered in " + SELF_TEST_WAIT_MS + " ms"
+                        : "delivered in " + (plainAt - sent) + " ms")
+                        + ", through a PendingIntent " + (pendingAt == null ? "NOT delivered in " + SELF_TEST_WAIT_MS + " ms"
+                        : "delivered in " + (pendingAt - sent) + " ms")
+                        + ", " + processState() + problem;
+            }
+        } catch (Throwable ex) {
+            result = "failed (" + ex + ")";
+        }
+        String line = "delivery self-test (" + when + "): " + result;
+        Logger.printInfo(() -> "Widget: " + line);
+        WidgetLog.append(context, line);
+        return line;
+    }
+
+    private static Intent selfTestIntent(Context context, String id) {
+        return new Intent(SELF_TEST_ACTION).setClass(context, PlayModeReceiver.class)
+                .setPackage(context.getPackageName()).putExtra(SELF_TEST_ID, id);
+    }
+
     // ---- once per process ----
 
     private static void logProcessStart(Application application) {
@@ -209,6 +292,8 @@ public final class WidgetDiagnostics {
             String widgets = describeWidgets(application);
             Logger.printInfo(() -> "Widget: " + widgets);
             WidgetLog.append(application, widgets);
+            // Whether the phone lets a broadcast reach the app's own receiver at all (the same two ways a tap would).
+            runSelfTest(application, "process start");
         } catch (Throwable ex) {
             Logger.printException(() -> "Widget: could not log the start", ex);
         }
