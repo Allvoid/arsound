@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>@keyframes mvSpin{to{transform:rotate(360deg)}}@keyframes mvDrift{to{transform:translateX(-360px)}}body{margin:0;background:#ece8e6;font-family:system-ui,sans-serif}a{color:#b81e29}a:hover{color:#7d121a}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.6)}.dv-card{max-width:100%;overflow:hidden;box-shadow:0 12px 40px rgba(40,10,14,.28)}.dv-opt:target .dv-oid{background:#b81e29;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6)}</style></helmet>
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Полный экран с линиями из <a class="dv-oid" href="#3h">3h</a></span></div>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:18px;width:fit-content;margin:0 0 10px;padding:12px 18px;border-radius:16px;background:#1d1012;color:#fff;font:500 13px system-ui,sans-serif">
+  <button onClick="{{ togglePlay }}" style="height:36px;min-width:92px;padding:0 14px;border-radius:18px;border:1px solid rgba(255,255,255,.35);background:none;color:#fff;font:600 13px system-ui,sans-serif;cursor:pointer">{{ playLabel }}</button>
+  <label style="display:flex;align-items:center;gap:10px">Громкость<input type="range" min="0" max="100" ref="{{ volRef }}" style="width:300px;accent-color:var(--acc,#dc2430)"><span ref="{{ volTextRef }}" style="width:40px;font-variant-numeric:tabular-nums">60%</span></label>
+  <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" checked="{{ beat }}" onChange="{{ toggleBeat }}" style="width:16px;height:16px;accent-color:var(--acc,#dc2430)">Плавные колебания громкости</label></div>
+<div class="dv-opts" style="margin-top:22px">
+<div class="dv-opt" id="4a"><div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>Моя волна — итоговая сборка</div>
+<div class="dv-card" data-screen-label="4a Моя волна" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(100% 26% at 50% 0%,rgba(170,30,48,.2),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="position:relative;display:flex;align-items:center;padding:8px 10px 0 20px">
+    <h1 style="flex:1;margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+    <sc-if value="{{ btnHeader }}" hint-placeholder-val="{{ false }}"><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></sc-if>
+    <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button>
+  </div>
+  <div style="position:relative;height:150px;margin-top:22px">
+    <canvas ref="{{ fullRef }}" style="position:absolute;left:0;top:0;width:360px;height:150px"></canvas>
+    <div style="position:absolute;inset:0;display:grid;place-items:center"><button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="width:56px;height:56px;border-radius:50%;border:1.5px solid rgba(255,255,255,.9);background:none;display:grid;place-items:center;cursor:pointer;padding:0"><sc-if value="{{ paused }}" hint-placeholder-val="{{ false }}"><svg width="22" height="22" viewBox="0 0 24 24" style="fill:#fff"><path d="M8.5 5v14l11-7z"></path></svg></sc-if><sc-if value="{{ playing }}" hint-placeholder-val="{{ true }}"><svg width="22" height="22" viewBox="0 0 24 24" style="fill:#fff"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if></button></div>
+  </div>
+  <sc-if value="{{ btnTitle }}" hint-placeholder-val="{{ true }}"><div style="position:relative;display:flex;align-items:center;gap:12px;padding:16px 6px 0 20px"><div style="flex:1;min-width:0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px">Музыка по вашему вкусу без конца</div></div><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></div></sc-if>
+  <sc-if value="{{ btnHeader }}" hint-placeholder-val="{{ false }}"><div style="position:relative;padding:16px 20px 0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px;text-align:center">Музыка по вашему вкусу без конца</div></div></sc-if>
+  <sc-if value="{{ btnBelow }}" hint-placeholder-val="{{ false }}"><div style="position:relative;padding:16px 20px 0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px;text-align:center">Музыка по вашему вкусу без конца</div><div style="display:flex;justify-content:center;gap:16px;margin-top:8px"><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></div></div></sc-if>
+  <div style="position:relative;padding:12px 20px 0"><div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#d6c0c4;margin:14px 0 8px 2px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid var(--acc,#dc2430);background:color-mix(in oklab,var(--acc,#dc2430) 30%,transparent);color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#fff"></span>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:none;color:#d6c0c4;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #d6c0c4"></span>{{ s.name }}</button></sc-if>
+        </sc-for></div></div>
+    <div style="font-size:15px;font-weight:700;padding:22px 20px 6px">В прошлый раз</div>
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 6px 6px 20px">
+          <div style="width:48px;height:48px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+            <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+          </div>
+          <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+          <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+        </div>
+      </sc-for>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div></div>
+</div></div>
+</div>
+<p class="dv-next">Дальше можно: «реакция линий сильнее / слабее» · «кнопки волны в шапку» · «покажи экран настроек по шестерёнке»</p>
+</section>
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Линии из <a class="dv-oid" href="#2b">2b</a> реагируют на музыку — восемь способов</span></div>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:18px;width:fit-content;margin:0 0 10px;padding:12px 18px;border-radius:16px;background:#1d1012;color:#fff;font:500 13px system-ui,sans-serif">
+  <button onClick="{{ togglePlay }}" style="height:36px;min-width:92px;padding:0 14px;border-radius:18px;border:1px solid rgba(255,255,255,.35);background:none;color:#fff;font:600 13px system-ui,sans-serif;cursor:pointer">{{ playLabel }}</button>
+  <label style="display:flex;align-items:center;gap:10px">Громкость<input type="range" min="0" max="100" ref="{{ volRef }}" style="width:300px;accent-color:var(--acc,#dc2430)"><span ref="{{ volTextRef }}" style="width:40px;font-variant-numeric:tabular-nums">60%</span></label>
+  <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" checked="{{ beat }}" onChange="{{ toggleBeat }}" style="width:16px;height:16px;accent-color:var(--acc,#dc2430)">Плавные колебания громкости</label>
+</div>
+<p style="margin:0 0 22px;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.6)">Ползунок управляет всеми вариантами сразу. Показана верхняя часть экрана; список треков, мини-плеер и вкладки — как в <a class="dv-oid" href="#2b">2b</a>.</p>
+<div class="dv-opts" style="max-width:1560px">
+<sc-for list="{{ modes }}" as="m" hint-placeholder-count="8">
+<div class="dv-opt" id="{{ m.id }}"><div class="dv-olabel"><a class="dv-oid" href="{{ m.href }}">{{ m.id }}</a>{{ m.label }}</div>
+<div class="dv-card" data-screen-label="{{ m.id }}" style="width:360px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif;padding:34px 0 26px">
+  <div style="position:absolute;inset:0;background:radial-gradient(100% 40% at 50% 0%,rgba(170,30,48,.2),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:relative;display:flex;align-items:center;padding:8px 10px 0 20px">
+    <h1 style="flex:1;margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+    <sc-if value="{{ btnHeader }}" hint-placeholder-val="{{ false }}"><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></sc-if>
+    <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button>
+  </div>
+  <div style="position:relative;height:150px;margin-top:22px">
+    <canvas ref="{{ m.ref }}" style="position:absolute;left:0;top:0;width:360px;height:150px"></canvas>
+    <div style="position:absolute;inset:0;display:grid;place-items:center"><button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="width:56px;height:56px;border-radius:50%;border:1.5px solid rgba(255,255,255,.9);background:none;display:grid;place-items:center;cursor:pointer;padding:0"><sc-if value="{{ paused }}" hint-placeholder-val="{{ false }}"><svg width="22" height="22" viewBox="0 0 24 24" style="fill:#fff"><path d="M8.5 5v14l11-7z"></path></svg></sc-if><sc-if value="{{ playing }}" hint-placeholder-val="{{ true }}"><svg width="22" height="22" viewBox="0 0 24 24" style="fill:#fff"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if></button></div>
+  </div>
+  <sc-if value="{{ btnTitle }}" hint-placeholder-val="{{ true }}"><div style="position:relative;display:flex;align-items:center;gap:12px;padding:16px 6px 0 20px"><div style="flex:1;min-width:0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px">Музыка по вашему вкусу без конца</div></div><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></div></sc-if>
+  <sc-if value="{{ btnHeader }}" hint-placeholder-val="{{ false }}"><div style="position:relative;padding:16px 20px 0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px;text-align:center">Музыка по вашему вкусу без конца</div></div></sc-if>
+  <sc-if value="{{ btnBelow }}" hint-placeholder-val="{{ false }}"><div style="position:relative;padding:16px 20px 0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px;text-align:center">Музыка по вашему вкусу без конца</div><div style="display:flex;justify-content:center;gap:16px;margin-top:8px"><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></div></div></sc-if>
+  <div style="position:relative;padding:12px 20px 0"><div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#d6c0c4;margin:14px 0 8px 2px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid var(--acc,#dc2430);background:color-mix(in oklab,var(--acc,#dc2430) 30%,transparent);color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#fff"></span>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:none;color:#d6c0c4;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #d6c0c4"></span>{{ s.name }}</button></sc-if>
+        </sc-for></div></div>
+</div></div>
+</sc-for>
+</div>
+<p class="dv-next">Дальше можно: «бери <a class="dv-oid" href="#3e">3e</a> и собери полный экран» · «смешай <a class="dv-oid" href="#3a">3a</a> и <a class="dv-oid" href="#3g">3g</a>» · «реакция слабее / сильнее»</p>
+</section>
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Воздушная волна · источники из <a class="dv-oid" href="#1b">1b</a> · общие «скачать» и «ещё» для волны</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a"><div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Тонкие кольца — кнопки в строке с названием</div>
+<div class="dv-card" data-screen-label="2a Тонкие кольца — кнопки в строке с названием" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(80% 40% at 50% 26%,rgba(170,30,48,.2),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0 20px">
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+      <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button></div>
+
+    <div style="position:relative;height:252px;display:grid;place-items:center">
+      {{ rings }}
+      <button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="position:relative;width:68px;height:68px;flex:none;border-radius:50%;border:none;background:#fff;display:grid;place-items:center;cursor:pointer;padding:0;box-shadow:0 0 44px color-mix(in oklab,var(--acc,#dc2430) 55%,transparent)"><sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="27" height="27" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></sc-if><sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="27" height="27" viewBox="0 0 24 24" style="fill:#140a0c"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if></button>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:4px 6px 0 20px">
+      <div style="flex:1;min-width:0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px">Музыка по вашему вкусу без конца</div></div>
+      <button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button>
+      <button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+    </div>
+    <div style="padding:12px 20px 0"><div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#d6c0c4;margin:14px 0 8px 2px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid var(--acc,#dc2430);background:color-mix(in oklab,var(--acc,#dc2430) 30%,transparent);color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#fff"></span>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:none;color:#d6c0c4;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #d6c0c4"></span>{{ s.name }}</button></sc-if>
+        </sc-for></div></div>
+    <div style="font-size:15px;font-weight:700;padding:22px 20px 6px">В прошлый раз</div>
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 6px 6px 20px">
+          <div style="width:48px;height:48px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+            <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+          </div>
+          <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+          <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+        </div>
+      </sc-for>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div></div>
+</div></div>
+
+<div class="dv-opt" id="2b"><div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Плывущие линии — кнопки по бокам от play</div>
+<div class="dv-card" data-screen-label="2b Плывущие линии — кнопки по бокам от play" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(100% 26% at 50% 0%,rgba(170,30,48,.2),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0 20px">
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+      <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button></div>
+
+    <div style="position:relative;height:140px;margin-top:28px">
+      {{ lines }}
+      <div style="position:absolute;inset:0;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:30px">
+        <div style="display:flex;justify-content:flex-end"><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></div>
+        <button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="position:relative;width:72px;height:72px;flex:none;border-radius:50%;border:none;background:#fff;display:grid;place-items:center;cursor:pointer;padding:0;box-shadow:0 0 30px color-mix(in oklab,var(--acc,#dc2430) 55%,transparent)"><sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="29" height="29" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></sc-if><sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="29" height="29" viewBox="0 0 24 24" style="fill:#140a0c"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if></button>
+        <div style="display:flex;justify-content:flex-start"><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></div>
+      </div>
+    </div>
+    <div style="padding:20px 20px 0"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px;text-align:center">Музыка по вашему вкусу без конца</div></div>
+    <div style="padding:12px 20px 0"><div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#d6c0c4;margin:14px 0 8px 2px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid var(--acc,#dc2430);background:color-mix(in oklab,var(--acc,#dc2430) 30%,transparent);color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#fff"></span>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:none;color:#d6c0c4;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #d6c0c4"></span>{{ s.name }}</button></sc-if>
+        </sc-for></div></div>
+    <div style="font-size:15px;font-weight:700;padding:22px 20px 6px">В прошлый раз</div>
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 6px 6px 20px">
+          <div style="width:48px;height:48px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+            <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+          </div>
+          <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+          <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+        </div>
+      </sc-for>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div></div>
+</div></div>
+
+<div class="dv-opt" id="2c"><div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Стеклянная карточка со свечением — кнопки в углу</div>
+<div class="dv-card" data-screen-label="2c Стеклянная карточка со свечением — кнопки в углу" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 30% at 50% 0%,rgba(170,30,48,.16),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0 20px">
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+      <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button></div>
+
+    <div style="position:relative;overflow:hidden;margin:14px 16px 0;border-radius:32px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);padding:6px 14px 16px">
+      <div style="position:absolute;left:50%;top:30px;width:190px;height:150px;margin-left:-125px;border-radius:50%;background:color-mix(in oklab,var(--acc,#dc2430) 55%,transparent);filter:blur(44px)"></div>
+      <div style="position:absolute;left:50%;top:70px;width:150px;height:120px;margin-left:-20px;border-radius:50%;background:rgba(255,196,178,.22);filter:blur(40px)"></div>
+      <div style="position:relative;display:flex;justify-content:flex-end;margin-right:-8px"><button aria-label="Скачать волну" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button><button aria-label="Действия с волной" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button></div>
+      <div style="position:relative;display:grid;place-items:center;padding:8px 0 0"><button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="position:relative;width:72px;height:72px;flex:none;border-radius:50%;border:none;background:#fff;display:grid;place-items:center;cursor:pointer;padding:0;box-shadow:0 0 0px color-mix(in oklab,var(--acc,#dc2430) 55%,transparent)"><sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="29" height="29" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></sc-if><sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="29" height="29" viewBox="0 0 24 24" style="fill:#140a0c"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if></button></div>
+      <div style="position:relative;padding:22px 0 8px"><div style="font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center">Слушать волну</div><div style="font-size:13.5px;color:#cfb8bc;margin-top:4px;text-align:center">Музыка по вашему вкусу без конца</div></div>
+      <div style="position:relative"><div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#d6c0c4;margin:14px 0 8px 2px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid var(--acc,#dc2430);background:color-mix(in oklab,var(--acc,#dc2430) 30%,transparent);color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#fff"></span>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:none;color:#d6c0c4;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #d6c0c4"></span>{{ s.name }}</button></sc-if>
+        </sc-for></div></div>
+    </div>
+    <div style="font-size:15px;font-weight:700;padding:22px 20px 6px">В прошлый раз</div>
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 6px 6px 20px">
+          <div style="width:48px;height:48px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+            <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+          </div>
+          <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+          <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+        </div>
+      </sc-for>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div></div>
+</div></div>
+
+</div>
+<p class="dv-next">Дальше можно: «кольца из <a class="dv-oid" href="#2a">2a</a> внутри карточки <a class="dv-oid" href="#2c">2c</a>» · «кнопки как в <a class="dv-oid" href="#2b">2b</a>, но волна из <a class="dv-oid" href="#2a">2a</a>» · «ещё легче: убери свечение»</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Моя волна — три направления</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Орб и шторка — ближе всего к текущему</div>
+<div class="dv-card" data-screen-label="1a Орб и шторка" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 46% at 50% 26%,rgba(170,30,48,.36),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0 20px">
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+      <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button>
+    </div>
+    <div style="position:relative;height:246px;display:grid;place-items:center">
+      <div style="position:absolute;width:226px;height:226px;border-radius:47% 53% 56% 44%/52% 46% 54% 48%;background:color-mix(in oklab,var(--acc,#dc2430) 22%,transparent);transform:rotate(-14deg)"></div>
+      <div style="position:absolute;width:178px;height:178px;border-radius:54% 46% 45% 55%/47% 55% 45% 53%;background:color-mix(in oklab,var(--acc,#dc2430) 45%,transparent);transform:rotate(22deg)"></div>
+      <div style="position:absolute;width:134px;height:134px;border-radius:50% 50% 47% 53%/53% 47% 53% 47%;background:var(--acc,#dc2430)"></div>
+      <button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="position:relative;width:84px;height:84px;border-radius:50%;border:none;background:#fff;display:grid;place-items:center;cursor:pointer;padding:0">
+        <sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="34" height="34" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></sc-if>
+        <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="34" height="34" viewBox="0 0 24 24" style="fill:#140a0c"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if>
+      </button>
+    </div>
+    <div style="text-align:center;padding:0 20px 22px">
+      <div style="font-size:20px;font-weight:700">Слушать волну</div>
+      <div style="font-size:14px;color:#cfb8bc;margin-top:4px">Музыка по вашему вкусу без конца</div>
+    </div>
+    <div style="background:rgba(22,9,12,.78);backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.09);border-radius:28px 28px 0 0;padding:10px 0 0">
+      <div style="width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.28);margin:0 auto 14px"></div>
+      <div style="font-size:15px;font-weight:700;padding:0 20px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:8px;padding:12px 20px 0">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:22px;border:1px solid transparent;background:var(--acc,#dc2430);color:#fff;font:700 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;padding:0;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.28);background:none;color:#e3ccd0;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;white-space:nowrap">{{ s.name }}</button></sc-if>
+        </sc-for>
+      </div>
+      <div style="font-size:15px;font-weight:700;padding:22px 20px 6px">В прошлый раз</div>
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 6px 6px 20px">
+          <div style="width:48px;height:48px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+            <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+          </div>
+          <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+          <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div>
+  </div>
+</div></div>
+
+<div class="dv-opt" id="1b"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Компактная карточка — список виден сразу</div>
+<div class="dv-card" data-screen-label="1b Компактная карточка" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(80% 34% at 20% 16%,rgba(170,30,48,.34),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0 20px">
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+      <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button>
+    </div>
+    <div style="margin:14px 16px 0;border-radius:28px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);padding:16px">
+      <div style="display:flex;align-items:center;gap:26px;padding:14px 4px 14px 16px">
+        <button aria-label="Слушать волну" onClick="{{ togglePlay }}" style="width:68px;height:68px;flex:none;border-radius:50%;border:none;background:#fff;display:grid;place-items:center;cursor:pointer;padding:0;box-shadow:0 0 0 10px var(--acc,#dc2430),0 0 0 20px color-mix(in oklab,var(--acc,#dc2430) 38%,transparent)">
+          <sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="28" height="28" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></sc-if>
+          <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="28" height="28" viewBox="0 0 24 24" style="fill:#140a0c"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if>
+        </button>
+        <div style="min-width:0">
+          <div style="font-size:20px;font-weight:700;line-height:1.15">Слушать волну</div>
+          <div style="font-size:13.5px;color:#d6c0c4;margin-top:5px;line-height:1.3;text-wrap:pretty">Музыка по вашему вкусу без конца</div>
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#d6c0c4;margin:14px 0 8px 2px">Откуда брать треки</div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:6px">
+        <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+          <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid var(--acc,#dc2430);background:color-mix(in oklab,var(--acc,#dc2430) 30%,transparent);color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#fff"></span>{{ s.name }}</button></sc-if>
+          <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:none;color:#d6c0c4;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #d6c0c4"></span>{{ s.name }}</button></sc-if>
+        </sc-for>
+      </div>
+    </div>
+    <div style="font-size:15px;font-weight:700;padding:24px 20px 6px">В прошлый раз</div>
+    <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+      <div style="display:flex;align-items:center;gap:12px;padding:6px 6px 6px 20px">
+        <div style="width:48px;height:48px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+          <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+        </div>
+        <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+        <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+      </div>
+    </sc-for>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div>
+  </div>
+</div></div>
+
+<div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Волновая форма — одна большая кнопка</div>
+<div class="dv-card" data-screen-label="1c Волновая форма" style="width:360px;height:800px;position:relative;border-radius:30px;background:#150a0d;color:#fff;font-family:'Onest',system-ui,sans-serif">
+  <div style="position:absolute;inset:0;background:radial-gradient(100% 30% at 50% 22%,rgba(170,30,48,.28),transparent 70%)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:600;z-index:3"><span>00:12</span><span>64%</span></div>
+  <div style="position:absolute;inset:34px 0 0 0;overflow-y:auto;scrollbar-width:none;padding:0 0 170px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0 20px">
+      <h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em">Моя волна</h1>
+      <button aria-label="Настройки" style="width:44px;height:44px;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#fff"><circle cx="12" cy="12" r="8.6" style="stroke-width:2.4;stroke-dasharray:3 3.75"></circle><circle cx="12" cy="12" r="6.3" style="stroke-width:1.8"></circle><circle cx="12" cy="12" r="2.5" style="stroke-width:1.8"></circle></svg></button>
+    </div>
+    <div style="height:128px;margin:18px 0 20px;background:repeating-linear-gradient(90deg,var(--acc,#dc2430) 0 4px,transparent 4px 10px);mask:radial-gradient(ellipse 20% 50% at 20% 50%,#000 98%,transparent),radial-gradient(ellipse 15% 28% at 50% 50%,#000 98%,transparent),radial-gradient(ellipse 21% 44% at 79% 50%,#000 98%,transparent),linear-gradient(#000,#000) center/100% 6px no-repeat"></div>
+    <div style="padding:0 20px">
+      <button onClick="{{ togglePlay }}" style="width:100%;height:64px;border-radius:32px;border:none;background:var(--acc,#dc2430);color:#fff;font:700 18px 'Onest',sans-serif;display:flex;align-items:center;gap:14px;padding:0 10px;cursor:pointer">
+        <span style="width:44px;height:44px;flex:none;border-radius:50%;background:#fff;display:grid;place-items:center">
+          <sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="22" height="22" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></sc-if>
+          <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="22" height="22" viewBox="0 0 24 24" style="fill:#140a0c"><rect x="6.5" y="5" width="4" height="14" rx="1"></rect><rect x="13.5" y="5" width="4" height="14" rx="1"></rect></svg></sc-if>
+        </span>
+        <span>Слушать волну</span>
+      </button>
+      <div style="font-size:13.5px;color:#cfb8bc;text-align:center;margin-top:10px">Музыка по вашему вкусу без конца</div>
+    </div>
+    <div style="font-size:15px;font-weight:700;padding:24px 20px 10px">Откуда брать треки</div>
+    <div style="margin:0 20px;border-radius:18px;overflow:hidden;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.14);display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:1px">
+      <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+        <sc-if value="{{ s.on }}" hint-placeholder-val="{{ true }}"><button onClick="{{ s.toggle }}" style="height:48px;border:none;background:#1f0e12;color:#fff;font:600 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:18px;height:18px;border-radius:50%;background:var(--acc,#dc2430);display:grid;place-items:center"><svg width="11" height="11" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>{{ s.name }}</button></sc-if>
+        <sc-if value="{{ s.off }}" hint-placeholder-val="{{ false }}"><button onClick="{{ s.toggle }}" style="height:48px;border:none;background:#1f0e12;color:#cfb8bc;font:500 13px 'Onest',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:0;white-space:nowrap"><span style="width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #cfb8bc"></span>{{ s.name }}</button></sc-if>
+      </sc-for>
+    </div>
+    <div style="font-size:15px;font-weight:700;padding:24px 20px 6px">В прошлый раз</div>
+    <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="6">
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 6px 6px 20px">
+        <div style="width:18px;flex:none;font-size:12px;font-weight:500;color:#cfb8bc;font-variant-numeric:tabular-nums">{{ t.n }}</div>
+        <div style="width:44px;height:44px;border-radius:10px;flex:none;background:repeating-linear-gradient(135deg,#43232a 0 6px,#32171c 6px 12px)"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+          <div style="font-size:13px;color:#cfb8bc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.artist }}</div>
+        </div>
+        <sc-if value="{{ showDownload }}" hint-placeholder-val="{{ true }}"><button aria-label="Скачать" style="width:40px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="26" height="26" viewBox="0 0 24 24" style="fill:none;stroke:#ecd9dc;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"></path></svg></button></sc-if>
+        <button aria-label="Ещё" style="width:36px;height:44px;flex:none;border:none;background:none;padding:0;display:grid;place-items:center;cursor:pointer"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:#ecd9dc"><circle cx="12" cy="5.5" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="12" cy="18.5" r="1.9"></circle></svg></button>
+      </div>
+    </sc-for>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;z-index:4;padding-top:28px;background:linear-gradient(to top,#1a0a0e 64%,transparent)">
+    <div style="margin:0 12px 10px;height:54px;border-radius:27px;background:rgba(74,18,26,.94);border:1px solid rgba(255,130,140,.28);display:flex;align-items:center;gap:12px;padding:0 4px 0 7px">
+      <div style="width:40px;height:40px;flex:none;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #140a0c;display:grid;place-items:center"><svg width="18" height="18" viewBox="0 0 24 24" style="fill:#140a0c"><path d="M8.5 5v14l11-7z"></path></svg></div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cracks In The System (Remix)</div><div style="font-size:12.5px;color:#e0c6ca;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">God’s $oldier a.k.a DJ Nemesis</div></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M18.5 7v6M15.5 10h6"></path></svg></div>
+      <div style="width:40px;height:44px;flex:none;display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:#fff;stroke-width:1.8;stroke-linejoin:round"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.2 4.3 4.3 0 0 1 19.5 10c0 5.400-7.5 10-7.500 10z"></path></svg></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);height:58px;border-top:1px solid rgba(255,255,255,.07);background:#1c0b0f;font-size:11px;color:#cdb0b5">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"></path></svg><span>Главная</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:color-mix(in oklab,var(--acc,#dc2430) 68%,#fff);font-weight:600"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"></path></svg><span>Моя волна</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round"><path d="M12 3l9 5-9 5-9-5zM3 12.500l9 5 9-5M3 17l9 5 9-5"></path></svg><span>Лента</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg><span>Поиск</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><svg width="24" height="24" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M5 4v16M10 4v16M15 5l4.500 15"></path></svg><span>Библиотека</span></div>
+    </div>
+    <div style="height:18px;background:#1c0b0f;display:grid;place-items:center"><div style="width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.5)"></div></div>
+  </div>
+</div></div>
+
+</div>
+<p class="dv-next">Дальше можно: «<a class="dv-oid" href="#1b">1b</a>, но с орбом из <a class="dv-oid" href="#1a">1a</a>» · «источники как в <a class="dv-oid" href="#1c">1c</a> во всех вариантах» · «покажи состояние, когда волна играет»</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;waveButtons&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;в строке названия&quot;,&quot;options&quot;:[&quot;в строке названия&quot;,&quot;в шапке&quot;,&quot;под названием&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#dc2430&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#dc2430&quot;,&quot;#c8451a&quot;,&quot;#c2256e&quot;,&quot;#7b46d6&quot;]},&quot;showDownload&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;motion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { playing: true, vol: 0.6, beat: true, src: { sc: true, lf: true, dz: true } };
+  applyAccent() { document.documentElement.style.setProperty('--acc', this.props.accent ?? '#dc2430'); }
+  cv = {}; _refs = {}; wst = {}; L = 0; vol = 0.6; _vols = new Set(); _txts = new Set();
+  volRef = (el) => {
+    if (!el || this._vols.has(el)) return;
+    this._vols.add(el); el.value = Math.round(this.vol * 100);
+    el.addEventListener('input', () => { this.vol = Number(el.value) / 100; this._vols.forEach(o => { if (o !== el) o.value = el.value; }); this._txts.forEach(x => { x.textContent = el.value + '%'; }); });
+  };
+  volTextRef = (el) => { if (el) this._txts.add(el); };
+  refFor(id) {
+    return this._refs[id] || (this._refs[id] = (el) => {
+      if (el) { const d = Math.min(window.devicePixelRatio || 1, 2); el.width = 360 * d; el.height = 150 * d; this.cv[id] = el; }
+      else delete this.cv[id];
+    });
+  }
+  waveModes() {
+    return [
+      ['3a', 'amp', 'Амплитуда — чем громче, тем выше размах'],
+      ['3b', 'speed', 'Скорость — чем громче, тем быстрее бегут'],
+      ['3c', 'freq', 'Частота — на громком волны сжимаются'],
+      ['3d', 'split', 'Расслоение — одна линия расходится веером'],
+      ['3e', 'pulse', 'Пульс — всплеск вокруг кнопки'],
+      ['3f', 'ripple', 'Рябь — волны расходятся от кнопки'],
+      ['3g', 'weight', 'Толщина и свечение — форма та же'],
+      ['3h', 'all', 'Всё вместе — размах, скорость, частота']
+    ];
+  }
+  drawWaves(dt, t) {
+    const playing = this.state.playing, vol = this.vol, beat = this.state.beat;
+    const motion = this.props.motion ?? true;
+    if (!motion) { dt = 0; this.L = playing ? vol : 0; }
+    else {
+      let target = 0;
+      if (playing) target = beat ? vol * (0.72 + 0.18 * Math.sin(t * 1.7) + 0.1 * Math.sin(t * 0.6 + 1)) : vol;
+      this.L += (target - this.L) * (1 - Math.exp(-dt * (target > this.L ? 3.5 : 2)));
+    }
+    const hex = String(this.props.accent ?? '#dc2430').replace('#', '');
+    const c = [0, 2, 4].map(i => Math.round((parseInt(hex.substr(i, 2), 16) || 0) * 0.72 + 255 * 0.28));
+    const col = (a) => 'rgba(' + c.join(',') + ',' + a + ')';
+    const L = this.L, W = 360, cx = 180, cy = 75, TAU = Math.PI * 2;
+    const base = [{ k: TAU / 360, s: 1, o: 0, a: 1, op: 0.95, w: 1.3 }, { k: TAU / 360, s: 0.7, o: Math.PI, a: 0.75, op: 0.5, w: 1.1 }, { k: TAU / 180, s: 1.5, o: 1, a: 0.45, op: 0.3, w: 1 }];
+    for (const m of this.waveModes().concat([['4a', 'all', '']])) {
+      const id = m[0], mode = m[1], canvas = this.cv[id];
+      if (!canvas) continue;
+      const ctx = canvas.getContext('2d'), d = canvas.width / W;
+      const st = this.wst[id] || (this.wst[id] = { ph: 0 });
+      let A = 18, v = 0.6, km = 1, wm = 1, om = 1, glow = 0, lines = base;
+      let yf = (x, ln) => cy + A * ln.a * Math.sin(ln.k * km * (x - cx) + st.ph * ln.s + ln.o);
+      if (mode === 'amp') { A = 5 + 44 * L; v = 0.7; }
+      else if (mode === 'speed') { v = 0.25 + 5 * L; }
+      else if (mode === 'freq') { A = 14 + 6 * L; km = 1 + 3.2 * L; v = 0.9; }
+      else if (mode === 'split') {
+        A = 14 + 8 * L; v = 0.8;
+        lines = [-3, -2, -1, 0, 1, 2, 3].map(j => ({ j, op: 1 - Math.abs(j) * 0.24, w: 1.1 }));
+        yf = (x, ln) => cy + ln.j * 7 * L + A * Math.sin(TAU / 360 * (x - cx) + st.ph + ln.j * 0.45 * L);
+      }
+      else if (mode === 'pulse') {
+        v = 0.8 + L; const sg = 46 + 50 * L;
+        yf = (x, ln) => cy + (5 + 56 * L * Math.exp(-Math.pow((x - cx) / sg, 2))) * ln.a * Math.sin(ln.k * 3 * (x - cx) + st.ph * ln.s + ln.o);
+      }
+      else if (mode === 'ripple') {
+        v = 1.2 + 3 * L;
+        yf = (x, ln) => { const r = Math.abs(x - cx); return cy + (4 + 34 * L) * ln.a * (0.3 + 0.7 * Math.exp(-r / 130)) * Math.sin(TAU / 110 * r * (ln.k * 360 / TAU) - st.ph * ln.s + ln.o); };
+      }
+      else if (mode === 'weight') { wm = 0.6 + 3.2 * L; om = 0.35 + 0.65 * L; glow = 16 * L; }
+      else { A = 6 + 30 * L; v = 0.4 + 2.6 * L; km = 1 + 0.8 * L; wm = 0.8 + 1.2 * L; }
+      st.ph += dt * v;
+      ctx.setTransform(d, 0, 0, d, 0, 0);
+      ctx.clearRect(0, 0, W, 150);
+      for (const ln of lines) {
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 3) { const y = yf(x, ln); if (x) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+        const a = Math.min(1, ln.op * om), g = ctx.createLinearGradient(0, 0, W, 0);
+        g.addColorStop(0, col(0)); g.addColorStop(0.16, col(a)); g.addColorStop(0.84, col(a)); g.addColorStop(1, col(0));
+        ctx.strokeStyle = g;
+        if (glow) { ctx.globalAlpha = 0.16; ctx.lineWidth = ln.w * wm + glow * 0.6; ctx.stroke(); ctx.globalAlpha = 1; }
+        ctx.lineWidth = ln.w * wm; ctx.stroke();
+      }
+      ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'destination-out';
+      const hg = ctx.createRadialGradient(cx, cy, 30, cx, cy, 42);
+      hg.addColorStop(0, 'rgba(0,0,0,1)'); hg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(cx, cy, 42, 0, TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+  componentDidMount() {
+    this.applyAccent();
+    let last = performance.now();
+    const tick = (now) => { const dt = Math.min(0.05, (now - last) / 1000); last = now; this.drawWaves(dt, now / 1000); this._raf = requestAnimationFrame(tick); };
+    this._raf = requestAnimationFrame(tick);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this._raf); }
+  componentDidUpdate() { this.applyAccent(); }
+  airRings() {
+    const h = React.createElement, motion = false;
+    const soft = 'color-mix(in oklab,var(--acc,#dc2430) 72%,#fff)';
+    const ring = (size, pct, radius, dur, rev, fill) => h('div', { key: size, style: { position: 'absolute', left: '50%', top: '50%', width: size, height: size, margin: (-size / 2) + 'px 0 0 ' + (-size / 2) + 'px', borderRadius: radius, border: '1px solid color-mix(in oklab,' + soft + ' ' + pct + '%,transparent)', background: fill ? 'color-mix(in oklab,var(--acc,#dc2430) 14%,transparent)' : 'none', animation: motion ? 'mvSpin ' + dur + 's linear infinite' + (rev ? ' reverse' : '') : 'none' } });
+    return h('div', { style: { position: 'absolute', inset: 0, pointerEvents: 'none' } }, [
+      ring(114, 95, '50% 50% 46% 54%/54% 46% 54% 46%', 24, false, true),
+      ring(156, 62, '55% 45% 44% 56%/46% 56% 44% 54%', 34, true),
+      ring(198, 38, '46% 54% 57% 43%/53% 45% 55% 47%', 46, false),
+      ring(240, 20, '53% 47% 45% 55%/45% 54% 46% 55%', 60, true)
+    ]);
+  }
+  airLines() {
+    const h = React.createElement, motion = false;
+    const line = (d, op, dur, w) => h('svg', { key: d, width: 720, height: 140, viewBox: '0 0 720 140', style: { position: 'absolute', left: 0, top: 0, fill: 'none', stroke: 'color-mix(in oklab,var(--acc,#dc2430) 72%,#fff)', strokeWidth: w, opacity: op, animation: motion ? 'mvDrift ' + dur + 's linear infinite' : 'none' } }, h('path', { d }));
+    const hole = (r, x) => 'radial-gradient(circle ' + r + 'px at ' + x + ' 50%,transparent 97%,#000)';
+    return h('div', { style: { position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', maskImage: [hole(47, '50%'), hole(27, 'calc(50% - 86px)'), hole(27, 'calc(50% + 84px)'), 'linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent)'].join(','), maskComposite: 'intersect' } }, [
+      line('M0 70Q90 10 180 70T360 70T540 70T720 70', 0.95, 16, 1.3),
+      line('M0 70Q90 116 180 70T360 70T540 70T720 70', 0.5, 24, 1.1),
+      line('M0 70Q45 40 90 70T180 70T270 70T360 70T450 70T540 70T630 70T720 70', 0.3, 11, 1)
+    ]);
+  }
+  renderVals() {
+    const { playing, src } = this.state;
+    const names = [['sc', 'SoundCloud'], ['lf', 'Last.fm'], ['dz', 'Deezer']];
+    const tracks = [
+      ['уеду далеко', 'конец солнечных дней'],
+      ['ночной трамвай', 'плёнка'],
+      ['Static Bloom', 'Hollow Coast'],
+      ['зима в июле', 'папин свитер'],
+      ['Low Tide Radio', 'Marrow & Ash'],
+      ['не звони', 'северный ветер'],
+      ['Glass Hour', 'Pale Kite'],
+      ['после дождя', 'тихий двор'],
+      ['Carbon Lullaby', 'NIGHTSHIFT 04'],
+      ['пустые этажи', 'эхо подъезда']
+    ];
+    return {
+      playing, paused: !playing,
+      playLabel: playing ? 'Пауза' : 'Играть',
+      volRef: this.volRef, volTextRef: this.volTextRef, fullRef: this.refFor('4a'),
+      
+      beat: this.state.beat, toggleBeat: () => this.setState(s => ({ beat: !s.beat })),
+      modes: this.waveModes().map(m => ({ id: m[0], href: '#' + m[0], label: m[2], ref: this.refFor(m[0]) })),
+      btnTitle: (this.props.waveButtons ?? 'в строке названия') === 'в строке названия',
+      btnHeader: this.props.waveButtons === 'в шапке',
+      btnBelow: this.props.waveButtons === 'под названием', rings: this.airRings(), lines: this.airLines(),
+      togglePlay: () => this.setState(s => ({ playing: !s.playing })),
+      showDownload: this.props.showDownload ?? true,
+      sources: names.map(([k, name]) => ({
+        name, on: src[k], off: !src[k],
+        toggle: () => this.setState(s => ({ src: { ...s.src, [k]: !s.src[k] } }))
+      })),
+      tracks: tracks.map(([title, artist], i) => ({ title, artist, n: String(i + 1).padStart(2, '0') }))
+    };
+  }
+}
+</script>
+</body>
+</html>
