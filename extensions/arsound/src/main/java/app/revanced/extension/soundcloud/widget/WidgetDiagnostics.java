@@ -103,7 +103,8 @@ public final class WidgetDiagnostics {
         try {
             logEnvironment(context);
             String text = "buttons wired, playing " + playing + ", the play button "
-                    + (playing ? "sends a broadcast (pause)" : "opens the app (play)") + ", previous and next send broadcasts";
+                    + (playing ? "sends a broadcast (pause)" : "opens the app (play)") + ", previous and next send broadcasts"
+                    + "; delivery: " + WidgetButtons.describe(context);
             Logger.printInfo(() -> "Widget: " + text);
             // The widget is built at every change of track; the file gets the first build and each change of the state.
             Boolean before = lastWiredPlaying;
@@ -125,7 +126,10 @@ public final class WidgetDiagnostics {
             long age = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime();
             String sender = "unknown";
             if (Build.VERSION.SDK_INT >= 34) sender = receiver.getSentFromPackage() + " uid " + receiver.getSentFromUid();
-            String line = "tap arrived: action " + action + ", intent " + (intent == null ? null : intent.getAction())
+            boolean relayed = intent != null && intent.hasExtra(WidgetButtons.RELAYED_EXTRA);
+            // A tap that came by the launcher's own broadcast proves that way works on this phone.
+            if (!relayed) WidgetButtons.noteNativeTap(context);
+            String line = (relayed ? "tap arrived via activity: action " : "tap arrived: action ") + action + ", intent " + (intent == null ? null : intent.getAction())
                     + ", sent from " + sender
                     + ", process started " + age + " ms ago" + (age < JUST_STARTED_MS ? " (started by this tap or just before it)" : "")
                     + ", " + processState()

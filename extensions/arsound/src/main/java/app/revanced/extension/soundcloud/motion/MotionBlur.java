@@ -55,7 +55,7 @@ public final class MotionBlur {
             Window window = activity.getWindow();
             Window.Callback callback = window == null ? null : window.getCallback();
             if (callback == null) return;
-            window.setCallback(new MotionWindowCallback(callback, run));
+            window.setCallback(new MotionWindowCallback(callback, run::onTouch));
             run.markInstalled();
         } catch (Throwable ex) {
             Logger.printException(() -> "Motion blur could not be installed", ex);

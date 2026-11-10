@@ -195,6 +195,39 @@ final class AdditionsMenus {
                 items);
     }
 
+    /**
+     * Lets the user pick a playlist and adds all the given tracks to it at once (the whole list of the "My Wave" tab).
+     * The entries are fixed by the caller at the moment of its tap. One write for the lot, off the main thread, and
+     * the result is told as "added N of M".
+     */
+    static void pickPlaylistForAll(Context context, List<String> entries) {
+        Context appContext = context.getApplicationContext();
+        List<String[]> targets = AdditionsStore.recentPlaylists();
+        String saved = SavedPlaylist.getUrn();
+        if (saved != null) targets.removeIf(item -> item[0].equals(saved));
+        if (targets.isEmpty()) {
+            Toast.makeText(context, text("Откройте нужный плейлист или альбом — он появится в списке.",
+                    "Open the playlist or album first, then it appears in the list."), Toast.LENGTH_LONG).show();
+            return;
+        }
+        List<LocalSheet.Item> items = LocalSheet.items();
+        for (String[] target : targets) {
+            items.add(new LocalSheet.Item(target[1], "ic_actions_playlist_add_to_playlist", () ->
+                    Utils.runOnBackgroundThread(() -> {
+                        int added = AdditionsStore.addAll(target[0], entries);
+                        TrackTitles.rememberAll(entries);
+                        PlaylistChanges.playlistChanged(target[0]);
+                        Logger.printInfo(() -> "My Wave: " + added + " of " + entries.size() + " tracks added to " + target[0]);
+                        Utils.runOnMainThread(() -> Toast.makeText(appContext,
+                                app.revanced.extension.soundcloud.recommendations.WaveBatch.addedSummary(
+                                        added, entries.size(), target[1]), Toast.LENGTH_LONG).show());
+                    })));
+        }
+        LocalSheet.show(context, text("Добавить все треки в плейлист", "Add all the tracks to a playlist"),
+                text("Треки будут видны и играть только на этом телефоне", "The tracks are visible and play only on this phone"),
+                items);
+    }
+
     /** "Local tracks" of a playlist: what was added on this phone, with removal and adding own files. */
     private static void manageAdditions(Context context, String playlistUrn) {
         Utils.runOnBackgroundThread(() -> {

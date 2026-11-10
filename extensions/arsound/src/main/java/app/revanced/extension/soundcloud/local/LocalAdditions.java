@@ -318,6 +318,11 @@ public final class LocalAdditions {
         AdditionsMenus.pickPlaylist(context, entry);
     }
 
+    /** Lets the user pick a playlist and adds all the given tracks to it, the same way as {@link #pickPlaylist}. */
+    public static void pickPlaylistForAll(Context context, List<String> entries) {
+        AdditionsMenus.pickPlaylistForAll(context, entries);
+    }
+
     // endregion
 
     // region Titles

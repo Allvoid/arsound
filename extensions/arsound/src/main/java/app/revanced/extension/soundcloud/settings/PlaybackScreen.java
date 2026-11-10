@@ -113,6 +113,23 @@ final class PlaybackScreen extends SectionScreen {
         ).icon("playback"));
 
         addVivoMusicCardRow(list);
+        addWidgetRows(list);
+    }
+
+    /** The way the buttons of the player widget reach the app: for phones where the launcher's tap does not arrive. */
+    private void addWidgetRows(LinearLayout list) {
+        list.addView(ui.createSubHeading(text("Виджет плеера", "Player widget")));
+        list.addView(ui.createChoiceRow(text("Кнопки виджета", "Widget buttons"),
+                text("Если кнопки виджета (предыдущий, следующий, пауза) ничего не делают, как на части телефонов Xiaomi: "
+                                + "«Через приложение» передаёт нажатие изнутри приложения, на миг открывая невидимый экран. "
+                                + "«Авто» включает это только на Xiaomi и только пока нажатие SoundCloud ни разу не дошло.",
+                        "If the widget's buttons (previous, next, pause) do nothing, as on some Xiaomi phones: "
+                                + "\"Through the app\" passes the tap on from inside the app, opening an invisible screen for a moment. "
+                                + "\"Auto\" does this only on Xiaomi and only until a tap sent the SoundCloud way has arrived."),
+                app.revanced.extension.soundcloud.widget.WidgetButtons.MODE_KEY, 0,
+                new long[]{0, 1, 2},
+                new String[]{text("Авто", "Auto"), text("Через приложение", "Through the app"), text("Как у SoundCloud", "SoundCloud's own")},
+                null));
     }
 
     /** How one track goes over into the next: the fades, and the next track loaded ahead. */

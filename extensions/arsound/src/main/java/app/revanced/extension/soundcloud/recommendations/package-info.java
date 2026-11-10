@@ -27,7 +27,7 @@
  * the verdicts, a background thread loads and fills the ledger), {@code ListenVerdict} (under 15 s skipped, 45 s or
  * most of the track heard, judged by the real length of the track); the broken-heart button - {@code DislikeAction}.
  * The tab page is {@code WavePage} (a fragment of the bottom bar's "My Wave" tab, {@code navbar.WaveNavigationTarget}):
- * {@code WaveOrb} draws the moving wave with the button, {@code WaveChip} is a source chip, {@code WaveCovers} loads
+ * {@code WaveLines} draws the moving lines with the button, {@code WaveChip} is a source chip, {@code WaveCovers} loads
  * the small covers, {@code WaveSession} keeps the last wave (its tracks and their titles) for after a restart. The
  * settings screen is {@code settings.WaveScreen} (the tab switch, sources, memory; behind the page's gear and in the
  * settings, {@code settings.WaveScreenLauncher}).

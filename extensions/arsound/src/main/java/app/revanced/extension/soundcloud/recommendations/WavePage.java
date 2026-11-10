@@ -35,6 +35,8 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.player.CurrentPlayState;
 import app.revanced.extension.soundcloud.player.MediaKeys;
 import app.revanced.extension.soundcloud.player.TrackTitleResolver;
+import app.revanced.extension.soundcloud.download.WaveDownloads;
+import app.revanced.extension.soundcloud.local.LocalAdditions;
 import app.revanced.extension.soundcloud.settings.WaveScreenLauncher;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
@@ -45,9 +47,13 @@ import app.revanced.extension.soundcloud.wallpaper.TopBarStyle;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
- * The page of the "My Wave" tab ({@code navbar.WaveNavigationTarget}): the big moving picture with the play button in
- * the middle ({@link WaveOrb}, the player's play and pause for the wave), what the wave is doing, the sources as chips and the tracks it played, with their covers.
- * The finer settings (what to forget) are behind the gear, on the wave's settings screen.
+ * The page of the "My Wave" tab ({@code navbar.WaveNavigationTarget}), in the shape of the final mockup
+ * ({@code docs/design/my-wave-redesign}): the title and the gear, the strip of three moving lines with the play button in
+ * the middle ({@link WaveLines}, the player's play and pause for the wave), under it the name with the download of the
+ * whole list and the "more" button of the wave (add all to a playlist, like all), the sources as chips and the list of
+ * tracks, each with its download and its "more" (SoundCloud's own track menu).
+ * The finer settings (what to forget) are behind the gear, on the wave's settings screen. The colours come from the
+ * theme; the shapes are the mockup's.
  * <p>
  * The bottom bar makes the page once and hides it while another tab is open; the picture moves and the page looks at
  * the wave again every two seconds only while it is on screen. Main thread.
@@ -60,9 +66,9 @@ public final class WavePage extends Fragment {
     private static final String NOTE_HIDDEN = "wave_note_hidden";
     private static final long TICK_MS = 2000;
 
-    private WaveOrb orb;
-    private TextView action;
+    private WaveLines orb;
     private TextView status;
+    private WaveIconButton download;
     private LinearLayout chips;
     private String chipStates = "";
     /** What the last tap asked of the player, shown until {@link #expectedUntil}; null when nothing was asked. */
@@ -112,29 +118,26 @@ public final class WavePage extends Fragment {
 
         column.addView(header(context));
 
-        orb = new WaveOrb(context, accent, ArsoundTheme.palette(context, "primary"), ArsoundTheme.palette(context, "surface"));
+        int primary = ArsoundTheme.palette(context, "primary");
+        orb = new WaveLines(context, accent, primary, ArsoundTheme.palette(context, "surface"));
         orb.setOnClickListener(v -> toggle(context));
         LinearLayout.LayoutParams orbParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
-        orbParams.topMargin = Dimens.dp(context, 8);
+        orbParams.topMargin = Dimens.dp(context, 22);
+        // The strip runs the whole width of the screen, across the page's side margins.
+        orbParams.leftMargin = -side;
+        orbParams.rightMargin = -side;
         column.addView(orb, orbParams);
 
-        action = label(context, "H3.Primary", "");
-        action.setGravity(Gravity.CENTER);
-        column.addView(action, matchWidth());
-        status = label(context, "Body.Secondary", "");
-        status.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams statusParams = matchWidth();
-        statusParams.topMargin = Dimens.dp(context, 4);
-        column.addView(status, statusParams);
+        column.addView(waveRow(context, primary));
 
-        column.addView(heading(context, text("Откуда брать треки", "Where the tracks come from")));
+        column.addView(heading(context, text("ОТКУДА БРАТЬ ТРЕКИ", "WHERE THE TRACKS COME FROM"), 12, 600, 0.06f, 22));
         chips = new LinearLayout(context);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         column.addView(chips, matchWidth());
         fillChips(context, accent);
 
-        historyHeading = heading(context, text("В волне", "In the wave"));
+        historyHeading = heading(context, text("В волне", "In the wave"), 15, 700, 0f, 24);
         column.addView(historyHeading);
         history = new LinearLayout(context);
         history.setOrientation(LinearLayout.VERTICAL);
@@ -169,21 +172,93 @@ public final class WavePage extends Fragment {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = label(context, "H1.Primary", text("Моя волна", "My Wave"));
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        title.setTypeface(Typeface.create(Typeface.DEFAULT, 800, false));
+        title.setLetterSpacing(-0.02f);
         row.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        ImageView gear = new ImageView(context);
-        int icon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_cog");
-        if (icon != 0) gear.setImageResource(icon);
-        gear.setImageTintList(ColorStateList.valueOf(ArsoundTheme.palette(context, "primary")));
-        int pad = Dimens.dp(context, 8);
-        gear.setPadding(pad, pad, pad, pad);
-        gear.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), null,
-                rounded(0xFFFFFFFF, Dimens.dp(context, 100))));
+        WaveIconButton gear = new WaveIconButton(context, WaveIconButton.Kind.GEAR,
+                ArsoundTheme.palette(context, "primary"), 44, 44, 26);
         gear.setContentDescription(text("Настройки волны", "Wave settings"));
         gear.setOnClickListener(v -> context.startActivity(WaveScreenLauncher.intent(context)));
-        int size = Dimens.dp(context, 44);
-        row.addView(gear, new LinearLayout.LayoutParams(size, size));
+        row.addView(gear);
         return row;
+    }
+
+    /** Under the strip: the name and the line about the wave, and the download and the "more" of the whole list. */
+    private View waveRow(Context context, int primary) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView name = label(context, "H3.Primary", text("Слушать волну", "Play the wave"));
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        name.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+        texts.addView(name);
+        status = label(context, "Body.Secondary", "");
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        status.setSingleLine(true);
+        status.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(status);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        download = new WaveIconButton(context, WaveIconButton.Kind.DOWNLOAD, primary, 40, 44, 26);
+        download.setContentDescription(text("Скачать весь список", "Download the whole list"));
+        download.setOnClickListener(v -> downloadList(context));
+        row.addView(download);
+        WaveIconButton more = new WaveIconButton(context, WaveIconButton.Kind.MORE, primary, 36, 44, 24);
+        more.setContentDescription(text("Ещё: действия со всем списком", "More: actions on the whole list"));
+        more.setOnClickListener(v -> WaveMenu.show(more,
+                new WaveMenu.Row("ic_actions_playlist_add_to_playlist",
+                        text("Добавить все треки в плейлист", "Add all the tracks to a playlist"), () -> addAll(context)),
+                new WaveMenu.Row("ic_actions_heart", text("Лайкнуть все в списке", "Like all in the list"),
+                        () -> likeAll(context))));
+        row.addView(more);
+        LinearLayout.LayoutParams params = matchWidth();
+        params.topMargin = Dimens.dp(context, 4);
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    /** The tracks of the list at this moment, fixed for an action on the whole list; empty when there are none. */
+    private static List<String> snapshot(Context context) {
+        List<String> tracks = WaveBatch.snapshot(MyWave.around(BEFORE, RECENT));
+        if (tracks.isEmpty()) {
+            Toast.makeText(context, text("В списке нет треков", "The list has no tracks"), Toast.LENGTH_SHORT).show();
+        }
+        return tracks;
+    }
+
+    private void downloadList(Context context) {
+        List<String> tracks = snapshot(context);
+        if (tracks.isEmpty()) return;
+        startDownload(context, tracks);
+    }
+
+    private void startDownload(Context context, List<String> tracks) {
+        if (!WaveDownloads.start(context, tracks)) {
+            Toast.makeText(context, text("Скачивание уже идёт", "A download is already running"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(context, text("Скачиваю треков: " + tracks.size(), "Downloading tracks: " + tracks.size()),
+                Toast.LENGTH_SHORT).show();
+        update();
+    }
+
+    private void addAll(Context context) {
+        List<String> tracks = snapshot(context);
+        if (!tracks.isEmpty()) LocalAdditions.pickPlaylistForAll(context, tracks);
+    }
+
+    private void likeAll(Context context) {
+        List<String> tracks = snapshot(context);
+        if (tracks.isEmpty()) return;
+        if (!WaveLikes.start(context, tracks)) {
+            Toast.makeText(context, text("Лайки уже ставятся", "The likes are already being given"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(context, text("Ставлю лайки: " + tracks.size(), "Liking: " + tracks.size()), Toast.LENGTH_SHORT).show();
     }
 
     /** One chip per source, flooded with the accent when it is on. At least one stays on. */
@@ -206,9 +281,10 @@ public final class WavePage extends Fragment {
                 chipStates = currentStates();
                 return true;
             });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.rightMargin = Dimens.dp(context, 8);
+            // The mockup's grid: the first chip is a little wider (1.3 : 1 : 1), six dp between them.
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    chips.getChildCount() == 0 ? 1.3f : 1f);
+            if (chips.getChildCount() > 0) params.leftMargin = Dimens.dp(context, 6);
             chips.addView(chip, params);
         }
     }
@@ -257,14 +333,10 @@ public final class WavePage extends Fragment {
         int added = MyWave.addedCount();
         orb.setPlaying(sounds);
         orb.setContentDescription(sounds ? text("Пауза", "Pause") : text("Играть", "Play"));
-        action.setText(!on ? text("Слушать волну", "Play the wave")
-                : sounds ? text("Волна играет", "The wave is playing") : text("Волна на паузе", "The wave is paused"));
+        download.setProgress(WaveDownloads.progress());
         String problem = MyWave.problem();
-        status.setText(on
-                ? added > 0 ? text("По вашему вкусу, без конца · треков в волне: " + added,
-                        "To your taste, without end · tracks in the wave: " + added)
-                : text("Подбираю треки…", "Picking the tracks…")
-                : problem != null ? problem
+        status.setText(!on && problem != null ? problem
+                : on && added == 0 ? text("Подбираю треки…", "Picking the tracks…")
                 : text("Музыка по вашему вкусу без конца", "Music to your taste without end"));
         if (!on) MyWave.prepare();
         historyHeading.setText(MyWave.isPast() ? text("В прошлый раз", "Last time") : text("В волне", "In the wave"));
@@ -341,7 +413,7 @@ public final class WavePage extends Fragment {
             return;
         }
         for (String urn : urns) {
-            View row = historyRow(context, tracks.get(urn), urn.equals(playing));
+            View row = historyRow(context, tracks.get(urn), urn.equals(playing), urn);
             // A tap plays the wave from this track, the ones after it following, as in a playlist.
             row.setOnClickListener(v -> {
                 MyWave.playFrom(urn);
@@ -355,8 +427,12 @@ public final class WavePage extends Fragment {
         if (!tracks.keySet().containsAll(urns) && retriesLeft-- > 0) retryIn = RETRY_TICKS;
     }
 
-    /** A row of the list: the cover, the title and the artist; the track playing now has its title in the accent. */
-    private View historyRow(Context context, String[] track, boolean playing) {
+    /**
+     * A row of the list: the cover, the title and the artist, and on the right the download of this track and its "more",
+     * which opens SoundCloud's own track menu (add to a playlist, play next, share and the rest). The track playing now has
+     * its title in the accent.
+     */
+    private View historyRow(Context context, String[] track, boolean playing, String urn) {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -364,13 +440,14 @@ public final class WavePage extends Fragment {
         row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22FFFFFF), null,
                 rounded(0xFFFFFFFF, Dimens.dp(context, 10))));
         row.setClickable(true);
+        row.setFocusable(true);
         // The rows lie straight on the page, like SoundCloud's track lists, with no card under them.
-        row.setPadding(0, Dimens.dp(context, 8), 0, Dimens.dp(context, 8));
+        row.setPadding(0, Dimens.dp(context, 7), 0, Dimens.dp(context, 7));
 
         ImageView cover = new ImageView(context);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        cover.setBackground(rounded(Colors.withAlpha(ArsoundTheme.palette(context, "special"), 0x40), Dimens.dp(context, 8)));
-        float corner = Dimens.dpExact(context, 8);
+        cover.setBackground(rounded(Colors.withAlpha(ArsoundTheme.palette(context, "special"), 0x40), Dimens.dp(context, 10)));
+        float corner = Dimens.dpExact(context, 10);
         cover.setOutlineProvider(new ViewOutlineProvider() {
             @Override
             public void getOutline(View view, Outline outline) {
@@ -385,16 +462,16 @@ public final class WavePage extends Fragment {
         LinearLayout texts = new LinearLayout(context);
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView title = label(context, "Body.Primary", track == null ? text("Трек SoundCloud", "SoundCloud track") : track[0]);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        title.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
-        if (playing) {
-            title.setTextColor(ArsoundTheme.palette(context, "special"));
-            title.setTypeface(Typeface.DEFAULT_BOLD);
-        }
+        if (playing) title.setTextColor(ArsoundTheme.palette(context, "special"));
         texts.addView(title);
         String uploader = track == null || track[1] == null ? "" : track[1];
         if (!uploader.isEmpty()) {
             TextView artist = label(context, "Body.Secondary", uploader);
+            artist.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             artist.setSingleLine(true);
             artist.setEllipsize(TextUtils.TruncateAt.END);
             texts.addView(artist);
@@ -402,6 +479,20 @@ public final class WavePage extends Fragment {
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         textParams.leftMargin = Dimens.dp(context, 12);
         row.addView(texts, textParams);
+
+        int ink = ArsoundTheme.palette(context, "primary");
+        WaveIconButton save = new WaveIconButton(context, WaveIconButton.Kind.DOWNLOAD, ink, 40, 44, 26);
+        save.setContentDescription(text("Скачать трек", "Download the track"));
+        save.setOnClickListener(v -> startDownload(context, java.util.Collections.singletonList(urn)));
+        row.addView(save);
+        WaveIconButton more = new WaveIconButton(context, WaveIconButton.Kind.MORE, ink, 36, 44, 24);
+        more.setContentDescription(text("Меню трека", "Track menu"));
+        more.setOnClickListener(v -> {
+            if (!TrackMenuLauncher.open(context, urn)) {
+                Toast.makeText(context, text("Меню трека не открылось", "The track menu did not open"), Toast.LENGTH_SHORT).show();
+            }
+        });
+        row.addView(more);
         return row;
     }
 
@@ -553,9 +644,13 @@ public final class WavePage extends Fragment {
         return view;
     }
 
-    private static TextView heading(Context context, String value) {
-        TextView view = label(context, "H4.Primary", value);
-        view.setPadding(0, Dimens.dp(context, 28), 0, Dimens.dp(context, 10));
+    private static TextView heading(Context context, String value, float size, int weight, float tracking, int topDp) {
+        TextView view = label(context, "Body.Secondary", value);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+        view.setTypeface(Typeface.create(Typeface.DEFAULT, weight, false));
+        view.setLetterSpacing(tracking);
+        if (weight >= 700) view.setTextColor(ArsoundTheme.palette(context, "primary"));
+        view.setPadding(0, Dimens.dp(context, topDp), 0, Dimens.dp(context, 10));
         return view;
     }
 

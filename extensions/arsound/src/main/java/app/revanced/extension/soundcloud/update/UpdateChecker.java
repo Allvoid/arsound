@@ -31,6 +31,7 @@ import app.revanced.extension.soundcloud.local.WatchFolder;
 import app.revanced.extension.soundcloud.login.LoginLogsButton;
 import app.revanced.extension.soundcloud.network.NetworkBanner;
 import app.revanced.extension.soundcloud.permissions.WelcomePermissions;
+import app.revanced.extension.soundcloud.player.MiniPlayerRipple;
 import app.revanced.extension.soundcloud.player.VivoMusicCard;
 import app.revanced.extension.soundcloud.search.SearchSourceSwitch;
 import app.revanced.extension.soundcloud.settings.Settings;
@@ -44,7 +45,7 @@ import app.revanced.extension.soundcloud.shared.Screens;
 @SuppressWarnings("unused")
 public final class UpdateChecker {
     /** Must match {@code version} in gradle.properties. */
-    public static final String VERSION = "1.2.1-test.2";
+    public static final String VERSION = "1.2.1-test.3";
 
     public static final String REPOSITORY_URL = "https://github.com/Allvoid/arsound";
     /** The ready APK of every version is posted here. */
@@ -94,6 +95,7 @@ public final class UpdateChecker {
                 .add("search switch", SearchSourceSwitch::onActivityResumed, SearchSourceSwitch::onActivityPaused)
                 .add("watch folder", WatchFolder::onActivityResumed)
                 .add("login logs", LoginLogsButton::onActivityResumed)
+                .add("mini player ripple", MiniPlayerRipple::onActivityResumed)
                 .add("motion blur", app.revanced.extension.soundcloud.motion.MotionBlur::onActivityResumed,
                         app.revanced.extension.soundcloud.motion.MotionBlur::onActivityPaused)
                 // Changes kept back to be written together reach the disk before the app may be ended in the background.

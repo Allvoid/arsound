@@ -13,6 +13,7 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 import app.revanced.extension.shared.Logger;
 
@@ -20,22 +21,23 @@ import app.revanced.extension.shared.Logger;
  * The callback of a screen's window with one more job: it lets {@link MotionBlurRun} see every touch before the screen
  * does. Everything else goes straight to the callback it wraps.
  */
-final class MotionWindowCallback implements Window.Callback {
+public final class MotionWindowCallback implements Window.Callback {
     private final Window.Callback inner;
-    private final MotionBlurRun run;
+    private final Consumer<MotionEvent> onTouch;
 
-    MotionWindowCallback(Window.Callback inner, MotionBlurRun run) {
+    /** @param onTouch Sees every touch of the screen before the screen does. */
+    public MotionWindowCallback(Window.Callback inner, Consumer<MotionEvent> onTouch) {
         this.inner = inner;
-        this.run = run;
+        this.onTouch = onTouch;
     }
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         try {
-            run.onTouch(event);
+            onTouch.accept(event);
         } catch (Throwable ex) {
             // The touch is the screen's: a failing blur must never take it away.
-            Logger.printException(() -> "Motion blur failed on a touch", ex);
+            Logger.printException(() -> "A touch watcher failed on a touch", ex);
         }
         return inner.dispatchTouchEvent(event);
     }

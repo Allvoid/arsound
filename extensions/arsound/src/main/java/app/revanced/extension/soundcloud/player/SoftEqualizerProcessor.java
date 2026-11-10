@@ -20,6 +20,7 @@ public final class SoftEqualizerProcessor implements AudioProcessor {
 
     private final SoftEffects effects = new SoftEffects();
     private boolean active;
+    private boolean floats;
     private boolean inputEnded;
     private ByteBuffer output = EMPTY;
     private ByteBuffer buffer = EMPTY;
@@ -37,6 +38,7 @@ public final class SoftEqualizerProcessor implements AudioProcessor {
     @Override
     public AudioFormat f(AudioFormat format) {
         active = SoftEffects.supports(format.c) && format.b > 0 && format.a > 0;
+        floats = format.c == SoftEffects.ENCODING_PCM_FLOAT;
         if (!active) return AudioFormat.e;
         effects.configure(format.a, format.b, format.c);
         return format;
@@ -56,6 +58,8 @@ public final class SoftEqualizerProcessor implements AudioProcessor {
         buffer.clear();
         effects.process(input, buffer);
         buffer.flip();
+        // The loudness for the lines of the "My Wave" tab: a sparse look at what goes on to the speaker.
+        AudioLevel.feed(buffer, floats);
         output = buffer;
     }
 

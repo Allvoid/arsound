@@ -19,9 +19,11 @@ import app.revanced.extension.soundcloud.shared.Colors;
 import app.revanced.extension.soundcloud.shared.Dimens;
 
 /**
- * A source chip of the "My Wave" tab. Turned on, the accent floods it from the point the finger touched and a tick
- * slides in before the name; turned off, the colour drains back into that point. The chip gives a short tap of the
- * vibration, dips under the finger and springs back; a chip that must stay on shakes its head instead.
+ * A source chip of the "My Wave" tab, in the mockup's shape: 44 dp high, corners of 14 dp. Turned on it has a border
+ * of the accent, the accent at 30 % flooding it from the point the finger touched, a filled dot of 8 dp before the
+ * name and the name in the text colour, semibold; turned off, a faint border, a ring in place of the dot and a quiet
+ * name. The dot fills and empties as the chip changes. The chip gives a short tap of the vibration, dips under the
+ * finger and springs back; a chip that must stay on shakes its head instead; hover and keyboard focus light it a little.
  */
 final class WaveChip extends View {
     /** Answers a tap: whether the chip may change; it then shows the new state itself. */
@@ -38,7 +40,9 @@ final class WaveChip extends View {
     private final RectF bounds = new RectF();
     private final Path clip = new Path();
     private final Path tickPath = new Path();
-    private final int padH, height, tickSpace;
+    private final int padH, height, dotSpace;
+    private final float corner;
+    private float glow;
 
     private boolean on;
     /** How far the accent has flooded the chip, from 0 (off) to 1 (on). */
@@ -56,18 +60,16 @@ final class WaveChip extends View {
         this.onAccent = Colors.contrast(accent);
         this.plain = plain;
         this.textColor = textColor;
-        padH = Dimens.dp(context, 16);
-        height = Dimens.dp(context, 40);
-        tickSpace = Dimens.dp(context, 20);
-        text.setTextSize(Dimens.dpExact(context, 15));
-        text.setTypeface(Typeface.DEFAULT_BOLD);
+        padH = Dimens.dp(context, 12);
+        height = Dimens.dp(context, 44);
+        dotSpace = Dimens.dp(context, 8 + 8);
+        corner = Dimens.dpExact(context, 14);
+        text.setTextSize(Dimens.dpExact(context, 14.5f));
+        text.setTypeface(Typeface.create(Typeface.DEFAULT, 500, false));
         tick.setStyle(Paint.Style.STROKE);
-        tick.setStrokeWidth(Dimens.dpExact(context, 2.2f));
-        tick.setStrokeCap(Paint.Cap.ROUND);
-        tick.setStrokeJoin(Paint.Join.ROUND);
+        tick.setStrokeWidth(Dimens.dpExact(context, 1.5f));
         outline.setStyle(Paint.Style.STROKE);
-        outline.setStrokeWidth(Dimens.dpExact(context, 1));
-        outline.setColor(Colors.withAlpha(accent, 0x66));
+        outline.setStrokeWidth(Dimens.dpExact(context, 1.2f));
         setClickable(true);
         setFocusable(true);
         updateDescription();
@@ -79,8 +81,8 @@ final class WaveChip extends View {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int width = Math.round(padH * 2 + tickSpace + text.measureText(label));
-        setMeasuredDimension(width, height);
+        int wanted = Math.round(padH * 2 + dotSpace + text.measureText(label));
+        setMeasuredDimension(resolveSize(wanted, widthMeasureSpec), height);
     }
 
     @Override
@@ -142,46 +144,67 @@ final class WaveChip extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
-        float w = getWidth(), h = getHeight(), radius = h / 2f;
+        float w = getWidth(), h = getHeight();
         bounds.set(0, 0, w, h);
-        fill.setColor(plain);
-        canvas.drawRoundRect(bounds, radius, radius, fill);
+        // A quiet tint of the text colour over the page; lit a little by the pointer or the keyboard focus.
+        fill.setColor(Colors.withAlpha(textColor, Math.round(0x0A + 0x14 * glow)));
+        canvas.drawRoundRect(bounds, corner, corner, fill);
 
         if (progress > 0f) {
             canvas.save();
             clip.reset();
-            clip.addRoundRect(bounds, radius, radius, Path.Direction.CW);
+            clip.addRoundRect(bounds, corner, corner, Path.Direction.CW);
             canvas.clipPath(clip);
             // Far enough from the touch point to reach every corner.
             float reach = (float) Math.hypot(Math.max(touchX, w - touchX), Math.max(touchY, h - touchY));
-            fill.setColor(accent);
+            fill.setColor(Colors.withAlpha(accent, 0x4D));
             canvas.drawCircle(touchX, touchY, reach * progress, fill);
             canvas.restore();
         }
         bounds.inset(outline.getStrokeWidth() / 2f, outline.getStrokeWidth() / 2f);
-        outline.setAlpha(Math.round(0x66 * (1 - progress)));
-        canvas.drawRoundRect(bounds, radius, radius, outline);
+        outline.setColor(Colors.blend(Colors.withAlpha(textColor, Math.round(0x29 + 0x30 * glow)), accent, progress));
+        canvas.drawRoundRect(bounds, corner, corner, outline);
 
-        int ink = Colors.blend(textColor, onAccent, progress);
-        // The name moves right as the tick comes in, so the two stay centred together.
-        float textWidth = text.measureText(label);
-        float start = (w - textWidth - tickSpace * progress) / 2f;
-        if (progress > 0.05f) {
-            tick.setColor(Colors.withAlpha(ink, Math.round(255 * Math.min(1f, progress * 1.4f))));
-            float size = Dimens.dpExact(getContext(), 7);
-            float cx = start + size, cy = h / 2f;
-            tickPath.reset();
-            tickPath.moveTo(cx - size * 0.7f, cy);
-            tickPath.lineTo(cx - size * 0.15f, cy + size * 0.55f);
-            tickPath.lineTo(cx + size * 0.8f, cy - size * 0.5f);
-            canvas.save();
-            canvas.scale(progress, progress, cx, cy);
-            canvas.drawPath(tickPath, tick);
-            canvas.restore();
-        }
+        int ink = Colors.blend(Colors.withAlpha(textColor, 0xB8), textColor, progress);
         text.setColor(ink);
+        text.setTypeface(Typeface.create(Typeface.DEFAULT, progress > 0.5f ? 600 : 500, false));
+        float textWidth = text.measureText(label);
+        float dot = Dimens.dpExact(getContext(), 4);
+        float start = (w - textWidth - dotSpace) / 2f;
+        float cx = start + dot, cy = h / 2f;
+        // The dot: a ring while off; the ring shrinks into a filled dot as the chip comes on.
+        tick.setColor(ink);
+        tick.setStyle(Paint.Style.STROKE);
+        tick.setAlpha(Math.round(255 * (1f - progress)));
+        canvas.drawCircle(cx, cy, dot - tick.getStrokeWidth() / 2f, tick);
+        fill.setColor(ink);
+        fill.setAlpha(Math.round(255 * progress));
+        canvas.drawCircle(cx, cy, dot * (0.4f + 0.6f * progress), fill);
         Paint.FontMetrics metrics = text.getFontMetrics();
-        canvas.drawText(label, start + tickSpace * progress, h / 2f - (metrics.ascent + metrics.descent) / 2f, text);
+        canvas.drawText(label, start + dotSpace, cy - (metrics.ascent + metrics.descent) / 2f, text);
+    }
+
+    @Override
+    public void setHovered(boolean hovered) {
+        super.setHovered(hovered);
+        light();
+    }
+
+    @Override
+    protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
+        light();
+    }
+
+    private void light() {
+        float target = isFocused() ? 1f : isHovered() ? 0.6f : 0f;
+        ValueAnimator animation = ValueAnimator.ofFloat(glow, target);
+        animation.setDuration(160);
+        animation.addUpdateListener(a -> {
+            glow = (float) a.getAnimatedValue();
+            invalidate();
+        });
+        animation.start();
     }
 
     @Override
