@@ -16,7 +16,9 @@
  * <li>{@code SoftEqualizer.withProcessor} puts {@code SoftEqualizerProcessor} first in the audio chain of the player: the
  * equalizer and the preamp are shaped in software (filters in {@code player/dsp}), {@code SoftEqualizer.publish} hands it
  * new settings; {@code AudioEqualizer.onAudioSession(int)} is kept empty; {@code ListeningStats.onPlaybackItem/onPlayerState};
- * {@code MixWithOtherApps.skipAudioFocus(Object)}; {@code StreamCache.beforeOpen/customSize/hasCustomSize}.</li>
+ * {@code MixWithOtherApps.skipAudioFocus(Object)}; {@code StreamCache.beforeOpen/customSize/hasCustomSize};
+ * {@code DrmLicenseGuard.restorable(byte[])/storeLosesLicences()} (player/DrmLicenseGuardPatch.kt): an encrypted track whose
+ * saved licence is gone from the phone's DRM store plays with a new licence instead of pausing itself.</li>
  * <li>{@code PlayModeButton.build/onCustomAction/remember/setNotificationManager/setQueueManager}; the manifest receivers
  * {@code PlayModeReceiver} and {@code VivoMusicCardReceiver} (names written by the patches).</li>
  * <li>{@code NotificationArtwork.imageProviderPackage/style/remember}; {@code SleepTimer.onTrackMenu/setMenuConsumer};
