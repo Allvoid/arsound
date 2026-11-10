@@ -19,6 +19,7 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.shared.AppResources;
 import app.revanced.extension.soundcloud.shared.Lang;
+import app.revanced.extension.soundcloud.widget.WidgetDiagnostics;
 import app.revanced.extension.soundcloud.widget.WidgetHeart;
 
 /**
@@ -341,6 +342,8 @@ public final class ArsoundTheme {
         } catch (Throwable ex) {
             Logger.printException(() -> "Theme: could not follow the day and night look", ex);
         }
+        // Why this process started and what the widgets look like: the widget's log lines for a tap that did nothing.
+        WidgetDiagnostics.onApplicationStart(application);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
         appContext = application;
         ThemeLifecycle.start(application);

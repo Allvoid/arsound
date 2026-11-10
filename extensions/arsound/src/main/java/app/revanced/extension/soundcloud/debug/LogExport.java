@@ -20,12 +20,15 @@ import app.revanced.extension.soundcloud.debug.sections.LogcatSection;
 import app.revanced.extension.soundcloud.debug.sections.ModLogSection;
 import app.revanced.extension.soundcloud.debug.sections.PlaybackFileSection;
 import app.revanced.extension.soundcloud.debug.sections.SignInEnvironmentSection;
+import app.revanced.extension.soundcloud.debug.sections.WidgetLogSection;
+import app.revanced.extension.soundcloud.debug.sections.WidgetStateSection;
 import app.revanced.extension.soundcloud.shared.Lang;
 import app.revanced.extension.soundcloud.shared.Toasts;
 
 /**
- * "Save the logs": puts the header, the sign-in environment, the crashes, the playback log of the last two days,
- * the mod log and the system log of the app into one file in Downloads, then shows where it is and offers to send it.
+ * "Save the logs": puts the header, the sign-in environment, the widget state, the crashes, the widget log, the
+ * playback log of the last two days, the mod log and the system log of the app into one file in Downloads, then shows
+ * where it is and offers to send it.
  * <p>
  * Used by the settings screen and by the sign-in page, where the settings cannot be reached yet.
  */
@@ -63,8 +66,10 @@ public final class LogExport {
         List<LogSection> sections = new ArrayList<>();
         sections.add(new HeaderSection());
         sections.add(new SignInEnvironmentSection());
+        sections.add(new WidgetStateSection());
         // Crashes first among the records: they are what a user who saw the app close sends the file for.
         sections.add(new CrashSection());
+        sections.add(new WidgetLogSection());
         for (File day : PlaybackLog.files()) sections.add(new PlaybackFileSection(day));
         sections.add(new ModLogSection());
         sections.add(new LogcatSection());

@@ -20,7 +20,7 @@ private val BytecodePatchContext.wireButtonsMethod by gettingFirstMethodDeclarat
     parameterTypes("Landroid/content/Context;", "Z")
 }
 
-/** Receives a tap on pause, previous or next of the widget. */
+/** Receives a tap on pause, previous or next of the widget. Its receiver (p0) is handed over to read the player's state afterwards. */
 private val BytecodePatchContext.tapReceiverMethod by gettingFirstMethodDeclaratively {
     definingClass("Lcom/soundcloud/android/playback/widget/HomescreenWidgetBroadcastReceiver;")
     name("onReceive")
@@ -36,16 +36,20 @@ private val BytecodePatchContext.providerReceiveMethod by gettingFirstMethodDecl
 }
 
 /**
- * Log lines about the player widget on the home screen: the buttons built, a tap that came to the app, what the system
- * tells the widget, and what the phone allows the app in the background. For the log the user sends when a button of the
- * widget does nothing. Part of the "Arsound" patch, not shown on its own.
+ * Log lines about the player widget on the home screen: the buttons built, a tap that came to the app and what the
+ * player did with it, what the system tells the widget, why each process started, and what the phone allows the app in
+ * the background. They also go to the widget's own log file. For the log the user sends when a button of the widget
+ * does nothing. Part of the "Arsound" patch, not shown on its own.
  */
 val widgetDiagnosticsPatch = bytecodePatch {
     compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         wireButtonsMethod.addInstructions(0, "invoke-static { p1, p2 }, $DIAGNOSTICS->onButtonsWired(Landroid/content/Context;Z)V")
-        tapReceiverMethod.addInstructions(0, "invoke-static { p1, p2 }, $DIAGNOSTICS->onTap(Landroid/content/Context;Landroid/content/Intent;)V")
+        tapReceiverMethod.addInstructions(
+            0,
+            "invoke-static { p0, p1, p2 }, $DIAGNOSTICS->onTap(Landroid/content/BroadcastReceiver;Landroid/content/Context;Landroid/content/Intent;)V",
+        )
         providerReceiveMethod.addInstructions(
             0,
             "invoke-static { p1, p2 }, $DIAGNOSTICS->onProviderReceive(Landroid/content/Context;Landroid/content/Intent;)V",

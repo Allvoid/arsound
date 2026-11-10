@@ -21,6 +21,20 @@ On by default (Settings → Arsound → Developer → Playback log, a change app
   part of a frame (`anim`, `layout`, `draw`, `sync`, `issue`, `swap`, `gpu`, `late`) and the `worst` part. Nothing is
   measured at rest, and a slide cut short by the screen being rebuilt (a turn, a fold) is not logged.
 
+## Widget log
+
+For a tap on the player widget that does nothing (HyperOS, bug #26) the app keeps a log of its own, `files/arsound-widget-log.txt` (and `.1`, 96 KB each, in the app's private storage). It is written whatever the log settings are and is not deleted after two days, so a file sent a week later still has the widget's lines. The same lines also go to the playback log. `widget/WidgetLog` writes it, `widget/WidgetDiagnostics` makes the lines.
+
+- `process start: …, started by <reason>, <cold/warm/hot> start, intent <action>` at every process start. The reason comes from Android 15's start history. `BROADCAST` with the action `com.soundcloud.android.HomescreenWidgetBroadcastReceiver.ACTION` is a tap that woke a dead app.
+- `tap arrived: action …, sent from <launcher package> uid …, process started N ms ago, process importance …, the widget was showing …`, written at the first line of SoundCloud's receiver. Then `tap handled:` right after the receiver ends and `tap 1500 ms later:`, each with what the player says (`playing true/false`, or "not filled by the app's injection").
+- `buttons wired …` at the first build of the widget in a process and at each change of the play state.
+- `the system sent …` for what the system tells the widget (added, resized, removed; the first refresh in a process).
+- `phone …` (model, firmware, battery optimisation, standby bucket, Xiaomi autostart and "screens from the background") and `on the home screen …` (widgets placed with their sizes, whether the components are enabled, whether the system still holds the intents of the previous, pause and next buttons) at each start of the main process.
+
+How to read it: a tap the user made with no `tap arrived` after it was stopped before the app (the launcher or the system); then look at the next `process start` and the `recent starts` of the "widget state" part to see if the system started the app for it. `tap arrived` with a new process and "the tap did nothing" means the receiver ran with no player state (the process was started cold, nothing was queued); `tap arrived` with a live process and an unchanged `playing` means the player ignored it.
+
+The saved file has two more parts for this: "widget state" after the sign-in environment (the phone, the home screen app and its version, the widgets, the last ten starts of the app's process with their reasons) and "widget log" after the crashes (the file above).
+
 A user saves the logs with Settings → Arsound → Developer → "Save the logs" (the first row): the playback log files
 and the mod log (`arsound-log.txt`, if it is on) go into one file `Downloads/arsound-logs-YYYY-MM-DD-HHmm.txt`
 with the Arsound, SoundCloud and Android versions on top. The app shows the path and offers to send the file.

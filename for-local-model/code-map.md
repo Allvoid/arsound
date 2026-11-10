@@ -31,7 +31,7 @@
 | update | update check + ScreenHooks registry | UpdateChecker, ScreenHooks |
 | upsell | hides subscription offers | HidePaywallPatch |
 | wallpaper | wallpaper behind main screens; catalogue sources Wallhaven and Wikimedia Commons; Russian search words | WallpaperSurfaces, WallpaperStore, WallpaperSource, Wallhaven, CommonsSource, SearchWords |
-| widget | widget heart colour, likes widget covers | WidgetHeart, WidgetImages |
+| widget | widget heart colour, likes widget covers, 2x2 widget, tap diagnostics and the widget's own log file | WidgetHeart, WidgetImages, SquarePlayerWidget, WidgetDiagnostics, WidgetLog |
 
 Big facades (logic lives in sibling classes): LocalAdditions, ArsoundTheme, ReVancedSettingsActivity (only picks a screen).
 Not ours (do not refactor): `extensions/arsound-shared`, `PAT/../util`, `patches/.../shared`, `patches/.../all`.
