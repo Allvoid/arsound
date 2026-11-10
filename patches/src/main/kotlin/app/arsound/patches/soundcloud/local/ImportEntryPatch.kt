@@ -29,7 +29,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 
 private const val MUSIC_API = "Lcom/soundcloud/android/playlistimport/musicapi/data/MusicApi;"
-private const val YANDEX_TILE = "Lapp/revanced/extension/soundcloud/settings/YandexImportTile;"
+private const val TRANSFER_TILES = "Lapp/revanced/extension/soundcloud/settings/TransferTiles;"
 
 private val BytecodePatchContext.playlistImportSettingsScreenMethod by gettingFirstMethodDeclaratively {
     name("a")
@@ -46,22 +46,27 @@ private val BytecodePatchContext.importPlatformListMethod by gettingFirstMethodD
     )
 }
 
-/** The pictures of the Yandex Music tile, Russian and English, as big as SoundCloud's own tiles. */
-private val yandexTileResourcePatch = resourcePatch {
+/** The pictures of the Yandex Music, VK Music and YouTube Music tiles, Russian and English, as big as SoundCloud's own tiles. */
+private val transferTilesResourcePatch = resourcePatch {
     apply {
         copyResources(
             "soundcloud/settings",
-            ResourceGroup("drawable-nodpi", "arsound_yandex_music_ru.webp", "arsound_yandex_music_en.webp"),
+            ResourceGroup(
+                "drawable-nodpi",
+                "arsound_yandex_music_ru.webp", "arsound_yandex_music_en.webp",
+                "arsound_vk_music_ru.webp", "arsound_vk_music_en.webp",
+                "arsound_youtube_music_ru.webp", "arsound_youtube_music_en.webp",
+            ),
         )
     }
 }
 
 /**
  * The rows "Import files from this phone" and "Transfer from Yandex Music, VK and YouTube Music" on SoundCloud's
- * "Import my music" screen, and a Yandex Music tile among the apps of its "Import from another app".
+ * "Import my music" screen, and the tiles of Yandex Music, VK Music and YouTube Music among the apps of its "Import from another app".
  */
 internal val importEntryPatch = bytecodePatch {
-    dependsOn(yandexTileResourcePatch)
+    dependsOn(transferTilesResourcePatch)
 
     apply {
         // Arsound's rows below "Manage imported likes" on SoundCloud's "Import my music" screen.
@@ -93,7 +98,7 @@ internal val importEntryPatch = bytecodePatch {
             replaceInstruction(
                 chunkedIndex,
                 "invoke-static { v${chunked.registerC}, v${chunked.registerD} }, " +
-                    "$YANDEX_TILE->rows(Ljava/lang/Iterable;I)Ljava/util/List;",
+                    "$TRANSFER_TILES->rows(Ljava/lang/Iterable;I)Ljava/util/List;",
             )
             // Each row is drawn by a lambda made right after the cut.
             getInstruction(indexOfFirstInstructionOrThrow(chunkedIndex) { opcode == Opcode.NEW_INSTANCE }).typeReference!!.type
@@ -129,7 +134,7 @@ internal val importEntryPatch = bytecodePatch {
             addInstructionsWithLabels(
                 castIndex,
                 """
-                    invoke-static { v$appRegister, v$rowScopeRegister, v$composerRegister }, $YANDEX_TILE->drawTile(Ljava/lang/Object;Ljava/lang/Object;Landroidx/compose/runtime/Composer;)Ljava/lang/Object;
+                    invoke-static { v$appRegister, v$rowScopeRegister, v$composerRegister }, $TRANSFER_TILES->drawTile(Ljava/lang/Object;Ljava/lang/Object;Landroidx/compose/runtime/Composer;)Ljava/lang/Object;
                     move-result-object v$appRegister
                     if-eqz v$appRegister, :next_app
                 """,

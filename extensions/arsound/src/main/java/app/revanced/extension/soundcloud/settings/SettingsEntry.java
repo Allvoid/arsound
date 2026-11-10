@@ -61,18 +61,29 @@ public final class SettingsEntry {
     };
 
     /** Opens the transfer from Yandex Music, VK and YouTube Music of the Arsound settings. */
-    static final Function0<Unit> OPEN_TRANSFER = () -> {
-        try {
-            Context context = Utils.getContext();
-            Intent intent = new Intent(context, ReVancedSettingsActivity.class)
-                    .putExtra(ReVancedSettingsActivity.EXTRA_SCREEN, TransferScreen.ID);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-        } catch (Exception ex) {
-            Logger.printException(() -> "Failed to open the Yandex Music transfer", ex);
-        }
-        return Unit.INSTANCE;
-    };
+    static final Function0<Unit> OPEN_TRANSFER = openTransfer(null);
+
+    /**
+     * Opens the transfer screen with one service picked for its account part: the tile of a service sends the user to
+     * that service, not to the one used last.
+     *
+     * @param sourceId {@code TransferSource.id()} of the service, or null to leave the choice as it was.
+     */
+    static Function0<Unit> openTransfer(String sourceId) {
+        return () -> {
+            try {
+                Context context = Utils.getContext();
+                if (sourceId != null) Settings.putString(TransferScreen.SOURCE_SETTING, sourceId);
+                Intent intent = new Intent(context, ReVancedSettingsActivity.class)
+                        .putExtra(ReVancedSettingsActivity.EXTRA_SCREEN, TransferScreen.ID);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Exception ex) {
+                Logger.printException(() -> "Failed to open the transfer from other services", ex);
+            }
+            return Unit.INSTANCE;
+        };
+    }
 
     /**
      * Injection point. Called from the Compose code of SoundCloud's "Import my music" screen,
