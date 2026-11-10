@@ -12,7 +12,10 @@
  * reaches every OkHttp client of the app. It adds one named interceptor ({@code RequestGate}: developer delay, then
  * for covers {@code RegionGuard.throwIfBlocked} and {@code SharedArtwork}, with {@code OfflineArtwork} answering from
  * the covers kept on disk when the network fails; for the rest {@code RegionGuard.throwIfBlocked} and
- * {@code power.PowerSavingPatch.isBackgroundReportBlocked}) and wraps the {@code Dns} with {@code CustomDns.lookup}. The wrappers are
+ * {@code power.PowerSavingPatch.isBackgroundReportBlocked}; the answer of a like sent to the server
+ * ({@code /likes/tracks|playlists/create|delete}) goes to the log through {@code LikeWrites}, and a refusal in the 400s
+ * shows a toast: SoundCloud takes a like back without a word when the server says no) and wraps the {@code Dns} with
+ * {@code CustomDns.lookup}. The wrappers are
  * {@code ReflectiveProxy} objects with a name, so a client copied with {@code newBuilder()} is not wrapped twice.</li>
  * <li>{@code RegionGuard.isConnected(boolean)} - every {@code return} of SoundCloud's "is the network connected" check
  * passes through it, so the app also sees "offline" while the guard blocks.</li>

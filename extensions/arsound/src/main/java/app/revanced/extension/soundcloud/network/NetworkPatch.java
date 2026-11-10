@@ -134,7 +134,15 @@ public final class NetworkPatch {
                 if (PowerSavingPatch.isBackgroundReportBlocked(host, path)) {
                     throw new IOException("Arsound: background report blocked to save power");
                 }
-                return call.proceed();
+                Object response;
+                try {
+                    response = call.proceed();
+                } catch (IOException ex) {
+                    LikeWrites.failed(host, path, request, ex);
+                    throw ex;
+                }
+                LikeWrites.watch(host, path, request, response);
+                return response;
             } catch (InvocationTargetException ex) {
                 throw unwrap(ex.getCause());
             } catch (IOException | RuntimeException | Error ex) {
