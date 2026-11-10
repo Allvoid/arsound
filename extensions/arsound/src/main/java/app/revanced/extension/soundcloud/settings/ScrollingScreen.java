@@ -55,6 +55,9 @@ abstract class ScrollingScreen extends SettingsScreen {
             // A theme may put the letter on a rounded tile of its accent.
             int badge = ui.decor.badgeColor();
             if (badge != 0) {
+                // The picture of the logo is a white and an azure line: lost on a blue tile, wrong on a red one. The
+                // mark is drawn again in lines that suit the tile of this theme.
+                logo.setImageDrawable(new LogoMark(LogoColors.forTile(badge)));
                 GradientDrawable tile = new GradientDrawable();
                 tile.setColor(badge);
                 tile.setCornerRadius(ui.dp(15));
