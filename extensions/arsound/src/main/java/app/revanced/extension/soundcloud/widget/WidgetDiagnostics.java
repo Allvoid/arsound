@@ -219,7 +219,7 @@ public final class WidgetDiagnostics {
         if (environmentLogged || context == null) return;
         environmentLogged = true;
         String line = describePhone(context);
-        Logger.printInfo(() -> line);
+        Logger.printInfo(() -> "Widget: " + line);
         WidgetLog.append(context, line);
     }
 
@@ -227,7 +227,7 @@ public final class WidgetDiagnostics {
 
     /** The phone, its firmware and what it allows the app in the background. */
     public static String describePhone(Context context) {
-        StringBuilder text = new StringBuilder("Widget: phone ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+        StringBuilder text = new StringBuilder("phone ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
                 .append(", Android ").append(Build.VERSION.SDK_INT).append(", build ").append(Build.DISPLAY);
         String hyperOs = property("ro.mi.os.version.name");
         String miui = property("ro.miui.ui.version.name");
@@ -257,7 +257,7 @@ public final class WidgetDiagnostics {
     /** The widgets of the app that are on the home screen: their ids, sizes and whether the system knows their provider. */
     public static String describeWidgets(Context context) {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
-        StringBuilder text = new StringBuilder("Widget: on the home screen");
+        StringBuilder text = new StringBuilder("on the home screen");
         String[] providers = {PLAYER_PROVIDER, SquarePlayerWidget.class.getName()};
         String[] names = {"SoundCloud player", "Arsound 2x2"};
         for (int i = 0; i < providers.length; i++) {
