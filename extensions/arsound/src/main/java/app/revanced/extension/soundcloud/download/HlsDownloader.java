@@ -390,7 +390,9 @@ public final class HlsDownloader {
             if (line.isEmpty()) continue;
             if (line.startsWith("#EXT-X-STREAM-INF:")) {
                 Matcher attributes = KEY_ATTRIBUTE.matcher(line.substring("#EXT-X-STREAM-INF:".length()));
-                pendingBandwidth = -1;
+                // 0, not -1: the next line is a variant also when no bandwidth is named, as where the variants are
+                // looked for above. Left at -1 its address was taken for a segment of the track.
+                pendingBandwidth = 0;
                 while (attributes.find()) {
                     if ("BANDWIDTH".equals(attributes.group(1))) {
                         try { pendingBandwidth = Long.parseLong(attributes.group(2).replace("\"", "").trim()); }

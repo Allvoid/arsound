@@ -281,7 +281,8 @@ public final class DownloadPlaylistPatch {
         while (url != null) {
             String[] page = DownloadTrackPatch.apiGet(url);
             if (page[1] == null) {
-                if (!ids.isEmpty()) break;
+                // Also on a later page: the pages read so far went back as the whole list, so a check said "all
+                // downloaded" and a transfer counted fewer likes than the server has.
                 lastError = page[0];
                 return null;
             }

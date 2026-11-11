@@ -66,7 +66,8 @@ public final class LyricsClock {
     private static volatile Snapshot jump;
     private static volatile WeakReference<Object> service = new WeakReference<>(null);
 
-    private static Method getState, getPosition, getUpdateTime, getSpeed, getExtras;
+    private static volatile Method getState;
+    private static Method getPosition, getUpdateTime, getSpeed, getExtras;
     private static Field sessionField;
     private static Method sessionController, controllerTransport, transportSeek, controllerState;
     private static long lastAdopt;
@@ -119,11 +120,12 @@ public final class LyricsClock {
     private static Snapshot read(Object state, Snapshot previous) throws Exception {
         if (getState == null) {
             Class<?> type = Class.forName(STATE);
-            getState = type.getMethod("getState");
             getPosition = type.getMethod("getPosition");
             getUpdateTime = type.getMethod("getLastPositionUpdateTime");
             getSpeed = type.getMethod("getPlaybackSpeed");
             getExtras = type.getMethod("getExtras");
+            // Last: it is what tells another thread that all of them are there.
+            getState = type.getMethod("getState");
         }
         int code = (int) getState.invoke(state);
         long position = (long) getPosition.invoke(state);

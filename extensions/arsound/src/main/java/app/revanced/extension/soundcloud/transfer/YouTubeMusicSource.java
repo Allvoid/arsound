@@ -192,16 +192,22 @@ final class YouTubeMusicSource extends TransferSource {
                 SourceList.UNKNOWN_COUNT, true));
         try {
             JSONObject answer = browse(new JSONObject().put("browseId", "FEmusic_liked_playlists"), cookies);
+            String asked = null;
+            java.util.Set<String> seen = new java.util.HashSet<>();
             for (int pages = 0; answer != null && pages < MAX_PAGES; pages++) {
                 YouTubeMusicParser.PlaylistPage page = YouTubeMusicParser.playlists(answer);
                 for (String[] playlist : page.playlists) {
+                    // A page given twice must not list its playlists twice.
+                    if (!seen.add(playlist[0])) continue;
                     // Digits only, as the parser keeps them; more than nine would not fit and no playlist is that long.
                     int count = playlist[2].isEmpty() || playlist[2].length() > 9 ? SourceList.UNKNOWN_COUNT
                             : Integer.parseInt(playlist[2]);
                     lists.add(new SourceList(YouTubeMusicLink.playlist(playlist[0]), playlist[1], count, false));
                 }
-                answer = page.continuation == null ? null
-                        : browse(new JSONObject().put("continuation", page.continuation), cookies);
+                // The same token again is the same page again, as in read(): up to MAX_PAGES requests for nothing.
+                if (page.continuation == null || page.continuation.equals(asked)) break;
+                asked = page.continuation;
+                answer = browse(new JSONObject().put("continuation", asked), cookies);
             }
         } catch (SignInExpiredException ex) {
             // The search's sign-in is the same: it is left to the search to forget, the user is told to sign in again.

@@ -41,10 +41,23 @@ public class PlayerConfigTest {
                 + "\"bad00001\":{\"sig\":\"x\",\"nClass\":\"y\"},"
                 + "\"bad00002\":{\"sig\":5,\"nClass\":\"y\",\"sts\":1},"
                 + "\"bad00003\":\"text\","
-                + "\"good0004\":{\"sig\":\"s\",\"nClass\":\"n\",\"sts\":7}}}";
+                + "\"good0004\":{\"sig\":\"s(1,2,INPUT)\",\"nClass\":\"n\",\"sts\":7}}}";
         Map<String, PlayerConfig> table = PlayerConfig.parseTable(json);
         assertEquals(1, table.size());
         assertEquals(7, table.get("good0004").sts);
+    }
+
+    @Test
+    public void anEntryThatIsNotAPlainCallIsSkipped() throws Exception {
+        // "sig" and "nClass" become part of script that is run: anything but a call with numbers, or a plain name, stays out.
+        String json = "{\"schemaVersion\":1,\"players\":{"
+                + "\"evil0001\":{\"sig\":\"Tl(48,5831,INPUT);fetch('https://example.com')\",\"nClass\":\"Xy\",\"sts\":1},"
+                + "\"evil0002\":{\"sig\":\"Tl(48,5831,INPUT)\",\"nClass\":\"Xy('x');alert(1);new g.Xy\",\"sts\":2},"
+                + "\"evil0003\":{\"sig\":\"(function(){return INPUT})()\",\"nClass\":\"Xy\",\"sts\":3},"
+                + "\"good0004\":{\"sig\":\"$a_1(7, 123456, INPUT)\",\"nClass\":\"$B9\",\"sts\":4}}}";
+        Map<String, PlayerConfig> table = PlayerConfig.parseTable(json);
+        assertEquals(1, table.size());
+        assertEquals(4, table.get("good0004").sts);
     }
 
     @Test

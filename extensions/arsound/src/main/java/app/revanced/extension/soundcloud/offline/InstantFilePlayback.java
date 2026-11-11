@@ -104,8 +104,8 @@ public final class InstantFilePlayback {
      *
      * @param metadata  {@code Observable<MediaMetadataFetchResult>}.
      * @param queueItem The {@code PlayQueueItemWithContext}.
-     * @return The metadata, which reports a failure if it takes too long. SoundCloud then starts
-     * playback anyway, downloaded and streamed tracks alike.
+     * @return The metadata, not waited for: a failure of its own comes on the next turn of the main thread, so
+     * SoundCloud starts playback at once, downloaded and streamed tracks alike; the real metadata still follows.
      */
     public static Object metadata(Object metadata, Object queueItem) {
         try {

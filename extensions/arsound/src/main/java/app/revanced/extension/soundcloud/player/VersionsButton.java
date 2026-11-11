@@ -182,13 +182,15 @@ public final class VersionsButton {
         /** The colour tells whether the button is on. */
         private void update() {
             boolean on = kind.lit();
+            // Before the early return: the description names the chosen version, which changes while the button
+            // stays lit, and a screen reader went on reading the old one.
+            button.setContentDescription(kind.description());
             if (shownOn != null && shownOn == on) return;
             shownOn = on;
             int[] colours = ArsoundTheme.darkColors(page.getContext());
             int accent = colours == null ? FALLBACK_ACCENT : colours[1];
             button.setImageTintList(on ? ColorStateList.valueOf(accent) : offTint);
             button.setSelected(on);
-            button.setContentDescription(kind.description());
         }
 
         /** Left of the close button, at its height. Moves the picture only: no layout pass starts from here. */

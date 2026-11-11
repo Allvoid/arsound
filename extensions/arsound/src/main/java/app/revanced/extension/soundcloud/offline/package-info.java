@@ -13,7 +13,8 @@
  * <li>{@code DownloadedPlaybackPatch.playableFilePath(Object track)} - the file (or media store row) to play, or null
  * to stream. It asks {@code download.DownloadTrackPatch.playableSource}.</li>
  * <li>{@code InstantFilePlayback.playbackItem/metadata/isStartWithoutMetadata} - build the playback item of a
- * downloaded track without waiting for the track repository, and cap the notification metadata wait at 2 s.</li>
+ * downloaded track without waiting for the track repository, and start playback without waiting for the metadata
+ * of the notification (it follows when it is there).</li>
  * <li>{@code PlaybackRetryPatch.onPlaybackError(Object player, boolean connected)} - true when the error was handled by
  * a retry.</li>
  * <li>{@code PlaylistPreloader.setMyPlaylistOperations(Object)} - captures SoundCloud's playlist operations; the

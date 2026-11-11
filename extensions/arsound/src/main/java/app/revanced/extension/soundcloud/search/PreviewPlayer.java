@@ -128,9 +128,13 @@ final class PreviewPlayer {
             release.setDaemon(true);
             release.start();
         }
-        Activity current = SearchSourceSwitch.resumedActivity();
-        if (focusRequest != null && current != null) {
-            current.getSystemService(AudioManager.class).abandonAudioFocusRequest(focusRequest);
+        // The app's own context when no screen is up (the preview stops as the app goes to the background): without
+        // one the audio focus was kept, and the music of another app stayed quiet.
+        android.content.Context context = SearchSourceSwitch.resumedActivity();
+        if (context == null) context = app.revanced.extension.shared.Utils.peekContext();
+        if (focusRequest != null && context != null) {
+            AudioManager audio = context.getSystemService(AudioManager.class);
+            if (audio != null) audio.abandonAudioFocusRequest(focusRequest);
         }
         focusRequest = null;
         if (playingUrl == null) return;

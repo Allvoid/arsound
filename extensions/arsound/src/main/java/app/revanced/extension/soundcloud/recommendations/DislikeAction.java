@@ -27,7 +27,7 @@ public final class DislikeAction {
     /** Marks the playing track as "not for me" and moves to the next one. Any thread. */
     public static void run(Context context) {
         String urn = PlaybackEvents.playingUrn();
-        if (urn == null || !urn.contains(":tracks:")) {
+        if (!TrackUrn.isTrack(urn)) {
             toast(context, text("Сейчас играет не трек SoundCloud", "No SoundCloud track is playing"));
             return;
         }

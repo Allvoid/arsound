@@ -81,6 +81,8 @@ public final class WavePage extends Fragment {
     private String shownKey = "";
     /** Ticks until the list is read again because some of its tracks were not in SoundCloud's database yet. */
     private int retryIn = -1;
+    /** Counts the requests for the list of the wave's tracks; main thread only. */
+    private int historyRequest;
     /** How many times more the list may be read again for the same tracks. */
     private int retriesLeft;
     private static final int RETRY_TICKS = 3;
@@ -354,13 +356,22 @@ public final class WavePage extends Fragment {
     private void loadHistory() {
         List<String> urns = MyWave.around(BEFORE, RECENT);
         String playing = MyWave.current();
+        // Only the newest request is shown: an older one whose answer comes late (the API is slow) put the list of
+        // a track ago over the current one.
+        int request = ++historyRequest;
         Utils.runOnBackgroundThread(() -> {
             // What the phone knows is shown at once; the API, which may be slow or out of reach, fills in the rest.
             Map<String, String[]> known = knownTracks(urns);
-            Utils.runOnMainThread(() -> showHistory(urns, known, playing));
+            Utils.runOnMainThread(() -> {
+                if (request == historyRequest) showHistory(urns, known, playing);
+            });
             if (WaveSession.tracksCover(urns)) return;
             Map<String, String[]> fetched = fetchMissing(urns, known);
-            if (!fetched.isEmpty()) Utils.runOnMainThread(() -> showHistory(urns, fetched, playing));
+            if (!fetched.isEmpty()) {
+                Utils.runOnMainThread(() -> {
+                    if (request == historyRequest) showHistory(urns, fetched, playing);
+                });
+            }
         });
     }
 

@@ -65,7 +65,7 @@ final class WaveLearner {
      * @return True if the listen is now waiting for {@link #applyTo}.
      */
     synchronized boolean listenEnded(String urn, long playedMs, long now) {
-        if (urn == null || !urn.contains(":tracks:")) return false;
+        if (!TrackUrn.isTrack(urn)) return false;
         String key = TrackUrn.normalize(urn);
         ListenVerdict verdict = ListenVerdict.of(playedMs, lengthOf(key));
         if (verdict == ListenVerdict.BETWEEN) return false;

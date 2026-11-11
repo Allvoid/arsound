@@ -749,7 +749,9 @@ public final class LocalCovers {
     public static void onDeleted(File audio) {
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
-        // Applied, not committed: this can run on the main thread, and removeUnused reads the preferences in memory.
+        // Applied, not committed: removeUnused reads the preferences in memory. Both callers (the delete of the
+        // local music screen and the clean-up of unplayed downloads) run in the background; a caller on the main
+        // thread would have to move removeUnused off it, as it lists the folder of covers.
         preferences.edit().remove(audio.getName()).remove(USER_PREFIX + audio.getName())
                 .remove(PREVIOUS_PREFIX + audio.getName()).apply();
         removeUnused();

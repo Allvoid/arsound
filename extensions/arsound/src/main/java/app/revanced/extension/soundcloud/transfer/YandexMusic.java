@@ -74,9 +74,8 @@ final class YandexMusic {
         String path = link.owner == null ? "/playlist/" + link.id
                 : "/users/" + encode(link.owner) + "/playlists/" + link.id;
         JSONObject playlist = call(path, token, null);
-        List<SourceTrack> tracks = new ArrayList<>();
-        List<String> bare = new ArrayList<>();
-        readItems(playlist.optJSONArray("tracks"), tracks, bare);
+        List<Object> slots = new ArrayList<>();
+        readItems(playlist.optJSONArray("tracks"), slots);
         // Long playlists may come in pages.
         JSONObject pager = playlist.optJSONObject("pager");
         int total = playlist.optInt("trackCount", 0);
@@ -86,10 +85,12 @@ final class YandexMusic {
                 JSONObject next = call(path + "?page=" + page + "&pageSize=" + perPage, token, null);
                 JSONArray items = next.optJSONArray("tracks");
                 if (items == null || items.length() == 0) break;
-                readItems(items, tracks, bare);
+                readItems(items, slots);
             }
         }
-        tracks.addAll(tracksById(bare, token));
+        List<String> bare = new ArrayList<>();
+        for (Object slot : slots) if (slot instanceof String) bare.add((String) slot);
+        List<SourceTrack> tracks = inOrder(slots, tracksById(bare, token));
         if (tracks.isEmpty() && total > 0) {
             throw new NotAvailableException("The playlist lists " + total + " tracks but gave none");
         }
@@ -99,15 +100,50 @@ final class YandexMusic {
         return new SourceCollection(title.isEmpty() ? text("Плейлист из Яндекс Музыки", "Yandex Music playlist") : title, tracks);
     }
 
-    /** Items of a playlist: with the track, or only with its number (then asked for separately). */
-    private static void readItems(JSONArray items, List<SourceTrack> tracks, List<String> bare) {
+    /**
+     * Items of a playlist in their order: the track itself ({@link SourceTrack}), or only its key (a String, see
+     * {@link #trackKey}), which is asked for separately and takes this place then ({@link #inOrder}).
+     */
+    private static void readItems(JSONArray items, List<Object> slots) {
+        List<SourceTrack> one = new ArrayList<>(1);
         for (int i = 0; items != null && i < items.length(); i++) {
             JSONObject item = items.optJSONObject(i);
             if (item == null) continue;
             JSONObject track = item.optJSONObject("track");
-            if (track != null) addTrack(tracks, track);
-            else bare.add(trackKey(item));
+            if (track != null) {
+                one.clear();
+                addTrack(one, track);
+                slots.addAll(one);
+            } else {
+                slots.add(trackKey(item));
+            }
         }
+    }
+
+    /**
+     * The tracks in the order of the playlist: every key gives way to the track asked for by it. A key the service
+     * gave no track for is left out. The tracks asked for by key were put after all the others before, so a playlist
+     * that mixes both kinds of items came out in another order.
+     *
+     * @param slots Tracks and keys, as {@link #readItems} leaves them.
+     * @param asked The tracks asked for by the keys.
+     */
+    static List<SourceTrack> inOrder(List<Object> slots, List<SourceTrack> asked) {
+        java.util.Map<String, SourceTrack> byId = new java.util.HashMap<>();
+        for (SourceTrack track : asked) byId.put(track.id, track);
+        List<SourceTrack> tracks = new ArrayList<>();
+        for (Object slot : slots) {
+            if (slot instanceof SourceTrack) {
+                tracks.add((SourceTrack) slot);
+                continue;
+            }
+            // "id:albumId" or the id alone; a track is known by its id.
+            String key = (String) slot;
+            int colon = key.indexOf(':');
+            SourceTrack track = byId.get(colon < 0 ? key : key.substring(0, colon));
+            if (track != null) tracks.add(track);
+        }
+        return tracks;
     }
 
     /** The likes of a person: only numbers in the list, the tracks are asked for by them. */

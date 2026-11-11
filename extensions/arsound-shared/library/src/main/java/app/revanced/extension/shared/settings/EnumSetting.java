@@ -78,7 +78,8 @@ public class EnumSetting<T extends Enum<?>> extends Setting<T> {
      */
     protected T getEnumFromString(String enumName) {
         //noinspection ConstantConditions
-        for (Enum<?> value : defaultValue.getClass().getEnumConstants()) {
+        // The declaring class: getClass() of a constant with a body is its own class, which has no constants.
+        for (Enum<?> value : defaultValue.getDeclaringClass().getEnumConstants()) {
             if (value.name().equalsIgnoreCase(enumName)) {
                 //noinspection unchecked
                 return (T) value;

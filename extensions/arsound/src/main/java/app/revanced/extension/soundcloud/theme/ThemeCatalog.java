@@ -63,6 +63,8 @@ final class ThemeCatalog {
             for (int i = 0; i < list.length(); i++) result.add(new Theme(list.getJSONObject(i)));
         } catch (Exception ex) {
             Logger.printException(() -> "Theme: could not read the themes", ex);
+            // Not kept: a list that could not be read once would stay empty until the app restarts.
+            return Collections.emptyList();
         }
         themes = result = Collections.unmodifiableList(result);
         return result;

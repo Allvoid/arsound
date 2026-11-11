@@ -20,7 +20,7 @@ public final class SearchEntry {
     private final List<Token> descriptionTokens;
     private final String titleKey;
     private String keywords = "";
-    private List<Token> keywordTokens;
+    private volatile List<Token> keywordTokens;
     private Synonyms phraseSource;
 
     public SearchEntry(String screen, String section, String title, String description, boolean sectionRow) {
@@ -60,11 +60,15 @@ public final class SearchEntry {
             case DESCRIPTION:
                 return descriptionTokens;
             default:
-                if (keywordTokens == null) {
-                    keywordTokens = Text.tokens(keywords);
-                    if (phraseSource != null) phraseSource.appendPhraseTokens(keywordTokens);
+                // Made whole before it is kept: look-ups run off the main thread, and one of them saw the words
+                // without the phrases while another was still adding them.
+                List<Token> tokens = keywordTokens;
+                if (tokens == null) {
+                    tokens = Text.tokens(keywords);
+                    if (phraseSource != null) phraseSource.appendPhraseTokens(tokens);
+                    keywordTokens = tokens;
                 }
-                return keywordTokens;
+                return tokens;
         }
     }
 

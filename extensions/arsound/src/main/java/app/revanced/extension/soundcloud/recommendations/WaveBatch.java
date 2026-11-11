@@ -24,7 +24,7 @@ public final class WaveBatch {
         Set<String> taken = new LinkedHashSet<>();
         if (urns != null) {
             for (String urn : urns) {
-                if (urn != null && urn.contains(":tracks:")) taken.add(urn);
+                if (TrackUrn.isTrack(urn)) taken.add(TrackUrn.normalize(urn));
             }
         }
         return new ArrayList<>(taken);

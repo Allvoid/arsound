@@ -23,6 +23,16 @@ final class PlayerConfig {
     }
 
     /**
+     * The table is another project's file, read from the network, and its "sig" and "nClass" become part of script
+     * that is run beside YouTube's player. So they must look as they do in every entry of the table: a call of one
+     * function with numbers and the input, such as {@code Tl(48,5831,INPUT)}, and the plain name of a class.
+     */
+    private static final java.util.regex.Pattern SIG_SHAPE = java.util.regex.Pattern.compile(
+            "[A-Za-z_$][A-Za-z0-9_$]{0,30}[(](?:[0-9]{1,9},[ ]?){0,4}INPUT(?:,[ ]?[0-9]{1,9}){0,4}[)]");
+    private static final java.util.regex.Pattern N_CLASS_SHAPE = java.util.regex.Pattern.compile(
+            "[A-Za-z_$][A-Za-z0-9_$]{0,30}");
+
+    /**
      * Parses {@code player_configs.json}: {@code {"schemaVersion":1,"players":{"<hash>":
      * {"sig":"...","nClass":"...","sts":12345,"aliases":["<hash2>",...]}}}}. Each entry's
      * "sig" is a JS expression such as {@code Tl(48,5831,INPUT)}, matching innertubex's
@@ -61,6 +71,11 @@ final class PlayerConfig {
             Object stsObj = obj.get("sts");
             if (!(sigObj instanceof String) || !(nClassObj instanceof String) || !(stsObj instanceof Number)) {
                 continue; // malformed entry: skip, mirroring RemotePlayerConfigParser's per-entry skip behavior
+            }
+            // Both are put into script that is run: only the shapes the table really has are taken. Anything else
+            // is skipped like a malformed entry, and the track then fails to play instead of running that script.
+            if (!SIG_SHAPE.matcher((String) sigObj).matches() || !N_CLASS_SHAPE.matcher((String) nClassObj).matches()) {
+                continue;
             }
 
             PlayerConfig config = new PlayerConfig((String) sigObj, (String) nClassObj, ((Number) stsObj).intValue());
