@@ -114,8 +114,9 @@ final class SoundCloudSide {
     /** One private playlist with these tracks; its urn. */
     private static String createPart(Object operations, Class<?> urnClass, String name, List<String> trackUrns) throws Exception {
         List<Object> urns = new ArrayList<>();
+        java.lang.reflect.Method forTrack = urnClass.getMethod("forTrack", String.class);
         for (String urn : trackUrns) {
-            urns.add(urnClass.getMethod("forTrack", String.class).invoke(null, urn.substring(urn.lastIndexOf(':') + 1)));
+            urns.add(forTrack.invoke(null, urn.substring(urn.lastIndexOf(':') + 1)));
         }
         // false: not public, the playlist is private.
         Object single = operations.getClass().getMethod("createNewPlaylist", String.class, boolean.class, List.class)

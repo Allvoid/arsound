@@ -54,8 +54,39 @@ public final class UnplayedDownloads {
         /** Deletes the file. @return True if it was deleted. */
         abstract boolean delete(Context context);
 
-        /** When the track was last used, read again now: it may have started playing since the list was made. */
-        abstract long lastUseNow(SharedPreferences preferences);
+        /**
+         * When the track was last used, looked up again now: it may have started playing since the list was made.
+         * A start is in the preferences at once; the listening history is the one read before the loop.
+         */
+        abstract long lastUseNow(SharedPreferences preferences, Listens listens);
+    }
+
+    /** The last listen of every track from the listening history, which is one file read whole. */
+    static final class Listens {
+        /** By track urn. */
+        final Map<String, Long> byUrn;
+        private Map<String, Long> byImportedPath;
+
+        private Listens(Map<String, Long> byUrn) {
+            this.byUrn = byUrn;
+        }
+
+        static Listens read() {
+            return new Listens(app.revanced.extension.soundcloud.player.ListeningStats.lastListens());
+        }
+
+        /** By file path, for imported tracks: their listens are kept under their urn, which holds the path. */
+        Map<String, Long> byImportedPath() {
+            if (byImportedPath == null) {
+                Map<String, Long> paths = new java.util.HashMap<>();
+                for (Map.Entry<String, Long> listen : byUrn.entrySet()) {
+                    File file = LocalAdditions.importedFileOf(listen.getKey());
+                    if (file != null) paths.put(file.getPath(), listen.getValue());
+                }
+                byImportedPath = paths;
+            }
+            return byImportedPath;
+        }
     }
 
     private static final class UnplayedDownload extends Unplayed {
@@ -77,10 +108,10 @@ public final class UnplayedDownloads {
         }
 
         @Override
-        long lastUseNow(SharedPreferences preferences) {
+        long lastUseNow(SharedPreferences preferences, Listens listens) {
             DownloadIndex.Entry file = DownloadIndex.known(trackId);
             return lastUse(file == null ? 0 : file.modifiedMs(), preferences == null ? 0 : preferences.getLong(trackId, 0),
-                    app.revanced.extension.soundcloud.player.ListeningStats.lastListens().get(Urns.track(trackId)));
+                    listens.byUrn.get(Urns.track(trackId)));
         }
     }
 
@@ -103,13 +134,9 @@ public final class UnplayedDownloads {
         }
 
         @Override
-        long lastUseNow(SharedPreferences preferences) {
-            Long listened = null;
-            for (Map.Entry<String, Long> listen : app.revanced.extension.soundcloud.player.ListeningStats.lastListens().entrySet()) {
-                if (file.equals(LocalAdditions.importedFileOf(listen.getKey()))) listened = listen.getValue();
-            }
+        long lastUseNow(SharedPreferences preferences, Listens listens) {
             return lastUse(file.lastModified(), preferences == null ? 0 : preferences.getLong(FILE_PREFIX + file.getPath(), 0),
-                    listened);
+                    listens.byImportedPath().get(file.getPath()));
         }
     }
 
@@ -148,7 +175,8 @@ public final class UnplayedDownloads {
         List<Unplayed> result = new ArrayList<>();
         long cutoff = System.currentTimeMillis() - days() * DAY_MS;
         SharedPreferences preferences = preferences();
-        Map<String, Long> listens = app.revanced.extension.soundcloud.player.ListeningStats.lastListens();
+        Listens history = Listens.read();
+        Map<String, Long> listens = history.byUrn;
 
         for (String trackId : DownloadTrackPatch.getDownloadedTrackIds()) {
             if (DownloadProgress.isAssembling(trackId)) continue;
@@ -162,12 +190,7 @@ public final class UnplayedDownloads {
 
         Context context = Utils.getContext();
         if (isImportedIncluded() && context != null) {
-            // Listens of imported tracks are kept under their urn, which holds the file path.
-            Map<String, Long> importedListens = new java.util.HashMap<>();
-            for (Map.Entry<String, Long> listen : listens.entrySet()) {
-                File file = LocalAdditions.importedFileOf(listen.getKey());
-                if (file != null) importedListens.put(file.getPath(), listen.getValue());
-            }
+            Map<String, Long> importedListens = history.byImportedPath();
             // The files alone: their size and time are all the rule needs, and reading the tags of each took a while.
             for (File file : LocalMusic.getFiles(context)) {
                 if (RemovedTracks.isConvertedCopy(file)) continue;
@@ -203,9 +226,12 @@ public final class UnplayedDownloads {
             int downloads = 0, imported = 0;
             long cutoff = System.currentTimeMillis() - days() * DAY_MS;
             SharedPreferences played = preferences();
-            for (Unplayed track : unplayed()) {
+            List<Unplayed> candidates = unplayed();
+            // The listening history is one file read whole: read once for all the candidates, not once for each.
+            Listens listens = candidates.isEmpty() ? null : Listens.read();
+            for (Unplayed track : candidates) {
                 // Started since the list was made (the clean-up runs a while after the start): it stays.
-                if (track.lastUseNow(played) >= cutoff) continue;
+                if (track.lastUseNow(played, listens) >= cutoff) continue;
                 if (!track.delete(context)) continue;
                 if (track.isImported()) imported++;
                 else downloads++;

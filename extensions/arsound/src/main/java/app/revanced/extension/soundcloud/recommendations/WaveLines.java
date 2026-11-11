@@ -42,6 +42,8 @@ final class WaveLines extends View {
     /** The step along the strip, in design units. */
     private static final int STEP = 3;
     private static final long RESTING_FRAME_MS = 50;
+    /** How long a volume read from the system is good for. */
+    private static final long VOLUME_EVERY_MS = 500;
 
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint cut = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -62,6 +64,8 @@ final class WaveLines extends View {
     private float level;
     private float phase;
     private long lastFrame;
+    private float volume = 0.6f;
+    private long volumeAt;
     /** How far the play mark has turned into the pause mark, 0 (play) to 1 (pause). */
     private float markProgress;
     private float press;
@@ -164,7 +168,10 @@ final class WaveLines extends View {
         float seconds = lastFrame == 0 ? 0f : Math.min(0.05f, (now - lastFrame) / 1000f);
         lastFrame = now;
         if (running && !still) {
-            level = WaveLevel.follow(level, WaveLevel.target(playing, AudioLevel.current(), volume(), now / 1000.0), seconds);
+            float signal = AudioLevel.current();
+            // The volume is asked of the system only when it is used: while the music plays and its loudness is not known.
+            float volume = playing && signal < 0f ? volume(now) : 0f;
+            level = WaveLevel.follow(level, WaveLevel.target(playing, signal, volume, now / 1000.0), seconds);
             phase += seconds * WaveLevel.speed(level);
         } else {
             level = playing ? 0.5f : 0f;
@@ -231,11 +238,17 @@ final class WaveLines extends View {
         mark.setAlpha(255);
     }
 
-    /** The player's volume, 0 to 1, for when the loudness of the music is not known. */
-    private float volume() {
+    /**
+     * The player's volume, 0 to 1, for when the loudness of the music is not known. Read from the system at most
+     * every {@link #VOLUME_EVERY_MS}: asked in every frame it was two calls into the system a frame on the main thread.
+     */
+    private float volume(long now) {
         if (audio == null) return 0.6f;
+        if (volumeAt != 0 && now - volumeAt < VOLUME_EVERY_MS) return volume;
+        volumeAt = now;
         int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-        return max <= 0 ? 0.6f : audio.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max;
+        volume = max <= 0 ? 0.6f : audio.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max;
+        return volume;
     }
 
     /** The next picture: at once while the music plays or the strip still settles, a few times a second at rest. */

@@ -45,6 +45,14 @@ public final class MyWave {
     /** How long after the start the player may still report the track it played before. */
     private static final long START_HOLD_MS = 3_000;
     private static volatile boolean building;
+    /**
+     * Batches built in a row that brought nothing, and when the next one may be tried. Without the wait every change
+     * of track asked every source again while they had nothing to give (no network, everything offered already heard).
+     */
+    private static int emptyBatches;
+    private static volatile long nextBatchAt;
+    private static final long EMPTY_BATCH_WAIT_MS = 30_000;
+    private static final long EMPTY_BATCH_WAIT_MAX_MS = 10 * 60_000;
     private static volatile boolean preparing;
     /** What the last start ran into, for the tab; null when it went well. */
     private static volatile String problem;
@@ -192,9 +200,10 @@ public final class MyWave {
     /** What the player's queue holds against the wave's own list; for the log the user sends. */
     private static void logQueue(String when) {
         List<String> inQueue = AutoplayQueue.stayingUrns();
-        List<String> own;
+        // A set: every track of the queue is looked up in it, on the main thread.
+        Set<String> own;
         synchronized (QUEUED) {
-            own = new ArrayList<>(QUEUED);
+            own = new java.util.HashSet<>(QUEUED);
         }
         StringBuilder marks = new StringBuilder();
         for (String urn : inQueue) marks.append(own.contains(urn) ? 'W' : '.');
@@ -276,6 +285,11 @@ public final class MyWave {
     /** Asks every source for the next batch right away and puts it at the end of the queue. */
     private static void extend(String playing) {
         if (!active || building) return;
+        buildNextBatch(playing);
+    }
+
+    /** Builds the next batch in the background and puts it at the end of the queue. The caller checked {@link #building}. */
+    private static void buildNextBatch(String playing) {
         building = true;
         Utils.runOnBackgroundThread(() -> {
             try {
@@ -284,13 +298,27 @@ public final class MyWave {
                     queued = new LinkedHashSet<>(QUEUED);
                 }
                 List<String> entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
+                noteBatch(!entries.isEmpty());
                 Utils.runOnMainThread(() -> add(entries));
             } catch (Exception ex) {
+                noteBatch(false);
                 Logger.printException(() -> "My Wave: could not build the next batch", ex);
             } finally {
                 building = false;
             }
         });
+    }
+
+    /** After a batch that brought nothing the next one waits: half a minute, then twice as long each time, up to ten minutes. */
+    private static synchronized void noteBatch(boolean broughtTracks) {
+        if (broughtTracks) {
+            emptyBatches = 0;
+            nextBatchAt = 0;
+            return;
+        }
+        long wait = Math.min(EMPTY_BATCH_WAIT_MAX_MS, EMPTY_BATCH_WAIT_MS << Math.min(emptyBatches, 5));
+        emptyBatches++;
+        nextBatchAt = android.os.SystemClock.elapsedRealtime() + wait;
     }
 
     /** Called by {@code PlaybackEvents} when a new track starts. Adds the next batch if few tracks wait. */
@@ -312,25 +340,12 @@ public final class MyWave {
 
     private static void refillIfLow(String playing) {
         if (!active || building) return;
+        if (android.os.SystemClock.elapsedRealtime() < nextBatchAt) return;
         int waiting = AutoplayQueue.upcomingCount();
         // When the player's queue cannot be read, the wave counts its own tracks after the playing one.
         if (waiting < 0) waiting = ownUpcoming(playing);
         if (waiting > REFILL_AT) return;
-        building = true;
-        Utils.runOnBackgroundThread(() -> {
-            try {
-                Set<String> queued;
-                synchronized (QUEUED) {
-                    queued = new LinkedHashSet<>(QUEUED);
-                }
-                List<String> entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
-                Utils.runOnMainThread(() -> add(entries));
-            } catch (Exception ex) {
-                Logger.printException(() -> "My Wave: could not build the next batch", ex);
-            } finally {
-                building = false;
-            }
-        });
+        buildNextBatch(playing);
     }
 
     /** How many of the wave's tracks come after the given one, by the wave's own list. */

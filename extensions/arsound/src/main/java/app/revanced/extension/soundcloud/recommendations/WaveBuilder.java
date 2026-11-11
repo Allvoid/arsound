@@ -191,6 +191,10 @@ final class WaveBuilder {
                     if (track != null && !"BLOCK".equals(track.policy) && !"SNIP".equals(track.policy)) {
                         offers.add(new WaveMixer.Offer(TRACKS + track.id, score));
                     }
+                } catch (InterruptedException ex) {
+                    // The batch went out without this source: stop waiting, the look-ups are ended below.
+                    Thread.currentThread().interrupt();
+                    break;
                 } catch (Exception ex) {
                     Logger.printInfo(() -> "My Wave: a name was not found on SoundCloud: " + ex);
                 }

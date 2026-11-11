@@ -137,9 +137,10 @@ final class UpdatesScreen extends SectionScreen {
                     row.setEnabled(false);
                     Toast.makeText(activity, text("Сбрасываю данные…", "Resetting data…"), Toast.LENGTH_LONG).show();
                     android.content.Context context = activity.getApplicationContext();
-                    Settings.flush();
                     Utils.runOnBackgroundThread(() -> {
                         try {
+                            // Waits for the settings to be on the disk, so not on the main thread.
+                            Settings.flush();
                             DataReset.resetKeepingLogin(context);
                         } finally {
                             Utils.runOnMainThread(() -> Utils.restartApp(context));

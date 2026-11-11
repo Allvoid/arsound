@@ -299,7 +299,8 @@ public final class LocalMusic {
         if (staleCheckQueued.compareAndSet(false, true)) {
             Utils.runOnMainThreadDelayed(() -> {
                 staleCheckQueued.set(false);
-                LocalTrackLoader.forgetStale();
+                // Off the main thread: the check asks the storage about every loaded file.
+                Utils.runOnBackgroundThread(LocalTrackLoader::forgetStale);
             }, 1_000);
         }
         ImportedLikes.refresh();

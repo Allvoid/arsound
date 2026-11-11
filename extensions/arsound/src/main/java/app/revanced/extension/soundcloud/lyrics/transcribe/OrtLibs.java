@@ -17,8 +17,18 @@ import app.revanced.extension.shared.Utils;
  */
 final class OrtLibs {
     private static boolean loaded;
+    /**
+     * The system refused the runtime since the app was installed or updated. Its files are removed then, and without
+     * this mark every recognition with the voice set apart downloaded the archive again only to fail the same way.
+     */
+    private static final UntilUpdate REFUSED = new UntilUpdate("ort-refused-" + NativeArchive.ONNX_RUNTIME.version);
 
     private OrtLibs() {
+    }
+
+    /** Whether the phone refused the runtime for this install of the app. */
+    static boolean isRefused(Context context) {
+        return REFUSED.isSet(context);
     }
 
     static synchronized void load() throws IOException {
@@ -42,8 +52,9 @@ final class OrtLibs {
             ai.onnxruntime.OrtEnvironment.getEnvironment();
             loaded = true;
             Logger.printInfo(() -> "Transcribe: ONNX Runtime is loaded");
-        } catch (UnsatisfiedLinkError | RuntimeException ex) {
+        } catch (LinkageError | RuntimeException ex) {
             Logger.printException(() -> "Transcribe: ONNX Runtime could not be loaded", ex);
+            REFUSED.set(context, ex.toString());
             AsrInstaller.removeLibraries(context, NativeArchive.ONNX_RUNTIME);
             throw new IOException("ONNX Runtime could not be loaded: " + ex.getMessage(), ex);
         }

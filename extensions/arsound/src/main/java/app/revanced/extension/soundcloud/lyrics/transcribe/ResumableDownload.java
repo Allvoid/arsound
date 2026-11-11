@@ -127,7 +127,7 @@ final class ResumableDownload {
             progress.onBytes(have, expectedSize);
             return;
         }
-        HttpURLConnection connection = open(url, have);
+        HttpURLConnection connection = open(url, have, cancel);
         try {
             int code = connection.getResponseCode();
             if (code == 416) {
@@ -143,7 +143,6 @@ final class ResumableDownload {
             }
             // A server that ignores the range sends the whole file with 200: start the file again.
             if (code == 200) have = 0;
-            active = connection;
             try (InputStream input = connection.getInputStream();
                  RandomAccessFile output = new RandomAccessFile(partial, "rw")) {
                 output.setLength(have);
@@ -174,8 +173,12 @@ final class ResumableDownload {
         }
     }
 
-    /** Opens the address, following redirects to HTTPS addresses, asking for the bytes from {@code from} on. */
-    private static HttpURLConnection open(String address, long from) throws IOException {
+    /**
+     * Opens the address, following redirects to HTTPS addresses, asking for the bytes from {@code from} on. The
+     * connection is {@link #active} from before it connects: a cancel then ends the wait for a server that does not
+     * answer, which took up to the connect and read time limits for each redirect.
+     */
+    private static HttpURLConnection open(String address, long from, Cancel cancel) throws IOException {
         String current = address;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
             URL url = new URL(current);
@@ -186,7 +189,19 @@ final class ResumableDownload {
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setRequestProperty("User-Agent", USER_AGENT);
             if (from > 0) connection.setRequestProperty("Range", "bytes=" + from + "-");
-            int code = connection.getResponseCode();
+            // First made the one to close, then the cancel is looked at: a cancel between the two is not missed.
+            active = connection;
+            int code;
+            try {
+                if (cancel.isCancelled()) throw new Cancelled();
+                code = connection.getResponseCode();
+            } catch (IOException ex) {
+                if (active == connection) active = null;
+                connection.disconnect();
+                // A wait cut by a cancel is the cancel, not a failure to try again.
+                if (cancel.isCancelled()) throw new Cancelled();
+                throw ex;
+            }
             if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                 String location = connection.getHeaderField("Location");
                 connection.disconnect();

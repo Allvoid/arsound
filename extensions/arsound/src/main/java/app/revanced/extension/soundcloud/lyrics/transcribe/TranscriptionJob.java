@@ -90,6 +90,7 @@ final class TranscriptionJob {
 
         // A library the phone refused is not downloaded again for nothing.
         if (NativeLibs.isRefused(context)) throw new JobFailed(Failure.MODEL, null);
+        if (separate && OrtLibs.isRefused(context)) throw new JobFailed(Failure.MODEL, null);
         PowerManager.WakeLock wake = acquireWakeLock();
         try {
             install();

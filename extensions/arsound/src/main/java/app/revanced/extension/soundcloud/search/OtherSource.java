@@ -257,11 +257,11 @@ public final class OtherSource {
             page = more.getNextPage();
         }
         List<Track> tracks = new ArrayList<>();
+        // Tracks of an album share its cover.
+        String cover = coverUrl(info.getThumbnails());
+        String thumb = album.thumbUrl != null ? album.thumbUrl : thumbUrl(info.getThumbnails());
         for (StreamInfoItem stream : items) {
             String artist = artistName(stream.getUploaderName());
-            // Tracks of an album share its cover.
-            String cover = coverUrl(info.getThumbnails());
-            String thumb = album.thumbUrl != null ? album.thumbUrl : thumbUrl(info.getThumbnails());
             tracks.add(new Track(stream.getUrl(), stream.getName(), artist.isEmpty() ? album.artist : artist,
                     stream.getDuration(), cover != null ? cover : coverUrl(stream.getThumbnails()),
                     thumb != null ? thumb : thumbUrl(stream.getThumbnails())));

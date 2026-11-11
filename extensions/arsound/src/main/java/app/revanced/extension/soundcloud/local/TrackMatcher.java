@@ -19,7 +19,14 @@ final class TrackMatcher {
     private static final String[] SNIPPETS = {"snippet", "сниппет", "отрывок", "preview", "teaser", "тизер"};
 
     /** A speed multiplier such as "1.10x" or "0,8x". */
-    private static final String SPEED_MULTIPLIER = ".*\\b\\d+[.,]\\d+\\s*x\\b.*";
+    private static final Pattern SPEED_MULTIPLIER = Pattern.compile(".*\\b\\d+[.,]\\d+\\s*x\\b.*");
+    /**
+     * Made once: the three patterns below run for every search result of every track of a transfer, and a pattern
+     * given as text is compiled again at every use.
+     */
+    private static final Pattern NOT_LETTER_OR_DIGIT = Pattern.compile("[^\\p{L}\\p{N}]");
+    /** A note in brackets at the end of a title, with the spaces around it. */
+    private static final Pattern NOTE_AT_THE_END = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
     /** Words in brackets at the end of a title that name a version of the song, not a guest. */
     private static final Pattern VERSION = Pattern.compile(
             "(?iu).*(version|mix|edit|slow|sped|speed|acoustic|live|demo|instrumental|версия|акуст|живое|замедл|ускор).*");
@@ -34,7 +41,7 @@ final class TrackMatcher {
 
     /** Lower case letters and digits only, with "ё" as "е": titles are compared without spaces, marks and case. */
     static String normalize(String text) {
-        return text.toLowerCase(Locale.ROOT).replace('ё', 'е').replaceAll("[^\\p{L}\\p{N}]", "");
+        return NOT_LETTER_OR_DIGIT.matcher(text.toLowerCase(Locale.ROOT).replace('ё', 'е')).replaceAll("");
     }
 
     /** Whether the artist is named by the uploader of the result or in its title. */
@@ -62,7 +69,7 @@ final class TrackMatcher {
         if (namesAnyUnlessWanted(VARIANTS, found, wanted)) return true;
         String lowerFound = found.toLowerCase(Locale.ROOT);
         String lowerWanted = wanted.toLowerCase(Locale.ROOT);
-        return lowerFound.matches(SPEED_MULTIPLIER) && !lowerWanted.matches(SPEED_MULTIPLIER);
+        return SPEED_MULTIPLIER.matcher(lowerFound).matches() && !SPEED_MULTIPLIER.matcher(lowerWanted).matches();
     }
 
     private static boolean namesAnyUnlessWanted(String[] words, String found, String wanted) {
@@ -99,7 +106,7 @@ final class TrackMatcher {
 
     /** The wanted title without a note in brackets at the end, as it is compared. */
     static String plainTitle(String wanted) {
-        return normalize(wanted.replaceAll("\\s*\\([^)]*\\)\\s*$", ""));
+        return normalize(NOTE_AT_THE_END.matcher(wanted).replaceAll(""));
     }
 
     /** The found title holds the whole wanted one: "вата" must not stand for "сахарная вата". */

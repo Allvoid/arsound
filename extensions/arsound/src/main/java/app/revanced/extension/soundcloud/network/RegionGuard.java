@@ -29,6 +29,13 @@ public final class RegionGuard {
     private static final long BLOCKED_RECHECK_MS = 30_000;
 
     private static final RegionState state = new RegionState();
+    /** How long the addresses of the network must stay the same before the country is checked again. */
+    private static final long LINK_CHECK_DELAY_MS = 2_000;
+    private static final android.os.Handler LINK_CHECKS = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final Runnable LINK_CHECK = () -> {
+        state.setCheckedAt(0);
+        recheckIfStaleNow();
+    };
     private static final NetworkWatcher watcher = new NetworkWatcher(new NetworkWatcher.Listener() {
         @Override
         public void onNetworkReplaced() {
@@ -41,9 +48,10 @@ public final class RegionGuard {
         public void onLinkChanged() {
             if (!Settings.isRegionRecheckOnChangeEnabled()) return;
             // A new local address or DNS on the same network may mean a new public IP. This event is
-            // frequent, so requests keep the known answer while it is checked again in the background.
-            state.setCheckedAt(0);
-            recheckIfStaleNow();
+            // frequent and comes in bursts, so requests keep the known answer while it is checked again in the
+            // background, and a burst is one check: it starts once the events have stopped for a moment.
+            LINK_CHECKS.removeCallbacks(LINK_CHECK);
+            LINK_CHECKS.postDelayed(LINK_CHECK, LINK_CHECK_DELAY_MS);
         }
 
         @Override

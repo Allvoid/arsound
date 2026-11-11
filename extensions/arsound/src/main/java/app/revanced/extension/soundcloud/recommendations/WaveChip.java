@@ -26,6 +26,10 @@ import app.revanced.extension.soundcloud.shared.Dimens;
  * finger and springs back; a chip that must stay on shakes its head instead; hover and keyboard focus light it a little.
  */
 final class WaveChip extends View {
+    /** The label's typefaces, made once: asked for in every frame of the chip's animation before. */
+    private static final Typeface LABEL_OFF = Typeface.create(Typeface.DEFAULT, 500, false);
+    private static final Typeface LABEL_ON = Typeface.create(Typeface.DEFAULT, 600, false);
+
     /** Answers a tap: whether the chip may change; it then shows the new state itself. */
     interface Toggle {
         boolean onToggle(boolean nowOn);
@@ -167,7 +171,7 @@ final class WaveChip extends View {
 
         int ink = Colors.blend(Colors.withAlpha(textColor, 0xB8), textColor, progress);
         text.setColor(ink);
-        text.setTypeface(Typeface.create(Typeface.DEFAULT, progress > 0.5f ? 600 : 500, false));
+        text.setTypeface(progress > 0.5f ? LABEL_ON : LABEL_OFF);
         float textWidth = text.measureText(label);
         float dot = Dimens.dpExact(getContext(), 4);
         float start = (w - textWidth - dotSpace) / 2f;

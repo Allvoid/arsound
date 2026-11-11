@@ -200,7 +200,9 @@ public class ResumableDownloadTest {
         File target = new File(temporary.getRoot(), "c.bin");
         final int[] calls = {0};
         try {
-            ResumableDownload.fetch(url("/file"), target, data.length, sha, () -> ++calls[0] > 2, IGNORE);
+            // Asked before the try, before the connection is opened and before the first piece is written: the
+            // cancel comes with the second piece.
+            ResumableDownload.fetch(url("/file"), target, data.length, sha, () -> ++calls[0] > 3, IGNORE);
             fail("expected a cancel");
         } catch (ResumableDownload.Cancelled expected) {
             // The part stays for the next try.

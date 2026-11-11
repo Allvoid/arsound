@@ -39,8 +39,14 @@ public final class ClientProfiles {
                     + "Version/17.0 Safari/605.1.15",
     };
 
-    /** After a lookup that found no id the scripts are not downloaded again for this long: they are megabytes. */
+    /**
+     * After a lookup that found no id the scripts are not downloaded again for this long: they are megabytes. Each
+     * lookup in a row that finds none waits four times longer (5 minutes, 20, 80), up to
+     * {@link #NOT_FOUND_BACKOFF_MAX_MS}: a site that has changed stays changed, and a transfer of hundreds of tracks
+     * read all the scripts again every five minutes.
+     */
     private static final long NOT_FOUND_BACKOFF_MS = 5 * 60 * 1000L;
+    private static final long NOT_FOUND_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000L;
     /** After the region guard stopped a lookup: short, the user may turn a VPN on. */
     private static final long BLOCKED_BACKOFF_MS = 5 * 1000L;
     /** After a lookup that failed on the network: shorter, as the network may be back soon. */
@@ -61,6 +67,8 @@ public final class ClientProfiles {
     private static volatile long cachedAt;
     /** No new lookup of the client id before this time. */
     private static volatile long nextLookupAt;
+    /** Lookups in a row that read the site and found no id in it. */
+    private static volatile int notFoundInRow;
 
     private ClientProfiles() {
     }
@@ -212,10 +220,12 @@ public final class ClientProfiles {
                 cachedClientId = found;
                 cachedAt = System.currentTimeMillis();
                 nextLookupAt = 0;
+                notFoundInRow = 0;
                 Logger.printInfo(() -> "Web client id found");
                 return found;
             }
-            backoff = NOT_FOUND_BACKOFF_MS;
+            backoff = Math.min(NOT_FOUND_BACKOFF_MAX_MS, NOT_FOUND_BACKOFF_MS << (2 * Math.min(notFoundInRow, 4)));
+            notFoundInRow++;
         } catch (RegionGuard.BlockedException ex) {
             // Nothing was sent, and the user may switch a VPN on at any moment: tried again soon, but the threads
             // waiting for this lookup do not each sit out the guard's pause.

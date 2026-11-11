@@ -69,6 +69,9 @@ final class WallpaperBitmap {
                 synchronized (lock) {
                     shown = null;
                 }
+                // Looked for again after the usual wait, not on every frame; a file put there is announced
+                // (markChanged) and read at once.
+                failedAt = System.currentTimeMillis();
                 return;
             }
             BitmapFactory.Options options = new BitmapFactory.Options();

@@ -76,7 +76,8 @@ final class WallpaperPreviewScreen {
     private Bitmap base;
     private int dim = WallpaperStore.dim();
     private int blur = WallpaperStore.blur();
-    private int renderToken;
+    /** Read off the main thread too, by a render that checks whether it is still the newest. */
+    private volatile int renderToken;
     private boolean open = true;
     private boolean controlsShown = true;
     /** The picture is being made the wallpaper: closing now would take the file from under it. */
@@ -360,6 +361,8 @@ final class WallpaperPreviewScreen {
         Utils.runOnBackgroundThread(() -> {
             Bitmap result = null;
             try {
+                // A newer request came while this one waited for a thread: its picture would be thrown away.
+                if (token != renderToken) return;
                 result = WallpaperStore.preview(source, renderWidth, renderHeight, strength);
             } catch (Exception | OutOfMemoryError ex) {
                 Logger.printInfo(() -> "Wallpaper: the preview could not be drawn: " + ex.getClass().getSimpleName());

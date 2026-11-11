@@ -1738,6 +1738,11 @@ public final class DownloadTrackPatch {
      * of the set of downloads the screen shows: that one is only brought up to date while the app is open.
      */
     private static boolean isJobRunning(String trackId, long job) {
+        // The main thread (a list drawing its rows) never asks the system: with hundreds of tracks downloading it was
+        // a call into the system for each of them every two seconds. The record of the job is there, so it runs as
+        // far as the list can know; while the app is open DownloadProgress finds the ended jobs in the background,
+        // settles them and redraws the lists.
+        if (Utils.isCurrentlyOnMainThread()) return true;
         Long checkedAt = runningCheckedAt.get(trackId);
         long now = android.os.SystemClock.elapsedRealtime();
         if (checkedAt != null && now - checkedAt < RUNNING_CHECK_MS) return true;
