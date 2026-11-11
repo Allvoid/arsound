@@ -1,6 +1,8 @@
 package app.revanced.extension.soundcloud.navbar;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -90,5 +92,24 @@ public class TabOrderTest {
         List<String> tabs = TabOrder.withExtra(TABS, "wave", "home"::equals, "wave"::equals);
         TabOrder.Arranged<String> arranged = arrange(tabs, "home");
         assertEquals(Arrays.asList("wave", "feed", "search", "library", "home"), arranged.tabs);
+    }
+
+    @Test
+    public void listsThatDifferOnlyByAnIgnoredTabAreTheSame() {
+        List<String> before = Arrays.asList("home", "wave", "feed", "search", "library");
+        List<String> now = Arrays.asList("home", "wave", "feed", "search", "library", "upgrade");
+        assertTrue(TabOrder.sameWithout(now, before, tab -> "upgrade".equals(tab)));
+    }
+
+    @Test
+    public void aDifferenceInAnotherTabStaysADifference() {
+        List<String> before = Arrays.asList("home", "feed", "library");
+        List<String> now = Arrays.asList("home", "feed", "search", "library", "upgrade");
+        assertFalse(TabOrder.sameWithout(now, before, tab -> "upgrade".equals(tab)));
+    }
+
+    @Test
+    public void withNothingIgnoredTheListsAreCompared_asTheyAre() {
+        assertFalse(TabOrder.sameWithout(Arrays.asList("a", "upgrade"), Arrays.asList("a"), tab -> false));
     }
 }

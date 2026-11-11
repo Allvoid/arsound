@@ -1,13 +1,16 @@
 package app.revanced.extension.soundcloud.navbar;
 
 import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.BoolSettings;
+import app.revanced.extension.soundcloud.settings.Settings;
 import app.revanced.extension.soundcloud.upsell.HidePaywallPatch;
 
 /**
@@ -76,8 +79,66 @@ public final class BottomTabs {
             for (int i = 0; i < menu.size() && i < places.size(); i++) {
                 if (!places.get(i)) menu.getItem(i).setVisible(false);
             }
+            restoreSelection(navigationBar, menu);
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not hide the buttons of the bottom bar", ex);
+        }
+    }
+
+    /**
+     * Injection point, in place of the comparison of the new list of tabs with the one applied before (in
+     * {@code MainNavigationPresenter.applyNavigationTargets}): lists that differ only by the Upgrade tab, which Arsound
+     * drops from the bar anyway, are the same. SoundCloud rebuilds the bar when the lists differ, and a rebuild must not
+     * happen for nothing: it was what put the highlight back on Home while another tab was open (see
+     * {@link #rememberSelection}). The server's list changes with the region (a VPN switched), so this came now and then.
+     */
+    public static boolean sameTabs(Object now, Object before) {
+        try {
+            if (now == before) return true;
+            if (!(now instanceof List) || !(before instanceof List)) return Objects.equals(now, before);
+            boolean dropUpgrade = Settings.isHideUpgradeTabEnabled();
+            return TabOrder.sameWithout((List<?>) now, (List<?>) before, tab -> dropUpgrade && HidePaywallPatch.isUpgradeTab(tab));
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Could not compare the tabs of the bottom bar", ex);
+            return Objects.equals(now, before);
+        }
+    }
+
+    /** The title of the tab selected when the bar was last about to be rebuilt; null when none was. */
+    private static volatile CharSequence selectedBeforeRebuild;
+
+    /**
+     * Injection point: the start of {@code MainNavigationView.setupMenuItems}, before it clears the menu. Clearing the
+     * menu makes Material forget the selected button and select the first (Home) while the screen of the tab that was
+     * open stays: the bar says Home, SoundCloud thinks it is on Home, and a tap on Home does nothing. The selected tab is
+     * remembered here and given back by {@link #hideButtons} once the menu is rebuilt.
+     */
+    public static void rememberSelection(View navigationBar) {
+        selectedBeforeRebuild = null;
+        try {
+            int id = (Integer) navigationBar.getClass().getMethod("getSelectedItemId").invoke(navigationBar);
+            Menu menu = (Menu) navigationBar.getClass().getMethod("getMenu").invoke(navigationBar);
+            MenuItem item = menu.findItem(id);
+            if (item != null) selectedBeforeRebuild = item.getTitle();
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Could not remember the selected tab of the bottom bar", ex);
+        }
+    }
+
+    /** Checks the button the user had open before the bar was rebuilt, without a tap: nothing is navigated. */
+    private static void restoreSelection(View navigationBar, Menu menu) throws Exception {
+        CharSequence title = selectedBeforeRebuild;
+        selectedBeforeRebuild = null;
+        if (title == null) return;
+        for (int i = 0; i < menu.size(); i++) {
+            MenuItem item = menu.getItem(i);
+            if (!title.equals(item.getTitle())) continue;
+            int selected = (Integer) navigationBar.getClass().getMethod("getSelectedItemId").invoke(navigationBar);
+            if (selected != item.getItemId()) {
+                item.setChecked(true);
+                Logger.printInfo(() -> "Bottom bar rebuilt: \"" + title + "\" kept selected");
+            }
+            return;
         }
     }
 }

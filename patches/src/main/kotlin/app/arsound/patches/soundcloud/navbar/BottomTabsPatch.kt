@@ -132,6 +132,23 @@ val bottomTabsPatch = bytecodePatch {
                 move-result-object p3
             """,
         )
+        // The comparison itself: lists that differ only by the Upgrade tab (which the bar drops anyway) are the same, so the
+        // bar is not rebuilt for nothing. A rebuild puts the highlight back on Home while another tab is open.
+        // The two inserted instructions are the call and its move-result: areEqual moved down by two.
+        val areEqualIndex = compare + 2
+        check(applyTargetsMethod.getInstruction(areEqualIndex).methodReference?.name == "areEqual") {
+            "The comparison of the tab lists is not where it was expected"
+        }
+        applyTargetsMethod.replaceInstruction(
+            areEqualIndex,
+            "invoke-static { p3, p2 }, $BOTTOM_TABS->sameTabs(Ljava/lang/Object;Ljava/lang/Object;)Z",
+        )
+
+        // The selected tab is remembered before the menu is cleared and given back after it is rebuilt.
+        setupMenuItemsMethod.addInstructions(
+            0,
+            "invoke-static { p1 }, $BOTTOM_TABS->rememberSelection(Landroid/view/View;)V",
+        )
 
         setupMenuItemsMethod.insertBeforeLastReturnVoid(
             "invoke-static { p1 }, $BOTTOM_TABS->hideButtons(Landroid/view/View;)V",

@@ -80,4 +80,13 @@ final class TabOrder {
         }
         return new Arranged<>(ordered, shown);
     }
+
+    /** Whether two lists of tabs are the same once the tabs {@code ignored} accepts are left out of both. */
+    static boolean sameWithout(List<?> a, List<?> b, Predicate<Object> ignored) {
+        List<Object> left = new ArrayList<>(a.size());
+        for (Object tab : a) if (!ignored.test(tab)) left.add(tab);
+        List<Object> right = new ArrayList<>(b.size());
+        for (Object tab : b) if (!ignored.test(tab)) right.add(tab);
+        return left.equals(right);
+    }
 }

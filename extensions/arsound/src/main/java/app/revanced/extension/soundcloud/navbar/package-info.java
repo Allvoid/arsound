@@ -20,6 +20,14 @@
  * written at once; a taken-out wave tab is left out of the list, not hidden at its end);
  * {@code hide_upgrade_tab} stays in the same screen.
  *
+ * <p>The bar must not be rebuilt for nothing, and a rebuild must keep the open tab: {@code MainNavigationView.setupMenuItems}
+ * clears the menu, Material then forgets the selected button and selects the first (Home) while the screen of the open tab
+ * stays; SoundCloud thinks it is on Home and a tap on Home does nothing. {@code BottomTabs.sameTabs} (in place of the
+ * comparison in {@code MainNavigationPresenter.applyNavigationTargets}) treats lists that differ only by the Upgrade tab
+ * as equal, as the server's list changes with the region; {@code BottomTabs.rememberSelection} (start of
+ * {@code setupMenuItems}) and the end of {@code hideButtons} give the selected button back with {@code setChecked}, with
+ * no tap and no navigation.
+ *
  * <p>Gotchas: a hidden tab is not removed from the list: it moves to the end and only its button is hidden. SoundCloud
  * numbers tabs by position everywhere, and a deep link or a shortcut to a hidden tab still works. The Upgrade tab is
  * appended by SoundCloud after the server answers, so it is always kept last: otherwise the numbers of the hidden tabs
