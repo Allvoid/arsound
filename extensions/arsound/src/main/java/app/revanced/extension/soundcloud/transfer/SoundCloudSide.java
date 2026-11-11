@@ -23,7 +23,15 @@ final class SoundCloudSide {
     private static final int TITLE_ONLY_MIN = 5;
     private static final long[] RETRY_WAITS_MS = {2_000, 5_000};
     /** Likes go one at a time, and each is a request of its own: a pause, so a long list does not flood the server. */
-    private static final long LIKE_PAUSE_MS = 250;
+    private static final long LIKE_PAUSE_MS = 1_000;
+    /**
+     * A transfer gives at most this many likes. SoundCloud limits the likes of an account per day and blocks the
+     * account from liking for a while (longer each time it happens) when it is passed: a transfer of 633 tracks that
+     * liked them all in three minutes was taken for 108 by the server, and the likes the user gave by hand afterwards
+     * were taken back at the next sync. The accounts seen so far were taken for about 100 in one go, so this is under
+     * that. What is not liked stays in the playlist.
+     */
+    static final int LIKE_LIMIT = 50;
     /** A longer pause after a like that failed, which is mostly the server asking to slow down. */
     private static final long LIKE_FAILURE_PAUSE_MS = 3_000;
     /** This many failed likes in a row stop the likes: the server does not take them now. */
@@ -149,10 +157,11 @@ final class SoundCloudSide {
         Set<String> alreadyInLikes = SoundCloudLikes.alreadyLiked(trackUrns);
         // Not liked blindly: a like again moves a track up the likes.
         if (alreadyInLikes == null) throw new NotReadyException();
-        List<String> plan = LikePlan.of(trackUrns, alreadyInLikes);
-        int liked = trackUrns.size() - plan.size();
+        List<String> plan = LikePlan.of(trackUrns, alreadyInLikes, LIKE_LIMIT);
+        int liked = alreadyInLikes.size();
         int alreadyLiked = liked;
-        Logger.printInfo(() -> "Transfer: liking " + plan.size() + " tracks, " + alreadyLiked + " are liked already");
+        Logger.printInfo(() -> "Transfer: liking " + plan.size() + " of " + trackUrns.size() + " tracks (at most "
+                + LIKE_LIMIT + "), " + alreadyLiked + " are liked already");
         progress.accept(liked);
         int failuresInRow = 0;
         for (String urn : plan) {

@@ -49,6 +49,8 @@ public final class TransferJob {
     private static volatile int total;
     private static volatile int checked;
     private static volatile int found;
+    /** How many likes one transfer gives at most (SoundCloud limits the likes of an account). */
+    public static final int LIKE_LIMIT = SoundCloudSide.LIKE_LIMIT;
     private static volatile int liked;
     /** What went wrong, for the user; null unless the phase is FAILED. */
     private static volatile String failure;

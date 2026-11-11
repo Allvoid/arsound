@@ -15,10 +15,22 @@ final class LikePlan {
      * and add one to its count.
      */
     static List<String> of(List<String> urns, Set<String> alreadyLiked) {
-        List<String> plan = new ArrayList<>(urns.size());
-        for (int i = urns.size() - 1; i >= 0; i--) {
-            if (!alreadyLiked.contains(urns.get(i))) plan.add(urns.get(i));
+        return of(urns, alreadyLiked, Integer.MAX_VALUE);
+    }
+
+    /**
+     * The same, for at most {@code limit} tracks: the first ones of the list that are not liked yet. SoundCloud limits
+     * the likes of an account (a long list given at once is taken in part, and the account is then blocked from liking
+     * for a while), so a transfer gives a few and leaves the rest in the playlist. The few are the head of the list, and
+     * the first of them still ends on top of the likes.
+     */
+    static List<String> of(List<String> urns, Set<String> alreadyLiked, int limit) {
+        List<String> head = new ArrayList<>();
+        for (String urn : urns) {
+            if (head.size() >= limit) break;
+            if (!alreadyLiked.contains(urn)) head.add(urn);
         }
-        return plan;
+        java.util.Collections.reverse(head);
+        return head;
     }
 }

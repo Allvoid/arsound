@@ -198,11 +198,14 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         option.addView(tick);
         TextView note = new TextView(activity);
         note.setText(text("Для тех, кто слушает через лайки. Они видны в вашем профиле SoundCloud, плейлист остаётся "
-                        + "приватным.\n\nНестабильно: SoundCloud блокирует лайки, поставленные автоматически, и "
-                        + "может принять лишь часть. Надёжнее ставить лайки вручную.",
+                        + "приватным.\n\nSoundCloud ограничивает число лайков в сутки, а при превышении запрещает аккаунту "
+                        + "лайкать на время, и свои лайки тоже перестают сохраняться. Поэтому за один перенос ставится не "
+                        + "больше " + TransferJob.LIKE_LIMIT + " лайков, с начала списка; остальные треки лежат в плейлисте.",
                 "For those who listen through their likes. They show on your SoundCloud profile, the playlist stays "
-                        + "private.\n\nUnstable: SoundCloud blocks likes given automatically and may take only a "
-                        + "part. It is more reliable to like by hand."));
+                        + "private.\n\nSoundCloud limits the likes of an account per day and, when it is passed, bars the "
+                        + "account from liking for a while: your own likes are then not kept either. So one transfer gives "
+                        + "at most " + TransferJob.LIKE_LIMIT + " likes, from the start of the list; the other tracks stay in "
+                        + "the playlist."));
         note.setTextColor(ArsoundTheme.palette(activity, "secondary"));
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         note.setPadding(ui.dp(4), 0, 0, ui.dp(8));

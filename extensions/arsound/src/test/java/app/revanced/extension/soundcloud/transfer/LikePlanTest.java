@@ -26,4 +26,16 @@ public class LikePlanTest {
     public void nothingToLikeWhenAllAreLiked() {
         assertTrue(LikePlan.of(Arrays.asList("a"), new HashSet<>(Arrays.asList("a"))).isEmpty());
     }
+
+    @Test
+    public void aLimitKeepsTheHeadOfTheListAndTheFirstStillEndsOnTop() {
+        List<String> plan = LikePlan.of(Arrays.asList("a", "b", "c", "d"), Collections.emptySet(), 2);
+        assertEquals(Arrays.asList("b", "a"), plan);
+    }
+
+    @Test
+    public void theLimitCountsOnlyTracksThatAreNotLikedYet() {
+        List<String> plan = LikePlan.of(Arrays.asList("a", "b", "c", "d"), new HashSet<>(Arrays.asList("a")), 2);
+        assertEquals(Arrays.asList("c", "b"), plan);
+    }
 }
