@@ -80,7 +80,9 @@ final class LikeWrites {
             int code = (Integer) response.getClass().getMethod("code").invoke(response);
             String body = isRefusal(code) ? peek(response) : null;
             Logger.printInfo(() -> logLine(path, code, body));
-            if (isRefusal(code)) showToast(code);
+            // 429 and 403 are the limit of likes (or a closed account): a notice of its own says it, not a toast.
+            if (code == 429 || code == 403) app.revanced.extension.soundcloud.local.LikeLimit.onRefused();
+            else if (isRefusal(code)) showToast(code);
         } catch (Exception | LinkageError ex) {
             Logger.printException(() -> "Could not log the answer to a like", ex);
         }

@@ -37,7 +37,11 @@ public final class LikeHearts {
      * @return True if the track is an imported file and the toggle was handled here: nothing may be written for it.
      */
     public static boolean toggle(Object urn, boolean like) {
-        if (!LikeObjects.isLocal(urn)) return false;
+        if (!LikeObjects.isLocal(urn)) {
+            // A SoundCloud track: counted for the warning about SoundCloud's limit of likes, and looked at a while after.
+            LikeLimit.onToggle(urn, like);
+            return false;
+        }
         // A hook in the tap on a heart, often on the main thread: a failure must not close the app. The tap then does
         // nothing, and it is still handled here, so nothing is written for the file.
         try {
