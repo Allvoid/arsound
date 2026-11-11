@@ -23,6 +23,10 @@ import app.revanced.extension.soundcloud.local.LocalMusic;
  * the same as a record played slower or faster. A track whose title already says that it was slowed or sped up is left
  * at its own speed: slowed twice it would be mush.
  * <p>
+ * A track may have a speed of its own ({@link TrackSpeeds}), which comes before the chosen version: it plays slowed,
+ * sped up or at its normal speed whatever is chosen for the rest, and whatever its title says, because the user asked
+ * for it by name.
+ * <p>
  * The player is Media3's, behind SoundCloud's wrapper; both the way to it and the call that sets the speed are found by
  * their shape, because their names are shrunk.
  */
@@ -43,6 +47,8 @@ public final class SlowedPlayback {
     private static int titleReads;
     /** Whether the speed of the player is one set here: only then normal speed is put back. Player thread. */
     private static boolean slowedHere;
+    /** Whether the track that plays has a speed of its own other than normal: then it is kept up with the common choice off. */
+    private static volatile boolean ownSpeedNow;
 
     /** How to get to the Media3 player, per wrapper class: the streams of HLS and of files are other classes. */
     private static final Map<Class<?>, Method> playerOf = new HashMap<>();
@@ -110,7 +116,7 @@ public final class SlowedPlayback {
      * off the speed is left alone.
      */
     static void reassert() {
-        if (!isEnabled()) return;
+        if (!isEnabled() && !ownSpeedNow) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - reassertedAt < 3000) return;
         reassertedAt = now;
@@ -179,32 +185,39 @@ public final class SlowedPlayback {
         Object base;
         boolean slowed;
         Boolean retimed;
+        VersionSpeed own;
+        VersionSpeed wanted;
         synchronized (lock) {
             base = player.get();
             retimed = alreadyRetimed;
             // Ads and the like are not tracks and keep their speed.
-            slowed = isEnabled() && Boolean.FALSE.equals(retimed) && urn != null
-                    && (urn.contains(":tracks:") || LocalAdditions.importedFileOf(urn) != null);
+            boolean track = urn != null && (urn.contains(":tracks:") || LocalAdditions.importedFileOf(urn) != null);
+            own = track ? TrackSpeeds.of(urn) : null;
+            wanted = own != null ? own : TrackVersions.speed();
+            // The track's own speed holds whatever its title says; the common choice leaves a retimed track alone.
+            slowed = track && wanted != VersionSpeed.NORMAL && (own != null || Boolean.FALSE.equals(retimed));
+            ownSpeedNow = own != null && own != VersionSpeed.NORMAL;
         }
-        // The title is still being read: the apply that follows it decides.
-        if (base == null || retimed == null) return;
+        // The title is still being read: the apply that follows it decides. A speed of the track's own needs no title.
+        if (base == null || (retimed == null && own == null)) return;
         // A speed SoundCloud set itself is not reset: only a slowdown made here is undone.
         if (!slowed && !slowedHere) return;
-        float factor = slowed ? speed() : 1f;
+        float factor = slowed ? TrackVersions.factorOf(wanted) : 1f;
         try {
             Object exo = exoPlayer(base);
             if (exo == null) return;
             if (setParameters == null) resolve(exo.getClass().getClassLoader());
             // The pitch follows the speed: slower and lower, as a record played slower.
-            Object wanted = parameters.newInstance(factor, factor);
-            if (getParameters != null && wanted.equals(getParameters.invoke(exo))) {
+            Object speedAndPitch = parameters.newInstance(factor, factor);
+            if (getParameters != null && speedAndPitch.equals(getParameters.invoke(exo))) {
                 slowedHere = slowed;
                 return;
             }
-            setParameters.invoke(exo, wanted);
+            setParameters.invoke(exo, speedAndPitch);
             slowedHere = slowed;
-            Logger.printInfo(() -> "Slowed playback: " + (again ? "the speed was lost, set again: " : "") + (slowed ? TrackVersions.speed().key + " at " : "normal speed, ") + factor + " for " + urn
-                    + (Boolean.TRUE.equals(retimed) ? " (its title says it is at another speed already)" : ""));
+            Logger.printInfo(() -> "Slowed playback: " + (again ? "the speed was lost, set again: " : "") + (slowed ? wanted.key + " at " : "normal speed, ") + factor + " for " + urn
+                    + (own != null ? " (the track's own speed)"
+                    : Boolean.TRUE.equals(retimed) ? " (its title says it is at another speed already)" : ""));
         } catch (Throwable ex) {
             // A repeat runs every few seconds: its failure is only logged, the first apply has shown it already.
             if (again) Logger.printInfo(() -> "Slowed playback: could not set the speed again: " + ex);

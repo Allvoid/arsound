@@ -115,7 +115,10 @@ public final class DownloadTrackPatch {
             // An imported file: nothing to download, but its cover can be picked.
             java.io.File imported = app.revanced.extension.soundcloud.local.LocalAdditions.importedFileOf(trackUrn);
             if (imported != null) {
-                Utils.runOnMainThread(() -> app.revanced.extension.soundcloud.local.LocalAdditions.addTrackCoverRow(dialog, imported));
+                Utils.runOnMainThread(() -> {
+                    app.revanced.extension.soundcloud.local.LocalAdditions.addTrackCoverRow(dialog, imported);
+                    app.revanced.extension.soundcloud.player.TrackSpeedPanel.addTrackMenuRow(dialog, trackUrn);
+                });
                 return;
             }
             String trackId = parseTrackId(trackUrn);
@@ -125,6 +128,7 @@ public final class DownloadTrackPatch {
                 addDownloadRow(dialog, trackId);
                 app.revanced.extension.soundcloud.local.LocalAdditions.addTrackMenuRow(dialog, trackUrn);
                 app.revanced.extension.soundcloud.recommendations.TrackDislikes.addTrackMenuRow(dialog, trackUrn);
+                app.revanced.extension.soundcloud.player.TrackSpeedPanel.addTrackMenuRow(dialog, trackUrn);
             });
         } catch (Exception ex) {
             Logger.printException(() -> "onTrackMenu failure", ex);

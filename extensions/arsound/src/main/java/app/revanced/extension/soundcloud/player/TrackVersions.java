@@ -63,9 +63,14 @@ public final class TrackVersions {
 
     /** The speed factor (and pitch factor) of the chosen version, before a title that says it is retimed already is taken into account. */
     public static float speedFactor() {
+        return factorOf(speed());
+    }
+
+    /** The speed factor (and pitch factor) of a speed, with the percents the user chose for slowed and sped up. */
+    public static float factorOf(VersionSpeed speed) {
         int slowed = (int) Settings.getLong(SLOWED_PERCENT, DEFAULT_SLOWED_PERCENT);
         int speedUp = (int) Settings.getLong(SPEED_UP_PERCENT, DEFAULT_SPEED_UP_PERCENT);
-        return speed().factor(slowed, speedUp);
+        return speed.factor(slowed, speedUp);
     }
 
     /** A short line with the chosen versions for the toast and the settings summary: "Slowed + Reverb (средне)". */
