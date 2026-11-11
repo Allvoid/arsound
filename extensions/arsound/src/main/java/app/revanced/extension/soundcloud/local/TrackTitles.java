@@ -54,9 +54,17 @@ final class TrackTitles {
         return new Snapshot(readTitles());
     }
 
-    /** A readable name for an entry: the cached SoundCloud title. */
+    /**
+     * A readable name for an entry: the cached SoundCloud title. Reads and parses all the cached titles: for a list
+     * take one {@link #snapshot} and ask {@link #get(String, Snapshot)}.
+     */
     static String get(String entry) {
-        return Entry.parse(entry).cachedTitle(snapshot());
+        return get(entry, snapshot());
+    }
+
+    /** The same from titles read before. */
+    static String get(String entry, Snapshot titles) {
+        return Entry.parse(entry).cachedTitle(titles);
     }
 
     /** Loads and caches the title of a SoundCloud track entry, so local lists can show it offline. */

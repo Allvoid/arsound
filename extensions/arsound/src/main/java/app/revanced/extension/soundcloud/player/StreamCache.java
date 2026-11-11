@@ -209,7 +209,8 @@ public final class StreamCache {
 
     /**
      * The other caches of Arsound: the next track fetched ahead and the pictures of the wallpaper catalogue. They are
-     * counted with the stream cache and go with it: they were neither shown in the storage nor cleared.
+     * counted with the stream cache and go with it: they were neither shown in the storage nor cleared. So are the
+     * covers kept for playing without a network (OfflineArtwork), which lie in the app's files, not in its cache.
      */
     private static final String[] OTHER_CACHES = {"arsound-next", "wallhaven-grid"};
 
@@ -219,6 +220,8 @@ public final class StreamCache {
         if (context == null) return 0;
         long total = 0;
         for (String name : OTHER_CACHES) total += FileTree.size(new File(context.getCacheDir(), name));
+        // The covers kept for playing without a network: up to 150 MB that no screen showed.
+        total += app.revanced.extension.soundcloud.network.OfflineArtwork.usedBytes();
         return total;
     }
 
@@ -232,6 +235,7 @@ public final class StreamCache {
                 if (files == null) continue;
                 for (File file : files) FileTree.deleteAll(file);
             }
+            app.revanced.extension.soundcloud.network.OfflineArtwork.clear();
         });
     }
 }

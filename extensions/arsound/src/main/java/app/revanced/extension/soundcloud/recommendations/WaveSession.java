@@ -109,7 +109,9 @@ final class WaveSession {
         all.putAll(found);
         try {
             JSONObject object = new JSONObject();
-            for (String urn : keepFor) {
+            // The newest ones, as many as the queue keeps (see save): the wave of a long evening is hundreds of
+            // tracks, and all of them were written here every time a title was found.
+            for (String urn : keepFor.subList(Math.max(0, keepFor.size() - KEEP), keepFor.size())) {
                 String[] track = all.get(urn);
                 if (track == null) continue;
                 JSONArray parts = new JSONArray();

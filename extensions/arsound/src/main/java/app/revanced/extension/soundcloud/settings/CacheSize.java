@@ -10,7 +10,7 @@ import app.revanced.extension.soundcloud.player.StreamCache;
  */
 final class CacheSize {
     private static final long FRESH_MS = 60_000;
-    private static long bytes = -1;
+    private static volatile long bytes = -1;
     private static long countedAt;
 
     private CacheSize() {
@@ -19,15 +19,20 @@ final class CacheSize {
     /** Blocks while counting. Callers at the same time wait for the one count instead of walking the folder too. */
     static synchronized long get() {
         long now = SystemClock.elapsedRealtime();
-        if (bytes < 0 || now - countedAt > FRESH_MS) {
-            bytes = StreamCache.usedBytes() + StreamCache.otherCachesBytes();
+        long known = bytes;
+        if (known < 0 || now - countedAt > FRESH_MS) {
+            known = StreamCache.usedBytes() + StreamCache.otherCachesBytes();
+            bytes = known;
             countedAt = now;
         }
-        return bytes;
+        return known;
     }
 
-    /** The caches were emptied: the next ask counts again. */
-    static synchronized void forget() {
+    /**
+     * The caches were emptied: the next ask counts again. Not under the lock of {@link #get}: this is called on the main
+     * thread (the "Clear cache" row), which would wait there for a count under way to walk the whole cache folder.
+     */
+    static void forget() {
         bytes = -1;
     }
 }

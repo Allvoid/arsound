@@ -48,9 +48,6 @@ public final class NativeOffline {
     /** SoundCloud's DefaultOfflineContentOperations, a single instance, captured in its constructor. */
     private static volatile WeakReference<Object> offlineOperations = new WeakReference<>(null);
 
-    /** Tracks already handed to the native download this run, so a repeated tap does not queue them again. */
-    private static final Set<String> requested = Collections.synchronizedSet(new HashSet<>());
-
     /** When each track was handed to SoundCloud's offline library: its request shows only a moment later in its state. */
     private static final Map<String, Long> justRequested = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long SHOW_REQUEST_MS = 5_000;
@@ -109,7 +106,6 @@ public final class NativeOffline {
                 // any more (it failed, or the copy was removed in SoundCloud) is made again, not skipped until a restart.
                 String state = offlineState(trackId);
                 if ("DOWNLOADED".equals(state) || "REQUESTED".equals(state) || "DOWNLOADING".equals(state)) continue;
-                requested.add(trackId);
                 try {
                     Object urn = urn(operations, trackId);
                     Method make = operations.getClass().getMethod("makeTrackAvailableOffline",
@@ -118,7 +114,6 @@ public final class NativeOffline {
                     // A failure that comes later lets the track be asked for again.
                     if (completable != null) {
                         Rx.subscribeIgnoringErrors(completable, error -> {
-                            requested.remove(trackId);
                             justRequested.remove(trackId);
                             DownloadProgress.onNativeChanged();
                             Logger.printInfo(() -> "The native offline request of " + trackId + " failed: " + error);
@@ -129,7 +124,6 @@ public final class NativeOffline {
                     watch(context, trackId);
                     Logger.printInfo(() -> "DRM track " + trackId + " requested for the native offline download");
                 } catch (Throwable ex) {
-                    requested.remove(trackId);
                     Logger.printException(() -> "Could not request " + trackId + " for the native offline download", ex);
                 }
             }
@@ -410,10 +404,7 @@ public final class NativeOffline {
     public static void cancelAll(Context context, Collection<String> trackIds) {
         if (trackIds.isEmpty()) return;
         forgetAll(context, trackIds);
-        for (String trackId : trackIds) {
-            requested.remove(trackId);
-            justRequested.remove(trackId);
-        }
+        for (String trackId : trackIds) justRequested.remove(trackId);
         Object operations = offlineOperations.get();
         if (operations == null) return;
         int taken = 0;

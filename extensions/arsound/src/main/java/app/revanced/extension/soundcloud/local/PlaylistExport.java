@@ -74,6 +74,8 @@ final class PlaylistExport {
 
     private static List<M3uPlaylist.Track> tracks(List<Object> urns, String playlistUrn) {
         List<M3uPlaylist.Track> tracks = new ArrayList<>();
+        // Read once for the whole playlist: asked for each track, all the cached titles were parsed each time.
+        TrackTitles.Snapshot titles = null;
         for (Object urn : urns) {
             if (Urns.isLocalFile(urn)) {
                 try {
@@ -88,7 +90,8 @@ final class PlaylistExport {
             }
             String entry = String.valueOf(urn);
             if (!entry.startsWith(TrackEntry.PREFIX)) continue;
-            String title = TrackTitles.get(entry);
+            if (titles == null) titles = TrackTitles.snapshot();
+            String title = TrackTitles.get(entry, titles);
             tracks.add(new M3uPlaylist.Track(-1, title == null ? "" : title,
                     M3uPlaylist.SOUNDCLOUD_TRACK_URL + entry.substring(TrackEntry.PREFIX.length())));
         }

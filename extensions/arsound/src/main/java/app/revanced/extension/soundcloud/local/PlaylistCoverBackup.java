@@ -28,6 +28,8 @@ public final class PlaylistCoverBackup {
     public static final int BUDGET_CHARS = 2_400_000;
     /** The longest text of one picture the settings file takes (see {@code settings.PlaylistCoversMerge}). */
     static final int MAX_PICTURE_CHARS = 400_000;
+    /** No cover is shorter than this as text (about 1.5 KB of JPEG). */
+    private static final int SMALLEST_PICTURE_CHARS = 2_000;
 
     private PlaylistCoverBackup() {
     }
@@ -38,6 +40,8 @@ public final class PlaylistCoverBackup {
         long spent = 0;
         // In the order of the urns, so two exports of the same covers are the same file even when the budget cuts some.
         for (Map.Entry<String, File> cover : new TreeMap<>(LocalCovers.playlistCoverFiles()).entrySet()) {
+            // Nothing more fits: the covers left are not read and made small only to be dropped.
+            if (BUDGET_CHARS - spent < SMALLEST_PICTURE_CHARS) break;
             try {
                 byte[] small = small(read(cover.getValue()));
                 if (small == null) continue;

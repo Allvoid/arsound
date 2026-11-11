@@ -147,8 +147,11 @@ public final class WatchFolder {
                 org.json.JSONObject failures = readFailures(preferences);
                 for (Uri uri : found) {
                     String id = DocumentsContract.getDocumentId(uri);
-                    // A nearly full phone: nothing is copied, and nothing counts as a failure of the file.
-                    if (context.getFilesDir().getUsableSpace() < MIN_FREE_BYTES) {
+                    // A nearly full phone, or a file that would make it so: nothing is copied, and nothing counts as a
+                    // failure of the file. Without the size of the file a big one filled the phone to the last byte
+                    // before the copy failed, and after three such failures the file was given up on.
+                    Long size = scan.sizes.get(id);
+                    if (context.getFilesDir().getUsableSpace() - (size == null ? 0 : size) < MIN_FREE_BYTES) {
                         skipped.add(id);
                         continue;
                     }
@@ -207,6 +210,8 @@ public final class WatchFolder {
         final List<Uri> found = new ArrayList<>();
         /** Their document ids. */
         final List<String> foundIds = new ArrayList<>();
+        /** The sizes of the new files by document id, where the provider tells them. */
+        final java.util.Map<String, Long> sizes = new java.util.HashMap<>();
 
         Scan(ContentResolver resolver, Uri tree, Set<String> seen, Set<String> imported, Set<String> downloads) {
             this.resolver = resolver;
@@ -246,6 +251,7 @@ public final class WatchFolder {
                         PENDING_SIZES.remove(id);
                         if (!imported.contains(storedName(name) + '/' + size)) found.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
                         foundIds.add(id);
+                        if (size > 0) sizes.put(id, size);
                     }
                 }
             }

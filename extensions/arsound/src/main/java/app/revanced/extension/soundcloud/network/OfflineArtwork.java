@@ -23,7 +23,7 @@ import app.revanced.extension.soundcloud.shared.AtomicFiles;
  * <p>
  * Kept in the app's files, at most {@link #MAX_BYTES}; the covers used longest ago go first.
  */
-final class OfflineArtwork {
+public final class OfflineArtwork {
     private static final String DIRECTORY = "arsound/artwork-offline";
     private static final long MAX_BYTES = 150L * 1024 * 1024;
     /** The folder is measured after this many new covers, not after each one. */
@@ -34,6 +34,30 @@ final class OfflineArtwork {
     private static int savedSinceTrim;
 
     private OfflineArtwork() {
+    }
+
+    /** Space the kept covers take, in bytes, for the storage screen. Blocks. */
+    public static long usedBytes() {
+        File folder = folder();
+        File[] files = folder == null ? null : folder.listFiles();
+        long total = 0;
+        if (files != null) for (File file : files) total += file.length();
+        return total;
+    }
+
+    /**
+     * Deletes the kept covers: the "Clear cache" row. They are in the app's files, so that Android does not take them
+     * when it is short of space, which also kept them out of sight of the storage screen and of its clear row.
+     * Blocks; a cover kept while this runs simply stays.
+     */
+    public static void clear() {
+        File folder = folder();
+        File[] files = folder == null ? null : folder.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
+        }
     }
 
     /**

@@ -84,8 +84,11 @@ final class ImportedView {
         List<?> urns = (List<?>) ordered;
         List<ImportedQuery.Item> items = new ArrayList<>(urns.size());
         List<String> untitled = new ArrayList<>();
+        // The cached titles are one text parsed whole: read once for the list, not for each SoundCloud track in it.
+        TrackTitles.Snapshot titles = null;
         for (Object urn : urns) {
-            ImportedQuery.Item item = item(urn);
+            if (titles == null && !Urns.isLocalFile(urn)) titles = TrackTitles.snapshot();
+            ImportedQuery.Item item = item(urn, titles);
             if (!query.isEmpty() && !Urns.isLocalFile(urn) && item.title.isEmpty() && askNow(String.valueOf(urn))) {
                 untitled.add(String.valueOf(urn));
             }
@@ -108,8 +111,8 @@ final class ImportedView {
         return true;
     }
 
-    private static ImportedQuery.Item item(Object urn) {
-        if (!Urns.isLocalFile(urn)) return ImportedQuery.Item.other(urn, TrackTitles.get(String.valueOf(urn)));
+    private static ImportedQuery.Item item(Object urn, TrackTitles.Snapshot titles) {
+        if (!Urns.isLocalFile(urn)) return ImportedQuery.Item.other(urn, TrackTitles.get(String.valueOf(urn), titles));
         File file;
         try {
             file = Urns.fileOf(urn);

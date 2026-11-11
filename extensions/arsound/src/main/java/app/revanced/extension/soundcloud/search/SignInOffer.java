@@ -55,6 +55,8 @@ final class SignInOffer {
                     .setNegativeButton(text("Не сейчас", "Not now"), null)
                     .setOnDismissListener(shownDialog -> {
                         shown = false;
+                        // Not kept: the dialog holds its screen.
+                        dialog = null;
                         if (!signingIn) declined = true;
                         signingIn = false;
                     });

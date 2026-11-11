@@ -49,17 +49,25 @@ final class CoverImages {
         return coverFile.getName().replace(EXTENSION, "");
     }
 
-    /** Downloads a picture. Blocks. */
+    /** The most a downloaded picture may be: a cover is far less, and an answer without end must not fill the memory. */
+    private static final int MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024;
+
+    /** Downloads a picture, at most {@link #MAX_DOWNLOAD_BYTES}. Blocks. */
     static byte[] download(String imageUrl) throws Exception {
-        RegionGuard.throwIfBlocked(new URL(imageUrl).getHost());
-        HttpURLConnection connection = (HttpURLConnection) new URL(imageUrl).openConnection();
+        URL url = new URL(imageUrl);
+        RegionGuard.throwIfBlocked(url.getHost());
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(30_000);
         try (InputStream input = connection.getInputStream()) {
+            if (connection.getContentLengthLong() > MAX_DOWNLOAD_BYTES) throw new java.io.IOException("The picture is too big");
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             byte[] buffer = new byte[16 * 1024];
             int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+                if (output.size() > MAX_DOWNLOAD_BYTES) throw new java.io.IOException("The picture is too big");
+            }
             return output.toByteArray();
         }
     }
