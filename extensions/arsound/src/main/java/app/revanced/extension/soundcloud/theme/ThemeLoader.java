@@ -34,6 +34,8 @@ final class ThemeLoader {
     private volatile String loaderKey;
     private String failedKey;
     private int failedBuilds;
+    /** The {@link Theme#key()} whose table {@link #prepare} builds right now off the main thread, or null. */
+    private volatile String preparing;
 
     ThemeLoader(Context appContext) {
         this.appContext = appContext;
@@ -49,6 +51,13 @@ final class ThemeLoader {
      * the table is built again and put into the same loader.
      */
     synchronized void apply(Resources resources, Theme theme) throws Exception {
+        // The table of these colours is being built in the background right now: a screen made meanwhile takes the
+        // table there is and is drawn again when the new one is ready (ThemeLifecycle.refreshIfStale). Asking for
+        // the new one here made the main thread wait for the rest of that build.
+        if (loader != null && theme.key().equals(preparing)) {
+            resources.addLoaders(loader);
+            return;
+        }
         if (loader == null || !theme.key().equals(loaderKey)) {
             // Each try is work on the main thread that gives no theme anyway; a later start tries again.
             if (theme.key().equals(failedKey) && failedBuilds >= MAX_BUILD_ATTEMPTS) return;
@@ -93,8 +102,13 @@ final class ThemeLoader {
      * table ready instead of building it in the frame of a start or of a screen made again.
      */
     void prepare(Theme theme) throws Exception {
-        synchronized (BUILD) {
-            if (!isKept(theme)) build(theme);
+        preparing = theme.key();
+        try {
+            synchronized (BUILD) {
+                if (!isKept(theme)) build(theme);
+            }
+        } finally {
+            preparing = null;
         }
     }
 
@@ -112,13 +126,27 @@ final class ThemeLoader {
         }
     }
 
+    /** Tables were kept in the cache folder under this name before; see {@link #tableFolder}. */
+    private static final String OLD_TABLE_PREFIX = "arsound-theme-";
+    private static final String TABLE_PREFIX = "table-";
+    private static final String TABLE_SUFFIX = ".arsc";
+
+    /**
+     * Where the tables are kept: in the app's files, beside their stamps. They were in the cache folder, which Android
+     * empties when the phone is short of space and the user empties with "Clear cache": the next cold start then built
+     * the table again on the main thread, before the first screen.
+     */
+    private static File tableFolder(Context context) {
+        return new File(context.getFilesDir(), ThemeFiles.ROOT + "theme");
+    }
+
     /**
      * The file of a theme's table. The colours of a runtime theme are part of the name: the table of the old colours
      * may still be mapped by the screens that were drawn with it, and rewriting a mapped file in place could crash them.
      */
     private File tableOf(Theme theme) {
         String suffix = theme.isRuntime() ? "-" + Integer.toHexString(theme.key().hashCode()) : "";
-        return new File(appContext.getCacheDir(), "arsound-theme-" + theme.id + suffix + ".arsc");
+        return new File(tableFolder(appContext), TABLE_PREFIX + theme.id + suffix + TABLE_SUFFIX);
     }
 
     /**
@@ -149,9 +177,17 @@ final class ThemeLoader {
         File stamp = stampOf(theme);
         String key = stampKey(theme);
         stamp.delete();
+        File folder = file.getParentFile();
+        if (folder != null && !folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("No folder " + folder);
+        long started = android.os.SystemClock.uptimeMillis();
         // No loader yet in this process: the resources still show the app's own files.
         new ThemeTableBuilder(context, theme, loader == null).build(file);
+        long took = android.os.SystemClock.uptimeMillis() - started;
+        boolean mainThread = android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
+        Logger.printInfo(() -> "Theme: the table of " + theme.id + " was built in " + took + " ms"
+                + (mainThread ? ", on the main thread" : ""));
         if (theme.isRuntime()) removeOldTables(context, theme, file);
+        removeCacheTables(context);
         if (key != null) {
             try {
                 ThemeFiles.write(stamp, key.getBytes("UTF-8"));
@@ -164,11 +200,25 @@ final class ThemeLoader {
 
     /** Deletes the tables of the earlier colours of a runtime theme; a screen that still maps one keeps working. */
     private static void removeOldTables(Context context, Theme theme, File current) {
-        File[] files = context.getCacheDir().listFiles();
+        File[] files = tableFolder(context).listFiles();
         if (files == null) return;
-        String prefix = "arsound-theme-" + theme.id + "-";
+        String prefix = TABLE_PREFIX + theme.id + "-";
         for (File file : files) {
-            if (file.getName().startsWith(prefix) && file.getName().endsWith(".arsc") && !file.equals(current)) file.delete();
+            if (file.getName().startsWith(prefix) && file.getName().endsWith(TABLE_SUFFIX) && !file.equals(current)) file.delete();
+        }
+    }
+
+    /**
+     * Deletes the tables an earlier version of the app left in the cache folder. None of them is in use: this version
+     * never reads a table from there.
+     */
+    private static void removeCacheTables(Context context) {
+        File[] files = context.getCacheDir().listFiles(
+                (folder, name) -> name.startsWith(OLD_TABLE_PREFIX) && name.endsWith(TABLE_SUFFIX));
+        if (files == null) return;
+        for (File file : files) {
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
         }
     }
 
