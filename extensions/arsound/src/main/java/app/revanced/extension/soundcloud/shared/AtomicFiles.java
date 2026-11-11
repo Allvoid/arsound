@@ -31,9 +31,10 @@ public final class AtomicFiles {
     }
 
     /**
-     * Puts a finished file in place of the old one in one step. Where a rename does not replace a file, the old one is
-     * removed first, but only once the new one is known to be there: a missing source removed the target and then
-     * failed, and the file kept in place was lost.
+     * Puts a finished file in place of the old one in one step. Where a rename does not replace a file (not on
+     * Android, but where the tests run), the old one is set aside first and put back if the new one still cannot be
+     * moved: removing it instead lost the file kept in place whenever the rename failed for another cause (no room,
+     * no access), as the second try failed for the same cause.
      */
     public static void replace(File from, File to) throws IOException {
         if (!from.isFile()) throw new IOException("Nothing to move: " + from.getName());
@@ -47,8 +48,17 @@ public final class AtomicFiles {
             }
         }
         if (from.renameTo(to)) return;
+        File aside = new File(to.getPath() + ".old");
         //noinspection ResultOfMethodCallIgnored
-        to.delete();
-        if (!from.renameTo(to)) throw new IOException("Could not rename " + from.getName());
+        aside.delete();
+        // Only a file is set aside: a folder in the way stays where it is.
+        if (!to.isFile() || !to.renameTo(aside)) throw new IOException("Could not rename " + from.getName());
+        if (!from.renameTo(to)) {
+            //noinspection ResultOfMethodCallIgnored
+            aside.renameTo(to);
+            throw new IOException("Could not rename " + from.getName());
+        }
+        //noinspection ResultOfMethodCallIgnored
+        aside.delete();
     }
 }

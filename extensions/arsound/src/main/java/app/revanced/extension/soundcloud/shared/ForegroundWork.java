@@ -88,6 +88,18 @@ public final class ForegroundWork extends Service {
         return START_NOT_STICKY;
     }
 
+    /**
+     * Android 15 and later give a "dataSync" service six hours a day; when they are used up it calls this and closes
+     * the app unless the service stops within a few seconds. The work itself runs on without the notification. Not
+     * marked as an override: the method is newer than the Android this is built against.
+     */
+    @SuppressWarnings({"unused", "MissingOverride"})
+    public void onTimeout(int startId, int fgsType) {
+        Logger.printInfo(() -> "Foreground work: out of time for today, the notification goes");
+        running = false;
+        stopSelf();
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;

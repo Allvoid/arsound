@@ -76,7 +76,15 @@ public final class PlaylistPreloader {
         if (Settings.isPlaylistPreloadEnabled()) {
             LocalCovers.keepOfflineCopies(playlists);
         }
-        preload();
+        // On its own: the preload calls into SoundCloud by names that a new version of it may change, and a failure
+        // there must not skip the sweep below.
+        try {
+            preload();
+        } catch (InterruptedException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            Logger.printException(() -> "Playlist preload failed", ex);
+        }
         // Downloaded tracks deleted on SoundCloud before their playlists were watched.
         if (!RegionGuard.blocksLastCountry()) {
             RemovedTracks.sweepDownloads();

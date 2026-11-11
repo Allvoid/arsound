@@ -40,7 +40,9 @@ public final class CurrentPlayState {
      */
     public static PlayState forPage(PlayState bound) {
         PlayState now = latest;
-        if (bound == null || now == null || now == bound || !now.o().equals(bound.o())) return bound;
+        // A state without a track (null) is never "the same track": the hook runs while a page is bound, where an
+        // exception would close the app.
+        if (bound == null || now == null || now == bound || now.o() == null || !now.o().equals(bound.o())) return bound;
         if (now.a() != bound.a() || now.h() != bound.h()) {
             Logger.printInfo(() -> "Player page: bound " + kind(bound) + ", the player is " + kind(now));
         }

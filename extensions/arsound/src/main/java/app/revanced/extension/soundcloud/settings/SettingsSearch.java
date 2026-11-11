@@ -106,7 +106,7 @@ final class SettingsSearch {
      * @return Whether screens are left to read.
      */
     private boolean indexStep() {
-        if (searchIndex != null || activity.isFinishing()) return false;
+        if (searchIndex != null || activity.isFinishing() || activity.isDestroyed()) return false;
         if (building == null) {
             building = new SearchIndex();
             nextSection = -1;
@@ -115,7 +115,13 @@ final class SettingsSearch {
         recorder.start(building);
         try {
             if (nextSection < 0) {
-                mainRows.accept(new LinearLayout(activity));
+                // Guarded like the screens below: a failure here left the index half made, and the rows read before
+                // it were read again at the next try.
+                try {
+                    mainRows.accept(new LinearLayout(activity));
+                } catch (Exception ex) {
+                    Logger.printException(() -> "Search index: could not read the main screen", ex);
+                }
             } else {
                 SectionScreen section = sections.get(nextSection);
                 if (section.searched()) {

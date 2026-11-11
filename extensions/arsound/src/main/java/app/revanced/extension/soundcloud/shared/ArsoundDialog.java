@@ -212,7 +212,9 @@ public final class ArsoundDialog {
         card.setTranslationY(dp(12));
         try {
             dialog.show();
-        } catch (android.view.WindowManager.BadTokenException ex) {
+        } catch (RuntimeException ex) {
+            // The window went away in between (BadTokenException), or the screen it was on did
+            // (InvalidDisplayException): there is nothing to show the dialog in.
             return dialog;
         }
         SHOWN.add(dialog);

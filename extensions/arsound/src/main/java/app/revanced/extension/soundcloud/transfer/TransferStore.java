@@ -77,6 +77,9 @@ final class TransferStore {
      */
     static void markRunning(String key, String title, boolean like) {
         synchronized (LOCK) {
+            // A file that cannot be read is kept aside before it is written over: it holds the playlists other
+            // collections made, which a transfer of them would make a second time.
+            keepDamaged(RUNNING);
             JSONObject running = read(RUNNING);
             try {
                 if (running == null) running = new JSONObject();
@@ -137,6 +140,7 @@ final class TransferStore {
         synchronized (LOCK) {
             File folder = folder();
             if (folder == null) return;
+            keepDamaged(RUNNING);
             JSONObject running = read(RUNNING);
             JSONObject left = running == null ? null : running.optJSONObject("left");
             if (left == null || left.length() == 0) {
@@ -260,6 +264,8 @@ final class TransferStore {
             if (!part.renameTo(new File(folder, name))) throw new IOException("Could not rename " + part);
         } catch (IOException ex) {
             Logger.printException(() -> "Transfer: could not save " + name, ex);
+            //noinspection ResultOfMethodCallIgnored
+            part.delete();
         }
     }
 }

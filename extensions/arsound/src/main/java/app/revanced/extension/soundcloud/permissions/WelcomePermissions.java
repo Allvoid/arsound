@@ -114,6 +114,8 @@ public final class WelcomePermissions {
             shown[0] = dialog.show();
         } catch (Exception ex) {
             WelcomeLanguage.clear();
+            // Not shown, so not marked as shown: the next return to the main screen tries again.
+            shownThisLaunch = false;
             Logger.printException(() -> "Could not show the welcome", ex);
         }
     }

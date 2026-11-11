@@ -251,9 +251,9 @@ final class LocalTrackLoader {
         int loaded = LOADED_SINCE_REFRESH.get();
         if (loaded == 0 || (loaded < REFRESH_EVERY && !LOADING.isEmpty())) return;
         LOADED_SINCE_REFRESH.addAndGet(-loaded);
-        // The likes list waits for the files it left out until they were loaded.
-        ImportedLikes.refresh();
         try {
+            // The likes list waits for the files it left out until they were loaded.
+            ImportedLikes.refresh();
             Set<String> playlists = new LinkedHashSet<>(PlaylistTracks.playlistsWithImportedTracks());
             String saved = SavedPlaylist.getUrn();
             if (saved != null) playlists.add(saved);

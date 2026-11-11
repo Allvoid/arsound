@@ -99,7 +99,9 @@ public final class WallpaperDownload {
                     Utils.runOnMainThread(() -> progress(received, size));
                 }, cancelled);
                 ok = true;
-            } catch (IOException ex) {
+            } catch (IOException | RuntimeException ex) {
+                // Any failure ends the download: one that slipped past here left it "running" for good, with its
+                // file never swept.
                 if (!cancelled.get()) Logger.printInfo(() -> "Wallpaper: the download failed: " + ex.getClass().getSimpleName());
             }
             boolean result = ok;

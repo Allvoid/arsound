@@ -43,6 +43,8 @@ public final class BottomTabs {
             return arranged.tabs;
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not arrange the tabs of the bottom bar", ex);
+            // The list goes back as it came, so the marks of a list arranged before do not fit it: no button is hidden.
+            shown = java.util.Collections.emptyList();
             return tabs;
         }
     }

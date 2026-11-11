@@ -171,9 +171,13 @@ public final class RegionGuard {
      */
     public static void recheck(Runnable onDone) {
         Utils.runOnBackgroundThread(() -> {
-            state.forgetFailure();
-            fetchAndPublish();
-            if (onDone != null) Utils.runOnMainThread(onDone);
+            // The callback in any case: the banner's spinner turns until it comes.
+            try {
+                state.forgetFailure();
+                fetchAndPublish();
+            } finally {
+                if (onDone != null) Utils.runOnMainThread(onDone);
+            }
         });
     }
 
