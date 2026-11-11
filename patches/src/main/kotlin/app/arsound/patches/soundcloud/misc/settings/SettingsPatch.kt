@@ -4,6 +4,7 @@ import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.fieldReference
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.patch.resourcePatch
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
@@ -21,6 +22,9 @@ private const val SETTINGS_ACTIVITY_CLASS =
 
 private const val SETTINGS_ENTRY_CLASS_DESCRIPTOR =
     "Lapp/revanced/extension/soundcloud/settings/SettingsEntry;"
+
+private const val LANGUAGE_CHOICE_CLASS_DESCRIPTOR =
+    "Lapp/revanced/extension/soundcloud/settings/LanguageChoice;"
 
 private val settingsActivityPatch = resourcePatch {
     apply {
@@ -82,6 +86,19 @@ val settingsPatch = bytecodePatch {
                 stringResourceIndex + 2,
                 "invoke-static { v$composerRegister }, " +
                     "$SETTINGS_ENTRY_CLASS_DESCRIPTOR->addEntry(Landroidx/compose/runtime/Composer;)V",
+            )
+        }
+
+        // "Language" on SoundCloud's "Basic settings": the system's page of app languages for the original app's package
+        // (nothing on a phone without it, the wrong app's languages with it) is replaced by Arsound's own choice.
+        languageRowClickMethod.apply {
+            val start = indexOfFirstInstructionOrThrow {
+                opcode == Opcode.INVOKE_VIRTUAL && methodReference?.name == "startActivity"
+            }
+            val fragment = getInstruction<FiveRegisterInstruction>(start).registerC
+            replaceInstruction(
+                start,
+                "invoke-static { v$fragment }, $LANGUAGE_CHOICE_CLASS_DESCRIPTOR->openFromSoundCloud(Ljava/lang/Object;)V",
             )
         }
 

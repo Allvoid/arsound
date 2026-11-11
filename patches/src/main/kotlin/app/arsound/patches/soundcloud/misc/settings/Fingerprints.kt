@@ -2,6 +2,7 @@ package app.arsound.patches.soundcloud.misc.settings
 
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.gettingFirstMethodDeclaratively
+import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.returnType
@@ -20,4 +21,13 @@ internal val BytecodePatchContext.settingsScreenContentMethod by gettingFirstMet
         "Landroidx/compose/runtime/Composer;",
         "I",
     )
+}
+
+/**
+ * The click of the "Language" row of the "Basic settings" screen (a coroutine of `BasicSettingsFragment`): it opens the
+ * system's page of app languages for the hard-coded package `com.soundcloud.android`.
+ */
+internal val BytecodePatchContext.languageRowClickMethod by gettingFirstMethodDeclaratively {
+    definingClass("Lcom/soundcloud/android/settings/basic/BasicSettingsFragment\$onCreateView\$1\$1\$1\$2\$1;")
+    name("invokeSuspend")
 }

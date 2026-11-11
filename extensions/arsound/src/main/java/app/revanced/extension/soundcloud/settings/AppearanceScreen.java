@@ -2,16 +2,10 @@ package app.revanced.extension.soundcloud.settings;
 
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
-import android.app.LocaleManager;
-import android.os.Build;
-import android.os.LocaleList;
 import android.widget.LinearLayout;
-
-import java.util.Arrays;
 
 import app.revanced.extension.soundcloud.player.NotificationArtwork;
 import app.revanced.extension.soundcloud.settings.search.SearchEntry;
-import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 import app.revanced.extension.soundcloud.widget.WidgetHeart;
@@ -241,26 +235,10 @@ final class AppearanceScreen extends SectionScreen {
 
     /** The app language: as in the system, Russian or English. Android 13+ keeps it per app. */
     private void addLanguageRow(LinearLayout list) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
-        LocaleManager manager = activity.getSystemService(LocaleManager.class);
-        String[] tags = {"", "ru", "en"};
-        String[] labels = {text("Как в системе", "System default"), "Русский", "English"};
-        String chosen = manager.getApplicationLocales().isEmpty() ? "" : manager.getApplicationLocales().get(0).getLanguage();
-        int index = Arrays.asList(tags).indexOf(chosen);
-        ActionRow row = ui.createActionRow(text("Язык приложения", "App language"), "", v ->
-                new ArsoundDialog(activity)
-                        .setTitle(text("Язык приложения", "App language"))
-                        .setSingleChoiceItems(labels, Math.max(0, index), (dialog, which) -> {
-                            dialog.dismiss();
-                            manager.setApplicationLocales(tags[which].isEmpty()
-                                    ? LocaleList.getEmptyLocaleList()
-                                    : LocaleList.forLanguageTags(tags[which]));
-                            // Android redraws SoundCloud's screens by itself, but Arsound reads the language once
-                            // per start: a restart switches everything.
-                            ArsoundTheme.restartApp(activity);
-                        })
-                        .show());
-        row.icon("language").value(labels[Math.max(0, index)]);
+        if (!LanguageChoice.available()) return;
+        String[] labels = LanguageChoice.labels();
+        ActionRow row = ui.createActionRow(text("Язык приложения", "App language"), "", v -> LanguageChoice.show(activity));
+        row.icon("language").value(labels[LanguageChoice.chosen(activity)]);
         list.addView(row);
     }
 }
