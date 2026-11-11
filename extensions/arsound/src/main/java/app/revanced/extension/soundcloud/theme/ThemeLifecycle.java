@@ -103,6 +103,7 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
         refreshIfStale(activity);
         ThemeBackdrop.onActivityResumed(activity);
         WallpaperSurfaces.onActivityResumed(activity);
+        CardSurfaces.onActivityResumed(activity);
         try {
             SplashStyle.sync(activity, ArsoundTheme.currentTheme(activity));
         } catch (Throwable ex) {

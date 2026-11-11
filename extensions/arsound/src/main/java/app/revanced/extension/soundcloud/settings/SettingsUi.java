@@ -44,6 +44,7 @@ import app.revanced.extension.soundcloud.shared.Dimens;
 import app.revanced.extension.soundcloud.settings.search.SearchEntry;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.theme.CardLook;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
 /**
@@ -233,18 +234,21 @@ final class SettingsUi {
 
     /** The fill of a card: the colour of the search field, a little see-through over a wallpaper. */
     int cardFill() {
+        // With "Cards and outlines" on, the cards of the settings follow the same choices as those of the lists.
+        if (CardLook.isOn()) return CardLook.of(activity).fill;
         int fill = ArsoundTheme.palette(activity, "highlight");
         return WallpaperStore.isActive() ? Colors.withAlpha(fill, 0xD0) : fill;
     }
 
     /** The thin outline of a card. */
     int cardStroke() {
+        if (CardLook.isOn()) return CardLook.of(activity).outline;
         return Colors.withAlpha(accent(), 0x2E);
     }
 
     /** The corner radius of a card in pixels. */
     int cardRadius() {
-        return dp(18);
+        return dp(CardLook.isOn() ? CardLook.of(activity).radiusDp : CardLook.DEFAULT_RADIUS_DP);
     }
 
     /** The colour of the lines between rows of a card. */

@@ -402,6 +402,16 @@ public final class Settings {
      */
     public static final String WALLPAPER_SOURCE = "arsound_wallpaper_source";
 
+    /**
+     * Cards and outlines (theme.CardLook): rows of the Library and tracks of lists on rounded cards like those of
+     * Arsound's settings. Off by default. The corner radius in dp, the outline (0 the accent, 1 a plain line, 2 none)
+     * and how solid the fill is, in percent.
+     */
+    public static final String CARDS_ENABLED = "arsound_cards_enabled";
+    public static final String CARDS_RADIUS = "arsound_cards_radius";
+    public static final String CARDS_OUTLINE = "arsound_cards_outline";
+    public static final String CARDS_OPACITY = "arsound_cards_opacity";
+
     public static final String HIDE_HEADER_ARTWORK = "hide_header_artwork";
     public static final String HIDE_HOME_GREETING = "hide_home_greeting";
 

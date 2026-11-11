@@ -84,6 +84,7 @@ final class AppearanceScreen extends SectionScreen {
         if (themeEntry != null) themeEntry.addKeywords(text("оформление стиль цвет внешний вид тёмная светлая", "appearance style colour look dark light"));
         addThemeRows(list);
         new WallpaperRows(ui).addTo(list);
+        new CardRows(ui).addTo(list);
         addPlayerRows(list);
         addHomeRows(list);
 

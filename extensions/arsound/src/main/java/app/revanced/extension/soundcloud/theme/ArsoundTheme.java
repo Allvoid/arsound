@@ -188,6 +188,8 @@ public final class ArsoundTheme {
      * library_header_<row>. 0 keeps the row without an icon.
      */
     public static int libraryRowIcon(View row) {
+        // The same moment, when the row is bound, gives it its card ("Cards and outlines"); nothing when that is off.
+        CardSurfaces.styleRow(row);
         try {
             if (row.getId() == View.NO_ID) return 0;
             return libraryRowIcon(row.getResources().getResourceEntryName(row.getId()).replace("library_header_", ""));

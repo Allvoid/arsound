@@ -106,6 +106,8 @@ public final class BoolSettings {
     public static final BoolSetting HIDE_IMPORT_BANNER = new BoolSetting(Settings.HIDE_IMPORT_BANNER, true);
     /** Motion blur of a list or a pager while it moves fast (motion/MotionBlur). Off by default. */
     public static final BoolSetting MOTION_BLUR = new BoolSetting(Settings.MOTION_BLUR, false);
+    /** Cards and outlines for the Library and the track lists. Off by default: SoundCloud's rows stay plain. */
+    public static final BoolSetting CARDS_ENABLED = new BoolSetting(Settings.CARDS_ENABLED, false);
     /** Motion blur for scrolling up and down. On by default; counts only with {@link #MOTION_BLUR}. */
     public static final BoolSetting MOTION_BLUR_SCROLL = new BoolSetting(Settings.MOTION_BLUR_SCROLL, true);
     /** Motion blur for swipes to the sides (tabs, pagers). On by default; counts only with {@link #MOTION_BLUR}. */
