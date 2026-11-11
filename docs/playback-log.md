@@ -6,7 +6,11 @@ On by default (Settings → Arsound → Developer → Playback log, a change app
   `PlaybackTimeline` plants one at app start and writes playback lines, all warnings and errors,
   and Arsound's own log lines to a file.
 - One file per day: `Android/data/com.arsound.app/files/playback-log/playback-YYYY-MM-DD.txt`.
-  Files older than two days are deleted. A day is capped at 20 MB.
+  Files older than two days are deleted. A day is capped at 20 MB; the line that reaches the cap is followed by a
+  note saying that nothing more is written until the next day.
+- The file of the day stays open and is written to the disk once no more lines wait: a burst of lines is one
+  write, a single line is on the disk at once. At most 4000 lines wait; if something logs faster, the rest is left
+  out and the next written line says how many.
 - For every start the log has a summary line: `== START` or `== SLOW START` (1 second or more),
   time from the action (next, previous, a tapped track, auto next) to sound, split into
   SoundCloud's preparation (before ExoPlayer gets the track) and the stream download (after),
@@ -51,7 +55,9 @@ the sign-in page, the WebView version and the Arsound settings that change the n
 log, the mod log and the end of the system log (`logcat`) of the app. Android shows an app only its own lines, so
 nothing of other apps is read. The command has a 3 second limit and a 1 MB cap; if the phone refuses it, the file
 has a line saying so. The sign-in codes and tokens (`sc://auth?code=...`, `access_token=...`, `Authorization`
-headers) are replaced with `<redacted>` in everything that is copied.
+headers), cookies (`Cookie:` and `Set-Cookie:` lines), sessions of other services, YouTube's proof of origin
+(`pot`, `po_token`), the signature of an address of the audio servers (`Policy`, `Signature`, `Key-Pair-Id`) and
+the authorization of a track (`track_authorization`) are replaced with `<redacted>` in everything that is copied.
 
 Before the user is signed in the settings cannot be reached, so the first sign-in page (the whole sign-in
 activity) has a "Save logs" pill in its top corner. It makes the same file and shows the same dialog with "Send".

@@ -43,6 +43,32 @@ public class SecretRedactorTest {
     }
 
     @Test
+    public void signedAudioAddressesLoseTheSignature() {
+        assertEquals("GET https://cf-hls-media.sndcdn.com/media/1/2/a.128.mp3?Policy=<redacted>&Signature=<redacted>"
+                        + "&Key-Pair-Id=<redacted> failed",
+                SecretRedactor.redact("GET https://cf-hls-media.sndcdn.com/media/1/2/a.128.mp3?Policy=eyJTdGF0ZW1lbnQi"
+                        + "&Signature=AbC~dEf-123__&Key-Pair-Id=APKAI6TU7MMXM5DG6EPQ failed"));
+    }
+
+    @Test
+    public void trackAuthorizationIsMasked() {
+        assertEquals("stream?client_id=1&track_authorization=<redacted>",
+                SecretRedactor.redact("stream?client_id=1&track_authorization=eyJ0eXAiOiJKV1QifQ.abc.def"));
+    }
+
+    @Test
+    public void cookiesAreMaskedToTheEndOfTheLine() {
+        assertEquals("Cookie: <redacted>\nnext line", SecretRedactor.redact("Cookie: SID=abc; HSID=def\nnext line"));
+        assertEquals("set-cookie: <redacted>", SecretRedactor.redact("set-cookie: sc_session=1-2-3; Path=/"));
+    }
+
+    @Test
+    public void proofOfOriginAndSessionsAreMasked() {
+        assertEquals("videoplayback?n=1&pot=<redacted>&c=WEB", SecretRedactor.redact("videoplayback?n=1&pot=MnQabc_-12&c=WEB"));
+        assertEquals("{\"po_token\":\"<redacted>\"}", SecretRedactor.redact("{\"po_token\":\"MnQabc\"}"));
+    }
+
+    @Test
     public void ordinaryTextIsKept() {
         String line = "OAuth authentication failed, code=404 for https://api.soundcloud.com/me?limit=5";
         assertEquals(line, SecretRedactor.redact(line));
