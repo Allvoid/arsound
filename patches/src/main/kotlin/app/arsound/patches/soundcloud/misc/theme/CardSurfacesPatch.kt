@@ -3,9 +3,11 @@ package app.arsound.patches.soundcloud.misc.theme
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
+import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
@@ -13,6 +15,7 @@ import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
+import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
@@ -38,6 +41,62 @@ private val BytecodePatchContext.swipeCellMethod by gettingFirstMethodDeclarativ
         "Landroidx/compose/runtime/Composer;",
         "I",
     )
+}
+
+/**
+ * The rows of SoundCloud's settings and menus (Compose, no view at hand): the class, and the call whose result is the
+ * modifier of the row's box (the row's height). The card is drawn on that modifier, so the row's own click, padding and
+ * content stay inside it.
+ */
+private val ROW_CALLS = listOf(
+    Triple("Lcom/soundcloud/android/ui/components/compose/actionlists/ActionListItemKt;", "height-3ABfNKs", "SizeKt"),
+    Triple("Lcom/soundcloud/android/ui/components/compose/actionlists/ActionListStandardKt;", "heightIn-VpY3zN4\$default", "SizeKt"),
+    Triple("Lcom/soundcloud/android/ui/components/compose/actionlists/ActionListToggleKt;", "heightIn-VpY3zN4\$default", "SizeKt"),
+    Triple("Lcom/soundcloud/android/ui/components/compose/actionlists/ActionListSelectableKt;", "heightIn-VpY3zN4\$default", "SizeKt"),
+    Triple("Lcom/soundcloud/android/ui/components/compose/actionlists/ActionListItemWithHelperKt;", "heightIn-VpY3zN4\$default", "SizeKt"),
+)
+
+/** The tiles of carousels: the class and the call whose result is the modifier of the tile's fixed-width box. */
+private val TILE_CALLS = listOf(
+    Triple("Lcom/soundcloud/android/ui/components/compose/listviews/track/CellSlideTrackKt;", "width-3ABfNKs", "SizeKt"),
+    Triple("Lcom/soundcloud/android/ui/components/compose/listviews/playlist/CellSlidePlaylistKt;", "width-3ABfNKs", "SizeKt"),
+    Triple("Lcom/soundcloud/android/ui/components/compose/listviews/user/CellSlideUserKt;", "width-3ABfNKs", "SizeKt"),
+)
+
+/** The cells of lists that are views: playlists and tracks, bound by `n(ViewState)`. */
+private val VIEW_CELLS = listOf(
+    "Lcom/soundcloud/android/ui/components/listviews/playlist/CellSmallPlaylist;",
+    "Lcom/soundcloud/android/ui/components/listviews/playlist/CellMicroPlaylist;",
+    "Lcom/soundcloud/android/ui/components/listviews/track/CellSmallTrack;",
+    "Lcom/soundcloud/android/ui/components/listviews/track/CellMicroTrack;",
+    "Lcom/soundcloud/android/ui/components/listviews/user/CellMicroUser;",
+)
+
+/**
+ * Puts `CardSurfaces.row` on the result of the first call of [callName] in this method: `modifier = call(...)` becomes
+ * `modifier = row(call(...))`. False when the method has no such call. The plain form of an invoke reaches the first
+ * sixteen registers only, so the range form is used.
+ */
+private fun MutableMethod.cardOnFirstCallResult(callClass: String, callName: String, hook: String): Boolean {
+    val instructions = implementation?.instructions ?: return false
+    val call = instructions.indexOfFirst {
+        (it.opcode == Opcode.INVOKE_STATIC || it.opcode == Opcode.INVOKE_STATIC_RANGE) &&
+            (it as ReferenceInstruction).methodReference?.let { ref ->
+                ref.definingClass == callClass && ref.name == callName
+            } == true
+    }
+    if (call < 0) return false
+    val result = getInstruction(call + 1)
+    if (result.opcode != Opcode.MOVE_RESULT_OBJECT) throw PatchException("$definingClass->$name: the call to $callName keeps no modifier")
+    val register = (result as OneRegisterInstruction).registerA
+    addInstructions(
+        call + 2,
+        """
+            invoke-static/range { v$register .. v$register }, $CARDS->$hook($MODIFIER)$MODIFIER
+            move-result-object v$register
+        """,
+    )
+    return true
 }
 
 /**
@@ -80,6 +139,34 @@ val cardSurfacesPatch = bytecodePatch {
                     invoke-static { v$modifier, v$view }, $CARDS->cell($MODIFIER$VIEW)$MODIFIER
                     move-result-object v$modifier
                 """,
+            )
+        }
+
+        for ((type, callName, callOwner) in ROW_CALLS) {
+            val hooked = firstClassDef(type).methods.count {
+                it.cardOnFirstCallResult("Landroidx/compose/foundation/layout/$callOwner;", callName, "row")
+            }
+            if (hooked == 0) throw PatchException("$type has no $callName any more")
+        }
+
+        for ((type, callName, callOwner) in TILE_CALLS) {
+            val hooked = firstClassDef(type).methods.count {
+                it.cardOnFirstCallResult("Landroidx/compose/foundation/layout/$callOwner;", callName, "tile")
+            }
+            if (hooked == 0) throw PatchException("$type has no $callName any more")
+        }
+
+        for (type in VIEW_CELLS) {
+            val bind = firstClassDef(type).methods.singleOrNull { it.name == "n" && it.parameterTypes.size == 1 }
+                ?: throw PatchException("$type has no cell binding n(ViewState) any more")
+            // After the cell has set its own background, if it does; else first thing. Not at the return: some
+            // binders reuse the register of the view for something else, and the verifier then refuses the class.
+            val background = bind.implementation!!.instructions.indexOfFirst {
+                it.opcode == Opcode.INVOKE_VIRTUAL && (it as ReferenceInstruction).methodReference?.name == "setBackgroundResource"
+            }
+            bind.addInstruction(
+                if (background >= 0) background + 1 else 0,
+                "invoke-static/range { p0 .. p0 }, $CARDS->styleCell($VIEW)V",
             )
         }
     }

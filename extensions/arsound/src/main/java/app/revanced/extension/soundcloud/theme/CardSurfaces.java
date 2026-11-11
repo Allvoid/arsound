@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.AndroidCanvas_androidKt;
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope;
 import androidx.compose.ui.graphics.drawscope.DrawContext;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 
 import app.revanced.extension.shared.Logger;
@@ -25,8 +26,9 @@ import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
 
 /**
- * Puts SoundCloud's rows on cards ({@link CardLook}) when "Cards and outlines" is on: the rows of the Library, which
- * are views, and the tracks of lists (the likes, a playlist, the search), which Compose draws. Off, nothing is touched.
+ * Puts SoundCloud's rows on cards ({@link CardLook}) when "Cards and outlines" is on: the rows of the Library and the
+ * cells of lists that are views (playlists, tracks), and the cells that Compose draws (the tracks of the likes and of
+ * a playlist, the rows of SoundCloud's own settings and menus). Off, nothing is touched.
  * <p>
  * A row keeps its size and its place: the card is drawn inside it, a little in from its edges, so a list scrolls and
  * lays out as before.
@@ -35,8 +37,12 @@ import kotlin.jvm.functions.Function1;
 public final class CardSurfaces {
     /** How far the card is in from the edges of its row, in dp: rows follow each other with a small gap. */
     private static final float INSET_SIDE_DP = 8f, INSET_ENDS_DP = 3f;
+    /** The same for a tile of a carousel, which has its own padding inside its box. */
+    private static final float TILE_INSET_SIDE_DP = 3f, TILE_INSET_ENDS_DP = 2f;
     /** The look the main screen was last built with, to build it again when the choices changed in the settings. */
     private static String mainScreenKey;
+    /** The screen shown now: the cells of Compose that cannot read their view take their colours from it. */
+    private static WeakReference<Activity> top = new WeakReference<>(null);
 
     private CardSurfaces() {
     }
@@ -52,6 +58,7 @@ public final class CardSurfaces {
      */
     public static void onActivityResumed(Activity activity) {
         try {
+            top = new WeakReference<>(activity);
             if (!activity.getClass().getName().endsWith(".MainActivity") || activity.isFinishing()) return;
             String key = CardLook.of(activity).key();
             String shown = mainScreenKey;
@@ -87,6 +94,21 @@ public final class CardSurfaces {
         }
     }
 
+    /**
+     * Gives a cell of a list its card. Injection point, at the end of the {@code n(ViewState)} that binds a view cell
+     * (a playlist, a track): the card is set after the cell has set its own background. A cell is bound again and
+     * again, and a card that was made with the same look is left as it is.
+     */
+    public static void styleCell(View cell) {
+        if (cell == null || !CardLook.isOn()) return;
+        try {
+            card(cell);
+        } catch (Throwable ex) {
+            // A hook where a cell is bound: the cell without a card is always a good answer.
+            Logger.printException(() -> "Cards: could not style a cell", ex);
+        }
+    }
+
     /** The rows of the Library are named library_header_<row>. */
     private static boolean isLibraryRow(View view) {
         if (view.getId() == View.NO_ID) return false;
@@ -97,15 +119,26 @@ public final class CardSurfaces {
         }
     }
 
-    /** The rows that have their card, and the look it was made with: a row is bound again and again. */
-    private static final java.util.Map<View, String> CARDED = new java.util.WeakHashMap<>();
+    /** The card a row has, and the look it was made with: a row is bound again and again. */
+    private static final class Carded {
+        final String key;
+        final android.graphics.drawable.Drawable background;
+
+        Carded(String key, android.graphics.drawable.Drawable background) {
+            this.key = key;
+            this.background = background;
+        }
+    }
+
+    private static final java.util.Map<View, Carded> CARDED = new java.util.WeakHashMap<>();
 
     private static void card(View row) {
         Context context = row.getContext();
         CardLook card = CardLook.of(context);
         String key = card.key();
-        if (key.equals(CARDED.get(row))) return;
-        CARDED.put(row, key);
+        Carded had = CARDED.get(row);
+        // A cell that sets its own background when it is bound has put it back over the card: the card is made again.
+        if (had != null && had.key.equals(key) && row.getBackground() == had.background) return;
         float density = context.getResources().getDisplayMetrics().density;
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(card.fill);
@@ -115,7 +148,9 @@ public final class CardSurfaces {
         mask.setColor(0xFFFFFFFF);
         mask.setCornerRadius(card.radiusDp * density);
         int ripple = Colors.withAlpha(ArsoundTheme.palette(context, "primary"), 0x22);
-        row.setBackground(new RippleDrawable(ColorStateList.valueOf(ripple), shape, mask));
+        RippleDrawable background = new RippleDrawable(ColorStateList.valueOf(ripple), shape, mask);
+        row.setBackground(background);
+        CARDED.put(row, new Carded(key, background));
 
         ViewGroup.LayoutParams params = row.getLayoutParams();
         if (params instanceof ViewGroup.MarginLayoutParams) {
@@ -146,6 +181,26 @@ public final class CardSurfaces {
     private static final java.util.Map<String, Function1> DRAWS = new java.util.HashMap<>();
 
     /**
+     * Injection point, in the composables that have no view at hand (the rows of SoundCloud's settings and menus): the
+     * modifier of the row's box as the row has made it, and the card on it in the colours of the screen shown now.
+     */
+    public static Modifier row(Modifier modifier) {
+        Activity screen = top.get();
+        if (!CardLook.isOn() || modifier == null || screen == null) return modifier;
+        return withCard(modifier, screen, false);
+    }
+
+    /**
+     * Injection point, in the tiles of carousels (a playlist, a track, a user): the modifier of the tile's fixed-width
+     * box. The tile has its own padding inside that box, so the card lies close to the box's edges.
+     */
+    public static Modifier tile(Modifier modifier) {
+        Activity screen = top.get();
+        if (!CardLook.isOn() || modifier == null || screen == null) return modifier;
+        return withCard(modifier, screen, true);
+    }
+
+    /**
      * Injection point, in SoundCloud's swipeable list cell ({@code SwipeCellKt.a}): the modifier of the cell's box,
      * right where the cell makes it, and the view the list is shown in. The card is drawn under the cell's own
      * content, in the colours of the screen the view belongs to: over a wallpaper a main screen keeps its dark look
@@ -156,15 +211,18 @@ public final class CardSurfaces {
      */
     public static Modifier cell(Modifier modifier, View host) {
         if (!CardLook.isOn() || modifier == null || host == null) return modifier;
+        return withCard(modifier, host.getContext(), false);
+    }
+
+    private static Modifier withCard(Modifier modifier, Context context, boolean tile) {
         try {
-            Context context = host.getContext();
             CardLook card = CardLook.of(context);
-            String key = card.key();
+            String key = (tile ? "tile/" : "row/") + card.key();
             Function1 draw = DRAWS.get(key);
             if (draw == null) {
                 // The looks of settings left behind are few and small, but they need not pile up.
                 if (DRAWS.size() > 8) DRAWS.clear();
-                draw = new CardDraw(card, context.getResources().getDisplayMetrics().density);
+                draw = new CardDraw(card, context.getResources().getDisplayMetrics().density, tile);
                 DRAWS.put(key, draw);
             }
             return DrawModifierKt.drawWithContent(modifier, draw);
@@ -178,13 +236,16 @@ public final class CardSurfaces {
     private static final class CardDraw implements Function1 {
         private final CardLook card;
         private final float density;
+        /** A tile carries its own padding; a row lies further in from the edges of its box. */
+        private final boolean tile;
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF bounds = new RectF();
 
-        CardDraw(CardLook card, float density) {
+        CardDraw(CardLook card, float density, boolean tile) {
             this.card = card;
             this.density = density;
+            this.tile = tile;
             fill.setColor(card.fill);
             line.setStyle(Paint.Style.STROKE);
             line.setStrokeWidth(Math.max(1f, density));
@@ -218,9 +279,11 @@ public final class CardSurfaces {
             float width = Float.intBitsToFloat((int) (size >> 32)), height = Float.intBitsToFloat((int) size);
             if (!(width > 0f) || !(height > 0f)) return;
 
-            float side = INSET_SIDE_DP * density, ends = INSET_ENDS_DP * density;
+            // Tiles lie side by side with no gap and carry their own padding: the card is in from the box by a little, which
+            // parts two cards and keeps the outline off the edge a list clips at.
+            float side = (tile ? TILE_INSET_SIDE_DP : INSET_SIDE_DP) * density, ends = (tile ? TILE_INSET_ENDS_DP : INSET_ENDS_DP) * density;
             // A cell too small for a card (a divider, a spacer) is left as it is.
-            if (width <= side * 4 || height <= ends * 6) return;
+            if (width <= 32 * density || height <= 18 * density) return;
             float radius = Math.min(card.radiusDp * density, (height - 2 * ends) / 2f);
             Canvas canvas = AndroidCanvas_androidKt.getNativeCanvas(drawing.getCanvas());
             bounds.set(side, ends, width - side, height - ends);

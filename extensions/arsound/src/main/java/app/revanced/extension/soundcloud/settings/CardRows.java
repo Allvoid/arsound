@@ -26,12 +26,12 @@ final class CardRows {
         list.addView(ui.createSubHeading(text("Карточки и рамки", "Cards and outlines")));
         SubRows options = ui.createSubRows();
         list.addView(ui.createToggleRow(
-                text("Карточки в библиотеке и списках", "Cards in the Library and in lists"),
-                text("Строки библиотеки и треки в списках (лайки, плейлисты, поиск) лежат на скруглённых подложках, как "
-                                + "строки этих настроек. Цвета берутся из темы, поэтому карточки подходят и тёмному, и светлому "
+                text("Карточки в списках и настройках", "Cards in lists and in settings"),
+                text("Строки библиотеки, треки и плейлисты в списках, плитки каруселей, строки настроек и меню SoundCloud "
+                                + "лежат на скруглённых подложках, как строки этих настроек. Цвета берутся из темы, поэтому карточки подходят и тёмному, и светлому "
                                 + "оформлению, и обоям. Выключено — строки SoundCloud остаются как были.",
-                        "The rows of the Library and the tracks of lists (likes, playlists, search) lie on rounded cards, "
-                                + "like the rows of these settings. The colours come from the theme, so the cards fit the dark "
+                        "The rows of the Library, the tracks and playlists in lists, the tiles of carousels and the rows of "
+                                + "SoundCloud's own settings and menus lie on rounded cards, like the rows of these settings. The colours come from the theme, so the cards fit the dark "
                                 + "and the light look and a wallpaper. Off, SoundCloud's rows stay as they were."),
                 BoolSettings.CARDS_ENABLED,
                 options,
