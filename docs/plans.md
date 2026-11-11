@@ -4,7 +4,7 @@
 
 ## Выпуск 1.2.1 (подготовлен 12.11.2026, ничего не отправлено)
 
-- Версия 1.2.1 в `gradle.properties`, `UpdateChecker.VERSION`, `patches.json`. Три APK (arm64, ключ тот же) в `local/telegram`, `patches-1.2.1.rvp` в `local/release` (SHA-256 `3dfbf256466c700ae3256001be795789cc4f8e87feec746e76d88312bf056b56`), заметки `local/release-1.2.1.md`, пост `local/telegram/post-1.2.1.txt`. Сборка: `local/release-build-1.2.1.sh`, заметки: `local/make_notes_121.py`.
+- Версия 1.2.1 в `gradle.properties`, `UpdateChecker.VERSION`, `patches.json`. Три APK (arm64, ключ тот же) в `local/telegram`, `patches-1.2.1.rvp` в `local/release` (SHA-256 `a74f4a80d6d62438f3d6fa53c0aad1aa7cd6a1d183ab2bcd22b41c4445c8d345`), заметки `local/release-1.2.1.md`, пост `local/telegram/post-1.2.1.txt`. Сборка: `local/release-build-1.2.1.sh`, заметки: `local/make_notes_121.py`.
 - Не проверено на телефоне: подсветка нижней панели, «Моя волна» после редизайна, кнопки виджета на HyperOS (Mi 13T), карточки в светлом оформлении.
 
 ## Сделано 11.11.2026 (в коде, проверено юнит-тестами и на эмуляторе; на телефоне владельца нет)

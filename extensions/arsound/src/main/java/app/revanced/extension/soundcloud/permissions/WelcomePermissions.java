@@ -7,6 +7,9 @@ import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
@@ -102,7 +105,7 @@ public final class WelcomePermissions {
                     .setCancelable(false);
             if (!askPermissions) {
                 // Everything is allowed already: the greeting only tells where the settings are.
-                dialog.setPositiveButton(text("Понятно", "Got it"), (d, which) -> finish(activity, preferences));
+                dialog.setPositiveButton(text("Продолжить", "Continue"), (d, which) -> finish(activity, preferences));
             } else {
                 dialog.setNegativeButton(text("Позже", "Later"), (d, which) -> finish(activity, preferences))
                         .setPositiveButton(text("Разрешить", "Allow"), (d, which) -> {
@@ -112,6 +115,7 @@ public final class WelcomePermissions {
                         });
             }
             shown[0] = dialog.show();
+            lockButtons(shown[0], activity, askPermissions);
         } catch (Exception ex) {
             WelcomeLanguage.clear();
             // Not shown, so not marked as shown: the next return to the main screen tries again.
@@ -121,10 +125,48 @@ public final class WelcomePermissions {
     }
 
     private static void labelButtons(Dialog dialog, boolean askPermissions) {
+        String suffix = WelcomeLock.suffix();
+        boolean locked = WelcomeLock.isLocked();
         TextView positive = ArsoundDialog.getButton(dialog, DialogInterface.BUTTON_POSITIVE);
-        if (positive != null) positive.setText(askPermissions ? text("Разрешить", "Allow") : text("Понятно", "Got it"));
+        if (positive != null) {
+            positive.setText((askPermissions ? text("Разрешить", "Allow") : text("Продолжить", "Continue")) + suffix);
+            lock(positive, locked);
+        }
         TextView negative = ArsoundDialog.getButton(dialog, DialogInterface.BUTTON_NEGATIVE);
-        if (negative != null) negative.setText(text("Позже", "Later"));
+        if (negative != null) {
+            negative.setText(text("Позже", "Later") + suffix);
+            lock(negative, locked);
+        }
+    }
+
+    private static void lock(TextView button, boolean locked) {
+        button.setEnabled(!locked);
+        button.setAlpha(locked ? .45f : 1f);
+    }
+
+    /**
+     * The buttons stay locked for {@link WelcomeLock#LOCK_MS} of time spent in front of the greeting, with the seconds
+     * left in their labels. Nothing else closes it: it is not cancelable, and Back and a tap outside do nothing.
+     */
+    private static void lockButtons(Dialog dialog, Activity activity, boolean askPermissions) {
+        labelButtons(dialog, askPermissions);
+        if (!WelcomeLock.isLocked()) return;
+        Handler handler = new Handler(Looper.getMainLooper());
+        long[] last = {SystemClock.elapsedRealtime()};
+        Runnable tick = new Runnable() {
+            @Override
+            public void run() {
+                long now = SystemClock.elapsedRealtime();
+                boolean inFront = dialog.isShowing() && dialog.getWindow() != null
+                        && dialog.getWindow().getDecorView().hasWindowFocus();
+                if (inFront) WelcomeLock.spend(now - last[0]);
+                last[0] = now;
+                if (!dialog.isShowing()) return; // the screen went away; the next greeting goes on from what is left
+                labelButtons(dialog, askPermissions);
+                if (WelcomeLock.isLocked()) handler.postDelayed(this, 250);
+            }
+        };
+        handler.postDelayed(tick, 250);
     }
 
     /** The greeting is closed: the language picked on it becomes the app language. */
