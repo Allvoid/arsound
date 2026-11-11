@@ -15,7 +15,7 @@ patches/                          Патчи (Kotlin)
 extensions/                       Код, который встраивается в приложение (Java)
   arsound/                        Экран Arsound, скачивание, хуки
   arsound/stub/                   Заглушки классов SoundCloud для компиляции
-  arsound-shared/                 Общая библиотека расширений ReVanced
+  arsound-shared/                 Общая библиотека расширений ReVanced (без частей для YouTube и Reddit)
 tools/branding/generate.py        Генерация иконок и анимаций Arsound
 tools/branding/icons.py           Варианты иконки приложения (цвета и градиенты)
 tools/branding/design_icons.py    Иконки из набора Claude Design в цветах тем

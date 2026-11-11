@@ -175,7 +175,7 @@ To build the patches yourself or patch on a computer — [BUILDING.md](BUILDING.
 **GNU General Public License v3.0**, see [LICENSE](LICENSE).
 
 Based on [ReVanced Patches](https://gitlab.com/ReVanced/revanced-patches) © ReVanced, GPLv3.
-Taken from ReVanced, unchanged or with small changes: the shared extension library (`extensions/arsound-shared`),
+Taken from ReVanced, unchanged or with small changes: the shared extension library (`extensions/arsound-shared`; only the classes SoundCloud needs: the parts for YouTube, Reddit and ReVanced's stock settings screen are removed),
 extension hookup and resource lookup (`patches/shared/misc`), bytecode utilities (`util`),
 the package-name change patch (`patches/all/misc/packagename`), Gradle build settings. The telemetry patch is reworked
 from ReVanced's patch of the same name. The rest in `patches/soundcloud` and `extensions/arsound` was written for this project.

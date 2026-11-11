@@ -172,7 +172,7 @@ Arsound 0.9.3 и старше ставились под другим имене�
 **GNU General Public License v3.0**, см. [LICENSE](LICENSE).
 
 Основан на [ReVanced Patches](https://gitlab.com/ReVanced/revanced-patches) © ReVanced, GPLv3.
-Из ReVanced взяты, без изменений или с небольшими изменениями: общая библиотека расширений (`extensions/arsound-shared`),
+Из ReVanced взяты, без изменений или с небольшими изменениями: общая библиотека расширений (`extensions/arsound-shared`; только те её классы, которые нужны SoundCloud, — части для YouTube, Reddit и стандартного экрана настроек ReVanced убраны),
 подключение расширения и поиск ресурсов (`patches/shared/misc`), утилиты байткода (`util`),
 патч смены имени пакета (`patches/all/misc/packagename`), настройки сборки Gradle. Патч телеметрии переделан
 из одноимённого патча ReVanced. Остальное в `patches/soundcloud` и `extensions/arsound` написано для этого проекта.
