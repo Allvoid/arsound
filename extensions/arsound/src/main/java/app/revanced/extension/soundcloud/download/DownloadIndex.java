@@ -295,6 +295,14 @@ public final class DownloadIndex {
             DownloadLocation.Row row = ref.uri == null ? null : listed.byUri.get(ref.uri);
             for (int i = 0; row == null && i < names.length; i++) row = listed.byName.get(MediaSnapshot.key(location.id(), names[i]));
             if (row != null) {
+                // An empty file is there but not usable, as for a path below: a download cut short (the app or the
+                // phone went down while it started) leaves one, and the player given it failed with "the format is
+                // not recognised" instead of streaming the track. Only where the size is known for sure: the media
+                // store gives it, a recorded row (size and time 0) and a picked folder may not.
+                if (usable && row.size == 0 && row.modifiedMs > 0 && row.uri != null
+                        && android.provider.MediaStore.AUTHORITY.equals(row.uri.getAuthority())) {
+                    return null;
+                }
                 return new Entry(ref, row.name, row.uri, location.file(row.name), row.size, row.modifiedMs);
             }
         }
