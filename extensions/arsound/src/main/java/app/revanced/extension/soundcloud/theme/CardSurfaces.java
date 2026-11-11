@@ -8,7 +8,6 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
-import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -21,7 +20,6 @@ import androidx.compose.ui.graphics.drawscope.DrawContext;
 import java.lang.reflect.Method;
 
 import app.revanced.extension.shared.Logger;
-import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.Colors;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
@@ -37,31 +35,15 @@ import kotlin.jvm.functions.Function1;
 public final class CardSurfaces {
     /** How far the card is in from the edges of its row, in dp: rows follow each other with a small gap. */
     private static final float INSET_SIDE_DP = 8f, INSET_ENDS_DP = 3f;
-    /** The look is asked of the settings and the theme at most this often while cards are drawn. */
-    private static final long LOOK_FRESH_MS = 1_000;
-
-    private static volatile CardLook look;
-    private static volatile long lookAt;
     /** The look the main screen was last built with, to build it again when the choices changed in the settings. */
     private static String mainScreenKey;
 
     private CardSurfaces() {
     }
 
-    private static CardLook look(Context context) {
-        long now = SystemClock.uptimeMillis();
-        CardLook current = look;
-        if (current == null || now - lookAt > LOOK_FRESH_MS) {
-            current = CardLook.of(context);
-            look = current;
-            lookAt = now;
-        }
-        return current;
-    }
-
-    /** The settings changed: the next card is drawn with the new look. */
+    /** The settings changed: nothing is kept that was made with the old look. */
     public static void onLookChanged() {
-        look = null;
+        DRAWS.clear();
     }
 
     /**
@@ -71,7 +53,6 @@ public final class CardSurfaces {
     public static void onActivityResumed(Activity activity) {
         try {
             if (!activity.getClass().getName().endsWith(".MainActivity") || activity.isFinishing()) return;
-            look = null;
             String key = CardLook.of(activity).key();
             String shown = mainScreenKey;
             mainScreenKey = key;
@@ -121,7 +102,7 @@ public final class CardSurfaces {
 
     private static void card(View row) {
         Context context = row.getContext();
-        CardLook card = look(context);
+        CardLook card = CardLook.of(context);
         String key = card.key();
         if (key.equals(CARDED.get(row))) return;
         CARDED.put(row, key);
@@ -152,79 +133,103 @@ public final class CardSurfaces {
 
     // region Compose: the tracks of lists
 
-    private static final Paint FILL = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private static final Paint LINE = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private static final RectF BOUNDS = new RectF();
     /** {@code DrawContext.getSize-NH-jbRc()}: the size of what is drawn, two floats packed into a long. */
     private static Method sizeOf;
     private static boolean sizeLookedUp;
     private static boolean drawFailed;
 
-    static {
-        LINE.setStyle(Paint.Style.STROKE);
-    }
-
-    /** One object for every cell: Compose sees the same modifier at every pass and draws the cell again only when it must. */
-    private static final Function1 CARD = scope -> {
-        ContentDrawScope content = (ContentDrawScope) scope;
-        try {
-            drawCard(content);
-        } catch (Throwable ex) {
-            if (!drawFailed) {
-                drawFailed = true;
-                Logger.printException(() -> "Cards: could not draw a card", ex);
-            }
-        }
-        content.drawContent();
-        return Unit.INSTANCE;
-    };
+    /**
+     * What draws the card of a cell, one object for each look: Compose then sees the same modifier at every pass and
+     * draws a cell again only when it must. There are as many as there are looks on screen (the dark and the light
+     * one of a theme, at most). Main thread, as all of Compose's composing and drawing.
+     */
+    private static final java.util.Map<String, Function1> DRAWS = new java.util.HashMap<>();
 
     /**
-     * Injection point: the start of SoundCloud's swipeable list cell ({@code SwipeCellKt.a}), with its modifier. The
-     * card is drawn under the cell's own content.
+     * Injection point, in SoundCloud's swipeable list cell ({@code SwipeCellKt.a}): the modifier of the cell's box,
+     * right where the cell makes it, and the view the list is shown in. The card is drawn under the cell's own
+     * content, in the colours of the screen the view belongs to: over a wallpaper a main screen keeps its dark look
+     * while the rest of the app is light, and a card in the app's colours hid the light text on it.
+     * <p>
+     * The modifier the cell was called with is left alone: the cell keeps it for the next time it is composed, and a
+     * card added there was added once more at every pass.
      */
-    public static Modifier cell(Modifier modifier) {
-        if (!CardLook.isOn()) return modifier;
+    public static Modifier cell(Modifier modifier, View host) {
+        if (!CardLook.isOn() || modifier == null || host == null) return modifier;
         try {
-            return DrawModifierKt.drawWithContent(modifier == null ? Modifier.Companion : modifier, CARD);
+            Context context = host.getContext();
+            CardLook card = CardLook.of(context);
+            String key = card.key();
+            Function1 draw = DRAWS.get(key);
+            if (draw == null) {
+                // The looks of settings left behind are few and small, but they need not pile up.
+                if (DRAWS.size() > 8) DRAWS.clear();
+                draw = new CardDraw(card, context.getResources().getDisplayMetrics().density);
+                DRAWS.put(key, draw);
+            }
+            return DrawModifierKt.drawWithContent(modifier, draw);
         } catch (Throwable ex) {
             Logger.printException(() -> "Cards: could not wrap a cell", ex);
             return modifier;
         }
     }
 
-    /** Draws the card on the cell's own canvas. Main thread (Compose draws there). */
-    private static void drawCard(ContentDrawScope scope) throws Exception {
-        Context context = Utils.peekContext();
-        if (context == null) return;
-        DrawContext drawing = scope.getDrawContext();
-        if (!sizeLookedUp) {
-            sizeLookedUp = true;
-            sizeOf = DrawContext.class.getMethod("getSize-NH-jbRc");
-        }
-        if (sizeOf == null) return;
-        long size = (Long) sizeOf.invoke(drawing);
-        float width = Float.intBitsToFloat((int) (size >> 32)), height = Float.intBitsToFloat((int) size);
-        if (!(width > 0f) || !(height > 0f)) return;
+    /** Draws one look of the card under the content of a cell. */
+    private static final class CardDraw implements Function1 {
+        private final CardLook card;
+        private final float density;
+        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF bounds = new RectF();
 
-        CardLook card = look(context);
-        float density = context.getResources().getDisplayMetrics().density;
-        float side = INSET_SIDE_DP * density, ends = INSET_ENDS_DP * density;
-        // A cell too small for a card (a divider, a spacer) is left as it is.
-        if (width <= side * 4 || height <= ends * 6) return;
-        float radius = Math.min(card.radiusDp * density, (height - 2 * ends) / 2f);
-        Canvas canvas = AndroidCanvas_androidKt.getNativeCanvas(drawing.getCanvas());
-        BOUNDS.set(side, ends, width - side, height - ends);
-        if ((card.fill >>> 24) != 0) {
-            FILL.setColor(card.fill);
-            canvas.drawRoundRect(BOUNDS, radius, radius, FILL);
+        CardDraw(CardLook card, float density) {
+            this.card = card;
+            this.density = density;
+            fill.setColor(card.fill);
+            line.setStyle(Paint.Style.STROKE);
+            line.setStrokeWidth(Math.max(1f, density));
+            line.setColor(card.outline);
         }
-        if (card.outline != 0) {
-            float line = Math.max(1f, density);
-            LINE.setStrokeWidth(line);
-            LINE.setColor(card.outline);
-            BOUNDS.inset(line / 2f, line / 2f);
-            canvas.drawRoundRect(BOUNDS, Math.max(0f, radius - line / 2f), Math.max(0f, radius - line / 2f), LINE);
+
+        @Override
+        public Object invoke(Object scope) {
+            ContentDrawScope content = (ContentDrawScope) scope;
+            try {
+                draw(content);
+            } catch (Throwable ex) {
+                if (!drawFailed) {
+                    drawFailed = true;
+                    Logger.printException(() -> "Cards: could not draw a card", ex);
+                }
+            }
+            content.drawContent();
+            return Unit.INSTANCE;
+        }
+
+        /** Draws the card on the cell's own canvas. */
+        private void draw(ContentDrawScope scope) throws Exception {
+            DrawContext drawing = scope.getDrawContext();
+            if (!sizeLookedUp) {
+                sizeLookedUp = true;
+                sizeOf = DrawContext.class.getMethod("getSize-NH-jbRc");
+            }
+            if (sizeOf == null) return;
+            long size = (Long) sizeOf.invoke(drawing);
+            float width = Float.intBitsToFloat((int) (size >> 32)), height = Float.intBitsToFloat((int) size);
+            if (!(width > 0f) || !(height > 0f)) return;
+
+            float side = INSET_SIDE_DP * density, ends = INSET_ENDS_DP * density;
+            // A cell too small for a card (a divider, a spacer) is left as it is.
+            if (width <= side * 4 || height <= ends * 6) return;
+            float radius = Math.min(card.radiusDp * density, (height - 2 * ends) / 2f);
+            Canvas canvas = AndroidCanvas_androidKt.getNativeCanvas(drawing.getCanvas());
+            bounds.set(side, ends, width - side, height - ends);
+            if ((card.fill >>> 24) != 0) canvas.drawRoundRect(bounds, radius, radius, fill);
+            if (card.outline != 0) {
+                float half = line.getStrokeWidth() / 2f;
+                bounds.inset(half, half);
+                canvas.drawRoundRect(bounds, Math.max(0f, radius - half), Math.max(0f, radius - half), line);
+            }
         }
     }
 
