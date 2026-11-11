@@ -22,6 +22,8 @@ import app.revanced.extension.soundcloud.shared.AppResources;
  * of the styles baked by the theme patch ({@code Arsound.Splash.*}) it uses. A shipped theme has one; a theme whose
  * colours are made on the phone and listed in {@link SplashGrid} (the custom theme) gets the baked pair nearest to its
  * real dark surface and accent. Android remembers the choice ({@code SplashScreen.setSplashScreenTheme}, Android 13).
+ * <p>
+ * With one of SoundCloud's own app icons chosen the start screen is SoundCloud's too, the cloud, for every theme.
  */
 final class SplashStyle {
     /** The style last given to Android, to ask it again only when the theme's start screen changed. */
@@ -36,8 +38,17 @@ final class SplashStyle {
     private SplashStyle() {
     }
 
+    /** The style with SoundCloud's own picture, the cloud (the branding patch makes it). */
+    private static final String SOUNDCLOUD_STYLE = STYLE_PREFIX + "SoundCloud";
+
     /** The name of the style for this theme, null for SoundCloud's own start screen. */
     static String nameOf(Context context, ArsoundTheme.Theme theme) {
+        // One of SoundCloud's app icons is chosen: the app starts with SoundCloud's cloud, whatever the theme. The
+        // start from such an icon drew the Arsound letter, although the icon tapped was SoundCloud's.
+        if (app.revanced.extension.soundcloud.branding.BrandMark.isSoundCloud(context)
+                && identifier(context, SOUNDCLOUD_STYLE) != 0) {
+            return SOUNDCLOUD_STYLE;
+        }
         if (theme == null) return null;
         String plain = STYLE_PREFIX + theme.id;
         SplashGrid grid = grid(context);

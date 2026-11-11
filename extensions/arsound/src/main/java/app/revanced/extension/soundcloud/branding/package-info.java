@@ -4,7 +4,7 @@
  * <p>User view: Settings, Arsound, App icon shows the variants (Arsound's own, then SoundCloud's); tapping one changes
  * the launcher icon within a few seconds.
  *
- * <p>Entry points: none from Kotlin patches in bytecode. The branding patch
+ * <p>Entry points: {@code BrandMark.mark(int)} from {@code BrandMarkPatch.kt}. The branding patch
  * ({@code misc/branding/BrandingPatch.kt}) works on resources and the manifest: it adds one launcher
  * {@code activity-alias} per variant, named {@code com.soundcloud.android.launcher.ArsoundIcon_<id>}, and the pictures
  * {@code arsound_icon_<id>}, {@code arsound_icon_bg_<id>}, {@code arsound_icon_fg_<id>}. This package finds those
@@ -19,6 +19,10 @@
  * <li>{@code LauncherAlias} - enables one alias, then disables the others (the new one first, so the app always has
  * an entry).</li>
  * <li>{@code IconArt} - the pictures of a variant for the picker.</li>
+ * <li>{@code BrandMark} - what the app shows outside its own screens: with one of SoundCloud's icons chosen,
+ * SoundCloud's cloud as the small icon of the notifications ({@code BrandMark.mark(int)}, called from
+ * {@code misc/branding/BrandMarkPatch.kt} wherever SoundCloud takes that icon) and SoundCloud's start screen
+ * ({@code theme.SplashStyle} asks {@code BrandMark.isSoundCloud}).</li>
  * </ul>
  *
  * <p>Settings: no key of its own; the chosen icon is the enabled component in the system.

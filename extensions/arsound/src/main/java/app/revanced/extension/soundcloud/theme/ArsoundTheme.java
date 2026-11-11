@@ -285,6 +285,18 @@ public final class ArsoundTheme {
     }
 
     /**
+     * Gives Android the start screen that fits what is chosen now: the theme, or SoundCloud's own picture with one of
+     * SoundCloud's app icons. Called when the app icon was changed; the screens also check it when they come back.
+     */
+    public static void syncStartScreen(Activity activity) {
+        try {
+            SplashStyle.sync(activity, currentTheme(activity));
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Theme: could not keep the start screen", ex);
+        }
+    }
+
+    /**
      * Tells when the chosen theme's colours change: the id for the shipped themes, more for the ones made on the
      * phone. For screens that draw with the palette and must be drawn again when it changes.
      */

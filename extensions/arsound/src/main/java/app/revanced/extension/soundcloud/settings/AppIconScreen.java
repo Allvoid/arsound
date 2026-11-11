@@ -55,8 +55,12 @@ final class AppIconScreen extends SectionScreen {
     @Override
     void fill(LinearLayout list) {
         TextView hint = ui.createText("Body.Secondary", text(
-                "Значок обновится через несколько секунд. Некоторые рабочие столы убирают ярлык при смене — тогда добавьте его заново из списка приложений.",
-                "The icon updates in a few seconds. Some launchers remove the home screen shortcut when it changes; add it again from the app list."));
+                "Значок обновится через несколько секунд. Некоторые рабочие столы убирают ярлык при смене — тогда добавьте его заново из списка приложений. "
+                        + "С иконкой SoundCloud приложение и снаружи выглядит как SoundCloud: облако на заставке при запуске и в значке уведомлений "
+                        + "(его же показывает «островок» рядом с часами).",
+                "The icon updates in a few seconds. Some launchers remove the home screen shortcut when it changes; add it again from the app list. "
+                        + "With one of SoundCloud's icons the app looks like SoundCloud from outside too: the cloud at the start of the app and as "
+                        + "the icon of the notifications (which the \"island\" beside the clock shows)."));
         hint.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dimen("spacing_s"));
         list.addView(hint);
 
@@ -92,6 +96,8 @@ final class AppIconScreen extends SectionScreen {
                     return;
                 }
                 for (int i = 0; i < cells.size(); i++) cells.get(i).setSelected(ids.get(i).equals(icon.id));
+                // The picture at the start of the app follows the icon: SoundCloud's cloud for one of its icons.
+                app.revanced.extension.soundcloud.theme.ArsoundTheme.syncStartScreen(activity);
                 Toast.makeText(activity, text("Иконка: ", "Icon: ") + icon.name, Toast.LENGTH_SHORT).show();
             });
             row.addView(cell, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));

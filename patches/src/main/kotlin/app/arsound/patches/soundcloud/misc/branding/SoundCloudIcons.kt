@@ -30,3 +30,13 @@ internal const val SOUNDCLOUD_FOREGROUND = "ic_launcher_foreground"
 
 /** The copies of those foregrounds that SoundCloud's icons in the picker draw. */
 internal const val SOUNDCLOUD_FOREGROUND_COPY = "arsound_sc_launcher_foreground"
+
+/** SoundCloud's small icon of its notifications, which the branding replaces with the letter, and the name of its copy. */
+internal const val SOUNDCLOUD_NOTIFICATION_ICON = "ic_logo_cloud_light"
+internal const val SOUNDCLOUD_NOTIFICATION_ICON_COPY = "arsound_sc_notification"
+
+/** The picture SoundCloud shows while it starts (the copy of its orange foreground). */
+internal const val SOUNDCLOUD_START_ICON = SOUNDCLOUD_FOREGROUND_COPY + "_orange"
+
+/** The style of the start screen with that picture; `SplashStyle` in the extension knows it by this name. */
+internal const val SOUNDCLOUD_START_THEME = "Arsound.Splash.SoundCloud"

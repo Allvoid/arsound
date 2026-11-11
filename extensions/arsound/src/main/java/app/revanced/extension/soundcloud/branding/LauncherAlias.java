@@ -92,6 +92,7 @@ final class LauncherAlias {
                     }
                 }
                 preferences(context).edit().putString(CHOSEN, id).apply();
+                BrandMark.onIconChanged(id);
                 Logger.printInfo(() -> "App icon changed to " + id);
                 return true;
             }
@@ -108,6 +109,7 @@ final class LauncherAlias {
                 }
             }
             preferences(context).edit().putString(CHOSEN, id).apply();
+            BrandMark.onIconChanged(id);
             Logger.printInfo(() -> "App icon changed to " + id);
             return true;
         } catch (Exception ex) {

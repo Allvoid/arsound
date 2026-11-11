@@ -3,6 +3,7 @@ package app.arsound.patches.soundcloud.misc.branding
 import app.arsound.util.ResourceGroup
 import app.arsound.util.asSequence
 import app.arsound.util.copyResources
+import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.ResourcePatchContext
 import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patcher.util.Document
@@ -58,6 +59,8 @@ val brandingPatch = resourcePatch {
         copyAppIcons()
         document("AndroidManifest.xml").use { document -> document.addLauncherAliases(soundCloudIcons) }
         showDrawingLetterAtStart(res)
+        // After the step above, which would turn the 0 of this style into the time of the letter's drawing.
+        addSoundCloudStartTheme()
     }
 }
 
@@ -95,6 +98,14 @@ private fun copySoundCloudIcons(res: File): List<String> {
             .isNotEmpty()
     res.resolve("drawable").listFiles { file -> file.name.startsWith(SOUNDCLOUD_FOREGROUND) && file.name.endsWith(".xml") }!!
         .forEach { copyDrawable(it.nameWithoutExtension, it.nameWithoutExtension.replaceFirst(SOUNDCLOUD_FOREGROUND, SOUNDCLOUD_FOREGROUND_COPY)) }
+    // The cloud of SoundCloud's notifications, which the extension puts back for a user of one of SoundCloud's icons
+    // (BrandMark.mark). The picture at the start of the app needs the orange foreground copied above.
+    if (!copyDrawable(SOUNDCLOUD_NOTIFICATION_ICON, SOUNDCLOUD_NOTIFICATION_ICON_COPY)) {
+        throw PatchException("SoundCloud has no notification icon $SOUNDCLOUD_NOTIFICATION_ICON any more")
+    }
+    if (!res.resolve("drawable/$SOUNDCLOUD_START_ICON.xml").exists()) {
+        throw PatchException("SoundCloud's start picture $SOUNDCLOUD_START_ICON was not copied")
+    }
     return SOUNDCLOUD_APP_ICONS.filter { (source, id) ->
         val copies = res.resFolders("mipmap-anydpi")
             .mapNotNull { directory ->
@@ -204,6 +215,32 @@ private fun Document.addLauncherAliases(soundCloudIcons: List<String>) {
         alias.appendChild(filter)
         launcher.parentNode.insertBefore(alias, anchor.nextSibling)
         anchor = alias
+    }
+}
+
+/**
+ * The start screen for a user of one of SoundCloud's icons: SoundCloud's own start theme with its own picture, the
+ * orange cloud, which stands still as in SoundCloud. A launcher entry cannot have a theme of its own, so the app hands
+ * this style to Android when such an icon is chosen (`SplashStyle` in the extension), like the start screens of the
+ * themes; Android 13 and later keep it for the next starts.
+ */
+private fun ResourcePatchContext.addSoundCloudStartTheme() {
+    document("res/values/styles.xml").use { document ->
+        val style = document.createElement("style")
+        style.setAttribute("name", SOUNDCLOUD_START_THEME)
+        style.setAttribute("parent", "@style/SoundcloudAppTheme.SplashScreen")
+        mapOf(
+            "windowSplashScreenAnimatedIcon" to "@drawable/$SOUNDCLOUD_START_ICON",
+            "windowSplashScreenAnimationDuration" to "0",
+        ).forEach { (name, value) ->
+            style.appendChild(
+                document.createElement("item").apply {
+                    setAttribute("name", name)
+                    textContent = value
+                },
+            )
+        }
+        document.getElementsByTagName("resources").item(0).appendChild(style)
     }
 }
 

@@ -18,6 +18,7 @@ import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatc
 import app.arsound.patches.soundcloud.misc.playservices.playServicesDialogPatch
 import app.arsound.patches.soundcloud.misc.screenshot.screenshotSharePatch
 import app.arsound.patches.soundcloud.misc.appname.appNamePatch
+import app.arsound.patches.soundcloud.misc.branding.brandMarkPatch
 import app.arsound.patches.soundcloud.misc.branding.brandingPatch
 import app.arsound.patches.soundcloud.misc.translation.russianTranslationPatch
 import app.arsound.patches.soundcloud.misc.theme.themePatch
@@ -77,6 +78,7 @@ private val basePatch = bytecodePatch {
         playServicesDialogPatch,
         appNamePatch,
         brandingPatch,
+        brandMarkPatch,
         russianTranslationPatch,
         themePatch,
         waveformColourPatch,
