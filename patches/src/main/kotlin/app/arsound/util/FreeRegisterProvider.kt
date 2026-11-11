@@ -338,12 +338,9 @@ private fun Method.findFreeRegistersInternal(
         // Check for write-only register.
         val writeRegister = instruction.writeRegister
         if (writeRegister != null && writeRegister !in usedRegisters) {
-            // Check if this register is ONLY written to (not also read)
-            // Count occurrences of writeRegister in instructionRegisters.
-            val occurrences = instructionRegisters.count { it == writeRegister }
-            // If it appears only once, it's write-only (to write).
-            // If it appears more than once, it's also read.
-            if (occurrences <= 1) {
+            // Free only if the instruction does not read the register it writes ("add-int v0, v0, v1" does, and so
+            // does every "/2addr" form).
+            if (!instruction.reads(writeRegister)) {
                 if (logFreeRegisterSearch) println("Found free register at $i: $writeRegister " +
                         "opcode: " + instruction.opcode + " reference: " + (instruction.getReference()))
                 freeRegisters.add(writeRegister)
@@ -514,7 +511,8 @@ private fun Method.findInstructionIndexByOffset(
  * @return The registers used by this instruction. A long or a double takes a pair of registers, and the instruction
  *         names only the first: for an instruction on such values both halves are counted, or the live high half of
  *         a pair could be handed out as free. Counting both for every operand of such an instruction is more than is
- *         used (the int operand of long-to-int), which only makes fewer registers free.
+ *         used (the int operand of long-to-int), which only makes fewer registers free. Whether a register is read
+ *         by the instruction that writes it is told by [reads], not from this list.
  */
 val Instruction.registersUsed: List<Int>
     get() {
@@ -522,6 +520,23 @@ val Instruction.registersUsed: List<Int>
         if (!opcode.isWideOperation) return named
         return named.flatMap { listOf(it, it + 1) }.distinct()
     }
+
+/**
+ * Whether the instruction reads the register, for an instruction that writes its first register (see
+ * [writeRegister]). The operands after the first are read; a "/2addr" form reads the first one too
+ * ("add-int/2addr vA, vB" is vA = vA + vB). For longs and doubles both halves of every operand count.
+ *
+ * This was told by counting how often the register is named, which missed two cases: a "/2addr" form names its
+ * destination once although it reads it, and for a wide instruction the registers were made unique first, so
+ * "add-long v0, v0, v2" named v0 once too. Such a register was handed out as free, and code put there would have
+ * written over a value still in use.
+ */
+internal fun Instruction.reads(register: Int): Boolean {
+    val named = namedRegisters
+    val operands = if (opcode.name.endsWith("_2ADDR")) named else named.drop(1)
+    val read = if (opcode.isWideOperation) operands.flatMap { listOf(it, it + 1) } else operands
+    return register in read
+}
 
 /** Whether the instruction works on longs or doubles, whose values take two registers each. */
 private val Opcode.isWideOperation: Boolean

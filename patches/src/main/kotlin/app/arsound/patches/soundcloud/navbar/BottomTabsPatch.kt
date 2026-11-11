@@ -118,7 +118,9 @@ val bottomTabsPatch = bytecodePatch {
         initialTargetsMethod.wrapLastReturnedObject(ARRANGE)
 
         // The list the controller and the model are given after the server answered: arranged before it is compared
-        // with the list applied before (which was arranged the same way).
+        // with the list applied before (which was arranged the same way). By the method's signature p3 is the
+        // continuation, but at the comparison the register holds the new list: the method puts the answer there
+        // ("move-result-object p3", "check-cast p3, Ljava/util/List;") right before "areEqual(p3, p2)".
         val compare = applyTargetsMethod.indexOfFirstInstructionOrThrow {
             opcode == Opcode.INVOKE_STATIC && methodReference?.toString() ==
                 "Lkotlin/jvm/internal/Intrinsics;->areEqual(Ljava/lang/Object;Ljava/lang/Object;)Z"

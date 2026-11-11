@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.region
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.misc.settings.settingsPatch
 import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.patcher.definingClass
@@ -84,7 +85,7 @@ private fun MutableMethod.indexOfDropCall() = indexOfFirstInstructionOrThrow {
 val regionHintPatch = bytecodePatch {
     dependsOn(settingsPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         composeMetaLabelMethod.apply {

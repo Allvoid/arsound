@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.download
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.revanced.patcher.extensions.addInstruction
 import app.revanced.patcher.extensions.addInstructions
 import app.revanced.patcher.extensions.getInstruction
@@ -92,7 +93,7 @@ private val BytecodePatchContext.offlinePropertiesProviderConstructorMethod by g
 val downloadTrackPatch = bytecodePatch {
     dependsOn(settingsPatch, downloadPermissionPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         // The Downloads screen lists the tracks downloaded by Arsound, as downloaded.

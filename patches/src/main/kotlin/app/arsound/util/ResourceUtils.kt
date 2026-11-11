@@ -86,11 +86,13 @@ fun ResourcePatchContext.copyResources(
                             "in directory: $sourceResourceDirectory"
                 )
 
-            Files.copy(
-                stream,
-                targetResourceDirectory.resolve(resourceFile).toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-            )
+            stream.use {
+                Files.copy(
+                    it,
+                    targetResourceDirectory.resolve(resourceFile).toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
         }
     }
 }

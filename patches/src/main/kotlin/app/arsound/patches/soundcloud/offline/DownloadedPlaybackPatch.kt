@@ -1,5 +1,6 @@
 package app.arsound.patches.soundcloud.offline
 
+import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.ExternalLabel
 import app.revanced.patcher.extensions.addInstructions
@@ -72,7 +73,7 @@ private val BytecodePatchContext.playbackDataMethod by gettingFirstMethodDeclara
 val downloadedPlaybackPatch = bytecodePatch {
     dependsOn(downloadTrackPatch)
 
-    compatibleWith("com.soundcloud.android"("2026.10.14-release"))
+    compatibleWith("com.soundcloud.android"(SOUNDCLOUD_VERSION))
 
     apply {
         playbackItemForTrackMethod.apply {
