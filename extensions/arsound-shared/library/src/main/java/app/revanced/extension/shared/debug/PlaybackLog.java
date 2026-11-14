@@ -196,6 +196,9 @@ public final class PlaybackLog {
         if (context == null) return null;
 
         File base = context.getExternalFilesDir(null);
+        // On some phones Android returns the shared folder's path but cannot make the folder (bot ticket #65): the log
+        // was lost there. Not AppStorage: its log line would come back here.
+        if (base != null && !base.isDirectory() && !base.mkdirs()) base = null;
         if (base == null) base = context.getFilesDir();
         File directory = new File(base, DIRECTORY);
         if (!directory.isDirectory() && !directory.mkdirs()) return null;

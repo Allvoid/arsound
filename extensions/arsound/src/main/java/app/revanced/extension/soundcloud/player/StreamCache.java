@@ -194,11 +194,14 @@ public final class StreamCache {
         return time;
     }
 
-    /** The folder SoundCloud keeps the cache in. */
+    /**
+     * The folder SoundCloud keeps the cache in: the shared app folder, or the app's own files where that one cannot be
+     * written (SoundCloud's choice goes through {@code AppStorage} too, see {@code StreamCacheFolderPatch}).
+     */
     public static File directory() {
         android.content.Context context = Utils.getContext();
         if (context == null) return null;
-        File base = context.getExternalFilesDir(null);
+        File base = app.revanced.extension.shared.AppStorage.externalFilesDir(context, null);
         return new File(base != null ? base : context.getFilesDir(), "exocache");
     }
 

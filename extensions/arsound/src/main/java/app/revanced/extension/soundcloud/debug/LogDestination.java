@@ -102,7 +102,7 @@ interface LogDestination {
         private final java.io.File file;
 
         AppFilesDestination(Context context, String fileName) {
-            java.io.File base = context.getExternalFilesDir(null);
+            java.io.File base = app.revanced.extension.shared.AppStorage.externalFilesDir(context, null);
             file = new java.io.File(base != null ? base : context.getFilesDir(), fileName);
         }
 
