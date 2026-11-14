@@ -23,8 +23,12 @@ public final class AudioEqualizer {
 
     /** Overall gain in millibels, applied apart from the equalizer: louder or quieter without changing the curve. */
     public static final String PREAMP = "equalizer_preamp";
-    /** The preamp range of the settings screen, in millibels. */
-    public static final int PREAMP_MIN = -1200, PREAMP_MAX = 1200;
+    /**
+     * The preamp range of the settings screen, in millibels: -50 to +25 dB (bot ticket #68, ±12 was too little). Far
+     * down is near silence, for a track mastered far too loud; far up, the limiter keeps the sound from clipping, at
+     * the cost of its dynamics.
+     */
+    public static final int PREAMP_MIN = -5000, PREAMP_MAX = 2500;
     /** The range of a band, in millibels. */
     public static final short BAND_MIN = -1200, BAND_MAX = 1200;
 

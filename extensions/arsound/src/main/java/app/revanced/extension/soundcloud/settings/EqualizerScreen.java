@@ -113,11 +113,11 @@ final class EqualizerScreen extends SectionScreen {
         IntConsumer[] move = new IntConsumer[1];
         SettingRow row = ui.createSliderRow(text("Преамп", "Preamp"),
                 text("Общая громкость всего, что играет, — тише или громче, не меняя эквалайзер. Работает и с "
-                                + "выключенным эквалайзером. При усилении громкие места не хрипят: их придерживает ограничитель. "
-                                + "Удерживайте строку, чтобы вернуть 0.",
+                                + "выключенным эквалайзером. От −50 до +25 дБ. При усилении громкие места не хрипят: их придерживает "
+                                + "ограничитель; сильное усиление делает звук плотнее и площе. Удерживайте строку, чтобы вернуть 0.",
                         "The overall volume of everything that plays, quieter or louder, without changing the equalizer. Works "
-                                + "with the equalizer turned off too. When boosting, a limiter keeps loud parts from distorting. "
-                                + "Hold the row to set it back to 0."),
+                                + "with the equalizer turned off too. From −50 to +25 dB. When boosting, a limiter keeps loud parts "
+                                + "from distorting; a strong boost makes the sound denser and flatter. Hold the row to set it back to 0."),
                 (max - min) / PREAMP_STEP, (AudioEqualizer.preamp() - min) / PREAMP_STEP,
                 progress -> preampText(min + progress * PREAMP_STEP),
                 progress -> AudioEqualizer.setPreamp(min + progress * PREAMP_STEP),
