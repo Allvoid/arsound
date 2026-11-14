@@ -148,7 +148,31 @@ public final class SettingsEntry {
                 0,
                 ENTRY_PARAMETERS_MASK
         );
+        // Switching SoundCloud accounts: SoundCloud has only "Sign out", users look for the switch here. Not
+        // "Accounts": SoundCloud's own "Account" row (the user's data) stands two rows lower.
+        ActionListItemKt.a(
+                Lang.russian() ? "Сменить аккаунт" : "Switch account",
+                OPEN_ACCOUNTS,
+                null,
+                false,
+                false,
+                null,
+                Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_chevron_right"),
+                null,
+                null,
+                null,
+                0,
+                composer,
+                0,
+                DEFAULT_PARAMETERS_MASK
+        );
     }
+
+    private static final Function0<Unit> OPEN_ACCOUNTS = () -> {
+        android.app.Activity activity = app.revanced.extension.soundcloud.update.UpdateChecker.resumedActivity();
+        if (activity != null) app.revanced.extension.soundcloud.login.AccountSheet.show(activity);
+        return Unit.INSTANCE;
+    };
 
     private static Function4<Object, Object, Composer, Integer, Unit> letterAfterTitle;
 

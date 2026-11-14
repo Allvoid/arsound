@@ -1,16 +1,22 @@
 /**
- * Sign-in screens: a "Save logs" button.
+ * Sign-in screens and SoundCloud accounts: a "Save logs" button, and switching between several SoundCloud accounts.
  *
- * <p>User view: a small pill in the top corner of the sign-in activities. Before sign-in the Arsound settings cannot
- * be reached, and a failed sign-in is exactly when the developer needs the logs, so the pill saves them from there.
+ * <p>User view: a small "Save logs" pill in the top corner of the sign-in activities (before sign-in the Arsound settings
+ * cannot be reached, and a failed sign-in is exactly when the developer needs the logs). The list of SoundCloud
+ * accounts ({@code AccountSheet}): a long press on the profile button of the top bar, the "Switch account" row of
+ * SoundCloud's settings ({@code settings.SettingsEntry}), Settings → Arsound → Accounts; on the sign-in screen a
+ * "My accounts" pill signs back in to a kept account.
  *
- * <p>Entry point: {@code LoginLogsButton.onActivityResumed(Activity)}. No Kotlin patch calls it; it is registered as the
- * "login logs" screen hook in {@code update.UpdateChecker} (see {@code update.ScreenHooks}) and does nothing on
- * screens other than the sign-in. A tap runs {@code debug.LogExport.save(activity, false)}.
+ * <p>Entry points: {@code LoginLogsButton.onActivityResumed} and {@code AccountEntry.onActivityResumed}, screen hooks
+ * registered in {@code update.UpdateChecker} (see {@code update.ScreenHooks}). {@code AccountSwitch.subscribePurge} is
+ * called by {@code misc/account/AccountSwitchPatch} from SoundCloud's authenticator when an account is taken out.
  *
- * <p>Settings: none.
+ * <p>Settings: none. The kept accounts (with their tokens) are in the preferences file {@code arsound_accounts}, outside
+ * the settings backup; their pictures in {@code files/arsound_accounts}.
  *
- * <p>Gotchas: the pill is added over the whole activity, not into its layout, so it survives SoundCloud's own screen
- * changes. The log file itself is built in {@code debug} and {@code debug.sections}.
+ * <p>Gotchas: a switch must not use SoundCloud's own sign-out, which ends the session on the server ({@code /sign_out})
+ * and kills the kept tokens; it takes the account out of the account manager instead and waits until SoundCloud has
+ * wiped the old user's data before it puts the next account in and restarts the app. The pills are added over the whole
+ * activity, not into its layout.
  */
 package app.revanced.extension.soundcloud.login;

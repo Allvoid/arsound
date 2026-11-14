@@ -95,6 +95,7 @@ public final class UpdateChecker {
                 .add("search switch", SearchSourceSwitch::onActivityResumed, SearchSourceSwitch::onActivityPaused)
                 .add("watch folder", WatchFolder::onActivityResumed)
                 .add("login logs", LoginLogsButton::onActivityResumed)
+                .add("accounts", app.revanced.extension.soundcloud.login.AccountEntry::onActivityResumed)
                 .add("mini player ripple", MiniPlayerRipple::onActivityResumed)
                 .add("motion blur", app.revanced.extension.soundcloud.motion.MotionBlur::onActivityResumed,
                         app.revanced.extension.soundcloud.motion.MotionBlur::onActivityPaused)

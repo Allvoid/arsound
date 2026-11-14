@@ -5,11 +5,15 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import app.revanced.extension.soundcloud.login.AccountSheet;
 import app.revanced.extension.soundcloud.search.YouTubeAccount;
 import app.revanced.extension.soundcloud.search.YouTubeLoginActivity;
 import app.revanced.extension.soundcloud.shared.HelpBadge;
 
-/** The YouTube Music account the Arsound search signs in with, for the tracks YouTube gives only to adults. */
+/**
+ * Accounts: switching between SoundCloud accounts ({@code login.AccountSheet}), and the YouTube Music account the Arsound
+ * search signs in with, for the tracks YouTube gives only to adults.
+ */
 final class AccountScreen extends SectionScreen {
     static final String ID = "account";
 
@@ -24,12 +28,13 @@ final class AccountScreen extends SectionScreen {
 
     @Override
     String title() {
-        return text("Аккаунт", "Account");
+        return text("Аккаунты", "Accounts");
     }
 
     @Override
     String description() {
-        return text("Аккаунт YouTube Music для поиска Arsound — по желанию", "YouTube Music account for the Arsound search, optional");
+        return text("Смена аккаунтов SoundCloud, аккаунт YouTube Music для поиска",
+                "Switching SoundCloud accounts, YouTube Music account for the search");
     }
 
     @Override
@@ -46,6 +51,16 @@ final class AccountScreen extends SectionScreen {
     void fill(LinearLayout list) {
         boolean signedIn = YouTubeAccount.isSignedIn();
         shownSignedIn = signedIn;
+        list.addView(ui.createSubHeading(text("SoundCloud", "SoundCloud")));
+        list.addView(ui.createActionRow(
+                text("Аккаунты SoundCloud", "SoundCloud accounts"),
+                text("Добавить ещё один аккаунт или переключиться на другой. То же открывается долгим нажатием на "
+                                + "аватарку в верхней панели.",
+                        "Add another account or switch to one. The same opens on a long press on the avatar in the top bar."),
+                null,
+                v -> AccountSheet.show(activity)
+        ).icon("account").chevron());
+
         list.addView(ui.createSubHeading(text("YouTube Music", "YouTube Music")));
         list.addView(ui.createActionRow(
                 text("Аккаунт YouTube Music", "YouTube Music account"),
