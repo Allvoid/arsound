@@ -156,6 +156,8 @@ public final class HomeGreeting extends LinearLayout {
         // toolbar.
         if (getParent() instanceof ViewGroup) {
             ViewGroup parent = (ViewGroup) getParent();
+            // The glow over the screen leaves the user's picture in the bar alone (bot ticket #67).
+            GlowAroundAvatar.apply(parent);
             int index = parent.indexOfChild(this);
             if (index > 0) post(() -> {
                 // The parent may have lost children before this runs.
