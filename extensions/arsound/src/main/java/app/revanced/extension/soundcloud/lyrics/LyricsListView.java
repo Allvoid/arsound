@@ -62,6 +62,14 @@ final class LyricsListView extends ScrollView {
     /** The empty space between two verses of plain text. */
     private static final float VERSE_GAP_DP = 18f;
     private static final long STYLE_MS = 260;
+    /**
+     * The upper share of the words that belongs to the player: a pull down that starts there closes the player, as it
+     * does on the title above. The rest of the words scrolls. The band ends well above the singing line ({@link #FOCUS}),
+     * over the lines already sung, which fade out there anyway. Asked for in bot ticket #69: with synced words on, the
+     * player could be closed only from the thin title row.
+     */
+    private static final float PULL_BAND = 0.30f;
+    private static final float PULL_BAND_MIN_DP = 72f;
     private static final Interpolator GLIDE = new PathInterpolator(0.2f, 0f, 0f, 1f);
 
     private final Host host;
@@ -91,6 +99,8 @@ final class LyricsListView extends ScrollView {
     /** The finger went sideways or down from the top: the gesture is the parent's now. */
     private boolean released;
     private boolean startedAtTop;
+    /** The finger went down in the upper band of the words, the player's part ({@link #PULL_BAND}). */
+    private boolean startedInPullBand;
     private final TapSequence taps = new TapSequence(DOUBLE_TAP_MS);
 
     private final Runnable resume = new Runnable() {
@@ -471,8 +481,12 @@ final class LyricsListView extends ScrollView {
         stopGlide();
         removeCallbacks(resume);
         startedAtTop = getScrollY() == 0;
-        // The column scrolls by itself: nothing above it may take the drag (the player sheet, the pager).
-        if (column.getHeight() > getHeight()) {
+        startedInPullBand = downY < Math.max(getHeight() * PULL_BAND, dp(PULL_BAND_MIN_DP));
+        // The column scrolls by itself: nothing above it may take the drag (the player sheet, the pager). Except in
+        // the upper band and at the top of the words: there the player sheet must see the whole gesture from its start
+        // to take a pull down (a sheet that was kept from the touch does not take it back halfway); a push up still
+        // scrolls the words, the expanded sheet does not move up.
+        if (column.getHeight() > getHeight() && !startedInPullBand && !startedAtTop) {
             ViewParent parent = getParent();
             if (parent != null) parent.requestDisallowInterceptTouchEvent(true);
         }
@@ -486,8 +500,9 @@ final class LyricsListView extends ScrollView {
         if (Math.abs(dx) > slop && Math.abs(dx) > 2 * Math.abs(dy)) {
             // A sideways swipe is for the pager: it changes the track.
             release();
-        } else if (startedAtTop && dy > slop && dy > 2 * Math.abs(dx)) {
-            // A pull down that began at the top of the words is for the player sheet: it closes the player.
+        } else if ((startedAtTop || startedInPullBand) && dy > slop && dy > 2 * Math.abs(dx)) {
+            // A pull down that began at the top of the words, or in their upper band, is for the player sheet: it
+            // closes the player.
             release();
         }
     }
