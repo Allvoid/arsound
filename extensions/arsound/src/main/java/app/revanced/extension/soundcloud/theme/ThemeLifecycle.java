@@ -65,16 +65,25 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
         ThemeLifecycle lifecycle = started;
         if (lifecycle == null) return;
         try {
-            Theme theme = ArsoundTheme.currentTheme(context);
+            Theme theme = withFont(context, ArsoundTheme.currentTheme(context));
             if (theme != null) lifecycle.loader.prepare(theme);
         } catch (Throwable ex) {
             Logger.printException(() -> "Theme: could not prepare the chosen theme", ex);
         }
     }
 
+    /**
+     * The theme whose table is put in: the chosen one, or with SoundCloud's own look a table of the font alone when a
+     * font other than SoundCloud's is chosen ({@link FontChoice}).
+     */
+    private static Theme withFont(Context context, Theme theme) {
+        if (theme != null || !FontChoice.needsTableWithoutTheme()) return theme;
+        return FontChoice.fontsOnlyTheme(context);
+    }
+
     /** Adds the loader of the chosen theme to these resources; nothing for the original look. */
     private void apply(Resources resources) throws Exception {
-        Theme theme = ArsoundTheme.currentTheme(application, resources);
+        Theme theme = withFont(application, ArsoundTheme.currentTheme(application, resources));
         if (theme == null) return;
         loader.apply(resources, theme);
     }

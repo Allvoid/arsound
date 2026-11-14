@@ -145,7 +145,10 @@ final class ThemeLoader {
      * may still be mapped by the screens that were drawn with it, and rewriting a mapped file in place could crash them.
      */
     private File tableOf(Theme theme) {
-        String suffix = theme.isRuntime() ? "-" + Integer.toHexString(theme.key().hashCode()) : "";
+        // The font is part of the name too, for the same reason.
+        String font = FontChoice.key(appContext);
+        String suffix = theme.isRuntime() || !"0".equals(font)
+                ? "-" + Integer.toHexString((theme.key() + "/" + font).hashCode()) : "";
         return new File(tableFolder(appContext), TABLE_PREFIX + theme.id + suffix + TABLE_SUFFIX);
     }
 
@@ -161,7 +164,9 @@ final class ThemeLoader {
     /** What the stamp of a theme's files says when they are up to date; null when it cannot be told. */
     private String stampKey(Theme theme) {
         String key = cacheKey(appContext);
-        return key != null && theme.isRuntime() ? key + "/" + theme.key() : key;
+        if (key == null) return null;
+        key += "/font " + FontChoice.key(appContext);
+        return theme.isRuntime() ? key + "/" + theme.key() : key;
     }
 
     /** Whether the theme's table and files are on disk and up to date. */
@@ -186,7 +191,7 @@ final class ThemeLoader {
         boolean mainThread = android.os.Looper.myLooper() == android.os.Looper.getMainLooper();
         Logger.printInfo(() -> "Theme: the table of " + theme.id + " was built in " + took + " ms"
                 + (mainThread ? ", on the main thread" : ""));
-        if (theme.isRuntime()) removeOldTables(context, theme, file);
+        removeOldTables(context, theme, file);
         removeCacheTables(context);
         if (key != null) {
             try {

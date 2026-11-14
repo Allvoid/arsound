@@ -69,6 +69,12 @@ final class ThemeTableBuilder {
 
     /** Builds the table into {@code arsc}, with the fonts and the loading animation it names. */
     void build(File arsc) throws Exception {
+        if (FontChoice.FONTS_ONLY_ID.equals(theme.id)) {
+            // SoundCloud's own look with a font of the user's choice: only the fonts.
+            addFonts();
+            ThemeFiles.write(arsc, table.build());
+            return;
+        }
         addColorTokens();
         addNamedColors();
         addResourceFiles();
@@ -165,13 +171,22 @@ final class ThemeTableBuilder {
         overrides.dimen("mini_player_corner", radii.optInt("miniPlayer", 36));
     }
 
-    /** Fonts: files from the app's assets, given to Android through the provider of the loader. */
+    /**
+     * Fonts: files from the app's assets, given to Android through the provider of the loader. The theme's own, or the
+     * font chosen in Appearance ({@link FontChoice}); "@own" is the user's file, kept in the app's files already.
+     */
     private void addFonts() {
-        JSONObject fonts = theme.json.optJSONObject("fonts");
+        JSONObject fonts = FontChoice.fonts(context, theme.json.optJSONObject("fonts"));
         if (fonts == null) return;
         for (String[] slot : FONTS) {
             String file = fonts.optString(slot[0], "");
             if (file.isEmpty()) continue;
+            if (file.equals("@own")) {
+                if (new File(context.getFilesDir(), FontChoice.OWN_FILE).isFile()) {
+                    overrides.file("font", slot[1], "res/" + FontChoice.OWN_FILE);
+                }
+                continue;
+            }
             String path = ThemeFiles.ROOT + "fonts/" + file + ".ttf";
             // Android loads a font resource only from a path under res/.
             if (ThemeFiles.copyAsset(context, path, new File(context.getFilesDir(), path))) {
