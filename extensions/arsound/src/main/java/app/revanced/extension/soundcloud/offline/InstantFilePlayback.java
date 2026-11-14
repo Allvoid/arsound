@@ -63,6 +63,9 @@ public final class InstantFilePlayback {
     public static Object playbackItem(Object maybe, Object trackSourceInfo, long position, Object trackUrn) {
         String source = downloadedSource(trackUrn);
         if (source == null) return maybe;
+        // The smooth transition already plays its beginning in a second player: it goes on from there.
+        position = app.revanced.extension.soundcloud.player.CrossfadeOverlap.startPosition(
+                DownloadTrackPatch.parseTrackId(trackUrn), position);
         try {
             ClassLoader loader = maybe.getClass().getClassLoader();
             Class<?> streamClass = Reflect.type(loader, "com.soundcloud.android.playback.core.stream.Stream");

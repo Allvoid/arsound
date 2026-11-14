@@ -9,8 +9,9 @@ import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
  * Smooth transition between tracks: the end of a track fades out, and the next track, when the first one ended by
- * itself, fades in. One after the other, not over each other: SoundCloud has one player. A track the user picks or
- * skips to starts at full volume.
+ * itself, fades in. When the next track is on the phone the two overlap: its beginning plays in a second player during
+ * the fade-out ({@link CrossfadeOverlap}) and SoundCloud goes on from there. Otherwise one after the other: SoundCloud
+ * has one player. A track the user picks or skips to starts at full volume.
  * <p>
  * The player reports its position about twice a second ({@link #onProgress}); in between it is counted from the
  * clock, and while a fade runs the volume is set every {@link #TICK_MS} on the player's own thread. The volume is
@@ -49,9 +50,10 @@ public final class Crossfade {
     /**
      * An item starts or resumes ({@link PlaybackEvents#onPlay}). Runs on the player's thread.
      *
-     * @param newTrack False when the same track resumes: it keeps its fade.
+     * @param newTrack   False when the same track resumes: it keeps its fade.
+     * @param overlapped The track goes on from {@link CrossfadeOverlap}: it faded in there already.
      */
-    static void onPlay(Object exoPlayer, boolean newTrack) {
+    static void onPlay(Object exoPlayer, boolean newTrack, boolean overlapped) {
         try {
             synchronized (lock) {
                 PlayerVolume.bind(exoPlayer);
@@ -60,7 +62,7 @@ public final class Crossfade {
                 boolean ended = duration > 0
                         && SystemClock.uptimeMillis() - reportedAt < REPORT_GAP_MS + ENDED_SLACK_MS
                         && duration - position <= fadeLength(duration) + ENDED_SLACK_MS;
-                fadingIn = isEnabled() && ended;
+                fadingIn = isEnabled() && ended && !overlapped;
                 position = 0;
                 duration = 0;
                 reported = false;
@@ -83,6 +85,7 @@ public final class Crossfade {
             reportedAt = SystemClock.uptimeMillis();
             current = handler;
         }
+        if (isEnabled()) CrossfadeOverlap.onProgress(position, duration, fadeLength(duration));
         if (current != null) current.post(TICK);
     }
 

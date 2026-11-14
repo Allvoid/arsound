@@ -127,6 +127,17 @@ public final class NextTrackPreload {
         }
     }
 
+    /** The id of the track that plays after the current one, or null. Off the main thread is fine. */
+    static String nextTrackId() {
+        try {
+            Object manager = PlayModeButton.queueManager();
+            return manager == null ? null : playingAndNext(manager)[1];
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "No next track found: " + ex);
+            return null;
+        }
+    }
+
     /** The ids of the playing track and of the one that plays after it; null where that is not a SoundCloud track. */
     private static String[] playingAndNext(Object manager) throws Exception {
         Object queue = PlayQueueApi.queue(manager);

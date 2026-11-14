@@ -138,16 +138,20 @@ final class PlaybackScreen extends SectionScreen {
         SubRows fadeOptions = ui.createSubRows();
         list.addView(ui.createToggleRow(
                 text("Плавный переход между треками", "Smooth transition between tracks"),
-                text("Конец трека плавно затихает, а следующий трек начинается тихо и плавно набирает громкость. "
+                text("Конец трека плавно затихает, а следующий в это же время плавно набирает громкость, без паузы "
+                                + "между ними. Так — когда следующий трек уже на телефоне: скачан, свой или загружен "
+                                + "заранее (строка ниже); иначе следующий начинается тихо после затихшего. "
                                 + "Срабатывает, когда трек доиграл сам; трек, который вы включили или переключили сами, "
                                 + "начинается сразу на полной громкости. Меняется громкость плеера, а не телефона.",
-                        "The end of a track fades out, and the next track starts quietly and fades in. It works when a "
+                        "The end of a track fades out while the next one fades in, with no gap between them. That is "
+                                + "when the next track is already on the phone: downloaded, your own or loaded ahead (the "
+                                + "row below); otherwise the next one starts quietly after the faded one. It works when a "
                                 + "track played to its end; a track you picked or skipped to starts at full volume at "
                                 + "once. The player's volume changes, not the phone's."),
                 BoolSettings.CROSSFADE,
                 fadeOptions
-        ).icon("volume").brief(text("Трек затихает в конце, следующий плавно нарастает.",
-                "A track fades out at its end, the next one fades in.")));
+        ).icon("volume").brief(text("Трек затихает в конце, следующий нарастает поверх него.",
+                "A track fades out at its end while the next one fades in.")));
         fadeOptions.addView(ui.createChoiceRow(text("Длительность затухания", "Fade length"), null,
                 Settings.CROSSFADE_SECONDS, 6, new long[]{2, 4, 6, 8, 10, 12},
                 new String[]{text("2 с", "2 s"), text("4 с", "4 s"), text("6 с", "6 s"), text("8 с", "8 s"),
