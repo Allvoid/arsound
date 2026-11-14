@@ -5,9 +5,6 @@ import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.media.AudioManager;
 import android.os.SystemClock;
@@ -22,7 +19,8 @@ import app.revanced.extension.soundcloud.theme.ThemeEffect;
 
 /**
  * The strip of the "My Wave" tab: three thin lines that swing with the music, and in the middle the play button, a
- * 56 dp ring with the play or pause mark. The lines answer to the loudness of the music
+ * 56 dp ring with the play or pause mark, laid over the lines: they run on behind it up to its edge and show faintly
+ * through it, nothing is cut out of them around the button. The lines answer to the loudness of the music
  * ({@link AudioLevel}, read from the player's sound chain; the player's volume when that is not running) through
  * {@link WaveLevel}. The lines run only while the tab is on screen ({@link #setRunning}); at rest they are drawn about
  * twenty times a second, not on every frame. In battery saving and with the system animations off they stand still.
@@ -44,9 +42,12 @@ final class WaveLines extends View {
     private static final long RESTING_FRAME_MS = 50;
     /** How long a volume read from the system is good for. */
     private static final long VOLUME_EVERY_MS = 500;
+    /** How much of the lines the button hides: most, so the mark reads, not all, so they are seen going on behind. */
+    private static final int DISC_ALPHA = 0xD0;
 
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint cut = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** The inside of the button: the page's colour, a little see-through, so the lines pass behind the button. */
+    private final Paint disc = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mark = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -87,7 +88,8 @@ final class WaveLines extends View {
         line.setStyle(Paint.Style.STROKE);
         line.setStrokeCap(Paint.Cap.ROUND);
         line.setStrokeJoin(Paint.Join.ROUND);
-        cut.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+        disc.setStyle(Paint.Style.FILL);
+        disc.setColor(Colors.withAlpha(page, DISC_ALPHA));
         ring.setStyle(Paint.Style.STROKE);
         mark.setStyle(Paint.Style.FILL);
         mark.setColor(ink);
@@ -124,10 +126,6 @@ final class WaveLines extends View {
         // Fades out at both edges: the colour of the line, opaque in the middle.
         line.setShader(new LinearGradient(0, 0, width, 0, new int[]{clear, lineColor, lineColor, clear},
                 new float[]{0f, 0.16f, 0.84f, 1f}, Shader.TileMode.CLAMP));
-        float dp = Dimens.dpExact(getContext(), 1);
-        float radius = 42f * dp;
-        cut.setShader(new RadialGradient(width / 2f, height / 2f, radius, new int[]{0xFF000000, 0xFF000000, 0x00000000},
-                new float[]{0f, 30f / 42f, 1f}, Shader.TileMode.CLAMP));
     }
 
     @Override
@@ -188,7 +186,6 @@ final class WaveLines extends View {
         float frequency = WaveLevel.frequency(level);
         float weight = WaveLevel.weight(level);
 
-        int layer = canvas.saveLayer(0, 0, width, h, null);
         for (int i = 0; i < LINES; i++) {
             path.reset();
             for (int x = 0; x <= DESIGN_WIDTH; x += STEP) {
@@ -201,9 +198,6 @@ final class WaveLines extends View {
             line.setStrokeWidth(WIDTH[i] * weight * dp * 1.2f);
             canvas.drawPath(path, line);
         }
-        // The hole under the button: the lines do not run into the ring.
-        canvas.drawCircle(width / 2f, mid, 42f * dp, cut);
-        canvas.restoreToCount(layer);
 
         drawButton(canvas, width / 2f, mid, dp);
         scheduleNext();
@@ -212,6 +206,7 @@ final class WaveLines extends View {
     private void drawButton(Canvas canvas, float cx, float cy, float dp) {
         float radius = 28f * dp;
         float stroke = 1.5f * dp * (1f + 0.5f * press);
+        canvas.drawCircle(cx, cy, radius - stroke / 2f, disc);
         ring.setStrokeWidth(stroke);
         ring.setColor(Colors.withAlpha(ink, 0xE6));
         canvas.drawCircle(cx, cy, radius - stroke / 2f, ring);
