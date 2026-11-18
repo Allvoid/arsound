@@ -221,6 +221,21 @@ final class LyricsListView extends ScrollView {
         if (next == null) return;
 
         column.addView(topSpacer, new LinearLayout.LayoutParams(1, Math.round(getHeight() * FOCUS)));
+        // The user's own words carry their note and buttons above the lines: under a short text the buttons would
+        // come out where the player's own buttons (back, play, next) float over the page.
+        boolean pastedHeader = onRemove != null;
+        if (pastedHeader) {
+            credit.setText(creditText);
+            column.addView(credit, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+            if (onPaste != null) {
+                pasteButton.setText(pasteLabel);
+                pasteButton.setOnClickListener(v -> onPaste.run());
+                column.addView(pasteButton, pillParams());
+            }
+            removeButton.setOnClickListener(v -> onRemove.run());
+            column.addView(removeButton, pillParams());
+        }
         lines = new LineView[next.lines.length];
         BidiFormatter bidi = BidiFormatter.getInstance();
         for (int i = 0; i < lines.length; i++) {
@@ -247,9 +262,11 @@ final class LyricsListView extends ScrollView {
             column.addView(view, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
         }
-        credit.setText(creditText);
-        column.addView(credit, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        if (!pastedHeader) {
+            credit.setText(creditText);
+            column.addView(credit, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
         if (onAgain != null) {
             again.setOnClickListener(v -> onAgain.run());
             LinearLayout.LayoutParams againParams = new LinearLayout.LayoutParams(
@@ -259,14 +276,10 @@ final class LyricsListView extends ScrollView {
             againParams.bottomMargin = dp(12);
             column.addView(again, againParams);
         }
-        if (onPaste != null) {
+        if (!pastedHeader && onPaste != null) {
             pasteButton.setText(pasteLabel);
             pasteButton.setOnClickListener(v -> onPaste.run());
             column.addView(pasteButton, pillParams());
-        }
-        if (onRemove != null) {
-            removeButton.setOnClickListener(v -> onRemove.run());
-            column.addView(removeButton, pillParams());
         }
         column.addView(bottomSpacer, new LinearLayout.LayoutParams(1, Math.round(getHeight() * (1 - FOCUS))));
 
