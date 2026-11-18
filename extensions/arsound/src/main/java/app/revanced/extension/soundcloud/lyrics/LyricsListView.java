@@ -220,9 +220,8 @@ final class LyricsListView extends ScrollView {
         removeCallbacks(resume);
         if (next == null) return;
 
-        column.addView(topSpacer, new LinearLayout.LayoutParams(1, Math.round(getHeight() * FOCUS)));
-        // The user's own words carry their note and buttons above the lines: under a short text the buttons would
-        // come out where the player's own buttons (back, play, next) float over the page.
+        // The user's own words carry their note and buttons at the very top of the column, above the spacer: they
+        // stay in the upper part of the page, clear of the player's own buttons (previous, play, next) in its middle.
         boolean pastedHeader = onRemove != null;
         if (pastedHeader) {
             credit.setText(creditText);
@@ -236,6 +235,7 @@ final class LyricsListView extends ScrollView {
             removeButton.setOnClickListener(v -> onRemove.run());
             column.addView(removeButton, pillParams());
         }
+        column.addView(topSpacer, new LinearLayout.LayoutParams(1, Math.round(getHeight() * FOCUS)));
         lines = new LineView[next.lines.length];
         BidiFormatter bidi = BidiFormatter.getInstance();
         for (int i = 0; i < lines.length; i++) {
