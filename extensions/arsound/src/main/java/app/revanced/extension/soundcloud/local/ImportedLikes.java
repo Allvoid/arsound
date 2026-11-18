@@ -185,6 +185,23 @@ public final class ImportedLikes {
         return likedFiles().contains(file);
     }
 
+    /**
+     * For the Arsound search: a downloaded result is liked or un-liked from its row, the same way as from the menu
+     * of the file. Local only, nothing goes to SoundCloud.
+     *
+     * @return True if that changed the likes.
+     */
+    public static boolean likeFile(File file, boolean like) {
+        boolean changed = setLiked(file, like);
+        if (changed) HeartRefresh.emitAgain();
+        return changed;
+    }
+
+    /** For the Arsound search: whether the downloaded file is among the likes now. */
+    public static boolean isFileLiked(File file) {
+        return file != null && isLiked(file);
+    }
+
     /** The imported files nobody decided about: imported while the like on import was off, not liked since. */
     public static int undecidedCount() {
         Context context = Utils.getContext();

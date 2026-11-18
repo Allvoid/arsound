@@ -29,6 +29,7 @@ final class ResultRow {
     /** The length and what the preview is doing. */
     private final TextView meta;
     private final ImageView download;
+    private final ImageView heart;
     private final TextView percent;
     private final View busy;
 
@@ -65,7 +66,17 @@ final class ResultRow {
         percent.setGravity(Gravity.CENTER);
         action.addView(percent, new FrameLayout.LayoutParams(dpTruncated(context, 48), dpTruncated(context, 48), Gravity.CENTER));
         action.setLayoutParams(new LinearLayout.LayoutParams(dpTruncated(context, 56), dpTruncated(context, 56)));
-        look.fill(view, art, look.texts(title, subtitle, meta), action);
+        heart = new ImageView(context);
+        heart.setScaleType(ImageView.ScaleType.CENTER);
+        heart.setBackgroundResource(ripple.resourceId);
+        heart.setOnClickListener(v -> DownloadQueue.toggleLike(context.getApplicationContext(), track));
+        heart.setLayoutParams(new LinearLayout.LayoutParams(dpTruncated(context, 44), dpTruncated(context, 56)));
+        LinearLayout buttons = new LinearLayout(context);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setGravity(Gravity.CENTER_VERTICAL);
+        buttons.addView(heart);
+        buttons.addView(action);
+        look.fill(view, art, look.texts(title, subtitle, meta), buttons);
 
         refresh();
     }
@@ -78,7 +89,8 @@ final class ResultRow {
         return track;
     }
 
-    private static int downloadedIcon, downloadIcon;
+    private static int downloadedIcon, downloadIcon, heartIcon, heartActiveIcon;
+    private int shownHeart;
     /** The icon the download button shows, so it is not set again unchanged. */
     private int shownIcon;
 
@@ -113,6 +125,19 @@ final class ResultRow {
             download.setImageResource(icon);
         }
         download.setImageTintList(done ? null : ColorStateList.valueOf(screen.textColor));
+        if (heartIcon == 0) {
+            heartIcon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_heart");
+            heartActiveIcon = Utils.getResourceIdentifier(ResourceType.DRAWABLE, "ic_actions_heart_active");
+        }
+        boolean liked = DownloadQueue.isLiked(track.url);
+        heart.setContentDescription(liked ? text("Убрать из понравившихся", "Remove from likes")
+                : text("Добавить в понравившиеся", "Add to likes"));
+        int heartResource = liked ? heartActiveIcon : heartIcon;
+        if (heartResource != shownHeart) {
+            shownHeart = heartResource;
+            heart.setImageResource(heartResource);
+        }
+        heart.setImageTintList(liked ? null : ColorStateList.valueOf(screen.textColor));
         busy.setVisibility(progress == null ? View.GONE : View.VISIBLE);
         percent.setVisibility(progress == null || progress <= 0 ? View.GONE : View.VISIBLE);
         percent.setText(progress == null ? "" : progress + "%");

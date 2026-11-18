@@ -17,6 +17,7 @@ import java.util.concurrent.Future;
 
 import app.arsound.shaded.newpipe.extractor.stream.AudioStream;
 import app.revanced.extension.shared.Logger;
+import app.revanced.extension.soundcloud.local.ImportedLikes;
 import app.revanced.extension.soundcloud.local.LocalCovers;
 import app.revanced.extension.soundcloud.local.LocalMusic;
 import app.revanced.extension.soundcloud.shared.Toasts;
@@ -44,6 +45,8 @@ final class DownloadQueue {
     /** The tracks of a "Download all" waiting for room in the queue. */
     private static final java.util.ArrayDeque<OtherSource.Track> waiting = new java.util.ArrayDeque<>();
     /** A batch is running: its tracks are told in one message at the end, not one each. */
+    /** The tracks to like as soon as their file is in the imported music: the heart was tapped before the download. */
+    private static final java.util.Set<String> likeWhenDone = new java.util.HashSet<>();
     private static int batchDone, batchFailed;
     private static boolean inBatch;
 
@@ -81,6 +84,42 @@ final class DownloadQueue {
         Context context = app.revanced.extension.shared.Utils.getContext();
         if (context != null) preferences(context).edit().remove(url).apply();
         return false;
+    }
+
+    /** The imported file of a downloaded track, or null. */
+    static File fileOf(String url) {
+        return isDownloaded(url) ? new File(downloaded().get(url)) : null;
+    }
+
+    /** Whether the track is liked in the library: its file is among the likes, or it will be when downloaded. */
+    static boolean isLiked(String url) {
+        File file = fileOf(url);
+        return file != null ? ImportedLikes.isFileLiked(file) : likeWhenDone.contains(url);
+    }
+
+    /**
+     * The heart of a result: adds the track to the likes of the library, downloading it first if it is not on the
+     * phone, or takes it away. The like stays on this phone; SoundCloud never hears of it.
+     *
+     * @param context The application context.
+     */
+    static void toggleLike(Context context, OtherSource.Track track) {
+        String url = track.url;
+        File file = fileOf(url);
+        if (file != null) {
+            boolean like = !ImportedLikes.isFileLiked(file);
+            ImportedLikes.likeFile(file, like);
+            Toasts.showLong(context, like
+                    ? text("«" + track.title + "» в понравившихся", "\"" + track.title + "\" added to your likes")
+                    : text("«" + track.title + "» убран из понравившихся", "\"" + track.title + "\" removed from your likes"));
+        } else if (!likeWhenDone.remove(url)) {
+            likeWhenDone.add(url);
+            Toasts.showLong(context, text("«" + track.title + "» скачивается и попадёт в понравившиеся",
+                    "\"" + track.title + "\" is downloading and will join your likes"));
+            start(context, track);
+        }
+        // Else: changed its mind while it downloads; the file stays in the imported music.
+        SearchScreen.refreshRow(url);
     }
 
     /** @param context The application context. */
@@ -153,6 +192,7 @@ final class DownloadQueue {
     /** Stops the batch: the waiting tracks are dropped, the queued ones given up. */
     static void stopAll() {
         waiting.clear();
+        likeWhenDone.clear();
         for (Map.Entry<String, Future<?>> task : new ArrayList<>(tasks.entrySet())) {
             task.getValue().cancel(true);
             downloading.remove(task.getKey());
@@ -164,6 +204,7 @@ final class DownloadQueue {
 
     /** A download ended, done or not: its place in the queue goes to the next waiting track. */
     private static void ended(Context context, String url, boolean done) {
+        if (!done) likeWhenDone.remove(url);
         tasks.remove(url);
         downloading.remove(url);
         if (inBatch) {
@@ -215,8 +256,13 @@ final class DownloadQueue {
             SearchThreads.MAIN.post(() -> {
                 downloaded().put(url, path);
                 boolean single = !inBatch;
+                boolean like = likeWhenDone.remove(url);
+                if (like) ImportedLikes.likeFile(new File(path), true);
                 ended(context, url, true);
-                if (single) {
+                if (single && like) {
+                    Toasts.showLong(context, text("«" + track.title + "» скачан и в понравившихся",
+                            "\"" + track.title + "\" downloaded and added to your likes"));
+                } else if (single) {
                     Toasts.showLong(context, text("Скачано: «" + track.title + "» — в плейлисте «Импортированные»",
                             "Downloaded \"" + track.title + "\" to the imported music"));
                 }
