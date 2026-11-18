@@ -36,6 +36,9 @@ final class LyricsAi implements TranscriptionManager.Listener {
 
         /** The words have been recognised: the page shows them like any lyrics. */
         void showAiWords(Lyrics lyrics);
+
+        /** The pasted words of the song were removed: the page looks the song up again. */
+        void searchAgainAfterRemoval();
     }
 
     private final Host host;
@@ -130,6 +133,130 @@ final class LyricsAi implements TranscriptionManager.Listener {
         } else {
             panel.show(LyricsResult.Status.MISSING.message(), ask, text("Распознать нейросетью", "Recognise with AI"), ask);
         }
+        offerPaste();
+    }
+
+    /** Under the offer, the button that lets the user paste the words. */
+    private void offerPaste() {
+        final TrackInfo track = info;
+        if (track == null) return;
+        panel.offerPaste(text("Вставить текст", "Paste the lyrics"), () -> pasteDialog(track));
+    }
+
+    /**
+     * The song has no lyrics and the network cannot be offered on this phone (or for this song): the message, and the
+     * way to paste the words.
+     *
+     * @param retry Looks the song up again; null when the search answered that there is no text.
+     */
+    void offerPasteOnly(TrackInfo track, Runnable retry) {
+        info = track;
+        retrySearch = retry;
+        panel.show(retry != null ? LyricsResult.Status.ERROR.message() : LyricsResult.Status.MISSING.message(), retry, null, null);
+        offerPaste();
+        host.showAiPanel();
+    }
+
+    /**
+     * The dialog to paste the words of the song into, or to edit the ones pasted before. What is pasted is aligned
+     * with the track (times by the words the network heard, or spread over the track) and kept; the page then shows it.
+     */
+    void pasteDialog(final TrackInfo track) {
+        final Context context = panel.getContext();
+        Utils.runOnBackgroundThread(() -> {
+            final String before = PastedLyrics.rawText(track);
+            Utils.runOnMainThread(() -> showPasteDialog(context, track, before));
+        });
+    }
+
+    private void showPasteDialog(Context context, final TrackInfo track, String before) {
+        final android.widget.EditText input = new android.widget.EditText(context);
+        input.setMinLines(8);
+        input.setMaxLines(14);
+        input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setHint(text("Текст песни, по строке на строку", "The lyrics, one line of the song per line"));
+        input.setTextColor(app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "primary"));
+        input.setHintTextColor(app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "secondary"));
+        if (before != null) input.setText(before);
+        android.widget.LinearLayout box = new android.widget.LinearLayout(context);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = Math.round(16 * context.getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad / 2, pad, 0);
+        android.widget.TextView note = new android.widget.TextView(context);
+        note.setText(text("Время строк подберётся само: по словам, которые услышала нейросеть, а если её текста нет, "
+                        + "то примерно, по длине строк. Такой текст помечается «примерное время».",
+                "The times of the lines are set for you: by the words the network heard, or, if there is no such text, "
+                        + "roughly by the length of the lines. Such a text is marked \"approximate timing\"."));
+        note.setTextColor(app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "secondary"));
+        note.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+        note.setPadding(0, 0, 0, pad / 2);
+        box.addView(note);
+        android.widget.TextView fromClipboard = new android.widget.TextView(context);
+        fromClipboard.setText(text("Вставить из буфера обмена", "Paste from the clipboard"));
+        fromClipboard.setTextColor(app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "special"));
+        fromClipboard.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+        fromClipboard.setPadding(0, pad / 4, 0, pad / 2);
+        fromClipboard.setOnClickListener(v -> {
+            String clip = clipboardText(context);
+            if (clip.isEmpty()) {
+                Utils.showToastShort(text("В буфере нет текста", "The clipboard has no text"));
+            } else {
+                input.setText(clip);
+                input.setSelection(clip.length());
+            }
+        });
+        box.addView(fromClipboard);
+        box.addView(input);
+        new ArsoundDialog(context)
+                .setTitle(before == null ? text("Вставить текст", "Paste the lyrics") : text("Изменить текст", "Edit the lyrics"))
+                .setView(box)
+                .setPositiveButton(text("Сохранить", "Save"), (dialog, which) -> keepPasted(track, input.getText().toString()))
+                .setNegativeButton(text("Отмена", "Cancel"), null)
+                .show();
+    }
+
+    private static String clipboardText(Context context) {
+        try {
+            android.content.ClipboardManager manager = (android.content.ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+            android.content.ClipData clip = manager == null ? null : manager.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return "";
+            CharSequence item = clip.getItemAt(0).coerceToText(context);
+            return item == null ? "" : item.toString();
+        } catch (Throwable ex) {
+            return "";
+        }
+    }
+
+    private void keepPasted(final TrackInfo track, final String pasted) {
+        if (pasted.trim().isEmpty()) {
+            Utils.showToastShort(text("Текст пустой: ничего не сохранено", "The text is empty: nothing was kept"));
+            return;
+        }
+        Utils.runOnBackgroundThread(() -> {
+            final Lyrics lyrics = PastedLyrics.save(track, pasted);
+            Utils.runOnMainThread(() -> {
+                if (lyrics == null) {
+                    Utils.showToastLong(text("Не получилось сохранить текст", "Could not keep the text"));
+                    return;
+                }
+                LyricsRepository.rememberPasted(track, lyrics);
+                info = track;
+                host.showAiWords(lyrics);
+            });
+        });
+    }
+
+    /** The pasted words are taken away: what the search finds is shown again. */
+    void removePasted(final TrackInfo track) {
+        Utils.runOnBackgroundThread(() -> {
+            PastedLyrics.remove(track);
+            Utils.runOnMainThread(() -> {
+                LyricsRepository.forget(track);
+                host.searchAgainAfterRemoval();
+            });
+        });
     }
 
     /** Looks the song up again; set while the offer follows a failed search, null after "no text". */

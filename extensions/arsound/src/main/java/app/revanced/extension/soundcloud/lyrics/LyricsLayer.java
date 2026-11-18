@@ -679,7 +679,7 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
                 public void run() {
                     if (displayed != fading) {
                         fading.setVisibility(GONE);
-                        if (fading == list && lyrics == null) list.setLyrics(null, null, null, null);
+                        if (fading == list && lyrics == null) list.setLyrics(null, null, null, null, null, null, null);
                     }
                 }
             }).start();
@@ -710,10 +710,19 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
             return;
         }
         if (result.status == LyricsResult.Status.FOUND) showWords(result.lyrics);
-        else if (result.status == LyricsResult.Status.MISSING && ai.offerFor(info)) return;
+        else if (result.status == LyricsResult.Status.MISSING) {
+            // The network when this phone can offer it; the way to paste the words in any case.
+            if (!ai.offerFor(info)) ai.offerPasteOnly(info, null);
+        }
         // A failed search offers the network as well, the message keeps "tap to try again".
-        else if (result.status == LyricsResult.Status.ERROR && ai.offerFor(info, this::searchAgain)) return;
-        else showMessage(result.status.message(), result.status.retryable);
+        else if (result.status == LyricsResult.Status.ERROR) {
+            if (!ai.offerFor(info, this::searchAgain)) ai.offerPasteOnly(info, this::searchAgain);
+        } else showMessage(result.status.message(), result.status.retryable);
+    }
+
+    @Override
+    public void searchAgainAfterRemoval() {
+        searchAgain();
     }
 
     /** Looks the track up again, as a tap on a failure message does. */
@@ -774,7 +783,17 @@ final class LyricsLayer extends FrameLayout implements LyricsListView.Host, Lyri
         removeCallbacks(showShimmer);
         Typeface face = title instanceof TextView ? ((TextView) title).getTypeface() : null;
         // Words a network heard can be heard again, in another language when the first answer was wrong.
-        list.setLyrics(words, face, words.source.caption(), words.source == Lyrics.Source.NEURAL ? this::hearAgain : null);
+        boolean neural = words.source == Lyrics.Source.NEURAL;
+        boolean pasted = words.isPasted();
+        final TrackInfo forTrack = info;
+        list.setLyrics(words, face, words.source.caption(), neural ? this::hearAgain : null,
+                pasted ? text("Изменить текст", "Edit the text") : text("Вставить свой текст", "Paste your own text"),
+                neural || pasted ? () -> {
+                    if (forTrack != null) ai.pasteDialog(forTrack);
+                } : null,
+                pasted ? () -> {
+                    if (forTrack != null) ai.removePasted(forTrack);
+                } : null);
         status.setClickable(false);
         // Put at the singing line before it is seen, then faded in.
         tick(false);

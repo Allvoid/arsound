@@ -18,7 +18,11 @@ final class Lyrics {
         /** Found on lyrics.ovh, the last place asked: plain words without timings. */
         OVH("Тексты: lyrics.ovh", "Lyrics: lyrics.ovh"),
         /** Heard by the neural network on the phone, so it may be wrong. */
-        NEURAL("Распознано нейросетью · возможны ошибки", "Recognised by a neural network · may contain errors");
+        NEURAL("Распознано нейросетью · возможны ошибки", "Recognised by a neural network · may contain errors"),
+        /** Pasted by the user; the times are the aligner's, matched to the words the network heard. */
+        PASTED("Ваш текст", "Your text"),
+        /** Pasted by the user; the times are only spread over the track, a guess. */
+        PASTED_APPROX("Ваш текст · примерное время", "Your text · approximate timing");
 
         private final String russian;
         private final String english;
@@ -47,6 +51,11 @@ final class Lyrics {
         this.lines = lines;
         this.times = times;
         this.source = source;
+    }
+
+    /** Whether the user pasted these words. */
+    boolean isPasted() {
+        return source == Source.PASTED || source == Source.PASTED_APPROX;
     }
 
     boolean isTimed() {

@@ -80,6 +80,9 @@ final class LyricsListView extends ScrollView {
     private final TextView credit;
     /** The button under the credit of words a network heard: hear them again in another language. */
     private final TextView again;
+    /** The buttons under the credit of words the user pasted (edit, remove) or that a network heard (paste your own). */
+    private final TextView pasteButton;
+    private final TextView removeButton;
     private final DecelerateInterpolator ease = new DecelerateInterpolator(1.5f);
 
     private LineView[] lines = new LineView[0];
@@ -135,12 +138,18 @@ final class LyricsListView extends ScrollView {
         credit.setAlpha(0.7f);
         credit.setPadding(dp(16), dp(18), dp(20), dp(8));
         again = againButton(context);
+        pasteButton = pill(context, "");
+        removeButton = pill(context, Lang.text("Удалить текст", "Remove the text"));
     }
 
     /** A small glass pill in the white of the words, like the rest of the page over the blurred cover. */
     private TextView againButton(Context context) {
+        return pill(context, Lang.text("↻  Не тот язык? Распознать заново", "↻  Wrong language? Recognise again"));
+    }
+
+    private TextView pill(Context context, String label) {
         TextView button = new TextView(context);
-        button.setText(Lang.text("↻  Не тот язык? Распознать заново", "↻  Wrong language? Recognise again"));
+        button.setText(label);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         button.setTextColor(0xE6FFFFFF);
         button.setPadding(dp(14), dp(8), dp(16), dp(8));
@@ -195,8 +204,12 @@ final class LyricsListView extends ScrollView {
      * @param face       The font of the player's title, so the words look like the rest of the screen.
      * @param creditText The line of thanks under the words.
      * @param onAgain    What the "recognise again" button under the credit does; null for no button.
+     * @param pasteLabel The label of the button that opens the paste dialog (paste your own text, or edit the pasted one).
+     * @param onPaste    What it does; null for no button.
+     * @param onRemove   What the "remove the text" button does, shown for pasted words; null for no button.
      */
-    void setLyrics(Lyrics next, Typeface face, String creditText, Runnable onAgain) {
+    void setLyrics(Lyrics next, Typeface face, String creditText, Runnable onAgain, String pasteLabel, Runnable onPaste,
+                   Runnable onRemove) {
         stopGlide();
         column.removeAllViews();
         lyrics = next;
@@ -246,6 +259,15 @@ final class LyricsListView extends ScrollView {
             againParams.bottomMargin = dp(12);
             column.addView(again, againParams);
         }
+        if (onPaste != null) {
+            pasteButton.setText(pasteLabel);
+            pasteButton.setOnClickListener(v -> onPaste.run());
+            column.addView(pasteButton, pillParams());
+        }
+        if (onRemove != null) {
+            removeButton.setOnClickListener(v -> onRemove.run());
+            column.addView(removeButton, pillParams());
+        }
         column.addView(bottomSpacer, new LinearLayout.LayoutParams(1, Math.round(getHeight() * (1 - FOCUS))));
 
         programmatic = true;
@@ -255,6 +277,15 @@ final class LyricsListView extends ScrollView {
         // Sized when the first layout has happened.
         pendingScroll = true;
         requestLayout();
+    }
+
+    private LinearLayout.LayoutParams pillParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.leftMargin = dp(12);
+        params.topMargin = dp(4);
+        params.bottomMargin = dp(12);
+        return params;
     }
 
     @Override

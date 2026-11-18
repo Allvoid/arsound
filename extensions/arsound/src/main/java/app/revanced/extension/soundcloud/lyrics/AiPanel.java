@@ -27,6 +27,8 @@ import app.revanced.extension.soundcloud.shared.Dimens;
 final class AiPanel extends LinearLayout {
     private final TextView message;
     private final TextView pill;
+    /** A second button under the first, for pasting the words by hand; empty while nothing is offered. */
+    private final TextView pasteButton;
     private final TextView suggestion;
 
     AiPanel(Context context, int accent) {
@@ -64,6 +66,23 @@ final class AiPanel extends LinearLayout {
         pillParams.topMargin = Math.round(dp(4));
         addView(pill, pillParams);
 
+        pasteButton = new TextView(context);
+        pasteButton.setGravity(Gravity.CENTER);
+        pasteButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        pasteButton.setTextColor(0xE6FFFFFF);
+        pasteButton.setMinHeight(Math.round(dp(48)));
+        pasteButton.setMinWidth(Math.round(dp(160)));
+        pasteButton.setPadding(Math.round(dp(24)), Math.round(dp(10)), Math.round(dp(24)), Math.round(dp(10)));
+        GradientDrawable pasteShape = new GradientDrawable();
+        pasteShape.setCornerRadius(dp(100));
+        pasteShape.setColor(0x1FFFFFFF);
+        pasteShape.setStroke(Math.round(dp(1)), 0x55FFFFFF);
+        pasteButton.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), pasteShape, null));
+        pasteButton.setVisibility(GONE);
+        LayoutParams pasteParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        pasteParams.topMargin = Math.round(dp(10));
+        addView(pasteButton, pasteParams);
+
         suggestion = new TextView(context);
         suggestion.setGravity(Gravity.CENTER);
         suggestion.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -94,7 +113,16 @@ final class AiPanel extends LinearLayout {
         }
         suggestion.setVisibility(GONE);
         setTap(suggestion, null);
+        pasteButton.setVisibility(GONE);
+        setTap(pasteButton, null);
         setContentDescription(text);
+    }
+
+    /** Under the button, a quieter one: "paste the words"; the next {@link #show} removes it. */
+    void offerPaste(CharSequence label, Runnable action) {
+        pasteButton.setText(label);
+        pasteButton.setVisibility(VISIBLE);
+        setTap(pasteButton, action);
     }
 
     /** Under the button, a line of advice that taps into a better choice; the next {@link #show} removes it. */

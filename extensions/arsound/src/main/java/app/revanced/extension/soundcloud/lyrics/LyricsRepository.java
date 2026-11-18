@@ -159,6 +159,9 @@ public final class LyricsRepository {
     }
 
     private static LyricsResult lookUp(TrackInfo info, Request request) throws IOException {
+        // The user's own text wins over anything a search finds.
+        Lyrics pasted = PastedLyrics.lookUp(info);
+        if (pasted != null) return LyricsResult.found(pasted);
         TrackQuery query = info.query();
         LyricsResult stored = cache().read(info.urn, query.signature);
         if (stored != null) return orRecognised(info, stored);
@@ -285,6 +288,20 @@ public final class LyricsRepository {
 
     /** The words the neural network just recognised, so a page that asks for the track gets them at once. */
     static void rememberRecognised(TrackInfo info, Lyrics lyrics) {
+        remember(info, LyricsResult.found(lyrics));
+    }
+
+    /** Forgets what memory has for the track (its pasted text was made, changed or removed): the next load looks again. */
+    static void forget(TrackInfo info) {
+        synchronized (MEMORY) {
+            String prefix = info.urn + "|";
+            MEMORY.keySet().removeIf(key -> key.startsWith(prefix));
+        }
+    }
+
+    /** The pasted words just kept, so a page that asks for the track gets them at once. */
+    static void rememberPasted(TrackInfo info, Lyrics lyrics) {
+        forget(info);
         remember(info, LyricsResult.found(lyrics));
     }
 
