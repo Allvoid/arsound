@@ -212,9 +212,28 @@ final class LyricsAi implements TranscriptionManager.Listener {
         new ArsoundDialog(context)
                 .setTitle(before == null ? text("Вставить текст", "Paste the lyrics") : text("Изменить текст", "Edit the lyrics"))
                 .setView(box)
-                .setPositiveButton(text("Сохранить", "Save"), (dialog, which) -> keepPasted(track, input.getText().toString()))
-                .setNegativeButton(text("Отмена", "Cancel"), null)
+                .setPositiveButton(text("Сохранить", "Save"), (dialog, which) -> {
+                    hideKeyboard(input);
+                    keepPasted(track, input.getText().toString());
+                })
+                .setNegativeButton(text("Отмена", "Cancel"), (dialog, which) -> hideKeyboard(input))
+                // Back and a tap outside close the dialog too.
+                .setOnDismissListener(dialog -> hideKeyboard(input))
                 .show();
+    }
+
+    /**
+     * Takes the keyboard down with the dialog: after it closes the focus goes to the comment field of the player, which
+     * would keep the keyboard up and squeeze the page.
+     */
+    private static void hideKeyboard(android.view.View field) {
+        try {
+            android.view.inputmethod.InputMethodManager keyboard = (android.view.inputmethod.InputMethodManager)
+                    field.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(field.getWindowToken(), 0);
+        } catch (Throwable ignored) {
+            // The keyboard stays: nothing worse than before.
+        }
     }
 
     private static String clipboardText(Context context) {

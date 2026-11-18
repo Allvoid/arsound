@@ -142,7 +142,11 @@ public final class BottomTabs {
         }
         if (!(context instanceof android.app.Activity)) return false;
         android.content.Intent intent = ((android.app.Activity) context).getIntent();
-        return intent != null && android.content.Intent.ACTION_MAIN.equals(intent.getAction()) && intent.getData() == null;
+        if (intent == null || intent.getData() != null) return false;
+        // The launcher screen of SoundCloud hands a plain start on to the main screen without any action (checked on
+        // the emulator); a link or a shortcut carries a data address or its own action.
+        String action = intent.getAction();
+        return action == null || android.content.Intent.ACTION_MAIN.equals(action);
     }
 
     /**
