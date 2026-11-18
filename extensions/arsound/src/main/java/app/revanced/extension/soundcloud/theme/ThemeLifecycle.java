@@ -112,6 +112,7 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
         refreshIfStale(activity);
         ThemeBackdrop.onActivityResumed(activity);
         WallpaperSurfaces.onActivityResumed(activity);
+        app.revanced.extension.soundcloud.wallpaper.MediaWallpaper.onActivityResumed(activity);
         CardSurfaces.onActivityResumed(activity);
         try {
             SplashStyle.sync(activity, ArsoundTheme.currentTheme(activity));
@@ -122,6 +123,7 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
 
     @Override
     public void onActivityPaused(Activity activity) {
+        app.revanced.extension.soundcloud.wallpaper.MediaWallpaper.onActivityPaused(activity);
     }
 
     @Override

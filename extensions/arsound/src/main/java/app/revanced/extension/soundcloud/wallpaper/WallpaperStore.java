@@ -37,6 +37,9 @@ public final class WallpaperStore {
     private static final String ORIGINAL = "current.jpg";
     private static final String BAKED = "view.jpg";
     private static final String META = "meta.json";
+    /** The video or the animation itself, when the wallpaper moves: the name tells which ({@link #mediaFile}). */
+    private static final String VIDEO = "media.video";
+    private static final String ANIMATION = "media.anim";
     /**
      * Held while the files of the wallpaper are written or removed. Every release of the blur slider bakes on a thread
      * of its own, and two bakes (or a bake and a new picture) would otherwise write the same files at once.
@@ -65,6 +68,20 @@ public final class WallpaperStore {
     public static boolean has() {
         File baked = file(BAKED);
         return baked != null && baked.isFile();
+    }
+
+    /** The video or the animated picture of the wallpaper, or null when it is a still picture. */
+    public static File mediaFile() {
+        File video = file(VIDEO);
+        if (video != null && video.isFile()) return video;
+        File animation = file(ANIMATION);
+        return animation != null && animation.isFile() ? animation : null;
+    }
+
+    /** True when the wallpaper that is chosen is a video. */
+    public static boolean isVideo() {
+        File media = mediaFile();
+        return media != null && VIDEO.equals(media.getName());
     }
 
     /** True when the wallpaper is chosen and switched on: screens draw it. */
@@ -97,7 +114,9 @@ public final class WallpaperStore {
      */
     public static String stamp() {
         File baked = file(BAKED);
-        return isActive() + "/" + dim() + "/" + blur() + "/" + (baked == null ? 0 : baked.lastModified());
+        File media = mediaFile();
+        return isActive() + "/" + dim() + "/" + blur() + "/" + (baked == null ? 0 : baked.lastModified())
+                + (media == null ? "" : "/" + media.getName() + media.lastModified());
     }
 
     /** The wallpaper to draw behind a whole screen, or null when there is none to show. */
@@ -118,6 +137,7 @@ public final class WallpaperStore {
             copy = new ArrayList<>(watchers);
         }
         for (WallpaperDrawable drawable : copy) drawable.invalidateSelf();
+        MediaWallpaper.onChanged();
     }
 
     /** The bitmap to draw, or null while it is read; see {@link WallpaperBitmap#get}. */
@@ -150,7 +170,30 @@ public final class WallpaperStore {
      * @param picture A copy of the picture in the app's cache; it is not kept.
      */
     public static boolean installOwn(Context context, File picture) {
-        return install(context, picture, "", "phone");
+        return installOwnMedia(context, picture) == Result.KEPT;
+    }
+
+    /** What became of a file the user picked. */
+    public enum Result {KEPT, NOT_A_PICTURE, TOO_BIG, FAILED}
+
+    /**
+     * Keeps a file the user picked on the phone as the wallpaper: a still picture, an animated one (GIF, animated
+     * WebP) or a video. A moving one keeps its first frame as the picture the window carries ({@link WallpaperMedia})
+     * and the file itself next to it, which {@link MediaWallpaper} plays. Blocks: off the main thread.
+     *
+     * @param picked A copy of the file in the app's cache; it is moved or deleted by the caller.
+     */
+    public static Result installOwnMedia(Context context, File picked) {
+        if (picked.length() > WallpaperMedia.MAX_BYTES) return Result.TOO_BIG;
+        WallpaperMedia.Prepared prepared = WallpaperMedia.prepare(context, picked);
+        try {
+            if (prepared.kind == WallpaperMedia.Kind.UNKNOWN) return Result.NOT_A_PICTURE;
+            boolean moves = prepared.kind == WallpaperMedia.Kind.VIDEO || prepared.kind == WallpaperMedia.Kind.ANIMATED;
+            String name = prepared.kind == WallpaperMedia.Kind.VIDEO ? VIDEO : ANIMATION;
+            return install(context, prepared.picture, "", "phone", moves ? picked : null, name) ? Result.KEPT : Result.FAILED;
+        } finally {
+            if (prepared.madeHere) prepared.picture.delete();
+        }
     }
 
     /**
@@ -162,8 +205,16 @@ public final class WallpaperStore {
      *                 {@code "commons"}), or {@code "phone"} for one the user chose on the phone.
      */
     public static boolean install(Context context, File downloaded, String id, String sourceId) {
+        return install(context, downloaded, id, sourceId, null, null);
+    }
+
+    /**
+     * As above; with {@code media} (a video or an animated picture, kept under {@code mediaName}) the wallpaper moves,
+     * and without it any video or animation of an earlier wallpaper is taken away.
+     */
+    private static boolean install(Context context, File downloaded, String id, String sourceId, File media, String mediaName) {
         synchronized (WRITE) {
-            File temporary = null, metaTemporary = null, bakedTemporary = null;
+            File temporary = null, metaTemporary = null, bakedTemporary = null, mediaTemporary = null;
             try {
                 File folder = folder();
                 if (folder == null) return false;
@@ -180,9 +231,20 @@ public final class WallpaperStore {
                 // The slow step that can fail (a full disk, too little memory) runs before anything of the old
                 // wallpaper is replaced: a failure leaves the old picture, its link and its blurred copy as they were.
                 bakedTemporary = WallpaperBaker.bake(context, temporary, folder, blur(), BAKED);
+                if (media != null) {
+                    // Moved, not copied: a video can be hundreds of megabytes, and the cache and the files share a disk.
+                    mediaTemporary = File.createTempFile("media.", ".tmp", folder);
+                    if (!media.renameTo(mediaTemporary)) {
+                        mediaTemporary.delete();
+                        mediaTemporary = copyTo(media, folder);
+                    }
+                }
                 AtomicFiles.replace(temporary, new File(folder, ORIGINAL));
                 AtomicFiles.replace(metaTemporary, new File(folder, META));
                 AtomicFiles.replace(bakedTemporary, new File(folder, BAKED));
+                new File(folder, VIDEO).delete();
+                new File(folder, ANIMATION).delete();
+                if (mediaTemporary != null) AtomicFiles.replace(mediaTemporary, new File(folder, mediaName));
                 Settings.putBoolean(Settings.WALLPAPER_ENABLED, true);
                 refresh();
                 return true;
@@ -194,8 +256,22 @@ public final class WallpaperStore {
                 if (temporary != null) temporary.delete();
                 if (metaTemporary != null) metaTemporary.delete();
                 if (bakedTemporary != null) bakedTemporary.delete();
+                if (mediaTemporary != null) mediaTemporary.delete();
             }
         }
+    }
+
+    private static File copyTo(File from, File folder) throws IOException {
+        File copy = File.createTempFile("media.", ".tmp", folder);
+        try (FileInputStream input = new FileInputStream(from); FileOutputStream output = new FileOutputStream(copy)) {
+            byte[] buffer = new byte[256 * 1024];
+            int count;
+            while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+        } catch (IOException | RuntimeException ex) {
+            copy.delete();
+            throw ex;
+        }
+        return copy;
     }
 
     /**

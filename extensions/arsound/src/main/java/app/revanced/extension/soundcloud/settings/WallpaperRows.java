@@ -105,6 +105,25 @@ final class WallpaperRows {
                     "The dim changes at once, the blur applies when you let go of the slider."));
             hint.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dp(4));
             list.addView(hint);
+            if (WallpaperStore.mediaFile() != null) {
+                TextView moving = ui.createText("Body.Secondary", (WallpaperStore.isVideo()
+                        ? text("Фон: видео. Идёт по кругу без звука, пока открыт главный экран; свёрнутое приложение, "
+                                + "другие экраны Arsound и режим экономии батареи его останавливают, остаётся кадр. ",
+                        "Background: a video. It loops with no sound while the main screen is open; the app in the "
+                                + "background, other Arsound screens and battery saver stop it, and a frame stays. ")
+                        : text("Фон: анимированная картинка. Играет, пока открыт главный экран; свёрнутое приложение, "
+                                + "другие экраны Arsound и режим экономии батареи её останавливают. ",
+                        "Background: an animated picture. It plays while the main screen is open; the app in the "
+                                + "background, other Arsound screens and battery saver stop it. "))
+                        + (app.revanced.extension.soundcloud.wallpaper.MediaWallpaper.canBlur()
+                        ? text("Затемнение и размытие работают и на движущемся фоне.",
+                        "The dim and the blur work on a moving background too.")
+                        : text("Размытие на движущемся фоне работает с Android 12; на этом телефоне оно не применяется, "
+                                + "затемнение работает.", "The blur on a moving background needs Android 12; on this "
+                                + "phone it is not applied, the dim works.")));
+                moving.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), ui.dp(4));
+                list.addView(moving);
+            }
             list.addView(createTopBarChooser());
         } else {
             ui.recordForSearch(text("Затемнение обоев", "Wallpaper dim"), "");
@@ -279,9 +298,13 @@ final class WallpaperRows {
                         "Wallhaven and Wikimedia Commons: search, popular and random pictures. Needs the internet."),
                 v -> activity.startActivity(ui.screenIntent(WallhavenScreen.ID))).icon("wallpaper").chevron());
         list.addView(ui.createActionRow(
-                text("Своя картинка из галереи", "Your own picture from the gallery"),
-                text("Любое фото или картинка с телефона станет обоями: выберите её, затемнение и размытие те же.",
-                        "Any photo or picture on the phone becomes the wallpaper: pick it, the dim and the blur stay."),
+                text("Свой фон: картинка, GIF или видео", "Your own background: a picture, a GIF or a video"),
+                text("Любой файл с телефона: фото и картинки (JPG, PNG, WebP, HEIC, AVIF), анимация (GIF, анимированный WebP) "
+                                + "и видео (mp4, webm, mkv, в том числе видеообои из приложений обоев). Видео идёт по кругу без "
+                                + "звука и останавливается, когда приложение свёрнуто. Затемнение и размытие те же.",
+                        "Any file on the phone: photos and pictures (JPG, PNG, WebP, HEIC, AVIF), animations (GIF, animated "
+                                + "WebP) and videos (mp4, webm, mkv, including video wallpapers from wallpaper apps). A video "
+                                + "loops with no sound and stops when the app is in the background. The dim and the blur stay."),
                 v -> pickOwnPicture()).icon("import").chevron());
         if (!chosen) return;
         list.addView(ui.createActionRow(text("Убрать обои", "Remove the wallpaper"),
@@ -299,15 +322,14 @@ final class WallpaperRows {
                         .show()).icon("trash").danger());
     }
 
-    /** Opens the system's photo picker (Android 13+) or the gallery; the answer comes to {@link #onPicturePicked}. */
+    /** Opens the system's file picker for pictures and videos; the answer comes to {@link #onPicturePicked}. */
     private void pickOwnPicture() {
-        Intent intent = android.os.Build.VERSION.SDK_INT >= 33
-                ? new Intent(android.provider.MediaStore.ACTION_PICK_IMAGES).setType("image/*")
-                : new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
         try {
             activity.startActivityForResult(intent, REQUEST_OWN_PICTURE);
         } catch (android.content.ActivityNotFoundException ex) {
-            Toast.makeText(activity, text("На телефоне нет приложения для выбора картинок", "No app on the phone picks pictures"),
+            Toast.makeText(activity, text("На телефоне нет приложения для выбора файлов", "No app on the phone picks files"),
                     Toast.LENGTH_LONG).show();
         }
     }
@@ -320,7 +342,7 @@ final class WallpaperRows {
      * (an odd file is refused with a message), then the screen is built again with it.
      */
     static void onPicturePicked(ReVancedSettingsActivity activity, Uri picture) {
-        Toast.makeText(activity, text("Ставлю обои…", "Setting the wallpaper…"), Toast.LENGTH_SHORT).show();
+        Toast.makeText(activity, text("Ставлю фон…", "Setting the background…"), Toast.LENGTH_SHORT).show();
         Context context = activity.getApplicationContext();
         Utils.runOnBackgroundThread(() -> {
             File copy = new File(context.getCacheDir(), "arsound-own-wallpaper.tmp");
@@ -335,12 +357,16 @@ final class WallpaperRows {
             } catch (Exception ex) {
                 app.revanced.extension.shared.Logger.printException(() -> "Wallpaper: could not read the picked picture", ex);
             }
-            boolean installed = kept && WallpaperStore.installOwn(context, copy);
+            WallpaperStore.Result result = kept ? WallpaperStore.installOwnMedia(context, copy) : WallpaperStore.Result.FAILED;
+            boolean installed = result == WallpaperStore.Result.KEPT;
             copy.delete();
             Utils.runOnMainThread(() -> {
                 if (activity.isFinishing() || activity.isDestroyed()) return;
                 if (!installed) {
-                    Toast.makeText(activity, text("Не получилось открыть эту картинку", "Could not open this picture"),
+                    Toast.makeText(activity, result == WallpaperStore.Result.TOO_BIG
+                                    ? text("Файл больше 400 МБ: возьмите покороче или полегче", "The file is over 400 MB: pick a shorter or lighter one")
+                                    : text("Не получилось открыть этот файл: нужна картинка, GIF или видео, которые умеет открыть Android",
+                                    "Could not open this file: a picture, a GIF or a video that Android can open is needed"),
                             Toast.LENGTH_LONG).show();
                     return;
                 }
