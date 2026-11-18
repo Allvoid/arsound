@@ -67,6 +67,34 @@ final class TabOrder {
         return result;
     }
 
+    /**
+     * The tabs with the ones that have a key put in the order the user chose, in the places those tabs took in the list:
+     * a tab without a key (the create button) keeps its own place. Keys the user's order does not name go after those it
+     * does, in the order they came. An empty order changes nothing.
+     *
+     * @param order Keys, first to last.
+     */
+    static <T> List<T> reorder(List<? extends T> tabs, Function<? super T, String> key, List<String> order) {
+        List<T> result = new ArrayList<>(tabs);
+        if (order.isEmpty()) return result;
+        List<Integer> places = new ArrayList<>();
+        List<T> keyed = new ArrayList<>();
+        for (int i = 0; i < tabs.size(); i++) {
+            if (key.apply(tabs.get(i)) == null) continue;
+            places.add(i);
+            keyed.add(tabs.get(i));
+        }
+        // A stable sort: the keys the order does not name share the last rank and keep the order they came in.
+        keyed.sort((a, b) -> Integer.compare(rank(order, key.apply(a)), rank(order, key.apply(b))));
+        for (int i = 0; i < places.size(); i++) result.set(places.get(i), keyed.get(i));
+        return result;
+    }
+
+    private static int rank(List<String> order, String key) {
+        int index = order.indexOf(key);
+        return index < 0 ? order.size() : index;
+    }
+
     /** The tabs in the order of {@link Placement}, each group in the order it came. The same input always gives the same output. */
     static <T> Arranged<T> arrange(List<? extends T> tabs, Function<? super T, Placement> placement) {
         List<T> ordered = new ArrayList<>(tabs.size());

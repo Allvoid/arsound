@@ -26,6 +26,10 @@ import app.revanced.extension.soundcloud.upsell.HidePaywallPatch;
 public final class BottomTabs {
     /** Whether the button of each place of the list arranged last is shown; empty before any list. */
     private static volatile List<Boolean> shown = Collections.emptyList();
+    /** The key ({@link #keyOf}) of the tab at each place of the list arranged last, null for a tab with none. */
+    private static volatile List<String> keys = Collections.emptyList();
+    /** Whether the start tab was opened in this run of the app: only the launch does it. */
+    private static boolean startApplied;
 
     private BottomTabs() {
     }
@@ -38,9 +42,12 @@ public final class BottomTabs {
     public static List<?> arrange(List<?> tabs) {
         if (tabs == null) return null;
         try {
-            List<?> all = withWave(tabs);
+            List<?> all = TabOrder.reorder(withWave(tabs), BottomTabs::keyOf, TabChoice.order());
             TabOrder.Arranged<Object> arranged = TabOrder.arrange(all, BottomTabs::placementOf);
             shown = arranged.shown;
+            List<String> arrangedKeys = new java.util.ArrayList<>();
+            for (Object tab : arranged.tabs) arrangedKeys.add(keyOf(tab));
+            keys = arrangedKeys;
             if (arranged.hiddenCount() == 0) return all;
             Logger.printInfo(() -> "Bottom bar: " + arranged.hiddenCount() + " of " + tabs.size() + " tabs hidden");
             return arranged.tabs;
@@ -48,6 +55,7 @@ public final class BottomTabs {
             Logger.printException(() -> "Could not arrange the tabs of the bottom bar", ex);
             // The list goes back as it came, so the marks of a list arranged before do not fit it: no button is hidden.
             shown = java.util.Collections.emptyList();
+            keys = java.util.Collections.emptyList();
             return tabs;
         }
     }
@@ -60,6 +68,18 @@ public final class BottomTabs {
         if (BoolSettings.HIDE_TAB_WAVE.get()) return tabs;
         return TabOrder.<Object>withExtra(tabs, new WaveNavigationTarget(),
                 tab -> TabKind.of(tab) == TabKind.HOME, tab -> tab instanceof WaveNavigationTarget);
+    }
+
+    /** The key the user's order and start tab name a tab by; null for a tab the user cannot place (the create button, Upgrade). */
+    static String keyOf(Object tab) {
+        if (tab == null) return null;
+        if (tab instanceof WaveNavigationTarget) return TabChoice.WAVE;
+        TabKind kind = TabKind.of(tab);
+        if (kind == TabKind.HOME) return TabChoice.HOME;
+        if (kind == TabKind.FEED) return TabChoice.FEED;
+        if (kind == TabKind.SEARCH) return TabChoice.SEARCH;
+        if (tab.getClass().getSimpleName().contains("LibraryNavigationTarget")) return TabChoice.LIBRARY;
+        return null;
     }
 
     private static TabOrder.Placement placementOf(Object tab) {
@@ -80,9 +100,49 @@ public final class BottomTabs {
                 if (!places.get(i)) menu.getItem(i).setVisible(false);
             }
             restoreSelection(navigationBar, menu);
+            openStartTab(navigationBar, menu, places);
         } catch (Throwable ex) {
             Logger.printException(() -> "Could not hide the buttons of the bottom bar", ex);
         }
+    }
+
+    /**
+     * The tab the user chose to start on, opened once per run of the app and only when the app was started from the
+     * launcher: a link, a shortcut or a restored screen already say where to go. The first tab of the bar is what the
+     * app opens by itself; here another one is selected by its button, as a tap on it would.
+     */
+    private static void openStartTab(View navigationBar, Menu menu, List<Boolean> places) throws Exception {
+        if (startApplied) return;
+        startApplied = true;
+        String wanted = TabChoice.start();
+        if (wanted.isEmpty() || !launchedFromLauncher(navigationBar)) return;
+        List<String> placed = keys;
+        for (int i = 0; i < menu.size() && i < placed.size() && i < places.size(); i++) {
+            if (!wanted.equals(placed.get(i)) || !places.get(i)) continue;
+            int id = menu.getItem(i).getItemId();
+            int selected = (Integer) navigationBar.getClass().getMethod("getSelectedItemId").invoke(navigationBar);
+            if (selected == id) return;
+            // After the bar has its listeners: the tap must reach the navigation.
+            navigationBar.postDelayed(() -> {
+                try {
+                    navigationBar.getClass().getMethod("setSelectedItemId", int.class).invoke(navigationBar, id);
+                    Logger.printInfo(() -> "Bottom bar: started on the tab \"" + wanted + "\"");
+                } catch (Throwable ex) {
+                    Logger.printException(() -> "Could not open the start tab", ex);
+                }
+            }, 400);
+            return;
+        }
+    }
+
+    private static boolean launchedFromLauncher(View view) {
+        android.content.Context context = view.getContext();
+        while (context instanceof android.content.ContextWrapper && !(context instanceof android.app.Activity)) {
+            context = ((android.content.ContextWrapper) context).getBaseContext();
+        }
+        if (!(context instanceof android.app.Activity)) return false;
+        android.content.Intent intent = ((android.app.Activity) context).getIntent();
+        return intent != null && android.content.Intent.ACTION_MAIN.equals(intent.getAction()) && intent.getData() == null;
     }
 
     /**

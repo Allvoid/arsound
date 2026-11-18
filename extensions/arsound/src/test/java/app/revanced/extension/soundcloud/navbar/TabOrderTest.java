@@ -112,4 +112,23 @@ public class TabOrderTest {
     public void withNothingIgnoredTheListsAreCompared_asTheyAre() {
         assertFalse(TabOrder.sameWithout(Arrays.asList("a", "upgrade"), Arrays.asList("a"), tab -> false));
     }
+
+    @Test
+    public void reorderPutsKeyedTabsInTheUsersOrderAndKeepsOthersInPlace() {
+        List<String> tabs = Arrays.asList("home", "feed", "plus", "search", "library");
+        List<String> order = Arrays.asList("library", "search", "feed", "home");
+        assertEquals(Arrays.asList("library", "search", "plus", "feed", "home"),
+                TabOrder.reorder(tabs, tab -> tab.equals("plus") ? null : tab, order));
+    }
+
+    @Test
+    public void reorderWithNoOrderChangesNothing() {
+        assertEquals(TABS, TabOrder.reorder(TABS, tab -> tab, java.util.Collections.emptyList()));
+    }
+
+    @Test
+    public void reorderPutsUnnamedKeysAfterTheNamedOnes() {
+        assertEquals(Arrays.asList("library", "home", "feed", "search"),
+                TabOrder.reorder(Arrays.asList("home", "feed", "search", "library"), tab -> tab, Arrays.asList("library")));
+    }
 }
