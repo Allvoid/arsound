@@ -75,7 +75,7 @@ final class TransferStore {
      * Marks a transfer as under way. A transfer whose app was closed in the middle stays marked, so the screen can say
      * so and offer to go on; the playlists it had made are reused then instead of made again.
      */
-    static void markRunning(String key, String title, boolean like) {
+    static void markRunning(String key, String title, boolean like, boolean daily) {
         synchronized (LOCK) {
             // A file that cannot be read is kept aside before it is written over: it holds the playlists other
             // collections made, which a transfer of them would make a second time.
@@ -85,7 +85,7 @@ final class TransferStore {
                 if (running == null) running = new JSONObject();
                 // The same collection again keeps the playlists made by the try before.
                 if (!key.equals(running.optString("key"))) switchRunning(running, key);
-                running.put("title", title).put("like", like);
+                running.put("title", title).put("like", like).put("daily", daily);
                 write(RUNNING, running.toString());
             } catch (Exception ex) {
                 Logger.printException(() -> "Transfer: could not mark the transfer", ex);
@@ -155,13 +155,16 @@ final class TransferStore {
         }
     }
 
-    /** Key, title and "true" or "false" for the likes of a transfer the app was closed in the middle of, or null. */
+    /**
+     * Key, title, "true" or "false" for the likes and "true" or "false" for the likes by fifty a day of a transfer the
+     * app was closed in the middle of, or null.
+     */
     static String[] interrupted() {
         synchronized (LOCK) {
             JSONObject running = read(RUNNING);
             if (running == null || running.optString("key").isEmpty()) return null;
             return new String[]{running.optString("key"), running.optString("title"),
-                    String.valueOf(running.optBoolean("like"))};
+                    String.valueOf(running.optBoolean("like")), String.valueOf(running.optBoolean("daily"))};
         }
     }
 

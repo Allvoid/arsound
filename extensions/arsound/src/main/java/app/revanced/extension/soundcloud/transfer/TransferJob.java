@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.ClientProfiles;
+import app.revanced.extension.soundcloud.local.DailyLikeQueue;
 import app.revanced.extension.soundcloud.local.SoundCloudLikes;
 import app.revanced.extension.soundcloud.shared.ForegroundWork;
 
@@ -84,7 +85,8 @@ public final class TransferJob {
                 return text("Лайкаю треки: ", "Liking the tracks: ") + liked + text(" из ", " of ") + found;
             case DONE:
                 TransferRecord entry = result;
-                return entry == null ? "" : summary(entry);
+                String queue = DailyLikeQueue.progressLine();
+                return entry == null ? "" : summary(entry) + (queue == null ? "" : ". " + queue);
             case FAILED:
                 return failure == null ? "" : failure;
             default:
@@ -114,10 +116,12 @@ public final class TransferJob {
     }
 
     /**
-     * @param like Whether the tracks found are also liked.
+     * @param like  Whether the tracks found are also liked.
+     * @param daily With {@code like}: the likes are given fifty a day from a queue ({@link DailyLikeQueue}) instead of
+     *              fifty at once.
      * @return False if a transfer is already running.
      */
-    public static synchronized boolean start(TransferLink link, boolean like) {
+    public static synchronized boolean start(TransferLink link, boolean like, boolean daily) {
         if (isRunning()) return false;
         source = link.source();
         title = "";
@@ -133,7 +137,7 @@ public final class TransferJob {
         if (context != null) {
             ForegroundWork.begin(context, text("Перенос ", "Transfer ") + source.fromName(), status());
         }
-        Thread thread = new Thread(() -> run(link, like), "Arsound transfer");
+        Thread thread = new Thread(() -> run(link, like, like && daily), "Arsound transfer");
         worker = thread;
         thread.start();
         return true;
@@ -141,7 +145,7 @@ public final class TransferJob {
 
     /**
      * A transfer that the app was closed in the middle of, to give to {@link #resume}: its collection, its title and
-     * "true" or "false" for its likes. Null if there is none; not one that runs now.
+     * "true" or "false" for its likes and for its likes by fifty a day. Null if there is none; not one that runs now.
      */
     public static String[] interrupted() {
         if (isRunning()) return null;
@@ -157,7 +161,8 @@ public final class TransferJob {
      */
     public static boolean resume(String[] marked) {
         TransferLink link = TransferSource.linkOfKey(marked[0]);
-        return link != null && start(link, Boolean.parseBoolean(marked[2]));
+        return link != null && start(link, Boolean.parseBoolean(marked[2]),
+                marked.length > 3 && Boolean.parseBoolean(marked[3]));
     }
 
     /** Forgets a transfer the app was closed in the middle of: the user does not want to go on with it. */
@@ -171,18 +176,18 @@ public final class TransferJob {
         if (thread != null) thread.interrupt();
     }
 
-    private static void run(TransferLink link, boolean like) {
+    private static void run(TransferLink link, boolean like, boolean daily) {
         // Its own source, not the static one: a new transfer may start while this one still tells of its end.
         TransferSource from = link.source();
         try {
             // Remembered first: a transfer the app is closed in the middle of can be gone on with.
-            TransferStore.markRunning(link.key(), "", like);
+            TransferStore.markRunning(link.key(), "", like, daily);
             // Told before the long search, not after it.
             if (like && !SoundCloudLikes.isReady()) throw new SoundCloudSide.NotReadyException();
             SourceCollection collection = link.source().load(link);
             title = collection.title;
             total = collection.tracks.size();
-            TransferStore.markRunning(link.key(), collection.title, like);
+            TransferStore.markRunning(link.key(), collection.title, like, daily);
             phase = Phase.SEARCHING;
             changed();
             List<String> missing = new ArrayList<>();
@@ -198,7 +203,10 @@ public final class TransferJob {
             if (like) {
                 phase = Phase.LIKING;
                 changed();
-                likes = SoundCloudSide.like(urns, count -> {
+                likes = daily ? SoundCloudSide.likeDaily(urns, count -> {
+                    liked = count;
+                    changed();
+                }) : SoundCloudSide.like(urns, count -> {
                     liked = count;
                     changed();
                 });

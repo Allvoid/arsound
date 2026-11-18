@@ -63,6 +63,8 @@ public final class LikeLimit {
     public static void onToggle(Object urn, boolean like) {
         try {
             String id = String.valueOf(urn);
+            // A heart tapped while the transfer's daily likes use up the limit: a notice says so.
+            if (like) DailyLikeQueue.onManualLike(id);
             long now = System.currentTimeMillis();
             int count = -1;
             synchronized (LOCK) {

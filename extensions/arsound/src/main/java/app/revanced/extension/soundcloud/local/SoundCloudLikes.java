@@ -26,6 +26,7 @@ public final class SoundCloudLikes {
     /** Called from the constructor of {@code LikeToggler}. */
     public static void setToggler(Object instance) {
         toggler = instance;
+        DailyLikeQueue.onLikeServiceReady();
     }
 
     /** False until the app has made its {@code LikeToggler}. */

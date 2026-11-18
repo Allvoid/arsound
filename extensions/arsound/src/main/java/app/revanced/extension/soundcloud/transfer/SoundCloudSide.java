@@ -10,6 +10,7 @@ import java.util.function.IntConsumer;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.download.ClientProfiles;
+import app.revanced.extension.soundcloud.local.DailyLikeQueue;
 import app.revanced.extension.soundcloud.local.SavedPlaylist;
 import app.revanced.extension.soundcloud.local.SoundCloudLikes;
 import app.revanced.extension.soundcloud.local.SongChoice;
@@ -178,6 +179,22 @@ final class SoundCloudSide {
             Thread.sleep(LIKE_FAILURE_PAUSE_MS);
         }
         return verified(trackUrns, liked, progress);
+    }
+
+    /**
+     * The daily way of liking ({@link DailyLikeQueue}): the tracks that are not liked yet join the queue, last to
+     * first, and today's fifty are given now; the rest follow on the next days.
+     *
+     * @return How many of the tracks are liked now: those liked before and those this run gave.
+     */
+    static int likeDaily(List<String> trackUrns, IntConsumer progress) throws Exception {
+        if (!SoundCloudLikes.isReady()) throw new NotReadyException();
+        Set<String> alreadyInLikes = SoundCloudLikes.alreadyLiked(trackUrns);
+        if (alreadyInLikes == null) throw new NotReadyException();
+        DailyLikeQueue.enqueue(trackUrns, alreadyInLikes);
+        int before = alreadyInLikes.size();
+        progress.accept(before);
+        return before + DailyLikeQueue.runBatch(count -> progress.accept(before + count));
     }
 
     /**

@@ -20,6 +20,7 @@ import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.local.DailyLikeQueue;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 import app.revanced.extension.soundcloud.transfer.SourceList;
@@ -38,6 +39,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     static final String ID = "yandex_transfer";
 
     private LinearLayout progressPart;
+    /** The likes that wait for their days ({@link DailyLikeQueue}). */
+    private LinearLayout likesPart;
     private LinearLayout accountPart;
     private LinearLayout historyPart;
     /** The service whose account is shown, {@link TransferSource#id} kept in the settings. */
@@ -79,6 +82,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
         progressPart = SettingsPage.nested(ui);
         list.addView(progressPart);
+        likesPart = SettingsPage.nested(ui);
+        list.addView(likesPart);
 
         list.addView(ui.createSubHeading(text("По ссылке", "By link")));
         list.addView(ui.createActionRow(
@@ -100,6 +105,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         list.addView(historyPart);
 
         TransferJob.addListener(this);
+        fillLikes();
         fillProgress();
         fillAccount();
         fillHistory();
@@ -122,6 +128,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     @Override
     public void onChanged() {
         fillProgress();
+        fillLikes();
         TransferJob.Phase phase = TransferJob.phase();
         if (phase != shownPhase && phase == TransferJob.Phase.DONE) {
             // The finished transfer is the first row of "Transferred" now.
@@ -144,8 +151,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(ui.dimen("spacing_m"), ui.dp(8), ui.dimen("spacing_m"), 0);
         box.addView(input);
-        CheckBox like = likeTick();
-        box.addView(likeOption(like));
+        LikeOptions likes = likeOptions();
+        box.addView(likes.view);
         new ArsoundDialog(activity)
                 .setTitle(text("Ссылка на плейлист", "Playlist link"))
                 .setView(box)
@@ -163,7 +170,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                         return;
                     }
                     dialog.dismiss();
-                    start(link, like.isChecked());
+                    start(link, likes.like.isChecked(), likes.daily.isChecked());
                 })
                 .setNegativeButton(text("Отмена", "Cancel"), null)
                 .show();
@@ -191,6 +198,54 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         return tick;
     }
 
+    /** The two ticks of the likes and the view that holds them. */
+    private static final class LikeOptions {
+        final CheckBox like;
+        /** "Like 50 a day": offered only while {@link #like} is ticked. */
+        final CheckBox daily;
+        final LinearLayout view;
+
+        LikeOptions(CheckBox like, CheckBox daily, LinearLayout view) {
+            this.like = like;
+            this.daily = daily;
+            this.view = view;
+        }
+    }
+
+    /**
+     * The tick of the likes with a line under it on what it does, and under that, while it is ticked, the tick of
+     * the likes by fifty a day with its "?".
+     */
+    private LikeOptions likeOptions() {
+        CheckBox like = likeTick();
+        LinearLayout option = likeOption(like);
+        CheckBox daily = new CheckBox(activity);
+        daily.setText(text("Лайкать по " + TransferJob.LIKE_LIMIT + " в день", "Like " + TransferJob.LIKE_LIMIT + " a day"));
+        daily.setTextColor(ArsoundTheme.palette(activity, "primary"));
+        daily.setButtonTintList(ColorStateList.valueOf(ArsoundTheme.palette(activity, "special")));
+        LinearLayout dailyRow = new LinearLayout(activity);
+        dailyRow.setOrientation(LinearLayout.HORIZONTAL);
+        dailyRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        dailyRow.addView(daily);
+        dailyRow.addView(app.revanced.extension.soundcloud.shared.HelpBadge.create(activity,
+                ArsoundTheme.palette(activity, "secondary"), text("Что такое лайки по 50 в день", "What liking 50 a day is"),
+                text("В SoundCloud ограничение — около 50 лайков в сутки. Если лайкнуть больше, аккаунт на сутки теряет "
+                                + "возможность ставить лайки. Эта функция ставит ровно по 50 лайков в день, пока не пролайкает "
+                                + "все перенесённые треки. Пока она работает, дневной лимит уходит на неё — свои лайки в эти дни "
+                                + "могут не сохраниться.",
+                        "SoundCloud limits likes to about 50 a day. If you like more, the account loses the ability to like "
+                                + "for a day. This feature gives exactly 50 likes a day until all the transferred tracks are "
+                                + "liked. While it works, the daily limit goes to it, so your own likes on those days may not "
+                                + "be kept.")), app.revanced.extension.soundcloud.shared.HelpBadge.layoutParams(activity));
+        dailyRow.setVisibility(View.GONE);
+        option.addView(dailyRow, 1);
+        like.setOnCheckedChangeListener((button, checked) -> {
+            dailyRow.setVisibility(checked ? View.VISIBLE : View.GONE);
+            if (!checked) daily.setChecked(false);
+        });
+        return new LikeOptions(like, daily, option);
+    }
+
     /** The tick with a line under it on what it does. */
     private LinearLayout likeOption(CheckBox tick) {
         LinearLayout option = new LinearLayout(activity);
@@ -213,8 +268,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         return option;
     }
 
-    private void start(TransferLink link, boolean like) {
-        if (!TransferJob.start(link, like)) refuseWhileRunning();
+    private void start(TransferLink link, boolean like, boolean daily) {
+        if (!TransferJob.start(link, like, like && daily)) refuseWhileRunning();
     }
 
     private boolean refuseWhileRunning() {
@@ -262,6 +317,33 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         progressPart.addView(row);
         progressRow = row;
         progressRowRunning = running;
+    }
+
+    /**
+     * The likes of transferred tracks that wait for their days: how far they are, and a tap offers to drop the rest.
+     * Nothing while no likes wait.
+     */
+    private void fillLikes() {
+        likesPart.removeAllViews();
+        String line = DailyLikeQueue.progressLine();
+        if (line == null) return;
+        likesPart.addView(ui.createSubHeading(text("Лайки перенесённых треков", "Likes of transferred tracks")));
+        ActionRow row = ui.createActionRow(text("Лайки по 50 в день", "Liking 50 a day"),
+                line + text(". Идут, пока приложение запускалось в этот день. Нажмите, чтобы остановить.",
+                        ". They go while the app was started that day. Tap to stop."), v ->
+                new ArsoundDialog(activity)
+                        .setTitle(text("Остановить лайки?", "Stop the likes?"))
+                        .setMessage(text("Оставшиеся треки больше не будут лайкаться. Уже поставленные лайки останутся.",
+                                "The tracks left will not be liked any more. The likes already given stay."))
+                        .setPositiveButton(text("Остановить", "Stop"), (dialog, which) ->
+                                Utils.runOnBackgroundThread(() -> {
+                                    DailyLikeQueue.clear();
+                                    Utils.runOnMainThread(this::fillLikes);
+                                }))
+                        .setNegativeButton(text("Продолжить", "Keep going"), null)
+                        .show());
+        row.icon("recs");
+        likesPart.addView(row);
     }
 
     /** A transfer the app was closed in the middle of: a tap goes on with it, the playlists made are reused. */
@@ -402,8 +484,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
             Toast.makeText(activity, text("В этом списке нет треков", "This list has no tracks"), Toast.LENGTH_SHORT).show();
             return;
         }
-        CheckBox like = likeTick();
-        LinearLayout option = likeOption(like);
+        LikeOptions likes = likeOptions();
+        LinearLayout option = likes.view;
         option.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), 0);
         boolean counted = playlist.trackCount != SourceList.UNKNOWN_COUNT;
         new ArsoundDialog(activity)
@@ -415,7 +497,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                                 + " on SoundCloud and put the ones found into a private playlist. It takes a couple of "
                                 + "minutes per hundred; the settings can be closed."))
                 .setView(option)
-                .setPositiveButton(text("Перенести", "Transfer"), (dialog, which) -> start(playlist.link, like.isChecked()))
+                .setPositiveButton(text("Перенести", "Transfer"), (dialog, which) -> start(playlist.link, likes.like.isChecked(), likes.daily.isChecked()))
                 .setNegativeButton(text("Отмена", "Cancel"), null)
                 .show();
     }
