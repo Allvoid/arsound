@@ -41,9 +41,14 @@ public final class FontChoice {
     /** What the table depends on: a change of the font makes a new table. */
     static String key(Context context) {
         long choice = current();
-        if (choice != OWN) return String.valueOf(choice);
-        File own = new File(context.getFilesDir(), OWN_FILE);
-        return choice + "-" + own.length() + "-" + own.lastModified();
+        String font = String.valueOf(choice);
+        if (choice == OWN) {
+            File own = new File(context.getFilesDir(), OWN_FILE);
+            font = choice + "-" + own.length() + "-" + own.lastModified();
+        }
+        // The text colour rides in the same key: both are put into the one table.
+        String colour = TextColour.key();
+        return colour.isEmpty() ? font : font + "~" + colour.substring(1);
     }
 
     /**
@@ -81,13 +86,13 @@ public final class FontChoice {
         return slots(file, file, file, file, file);
     }
 
-    /** Whether SoundCloud's own look needs a table for the font: a font other than SoundCloud's is chosen. */
+    /** Whether SoundCloud's own look needs a table: a font other than SoundCloud's or a text colour is chosen. */
     static boolean needsTableWithoutTheme() {
         long choice = current();
-        return choice != THEME && choice != SOUNDCLOUD;
+        return (choice != THEME && choice != SOUNDCLOUD) || TextColour.isSet();
     }
 
-    /** The table of the fonts alone, for SoundCloud's own look. */
+    /** The table of the fonts and the text colour alone, for SoundCloud's own look. */
     static ArsoundTheme.Theme fontsOnlyTheme(Context context) {
         try {
             return new ArsoundTheme.Theme(new JSONObject().put("id", FONTS_ONLY_ID), FONTS_ONLY_ID + "-" + key(context));

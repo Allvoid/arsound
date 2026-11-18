@@ -242,9 +242,9 @@ public final class ArsoundTheme {
         if (theme != null) {
             JSONObject colors = theme.json.optJSONObject(night ? "dark" : "light");
             String value = colors == null ? "" : colors.optString(role);
-            if (value.startsWith("#")) return ThemeColors.parse(value);
+            if (value.startsWith("#")) return TextColour.forRole(role, ThemeColors.parse(value));
         }
-        return ThemeColors.original(role, night);
+        return TextColour.forRole(role, ThemeColors.original(role, night));
     }
 
     /**

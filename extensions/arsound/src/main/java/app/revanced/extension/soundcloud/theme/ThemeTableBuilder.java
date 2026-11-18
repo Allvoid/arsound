@@ -70,8 +70,9 @@ final class ThemeTableBuilder {
     /** Builds the table into {@code arsc}, with the fonts and the loading animation it names. */
     void build(File arsc) throws Exception {
         if (FontChoice.FONTS_ONLY_ID.equals(theme.id)) {
-            // SoundCloud's own look with a font of the user's choice: only the fonts.
+            // SoundCloud's own look with a font or a text colour of the user's choice: only these.
             addFonts();
+            addTextColour();
             ThemeFiles.write(arsc, table.build());
             return;
         }
@@ -99,6 +100,19 @@ final class ThemeTableBuilder {
         // Links («Ещё» under a description, links in texts) in the accent, not SoundCloud's blue.
         overrides.color("dark_mode_link", theme.accent(true), null);
         overrides.color("light_mode_link", theme.accent(false), null);
+        addTextColour();
+    }
+
+    /**
+     * The text colour chosen in Appearance ({@link TextColour}) in place of the "primary" token of both looks and a
+     * dimmer copy of it in place of "secondary".
+     */
+    private void addTextColour() {
+        if (!TextColour.isSet()) return;
+        overrides.color("dark_mode_primary", TextColour.primary(), null);
+        overrides.color("light_mode_primary", TextColour.primary(), null);
+        overrides.color("dark_mode_secondary", TextColour.secondary(), null);
+        overrides.color("light_mode_secondary", TextColour.secondary(), null);
     }
 
     /** Any other SoundCloud colour by name, such as the grey scale behind cards and the mini player's gradient. */
