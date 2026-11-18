@@ -61,6 +61,7 @@ public final class PlaybackEvents {
                 failed("My Wave, track change", ex);
             }
         }
+        AudioDiagnostics.onPlay();
         try {
             SlowedPlayback.onPlay(exoPlayer, urn);
         } catch (Throwable ex) {
@@ -75,6 +76,7 @@ public final class PlaybackEvents {
         } catch (Throwable ex) {
             failed("crossfade, progress", ex);
         }
+        AudioDiagnostics.onProgress(position, duration);
         try {
             SlowedPlayback.reassert();
         } catch (Throwable ex) {

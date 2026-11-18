@@ -72,6 +72,7 @@ final class PlayerVolume {
         float target;
         Object current;
         Method method;
+        float crossfade, sleep;
         synchronized (lock) {
             levels[source.ordinal()] = level;
             target = product(levels);
@@ -79,7 +80,10 @@ final class PlayerVolume {
             applied = target;
             current = player;
             method = setVolume;
+            crossfade = levels[Source.CROSSFADE.ordinal()];
+            sleep = levels[Source.SLEEP.ordinal()];
         }
+        AudioDiagnostics.onVolume(target, crossfade, sleep);
         if (current == null) return;
         try {
             method.invoke(current, target);
@@ -99,6 +103,31 @@ final class PlayerVolume {
             }
         }
         current.post(() -> set(source, level));
+    }
+
+    /** The last volume this class put on the player: 1 when nothing was touched. */
+    static float applied() {
+        synchronized (lock) {
+            return applied;
+        }
+    }
+
+    /**
+     * The volume the player itself reports, to compare with {@link #applied}: SoundCloud sets its own too. NaN when the
+     * player has no such method or is not bound.
+     */
+    static float actual() {
+        Object current;
+        synchronized (lock) {
+            current = player;
+        }
+        if (current == null) return Float.NaN;
+        try {
+            Object value = current.getClass().getMethod("getVolume").invoke(current);
+            return value instanceof Number ? ((Number) value).floatValue() : Float.NaN;
+        } catch (Throwable ex) {
+            return Float.NaN;
+        }
     }
 
     /** The level one feature asks for now. */
