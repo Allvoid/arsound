@@ -172,7 +172,7 @@ final class LyricsAi implements TranscriptionManager.Listener {
     private void showPasteDialog(Context context, final TrackInfo track, String before) {
         final android.widget.EditText input = new android.widget.EditText(context);
         input.setMinLines(8);
-        input.setMaxLines(14);
+        input.setMaxLines(7);
         input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -209,7 +209,7 @@ final class LyricsAi implements TranscriptionManager.Listener {
         });
         box.addView(fromClipboard);
         box.addView(input);
-        new ArsoundDialog(context)
+        android.app.Dialog shown = new ArsoundDialog(context)
                 .setTitle(before == null ? text("Вставить текст", "Paste the lyrics") : text("Изменить текст", "Edit the lyrics"))
                 .setView(box)
                 .setPositiveButton(text("Сохранить", "Save"), (dialog, which) -> {
@@ -220,6 +220,10 @@ final class LyricsAi implements TranscriptionManager.Listener {
                 // Back and a tap outside close the dialog too.
                 .setOnDismissListener(dialog -> hideKeyboard(input))
                 .show();
+        // The window shrinks above the keyboard: a long text must not push the Save button under it.
+        if (shown != null && shown.getWindow() != null) {
+            shown.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
     }
 
     /**
