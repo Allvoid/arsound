@@ -12,13 +12,15 @@ final class HeardTime {
 
     private long durationMs;
     private long heardMs;
-    /** When the current stretch of playing began, or 0 while not playing. */
+    /** Whether a stretch of playing is open, and when it began (any clock value, 0 included). */
+    private boolean playing;
     private long playingSince;
 
     /** A new track: the count starts over. */
     void begin(long durationMs) {
         this.durationMs = Math.max(0, durationMs);
         heardMs = 0;
+        playing = false;
         playingSince = 0;
     }
 
@@ -31,21 +33,22 @@ final class HeardTime {
         return durationMs;
     }
 
-    void onPlaying(boolean playing, long now) {
-        if (playing && playingSince == 0) {
+    void onPlaying(boolean nowPlaying, long now) {
+        if (nowPlaying && !playing) {
+            playing = true;
             playingSince = now;
-        } else if (!playing && playingSince != 0) {
+        } else if (!nowPlaying && playing) {
             heardMs += Math.max(0, now - playingSince);
-            playingSince = 0;
+            playing = false;
         }
     }
 
     boolean isPlaying() {
-        return playingSince != 0;
+        return playing;
     }
 
     long heard(long now) {
-        return heardMs + (playingSince != 0 ? Math.max(0, now - playingSince) : 0);
+        return heardMs + (playing ? Math.max(0, now - playingSince) : 0);
     }
 
     /**
