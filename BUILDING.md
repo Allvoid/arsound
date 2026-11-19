@@ -83,7 +83,7 @@ Kotlin-патчи и хуки жизненного цикла), главные �
 | `debug` | «Сохранить журналы», журнал падений, таймлиния запуска треков | `LogExport`, `CrashLog` |
 | `debug/sections` | части файла журналов (шапка, вход, падения, плеер, logcat) | `LogSection` (в `debug`), затем нужный `*Section` |
 | `download` | скачивание треков и плейлистов, индекс скачанного, папка; DRM-часть пока в работе, не править | `DownloadIndex`, `DownloadButtons` |
-| `library` | прячет баннер импорта плейлистов | `HideImportBannerPatch` |
+| `library` | прячет баннер импорта плейлистов; «Ваши лайки» не пересобирают все строки при прокрутке | `HideImportBannerPatch`, `LikesListScroll` |
 | `local` | импорт файлов, плейлист «Импортированные», свои добавления и порядок, слияние, лайки с файлами | `LocalMusic`, `LocalAdditions`, `ImportedLikes` |
 | `login` | кнопка «Сохранить журналы» на экране входа | `LoginLogsButton` |
 | `lyrics` | синхронный текст песни из LRCLIB (запасной источник — NetEase Cloud Music) в полноэкранном плеере | `LyricsHooks`, `LyricsLayer`, `LyricsRepository` |

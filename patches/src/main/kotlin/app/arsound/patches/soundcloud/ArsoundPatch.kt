@@ -10,6 +10,7 @@ import app.arsound.patches.soundcloud.download.downloadButtonsPatch
 import app.arsound.patches.soundcloud.download.downloadTrackPatch
 import app.arsound.patches.soundcloud.download.headerDownloadButtonPatch
 import app.arsound.patches.soundcloud.library.hideImportBannerPatch
+import app.arsound.patches.soundcloud.library.likesListScrollPatch
 import app.arsound.patches.soundcloud.local.localMusicPatch
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.navbar.bottomTabsPatch
@@ -175,7 +176,7 @@ val arsoundRecommendationsGroup = arsoundGroup(
 val arsoundPlayerGroup = arsoundGroup(
     "Arsound: плеер",
     "Эквалайзер, размер и срок хранения кэша потоков, статистика прослушиваний, игра вместе с другими приложениями, " +
-        "плавное сворачивание плеера, кольцо прогресса без лишних кадров, Лента без бегущей строки и без мигания подсказки, тексты песен, плавный переход между треками, загрузка следующего трека заранее, " +
+        "плавное сворачивание плеера, кольцо прогресса без лишних кадров, плавная прокрутка «Ваших лайков», Лента без бегущей строки и без мигания подсказки, тексты песен, плавный переход между треками, загрузка следующего трека заранее, " +
         "скрытие всплывающих комментариев, обложка целиком в полноэкранном плеере, свайп строки очереди («играть следующим», «сохранить очередь»), поиск в лайках по тексту песни, «Играть следующим» по порядку нажатий, " +
         "зашифрованные треки больше не встают на паузу сами на телефоне, который потерял сохранённую лицензию.",
     streamCachePatch,
@@ -185,6 +186,7 @@ val arsoundPlayerGroup = arsoundGroup(
     mixWithOtherAppsPatch,
     smoothSheetPatch,
     progressRingPatch,
+    likesListScrollPatch,
     feedMarqueePatch,
     feedMuteIconPatch,
     lyricsPatch,
