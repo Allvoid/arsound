@@ -39,3 +39,31 @@ val generateLastFmKey = tasks.register("generateLastFmKey") {
 }
 android.sourceSets["main"].java.srcDir(lastFmKeySources)
 tasks.named("preBuild") { dependsOn(generateLastFmKey) }
+
+// Scrobbling to Last.fm signs its requests with the shared secret of the same Last.fm API account: the line
+// shared_secret=... of local/lastfm.properties or the ARSOUND_LASTFM_SHARED_SECRET environment variable. Like the key it
+// goes only into a generated class in the build directory, never into the source tree, and is never printed. Without
+// it scrobbling to Last.fm is not offered (ListenBrainz does not need it).
+val lastFmSharedSecret: String = (rootProject.file("local/lastfm.properties").let { file ->
+    if (!file.isFile) return@let null
+    Properties().apply { file.inputStream().use { load(it) } }.getProperty("shared_secret")
+} ?: System.getenv("ARSOUND_LASTFM_SHARED_SECRET") ?: "").trim().takeIf { it.matches(Regex("[0-9a-fA-F]*")) } ?: ""
+val scrobbleKeySources: File = layout.buildDirectory.dir("generated/scrobble").get().asFile
+val generateScrobbleKeys = tasks.register("generateScrobbleKeys") {
+    inputs.property("key", lastFmApiKey)
+    inputs.property("secret", lastFmSharedSecret)
+    outputs.dir(scrobbleKeySources)
+    doLast {
+        val file = scrobbleKeySources.resolve("app/revanced/extension/soundcloud/scrobble/ScrobbleKeys.java")
+        file.parentFile.mkdirs()
+        file.writeText(
+            "package app.revanced.extension.soundcloud.scrobble;\n\n" +
+                "final class ScrobbleKeys {\n" +
+                "    static final String LASTFM_API_KEY = \"${lastFmApiKey.trim()}\";\n" +
+                "    static final String LASTFM_SHARED_SECRET = \"$lastFmSharedSecret\";\n\n" +
+                "    private ScrobbleKeys() {\n    }\n}\n",
+        )
+    }
+}
+android.sourceSets["main"].java.srcDir(scrobbleKeySources)
+tasks.named("preBuild") { dependsOn(generateScrobbleKeys) }

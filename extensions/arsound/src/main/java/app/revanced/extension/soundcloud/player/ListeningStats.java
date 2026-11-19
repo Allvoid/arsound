@@ -14,6 +14,7 @@ import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.UnplayedDownloads;
 import app.revanced.extension.soundcloud.recommendations.SongNames;
 import app.revanced.extension.soundcloud.recommendations.WaveMemory;
+import app.revanced.extension.soundcloud.scrobble.Scrobbler;
 import app.revanced.extension.soundcloud.settings.Settings;
 
 /**
@@ -79,6 +80,8 @@ public final class ListeningStats {
             if (!value.contains(":tracks:")) return;
             // Followed with the statistics off too, for the wave: only the history is not kept then.
             SESSION.begin(value, System.currentTimeMillis());
+            // Scrobbling to ListenBrainz and Last.fm (off unless the user connected an account): only posts.
+            Scrobbler.onTrackStarted(value, itemLength(item));
         } catch (Exception ex) {
             Logger.printException(() -> "Listening stats: could not read the playback item", ex);
         }
@@ -138,8 +141,10 @@ public final class ListeningStats {
      * @param state         The ExoPlayer state; 3 is ready.
      */
     public static synchronized void onPlayerState(boolean playWhenReady, int state) {
-        if (!SESSION.isActive()) return;
         boolean playing = playWhenReady && state == STATE_READY;
+        // Before the session check: the scrobbler also needs to know whether sound is playing when a track starts.
+        Scrobbler.onPlayingChanged(playing);
+        if (!SESSION.isActive()) return;
         // The mark that survives a restart is a part of the history: not kept with the statistics off.
         if (SESSION.onPlayingChanged(playing, System.currentTimeMillis()) && isEnabled()) savePending();
         // The track ended by itself.
@@ -181,6 +186,23 @@ public final class ListeningStats {
     private static void append(ListenRecord record) {
         Logger.printInfo(() -> "Listening stats: " + record.urn + " played " + record.playedMs / 1000 + " s");
         HistoryFile.append(record);
+    }
+
+    /**
+     * The artist and the title of a track as the statistics name them (the same as the lists of the statistics show):
+     * from SoundCloud's own database first, then from the server; the tags of an imported file. Blocks: may ask the
+     * server, so not on the main thread and not on the player's thread. Not synchronized with the recording on purpose.
+     *
+     * @return {artist, title}, or null when the track has no artist (a listen needs both).
+     */
+    public static String[] namesOf(String urn) {
+        Entry entry = new Entry(urn);
+        TrackTitleResolver.resolve(java.util.Collections.singletonList(entry), preferences());
+        if (entry.artist == null || entry.artist.trim().isEmpty() || entry.title == null || entry.title.trim().isEmpty()
+                || entry.title.equals(urn)) {
+            return null;
+        }
+        return new String[]{entry.artist, entry.title};
     }
 
     public static synchronized void clear() {
