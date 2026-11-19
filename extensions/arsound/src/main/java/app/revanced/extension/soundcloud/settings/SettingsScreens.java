@@ -36,6 +36,7 @@ final class SettingsScreens {
                 new RecommendationsScreen(ui),
                 new WaveScreen(ui),
                 new StatsScreen(ui),
+                new ScrobbleScreen(ui),
                 new StorageScreen(ui),
                 new NetworkScreen(ui),
                 new AccountScreen(ui),
