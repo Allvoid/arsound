@@ -42,6 +42,11 @@ public final class SearchEntry {
         keywordTokens = null;
     }
 
+    /** The extra words added so far. */
+    public String keywords() {
+        return keywords;
+    }
+
     /** Lets the rows be found by the phrases of the table; called when the entry joins an index. */
     void attachPhrases(Synonyms synonyms) {
         phraseSource = synonyms;

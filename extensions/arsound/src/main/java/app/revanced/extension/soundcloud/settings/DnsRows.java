@@ -64,6 +64,12 @@ final class DnsRows {
             String label() {
                 return text("Только обычный DNS", "Plain DNS only");
             }
+        },
+        SYSTEM(CustomDns.MODE_SYSTEM) {
+            @Override
+            String label() {
+                return text("Только DNS телефона (свой сервер не спрашивать)", "Phone DNS only (do not ask the custom server)");
+            }
         };
 
         final String stored;
