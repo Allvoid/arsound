@@ -484,6 +484,41 @@ public final class Settings {
         preferences.edit().putInt(DEVELOPER_NETWORK_DELAY, seconds).apply();
     }
 
+    public static final String DEVELOPER_FAULT_MODE = "developer_fault_mode";
+    public static final String DEVELOPER_REQUEST_DELAY_MS = "developer_request_delay_ms";
+
+    /** The simulated network fault ({@code FaultSimulation} modes). Only active while developer mode is on. */
+    public static String getDeveloperFaultMode() {
+        SharedPreferences preferences = preferences();
+        if (preferences == null || !preferences.getBoolean(DEVELOPER_MODE, false)) return "none";
+        return preferences.getString(DEVELOPER_FAULT_MODE, "none");
+    }
+
+    public static void setDeveloperFaultMode(String mode) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return;
+
+        preferences.edit().putString(DEVELOPER_FAULT_MODE, mode).apply();
+    }
+
+    /**
+     * The free delay, in milliseconds, added to every request. Only active while developer mode is on. The delay in
+     * whole seconds of the earlier versions still counts until a value in milliseconds is set.
+     */
+    public static long getDeveloperRequestDelayMs() {
+        SharedPreferences preferences = preferences();
+        if (preferences == null || !preferences.getBoolean(DEVELOPER_MODE, false)) return 0;
+        if (preferences.contains(DEVELOPER_REQUEST_DELAY_MS)) return preferences.getLong(DEVELOPER_REQUEST_DELAY_MS, 0);
+        return preferences.getInt(DEVELOPER_NETWORK_DELAY, 0) * 1000L;
+    }
+
+    public static void setDeveloperRequestDelayMs(long milliseconds) {
+        SharedPreferences preferences = preferences();
+        if (preferences == null) return;
+
+        preferences.edit().putLong(DEVELOPER_REQUEST_DELAY_MS, milliseconds).apply();
+    }
+
     public static final String BLOCK_PLAYBACK_ADS = "block_playback_ads";
 
     /**

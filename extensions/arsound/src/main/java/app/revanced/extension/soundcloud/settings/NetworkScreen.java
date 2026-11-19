@@ -35,7 +35,7 @@ final class NetworkScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Блок по стране IP, свой DNS, статус сети, проверка устройства", "IP country block, custom DNS, network status, device check");
+        return text("Блок по стране IP, свой DNS, диагностика сети, статус сети, проверка устройства", "IP country block, custom DNS, network diagnostics, network status, device check");
     }
 
     @Override
@@ -45,7 +45,7 @@ final class NetworkScreen extends SectionScreen {
 
     @Override
     String keywords() {
-        return text("интернет vpn прокси dns ip страна блокировка", "internet vpn proxy dns ip country block");
+        return text("интернет vpn прокси dns ip страна блокировка диагностика проверка сайтов", "internet vpn proxy dns ip country block diagnostics site check");
     }
 
     @Override
@@ -68,6 +68,9 @@ final class NetworkScreen extends SectionScreen {
 
         list.addView(ui.createSubHeading("DNS"));
         new DnsRows(ui).addTo(list);
+
+        list.addView(ui.createSubHeading(text("Диагностика сети", "Network diagnostics")));
+        new NetDiagRows(ui).addTo(list);
 
         list.addView(ui.createSubHeading(text("Блок по стране IP", "IP country block")));
         SubRows regionOptions = ui.createSubRows();

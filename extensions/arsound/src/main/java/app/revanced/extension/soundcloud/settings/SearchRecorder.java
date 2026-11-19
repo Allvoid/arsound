@@ -1,5 +1,8 @@
 package app.revanced.extension.soundcloud.settings;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import app.revanced.extension.soundcloud.settings.search.SearchEntry;
 import app.revanced.extension.soundcloud.settings.search.SearchIndex;
 
@@ -15,10 +18,18 @@ final class SearchRecorder {
     private boolean indexing;
     /** The entry of the section row that is being built; extra words of that row go to it. */
     private SearchEntry sectionEntry;
+    /** Every entry made since {@link #start}, in the order of the rows, so two readings of a screen can be paired. */
+    private final List<SearchEntry> made = new ArrayList<>();
+
+    /** The entries made since {@link #start}, in the order of the rows. */
+    List<SearchEntry> entriesMade() {
+        return new ArrayList<>(made);
+    }
 
     /** Starts collecting into {@code index}; the main screen is built first. */
     void start(SearchIndex index) {
         collector = index;
+        made.clear();
         section = null;
         indexing = true;
     }
@@ -45,6 +56,7 @@ final class SearchRecorder {
         String sectionTitle = section == null ? null : section.title();
         SearchEntry entry = new SearchEntry(section == null ? null : section.id(), sectionTitle, title, description, false);
         collector.add(entry);
+        made.add(entry);
         return entry;
     }
 
@@ -58,6 +70,7 @@ final class SearchRecorder {
         if (sectionRow) {
             sectionEntry = new SearchEntry(screenId, title, title, description, true);
             collector.add(sectionEntry);
+            made.add(sectionEntry);
         }
         skipRecord = sectionRow;
         return sectionRow;

@@ -14,13 +14,15 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * Entry point injected into {@code OkHttpClient.Builder.build()}, so it reaches every OkHttp client
  * of SoundCloud: API, streaming, images and downloads.
  * <p>
- * It adds the developer option that slows down every request, to reproduce a poor connection on a
- * fast network, the region guard, the custom DNS, and one shared download per cover ({@link SharedArtwork}).
+ * It adds the developer options that make the network worse (offline, bad, slow, a free delay), to reproduce a poor
+ * connection on a fast network, the region guard, the custom DNS, and one shared download per cover ({@link SharedArtwork}).
  */
 @SuppressWarnings("unused")
 public final class NetworkPatch {
     private static final String INTERCEPTOR_NAME = "ArsoundNetworkInterceptor";
     private static final String DNS_NAME = "ArsoundDns";
+    /** Decides which requests fail in the simulated bad network; the same seed as on the desktop. */
+    private static final java.util.Random FAULT_RANDOM = new java.util.Random(1);
 
     private NetworkPatch() {
     }
@@ -105,12 +107,15 @@ public final class NetworkPatch {
             // and closed the app (a cover cancelled while a track was downloaded or a list was scrolled).
             try {
                 Object request = requestMethod.invoke(chain);
-                delay(request);
+                IOException simulated = simulateFault(request);
 
                 Object url = urlMethod.invoke(request);
                 String host = (String) hostMethod.invoke(url);
                 String path = (String) pathMethod.invoke(url);
                 SharedArtwork.Call call = () -> {
+                    // The simulated outage ends the request where the real one would: after the guards, where the
+                    // network is used, so a kept cover and a queued like behave as they do without a network.
+                    if (simulated != null) throw simulated;
                     try {
                         return proceedMethod.invoke(chain, request);
                     } catch (InvocationTargetException ex) {
@@ -152,17 +157,25 @@ public final class NetworkPatch {
             }
         }
 
-        /** The developer option that slows every request down. */
-        private static void delay(Object request) {
-            int seconds = Settings.getDeveloperNetworkDelaySeconds();
-            if (seconds <= 0) return;
-            Logger.printInfo(() -> "Delaying request by " + seconds + " s: " + request);
-            try {
-                Thread.sleep(seconds * 1000L);
-            } catch (InterruptedException ex) {
-                // OkHttp interrupts calls that were cancelled; let the chain report it.
-                Thread.currentThread().interrupt();
+        /**
+         * The developer options that make the network worse: waits as long as the mode and the free delay say, and
+         * returns the failure the request must end with, or null.
+         */
+        private static IOException simulateFault(Object request) {
+            long delayMs = Settings.getDeveloperRequestDelayMs();
+            String mode = Settings.getDeveloperFaultMode();
+            if (delayMs <= 0 && FaultSimulation.NONE.equals(mode)) return null;
+            FaultSimulation.Verdict verdict = FaultSimulation.decide(mode, delayMs, FAULT_RANDOM.nextDouble());
+            if (verdict.delayMs > 0) {
+                Logger.printInfo(() -> "Delaying request by " + verdict.delayMs + " ms (" + mode + "): " + request);
+                try {
+                    Thread.sleep(verdict.delayMs);
+                } catch (InterruptedException ex) {
+                    // OkHttp interrupts calls that were cancelled; let the chain report it.
+                    Thread.currentThread().interrupt();
+                }
             }
+            return verdict.failure == null ? null : new IOException(verdict.failure);
         }
     }
 }

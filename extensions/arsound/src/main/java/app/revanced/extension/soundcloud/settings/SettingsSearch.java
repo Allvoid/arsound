@@ -34,7 +34,10 @@ import java.util.function.Consumer;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
+import app.revanced.extension.soundcloud.settings.search.OtherLanguage;
+import app.revanced.extension.soundcloud.settings.search.SearchEntry;
 import app.revanced.extension.soundcloud.settings.search.SearchIndex;
+import app.revanced.extension.soundcloud.shared.Lang;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
 
 /**
@@ -67,6 +70,8 @@ final class SettingsSearch {
     private SearchIndex building;
     /** The next screen to read into it, -1 for the main screen's rows. */
     private int nextSection = -1;
+    /** The rows of the screen just read in the language of the app, until it is read in the other language too. */
+    private List<SearchEntry> firstReading;
     /** Counts the changes of the field, so an answer to an older query is dropped. Main thread only. */
     private int queries;
     /** The query waiting for the typing to pause. */
@@ -112,30 +117,45 @@ final class SettingsSearch {
             nextSection = -1;
         }
         SearchRecorder recorder = ui.search;
-        recorder.start(building);
+        // Each screen is read twice, in a step of its own each: in the language of the app, then in the other one, so
+        // a word of either language finds the row.
+        boolean otherPass = firstReading != null;
+        recorder.start(otherPass ? new SearchIndex() : building);
         try {
-            if (nextSection < 0) {
-                // Guarded like the screens below: a failure here left the index half made, and the rows read before
-                // it were read again at the next try.
-                try {
-                    mainRows.accept(new LinearLayout(activity));
-                } catch (Exception ex) {
-                    Logger.printException(() -> "Search index: could not read the main screen", ex);
-                }
-            } else {
-                SectionScreen section = sections.get(nextSection);
-                if (section.searched()) {
-                    recorder.building(section);
+            Runnable read = () -> {
+                if (nextSection < 0) {
+                    // Guarded like the screens below: a failure here left the index half made, and the rows read before
+                    // it were read again at the next try.
                     try {
-                        section.fill(new LinearLayout(activity));
+                        mainRows.accept(new LinearLayout(activity));
                     } catch (Exception ex) {
-                        Logger.printException(() -> "Search index: could not read the " + section.id() + " screen", ex);
+                        Logger.printException(() -> "Search index: could not read the main screen", ex);
+                    }
+                } else {
+                    SectionScreen section = sections.get(nextSection);
+                    if (section.searched()) {
+                        recorder.building(section);
+                        try {
+                            section.fill(new LinearLayout(activity));
+                        } catch (Exception ex) {
+                            Logger.printException(() -> "Search index: could not read the " + section.id() + " screen", ex);
+                        }
                     }
                 }
-            }
+            };
+            if (otherPass) Lang.withLanguage(!Lang.russian(), read);
+            else read.run();
         } finally {
+            if (otherPass) {
+                OtherLanguage.merge(firstReading, recorder.entriesMade());
+                firstReading = null;
+            } else {
+                firstReading = recorder.entriesMade();
+            }
             recorder.stop();
         }
+        // The other reading of this screen comes in the next step.
+        if (firstReading != null) return true;
         nextSection++;
         if (nextSection < sections.size()) return true;
         // Handed out only whole: the look-ups run off the main thread and must not see it grow.

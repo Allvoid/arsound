@@ -2,6 +2,8 @@ package app.revanced.extension.soundcloud.settings;
 
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
+import android.text.InputType;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -10,6 +12,8 @@ import app.revanced.extension.shared.debug.LogFile;
 import app.revanced.extension.shared.settings.BaseSettings;
 import app.revanced.extension.soundcloud.debug.LogExport;
 import app.revanced.extension.soundcloud.debug.PlaybackTimeline;
+import app.revanced.extension.soundcloud.network.FaultSimulation;
+import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 
 /** Saving the logs, and the testing and debugging tools behind the developer switch. */
 final class DeveloperScreen extends SectionScreen {
@@ -72,26 +76,30 @@ final class DeveloperScreen extends SectionScreen {
         addDeveloperOptions(developerOptions);
     }
 
-    private static final int[] NETWORK_DELAYS = {0, 3, 10, 20, 40};
+    private static final String[] FAULT_MODES = {
+            FaultSimulation.NONE, FaultSimulation.OFFLINE, FaultSimulation.BAD_NETWORK, FaultSimulation.SLOW};
 
     private void addDeveloperOptions(LinearLayout container) {
+        TextView[] faultDescription = new TextView[1];
+        ActionRow faultRow = ui.createActionRow(
+                text("Имитация плохой сети", "Simulate a bad network"),
+                faultDescription(),
+                v -> new ArsoundDialog(activity)
+                        .setTitle(text("Имитация плохой сети", "Simulate a bad network"))
+                        .setItems(faultLabels(), (dialog, which) -> {
+                            Settings.setDeveloperFaultMode(FAULT_MODES[which]);
+                            faultDescription[0].setText(faultDescription());
+                        })
+                        .show()
+        );
+        faultDescription[0] = faultRow.description();
+        container.addView(faultRow);
+
         TextView[] delayDescription = new TextView[1];
         ActionRow delayRow = ui.createActionRow(
-                text("Имитация плохой сети", "Simulate a poor connection"),
-                networkDelayDescription(),
-                v -> {
-                    int current = Settings.isDeveloperModeEnabled()
-                            ? Settings.getDeveloperNetworkDelaySeconds() : 0;
-                    int next = NETWORK_DELAYS[0];
-                    for (int i = 0; i < NETWORK_DELAYS.length; i++) {
-                        if (NETWORK_DELAYS[i] == current) {
-                            next = NETWORK_DELAYS[(i + 1) % NETWORK_DELAYS.length];
-                            break;
-                        }
-                    }
-                    Settings.setDeveloperNetworkDelaySeconds(next);
-                    delayDescription[0].setText(networkDelayDescription());
-                }
+                text("Задержка запросов, мс", "Request delay, ms"),
+                requestDelayDescription(),
+                v -> editRequestDelay(delayDescription[0])
         );
         delayDescription[0] = delayRow.description();
         container.addView(delayRow);
@@ -158,14 +166,58 @@ final class DeveloperScreen extends SectionScreen {
                 "Deletes what was written so far. Do this before trying to catch a bug again.");
     }
 
-    private String networkDelayDescription() {
-        int delay = Settings.getDeveloperNetworkDelaySeconds();
-        String state = delay == 0
-                ? text("выключено", "off")
-                : text("задержка " + delay + " с на каждый запрос", delay + " s delay per request");
-        return text("Нажмите, чтобы переключить: ", "Tap to change: ") + state + ". "
-                + text("Замедляет все запросы SoundCloud, чтобы проверить работу на плохом интернете. "
-                        + "Действует сразу.",
-                "Slows down every SoundCloud request to test behavior on a poor connection. Applies immediately.");
+    private static String[] faultLabels() {
+        return new String[]{
+                text("Выключено", "Off"),
+                text("Нет сети: каждый запрос сразу падает", "Offline: every request fails at once"),
+                text("Плохая сеть: около трети запросов падает", "Bad network: about a third of requests fail"),
+                text("Медленная сеть: каждый запрос ждёт ещё 1,5 с", "Slow network: every request waits 1.5 s more")};
+    }
+
+    private String faultDescription() {
+        String mode = FaultSimulation.parse(Settings.getDeveloperFaultMode());
+        String label = faultLabels()[java.util.Arrays.asList(FAULT_MODES).indexOf(mode)];
+        return text("Нажмите, чтобы выбрать: ", "Tap to choose: ") + label + ". "
+                + text("Проверяет, как приложение ведёт себя без сети и на плохом интернете. Действует сразу.",
+                "Tests how the app behaves with no network or a poor one. Applies immediately.");
+    }
+
+    private String requestDelayDescription() {
+        long delay = Settings.getDeveloperRequestDelayMs();
+        String state = delay == 0 ? text("нет задержки", "no delay") : delay + " " + text("мс на каждый запрос", "ms per request");
+        return text("Нажмите, чтобы изменить: ", "Tap to change: ") + state + ". "
+                + text("Каждый запрос SoundCloud ждёт столько миллисекунд, 0 — без задержки, не больше 60000. "
+                        + "Складывается с режимом выше. Действует сразу.",
+                "Every SoundCloud request waits this many milliseconds, 0 means no delay, 60000 at most. "
+                        + "Adds to the mode above. Applies immediately.");
+    }
+
+    private void editRequestDelay(TextView description) {
+        EditText input = new EditText(activity);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint("0");
+        long current = Settings.getDeveloperRequestDelayMs();
+        if (current > 0) input.setText(String.valueOf(current));
+        LinearLayout form = ui.createColumn();
+        form.setPadding(ui.dimen("spacing_m"), 0, ui.dimen("spacing_m"), 0);
+        form.addView(input);
+        new ArsoundDialog(activity)
+                .setTitle(text("Задержка запросов, мс", "Request delay, ms"))
+                .setView(form)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    long value = 0;
+                    String typed = input.getText().toString().trim();
+                    if (!typed.isEmpty()) {
+                        try {
+                            value = Long.parseLong(typed);
+                        } catch (NumberFormatException ex) {
+                            value = FaultSimulation.MAX_REQUEST_DELAY_MS;
+                        }
+                    }
+                    Settings.setDeveloperRequestDelayMs(FaultSimulation.clampDelay(value));
+                    description.setText(requestDelayDescription());
+                })
+                .show();
     }
 }
