@@ -1,7 +1,12 @@
 package app.revanced.extension.soundcloud.lyrics;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Puts times on a text the user pasted. Pure Java: no Android, covered by JUnit tests.
@@ -49,6 +54,15 @@ final class LyricsAligner {
     /** How many heard words ahead of the last found line a line is looked for. */
     private static final int LOOKAHEAD = 80;
     private static final long MIN_STEP_MS = 300;
+    /** A repeat mark in parentheses, "(x2)" or "(2x)": it is not sung, so it takes no time. */
+    private static final Pattern REPEAT_MARK = Pattern.compile("x\\s*\\d+|\\d+\\s*x", Pattern.CASE_INSENSITIVE);
+    /**
+     * Words that name a part of a song in parentheses, "(Chorus)": not sung. Other parenthesised lines are sung, such as
+     * "(oh yeah, oh yeah)", and stay.
+     */
+    private static final Set<String> PART_WORDS = new HashSet<>(Arrays.asList(
+            "intro", "outro", "interlude", "verse", "chorus", "hook", "bridge", "pre-chorus", "prechorus",
+            "интро", "аутро", "проигрыш", "куплет", "припев", "бридж", "пре-припев"));
 
     private LyricsAligner() {
     }
@@ -94,7 +108,10 @@ final class LyricsAligner {
     }
 
     private static boolean isSectionMark(String line) {
-        return (line.startsWith("[") && line.endsWith("]")) || (line.startsWith("(") && line.endsWith(")") && line.length() < 24);
+        if (line.startsWith("[") && line.endsWith("]")) return true;
+        if (!line.startsWith("(") || !line.endsWith(")")) return false;
+        String inside = line.substring(1, line.length() - 1).trim();
+        return REPEAT_MARK.matcher(inside).matches() || PART_WORDS.contains(inside.toLowerCase(Locale.ROOT));
     }
 
     // region Spreading
@@ -277,6 +294,19 @@ final class LyricsAligner {
         for (int i = 0; i < result.length; i++) {
             if (result[i] < 0) result[i] = 0;
             if (i > 0 && result[i] < result[i - 1] + MIN_STEP_MS) result[i] = result[i - 1] + MIN_STEP_MS;
+        }
+        if (durationMs > 0) {
+            long limit = durationMs - 1;
+            int first = 0;
+            while (first < result.length && result[first] <= limit) first++;
+            if (first < result.length) {
+                // The steps pushed the last lines past the end. That run is fitted between the line before it and the
+                // end of the track, with as much room as there is, so that the lines stay in order and inside the track.
+                long before = first > 0 ? result[first - 1] : 0;
+                long count = result.length - first;
+                long step = Math.min(MIN_STEP_MS, Math.max(0, limit - before) / count);
+                for (int i = first; i < result.length; i++) result[i] = before + step * (i - first + 1);
+            }
         }
         return result;
     }

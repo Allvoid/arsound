@@ -2,7 +2,6 @@ package app.arsound.patches.soundcloud.offline
 
 import app.arsound.patches.soundcloud.download.downloadTrackPatch
 import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
-import app.arsound.util.indexOfFirstInstructionOrThrow
 import app.revanced.com.android.tools.smali.dexlib2.mutable.MutableMethod
 import app.revanced.patcher.definingClass
 import app.revanced.patcher.extensions.addInstruction
@@ -13,6 +12,7 @@ import app.revanced.patcher.gettingFirstMethodDeclaratively
 import app.revanced.patcher.name
 import app.revanced.patcher.parameterTypes
 import app.revanced.patcher.patch.BytecodePatchContext
+import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
 import app.revanced.patcher.returnType
 import com.android.tools.smali.dexlib2.Opcode
@@ -54,8 +54,16 @@ private val BytecodePatchContext.previousPlayableMethod by gettingFirstMethodDec
  * makes it DOWNLOADED for a track downloaded by Arsound (same as on the Downloads screen).
  */
 private fun MutableMethod.routeOfflineState() {
-    val stateIndex = indexOfFirstInstructionOrThrow {
-        opcode == Opcode.INVOKE_VIRTUAL && methodReference?.name == "toOfflineState"
+    // Each of the three methods has exactly one such call. A second one (a newer SoundCloud) would be left unrouted, and
+    // the skip would jump over it, so the patch refuses to guess which one is meant.
+    val calls = implementation!!.instructions.withIndex().filter { (_, instruction) ->
+        instruction.opcode == Opcode.INVOKE_VIRTUAL && instruction.methodReference?.name == "toOfflineState"
+    }
+    if (calls.size != 1) throw PatchException("Expected one toOfflineState call in $name, found ${calls.size}")
+    val stateIndex = calls.single().index
+    // The state is read from the result register of the call: the instruction after it must take that result.
+    if (implementation!!.instructions[stateIndex + 1].opcode != Opcode.MOVE_RESULT_OBJECT) {
+        throw PatchException("The toOfflineState call in $name is not followed by its result")
     }
     val urnRegister = getInstruction<FiveRegisterInstruction>(stateIndex).registerD
     val stateRegister = getInstruction<OneRegisterInstruction>(stateIndex + 1).registerA

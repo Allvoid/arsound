@@ -129,7 +129,8 @@ final class WallpaperMedia {
         File out = File.createTempFile("arsound-wallpaper-frame", ".jpg", context.getCacheDir());
         try (FileOutputStream stream = new FileOutputStream(out)) {
             bitmap.compress(Bitmap.CompressFormat.JPEG, WallpaperBaker.JPEG_QUALITY, stream);
-        } catch (IOException | RuntimeException ex) {
+        } catch (IOException | RuntimeException | OutOfMemoryError ex) {
+            // An out of memory error in the encoder is not an IOException: the frame must not stay in the cache either.
             out.delete();
             throw ex;
         } finally {

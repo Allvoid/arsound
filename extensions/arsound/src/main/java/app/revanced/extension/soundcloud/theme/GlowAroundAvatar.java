@@ -29,11 +29,19 @@ final class GlowAroundAvatar extends Drawable implements Drawable.Callback {
     private final int[] screenAt = new int[2];
     private final int[] buttonAt = new int[2];
     private View avatar;
+    /** The description of the profile button, read once: the screen's language does not change under a screen. */
+    private String label;
+    /** Whether the tree is to be searched again: at the start, and after the screen was laid out. */
+    private boolean searchDue = true;
+    /** Any layout of the screen asks for a new search, so a button that appeared later is found. */
+    private final View.OnLayoutChangeListener relaidOut = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+            searchDue = true;
 
     private GlowAroundAvatar(Drawable glow, ViewGroup screen) {
         this.glow = glow;
         this.screen = screen;
         glow.setCallback(this);
+        screen.addOnLayoutChangeListener(relaidOut);
     }
 
     /** Wraps the screen's foreground once; nothing if it has none. */
@@ -44,19 +52,29 @@ final class GlowAroundAvatar extends Drawable implements Drawable.Callback {
             GlowAroundAvatar wrapped = new GlowAroundAvatar(foreground, screen);
             wrapped.setBounds(foreground.getBounds());
             screen.setForeground(wrapped);
+            // Setting the foreground takes the callback off the glow: it is given back, or an animated glow stops drawing.
+            foreground.setCallback(wrapped);
         } catch (Exception ex) {
             Logger.printException(() -> "Home glow: could not keep it off the picture", ex);
         }
     }
 
-    /** The profile button of the screen's top bar, found once it is there. */
+    /**
+     * The profile button of the screen's top bar, found once it is there. The tree is walked after a layout of the
+     * screen only, not on every frame: a redraw finds the same answer.
+     */
     private View avatar() {
         if (avatar != null && avatar.isAttachedToWindow()) return avatar;
         avatar = null;
-        int id = AppResources.identifier(screen.getContext(), "accessibility_open_profile", "string");
-        if (id == 0) return null;
+        if (!searchDue) return null;
+        searchDue = false;
+        if (label == null) {
+            int id = AppResources.identifier(screen.getContext(), "accessibility_open_profile", "string");
+            if (id == 0) return null;
+            label = screen.getContext().getString(id);
+        }
         ArrayList<View> found = new ArrayList<>();
-        screen.findViewsWithText(found, screen.getContext().getString(id), View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+        screen.findViewsWithText(found, label, View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
         if (!found.isEmpty()) avatar = found.get(0);
         return avatar;
     }

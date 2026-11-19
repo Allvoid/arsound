@@ -32,6 +32,8 @@ import app.revanced.extension.soundcloud.shared.AtomicFiles;
 public final class WallpaperStore {
     public static final int DEFAULT_DIM = 65;
     public static final int DEFAULT_BLUR = 8;
+    /** The biggest file the user may pick as the wallpaper, in bytes: a bigger one is refused before it is kept. */
+    public static final long MAX_OWN_BYTES = WallpaperMedia.MAX_BYTES;
 
     private static final String FOLDER = "arsound/wallpaper";
     private static final String ORIGINAL = "current.jpg";
@@ -242,9 +244,15 @@ public final class WallpaperStore {
                 AtomicFiles.replace(temporary, new File(folder, ORIGINAL));
                 AtomicFiles.replace(metaTemporary, new File(folder, META));
                 AtomicFiles.replace(bakedTemporary, new File(folder, BAKED));
-                new File(folder, VIDEO).delete();
-                new File(folder, ANIMATION).delete();
-                if (mediaTemporary != null) AtomicFiles.replace(mediaTemporary, new File(folder, mediaName));
+                if (mediaTemporary != null) {
+                    // The new moving file goes in first: the old one of the other kind is removed only once it is there,
+                    // so a failed replace leaves the old video or animation rather than none.
+                    AtomicFiles.replace(mediaTemporary, new File(folder, mediaName));
+                    new File(folder, VIDEO.equals(mediaName) ? ANIMATION : VIDEO).delete();
+                } else {
+                    new File(folder, VIDEO).delete();
+                    new File(folder, ANIMATION).delete();
+                }
                 Settings.putBoolean(Settings.WALLPAPER_ENABLED, true);
                 refresh();
                 return true;

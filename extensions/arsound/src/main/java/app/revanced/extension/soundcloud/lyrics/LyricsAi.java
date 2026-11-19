@@ -162,16 +162,24 @@ final class LyricsAi implements TranscriptionManager.Listener {
      * with the track (times by the words the network heard, or spread over the track) and kept; the page then shows it.
      */
     void pasteDialog(final TrackInfo track) {
+        // The dialog is for the song on the page: the words it saves are shown on this page, so the page is this song.
+        info = track;
         final Context context = panel.getContext();
         Utils.runOnBackgroundThread(() -> {
             final String before = PastedLyrics.rawText(track);
-            Utils.runOnMainThread(() -> showPasteDialog(context, track, before));
+            Utils.runOnMainThread(() -> showPasteDialog(context, track, before, before != null));
         });
     }
 
-    private void showPasteDialog(Context context, final TrackInfo track, String before) {
+    /**
+     * @param startText The text to start with: the words as they were pasted, or the text the user typed when the save
+     *                failed and the dialog comes back.
+     * @param editing Whether the song already has pasted words (the dialog edits them, not pastes).
+     */
+    private void showPasteDialog(Context context, final TrackInfo track, String startText, boolean editing) {
         final android.widget.EditText input = new android.widget.EditText(context);
-        input.setMinLines(8);
+        // The minimum must not be more than the maximum, or the field is taller than the limit and pushes Save away.
+        input.setMinLines(5);
         input.setMaxLines(7);
         input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -179,7 +187,7 @@ final class LyricsAi implements TranscriptionManager.Listener {
         input.setHint(text("Текст песни, по строке на строку", "The lyrics, one line of the song per line"));
         input.setTextColor(app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "primary"));
         input.setHintTextColor(app.revanced.extension.soundcloud.theme.ArsoundTheme.palette(context, "secondary"));
-        if (before != null) input.setText(before);
+        if (startText != null) input.setText(startText);
         android.widget.LinearLayout box = new android.widget.LinearLayout(context);
         box.setOrientation(android.widget.LinearLayout.VERTICAL);
         int pad = Math.round(16 * context.getResources().getDisplayMetrics().density);
@@ -210,11 +218,11 @@ final class LyricsAi implements TranscriptionManager.Listener {
         box.addView(fromClipboard);
         box.addView(input);
         android.app.Dialog shown = new ArsoundDialog(context)
-                .setTitle(before == null ? text("Вставить текст", "Paste the lyrics") : text("Изменить текст", "Edit the lyrics"))
+                .setTitle(editing ? text("Изменить текст", "Edit the lyrics") : text("Вставить текст", "Paste the lyrics"))
                 .setView(box)
                 .setPositiveButton(text("Сохранить", "Save"), (dialog, which) -> {
                     hideKeyboard(input);
-                    keepPasted(track, input.getText().toString());
+                    keepPasted(track, input.getText().toString(), editing);
                 })
                 .setNegativeButton(text("Отмена", "Cancel"), (dialog, which) -> hideKeyboard(input))
                 // Back and a tap outside close the dialog too.
@@ -252,9 +260,31 @@ final class LyricsAi implements TranscriptionManager.Listener {
         }
     }
 
-    private void keepPasted(final TrackInfo track, final String pasted) {
+    /** Whether the page is still on this song: a swipe to another track or a closed page is not. */
+    private boolean stillOn(TrackInfo track) {
+        return info != null && info.sameTrack(track);
+    }
+
+    /**
+     * Keeps the text the dialog returned. The dialog has closed by now, so when the text cannot be kept it comes back
+     * with the same text: nothing is typed again.
+     *
+     * @param editing Whether the song had pasted words before (the dialog was for editing them).
+     */
+    private void keepPasted(final TrackInfo track, final String pasted, final boolean editing) {
         if (pasted.trim().isEmpty()) {
-            Utils.showToastShort(text("Текст пустой: ничего не сохранено", "The text is empty: nothing was kept"));
+            // Edit mode with the box cleared: the user means to take the text away, so removal is asked about first.
+            if (editing) {
+                removePasted(track);
+            } else {
+                Utils.showToastShort(text("Текст пустой: ничего не сохранено", "The text is empty: nothing was kept"));
+            }
+            return;
+        }
+        if (PastedLyrics.tooLong(pasted)) {
+            Utils.showToastLong(text("Текст слишком длинный: не больше 20 000 знаков",
+                    "The text is too long: at most 20,000 characters"));
+            if (stillOn(track)) showPasteDialog(panel.getContext(), track, pasted, editing);
             return;
         }
         Utils.runOnBackgroundThread(() -> {
@@ -262,20 +292,41 @@ final class LyricsAi implements TranscriptionManager.Listener {
             Utils.runOnMainThread(() -> {
                 if (lyrics == null) {
                     Utils.showToastLong(text("Не получилось сохранить текст", "Could not keep the text"));
+                    if (stillOn(track)) showPasteDialog(panel.getContext(), track, pasted, editing);
                     return;
                 }
+                // The words are remembered for the song they were pasted for, whatever page is shown now.
                 LyricsRepository.rememberPasted(track, lyrics);
-                info = track;
-                host.showAiWords(lyrics);
+                // A swipe to another song during the save must not show these words on that song's page.
+                if (stillOn(track)) host.showAiWords(lyrics);
             });
         });
     }
 
-    /** The pasted words are taken away: what the search finds is shown again. */
+    /**
+     * The pasted words are taken away, once the user has confirmed it: what the search finds is shown again. A tap is
+     * easy to make by accident while scrolling, so the dialog asks first.
+     */
     void removePasted(final TrackInfo track) {
+        new ArsoundDialog(panel.getContext())
+                .setTitle(text("Удалить текст?", "Remove the text?"))
+                .setMessage(text("Вставленный текст этой песни удалится с телефона. Вернуть его можно только вставкой заново.",
+                        "The text pasted for this song will be deleted from the phone. It can come back only by pasting it again."))
+                .setPositiveButton(text("Удалить", "Remove"), (dialog, which) -> removeConfirmed(track))
+                .setNegativeButton(text("Отмена", "Cancel"), null)
+                .show();
+    }
+
+    private void removeConfirmed(final TrackInfo track) {
         Utils.runOnBackgroundThread(() -> {
-            PastedLyrics.remove(track);
+            final boolean removed = PastedLyrics.remove(track);
             Utils.runOnMainThread(() -> {
+                // The file is still there: the words stay on the phone and on the page, and the user is told.
+                if (!removed) {
+                    Utils.showToastLong(text("Не получилось удалить текст: он остался на телефоне",
+                            "Could not remove the text: it is still on the phone"));
+                    return;
+                }
                 LyricsRepository.forget(track);
                 host.searchAgainAfterRemoval();
             });

@@ -39,7 +39,13 @@ final class AccountVault {
     }
 
     static synchronized List<SavedAccount> list(Context context) {
-        return parse(preferences(context).getString(LIST, null));
+        String text = preferences(context).getString(LIST, null);
+        if (damaged(text)) {
+            // Dropped, so it is not read (and logged) again on every call; the next save starts a clean list.
+            preferences(context).edit().remove(LIST).commit();
+            return new ArrayList<>();
+        }
+        return parse(text);
     }
 
     static boolean isEmpty(Context context) {
@@ -53,9 +59,9 @@ final class AccountVault {
         return null;
     }
 
-    /** Keeps the account, in place of an older copy of it, at the top of the list. */
-    static synchronized void save(Context context, SavedAccount account) {
-        write(context, upsert(list(context), account));
+    /** Keeps the account, in place of an older copy of it, at the top of the list. False when it was not committed. */
+    static synchronized boolean save(Context context, SavedAccount account) {
+        return write(context, upsert(list(context), account));
     }
 
     static synchronized void remove(Context context, String name) {
@@ -67,12 +73,20 @@ final class AccountVault {
         if (left.size() != accounts.size()) write(context, left);
     }
 
-    private static void write(Context context, List<SavedAccount> accounts) {
-        preferences(context).edit().putString(LIST, serialize(accounts)).commit();
+    private static boolean write(Context context, List<SavedAccount> accounts) {
+        return preferences(context).edit().putString(LIST, serialize(accounts)).commit();
     }
 
-    static void setPending(Context context, String what) {
-        preferences(context).edit().putString(PENDING, what).putLong(PENDING_AT, System.currentTimeMillis()).commit();
+    /** False when the mark did not reach the disk: the switch must not go on then. */
+    static boolean setPending(Context context, String what) {
+        return preferences(context).edit().putString(PENDING, what).putLong(PENDING_AT, System.currentTimeMillis()).commit();
+    }
+
+    /** Puts the switch under way back to a new time, so a wait that went on does not make it look abandoned. */
+    static boolean touchPending(Context context) {
+        SharedPreferences preferences = preferences(context);
+        if (preferences.getString(PENDING, null) == null) return false;
+        return preferences.edit().putLong(PENDING_AT, System.currentTimeMillis()).commit();
     }
 
     /** The switch under way, or null; one left by an app that was killed long ago is dropped. */
@@ -88,13 +102,15 @@ final class AccountVault {
         return what;
     }
 
-    static void clearPending(Context context) {
-        preferences(context).edit().remove(PENDING).remove(PENDING_AT).commit();
+    static boolean clearPending(Context context) {
+        return preferences(context).edit().remove(PENDING).remove(PENDING_AT).commit();
     }
 
-    static void setLastCurrent(Context context, String name) {
-        if (name == null || name.equals(preferences(context).getString(LAST_CURRENT, null))) return;
-        preferences(context).edit().putString(LAST_CURRENT, name).commit();
+    /** True when the name is kept (it was already, or is written now). */
+    static boolean setLastCurrent(Context context, String name) {
+        if (name == null) return true;
+        if (name.equals(preferences(context).getString(LAST_CURRENT, null))) return true;
+        return preferences(context).edit().putString(LAST_CURRENT, name).commit();
     }
 
     static String lastCurrent(Context context) {
@@ -122,9 +138,22 @@ final class AccountVault {
                 if (account != null) accounts.add(account);
             }
         } catch (JSONException ex) {
-            Logger.printException(() -> "Accounts: the saved list is damaged, starting a new one", ex);
+            // Not the exception itself: its message holds the start of the text, and that text is tokens.
+            Logger.printException(() -> "Accounts: the saved list is damaged (" + ex.getClass().getSimpleName()
+                    + "), starting a new one");
         }
         return accounts;
+    }
+
+    /** True when the text is there but is not a JSON list at all. */
+    static boolean damaged(String text) {
+        if (text == null || text.isEmpty()) return false;
+        try {
+            new JSONArray(text);
+            return false;
+        } catch (JSONException ex) {
+            return true;
+        }
     }
 
     static String serialize(List<SavedAccount> accounts) {

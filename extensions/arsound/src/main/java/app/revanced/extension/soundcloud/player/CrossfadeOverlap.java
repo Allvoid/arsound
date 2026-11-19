@@ -43,9 +43,17 @@ public final class CrossfadeOverlap {
     private static boolean handedOff;
     /** The last position report of SoundCloud's player: without them it is paused or stuck. */
     private static long reportedAt;
-    /** Reports may stop this long before the end: the player is paused, the overlap stops. */
+    /**
+     * Reports that stop for this long mean the player was paused, or the track ended and SoundCloud has not started the
+     * next one yet: the overlap stops, unless the next track has already taken over.
+     */
     private static final long SILENT_MS = 1_500;
     private static long handedOffAt;
+    /**
+     * Counts the attempts to start the second player and every change that cancels them (a seek back, a pause, the next
+     * track). A start that wakes up after the count moved on is stale and must not play.
+     */
+    private static long attempt;
     private static final Runnable TICK = CrossfadeOverlap::tick;
 
     private CrossfadeOverlap() {
@@ -71,10 +79,15 @@ public final class CrossfadeOverlap {
         boolean seekedAway;
         synchronized (lock) {
             reportedAt = SystemClock.uptimeMillis();
-            // A seek back out of the fade: the overlap is not wanted any more.
-            seekedAway = player != null && !handedOff && left > fade + LEAD_MS + 1_500;
-            if (seekedAway) starting = false;
-            if (!seekedAway) endAt = SystemClock.uptimeMillis() + left;
+            // A seek back out of the fade: the overlap is not wanted any more. That holds also while the second player is
+            // still being prepared, so its pending start is cancelled too.
+            seekedAway = (player != null || starting) && !handedOff && left > fade + LEAD_MS + 1_500;
+            if (seekedAway) {
+                starting = false;
+                attempt++;
+            } else {
+                endAt = SystemClock.uptimeMillis() + left;
+            }
         }
         if (seekedAway) {
             handler().post(CrossfadeOverlap::stop);
@@ -89,18 +102,20 @@ public final class CrossfadeOverlap {
             endAt = now + left;
             fadeMs = fade;
             fadeStartAt = endAt - fade;
+            long mine = ++attempt;
+            handler().post(() -> start(mine));
         }
-        handler().post(CrossfadeOverlap::start);
     }
 
-    private static void start() {
+    /** @param mine The attempt this start belongs to; a start of an older attempt does nothing. */
+    private static void start(long mine) {
         String next = NextTrackPreload.nextTrackId();
         String source = next == null ? null : DownloadTrackPatch.playableSource(next);
         Context context = Utils.getContext();
         if (source == null || context == null) {
             synchronized (lock) {
                 // Not again for this track: the fade stays the one after the other.
-                starting = true;
+                if (mine == attempt) starting = true;
             }
             return;
         }
@@ -116,12 +131,13 @@ public final class CrossfadeOverlap {
             created.prepare();
             long wait;
             synchronized (lock) {
-                wait = fadeStartAt - SystemClock.uptimeMillis();
+                wait = startAt(fadeStartAt) - SystemClock.uptimeMillis();
             }
-            // Started when the fade-out starts: prepare took its time already.
+            // Started a little before the fade-out, so it is heard from the fade's start: prepare took its time already.
             if (wait > 0) SystemClock.sleep(Math.min(wait, 3_000));
             synchronized (lock) {
-                if (!starting) {
+                // Stale when a seek, a pause or the next track moved on meanwhile, or when another player took the slot.
+                if (!starting || mine != attempt || player != null) {
                     created.release();
                     return;
                 }
@@ -138,21 +154,41 @@ public final class CrossfadeOverlap {
         }
     }
 
+    /** The uptime the second player starts at: a little before the fade-out, so it is heard from the fade's start. */
+    static long startAt(long fadeStartAt) {
+        return fadeStartAt - LEAD_MS;
+    }
+
+    /** The volume of the second player while it fades in: 0 before the fade, 1 at its end, squared as in {@link Crossfade}. */
+    static float fadeInLevel(long now, long fadeStartAt, long fadeMs) {
+        float through = (now - fadeStartAt) / (float) Math.max(1, fadeMs);
+        float level = Math.max(0f, Math.min(1f, through));
+        return level * level;
+    }
+
+    /** The volume after the handoff: the second player fades out under SoundCloud's player, 0 once it is over. */
+    static float handoffLevel(long now, long handedOffAt) {
+        return Math.max(0f, 1f - (now - handedOffAt) / (float) HANDOFF_FADE_MS);
+    }
+
     /** Raises the second player while the first fades out; after the handoff, lowers it under SoundCloud's player. */
     private static void tick() {
         MediaPlayer current;
         float volume;
         boolean again = true;
+        // The sleep timer's fade lowers SoundCloud's player too: the overlap follows it, so a transition does not get
+        // back to full volume under a sleep fade.
+        float sleep = PlayerVolume.product(PlayerVolume.level(PlayerVolume.Source.SLEEP));
         synchronized (lock) {
             current = player;
             if (current == null) return;
             long now = SystemClock.uptimeMillis();
             if (handedOff) {
-                float left = 1f - (now - handedOffAt) / (float) HANDOFF_FADE_MS;
-                volume = Math.max(0f, left);
-                if (left <= 0f) again = false;
+                volume = handoffLevel(now, handedOffAt) * sleep;
+                if (now - handedOffAt >= HANDOFF_FADE_MS) again = false;
             } else {
-                if (now - reportedAt > SILENT_MS && endAt - now > SILENT_MS) {
+                // The silence is checked whatever the time left: a pause near the end is caught here too.
+                if (now - reportedAt > SILENT_MS) {
                     Logger.printInfo(() -> "Crossfade: the track was paused, the overlap stops");
                     again = false;
                     volume = 0f;
@@ -161,9 +197,7 @@ public final class CrossfadeOverlap {
                     again = false;
                     volume = 0f;
                 } else {
-                    float through = (now - fadeStartAt) / (float) Math.max(1, fadeMs);
-                    float level = Math.max(0f, Math.min(1f, through));
-                    volume = level * level;
+                    volume = fadeInLevel(now, fadeStartAt, fadeMs) * sleep;
                 }
             }
         }
@@ -207,6 +241,7 @@ public final class CrossfadeOverlap {
             if (!newTrack) return false;
             boolean expected = player != null && !handedOff && trackId != null && trackId.equals(CrossfadeOverlap.trackId);
             starting = false;
+            attempt++;
             if (!expected) {
                 if (player != null) handler().post(CrossfadeOverlap::stop);
                 return false;
@@ -221,6 +256,7 @@ public final class CrossfadeOverlap {
     static void cancel() {
         synchronized (lock) {
             starting = false;
+            attempt++;
             if (player == null) return;
         }
         handler().post(CrossfadeOverlap::stop);

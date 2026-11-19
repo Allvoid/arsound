@@ -87,9 +87,10 @@ final class BottomBarScreen extends SectionScreen {
         fillTabs(tabs, changed);
         list.addView(ui.createChoiceRow(text("Стартовая вкладка", "Start tab"),
                 text("Вкладка, которая открывается при запуске приложения. «Первая» — первая вкладка панели. "
-                                + "Ссылки и ярлыки открывают своё, не стартовую.",
+                                + "Ссылки и ярлыки открывают своё, не стартовую. Если выбранная вкладка скрыта, "
+                                + "открывается первая.",
                         "The tab that opens when the app starts. \"First\" is the bar's first tab. Links and shortcuts "
-                                + "open their own tab, not the start one."),
+                                + "open their own tab, not the start one. If the chosen tab is hidden, the first tab opens."),
                 TabChoice.START_KEY_CODE, 0, new long[]{0, 1, 2, 3, 4, 5},
                 new String[]{text("Первая", "First"), text("Главная", "Home"), text("Моя волна", "My Wave"),
                         text("Лента", "Feed"), text("Поиск", "Search"), text("Библиотека", "Library")},

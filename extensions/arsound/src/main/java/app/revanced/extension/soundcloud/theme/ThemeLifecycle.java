@@ -136,6 +136,8 @@ final class ThemeLifecycle implements Application.ActivityLifecycleCallbacks {
 
     @Override
     public void onActivityDestroyed(Activity activity) {
+        // Any screen may carry a moving wallpaper; the layer of a destroyed one must not outlive it (see MediaWallpaper).
+        app.revanced.extension.soundcloud.wallpaper.MediaWallpaper.onActivityDestroyed(activity);
         if (!activity.getClass().getName().endsWith(".MainActivity")) return;
         try {
             // A slide of the player sheet that this screen was in the middle of will not be finished.

@@ -41,6 +41,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     private LinearLayout progressPart;
     /** The likes that wait for their days ({@link DailyLikeQueue}). */
     private LinearLayout likesPart;
+    /** The row of those likes, kept so a tick only changes its text and a tap on it is not lost. */
+    private ActionRow likesRow;
     private LinearLayout accountPart;
     private LinearLayout historyPart;
     /** The service whose account is shown, {@link TransferSource#id} kept in the settings. */
@@ -324,13 +326,20 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
      * Nothing while no likes wait.
      */
     private void fillLikes() {
-        likesPart.removeAllViews();
         String line = DailyLikeQueue.progressLine();
-        if (line == null) return;
+        if (line == null) {
+            likesPart.removeAllViews();
+            likesRow = null;
+            return;
+        }
+        // Still on the screen: only its text changes, so a tap that is under way on the row is not lost.
+        if (likesRow != null && likesRow.getParent() == likesPart) {
+            likesRow.description().setText(likesStatus(line));
+            return;
+        }
+        likesPart.removeAllViews();
         likesPart.addView(ui.createSubHeading(text("Лайки перенесённых треков", "Likes of transferred tracks")));
-        ActionRow row = ui.createActionRow(text("Лайки по 50 в день", "Liking 50 a day"),
-                line + text(". Идут, пока приложение запускалось в этот день. Нажмите, чтобы остановить.",
-                        ". They go while the app was started that day. Tap to stop."), v ->
+        likesRow = ui.createActionRow(text("Лайки по 50 в день", "Liking 50 a day"), likesStatus(line), v ->
                 new ArsoundDialog(activity)
                         .setTitle(text("Остановить лайки?", "Stop the likes?"))
                         .setMessage(text("Оставшиеся треки больше не будут лайкаться. Уже поставленные лайки останутся.",
@@ -342,8 +351,13 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                                 }))
                         .setNegativeButton(text("Продолжить", "Keep going"), null)
                         .show());
-        row.icon("recs");
-        likesPart.addView(row);
+        likesRow.icon("recs");
+        likesPart.addView(likesRow);
+    }
+
+    private static String likesStatus(String line) {
+        return line + text(". Идут, пока приложение запускалось в этот день. Нажмите, чтобы остановить.",
+                ". They go while the app was started that day. Tap to stop.");
     }
 
     /** A transfer the app was closed in the middle of: a tap goes on with it, the playlists made are reused. */

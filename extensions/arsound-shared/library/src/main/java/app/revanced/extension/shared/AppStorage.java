@@ -57,13 +57,17 @@ public final class AppStorage {
         return usable;
     }
 
+    /**
+     * The first answer is kept for the whole run of the app. A folder that is writable at one call and not at the next
+     * would send the stream cache to the shared folder and then to the app's own files: the part written under the other
+     * one would be left behind, out of the settings' sizes and out of the clearing.
+     */
     private static boolean usable(File folder) {
+        Boolean first = usable;
+        if (first != null) return first;
         boolean ok = folder != null && (folder.isDirectory() || folder.mkdirs()) && folder.canWrite();
-        Boolean before = usable;
         usable = ok;
-        if (before == null || before != ok) {
-            Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
-        }
+        Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
         return ok;
     }
 }

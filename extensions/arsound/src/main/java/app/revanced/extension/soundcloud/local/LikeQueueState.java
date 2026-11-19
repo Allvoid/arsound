@@ -123,24 +123,36 @@ final class LikeQueueState {
         return pending.peekFirst();
     }
 
-    /** The first track was liked, on this day. */
-    void liked(String dayKey) {
+    /**
+     * The track {@code urn} was liked on this day. It leaves the queue only while it is still the first one: a queue that
+     * was stopped and filled again meanwhile keeps its tracks. The like counts for the day either way, since the server
+     * counted it.
+     */
+    void liked(String urn, String dayKey) {
         rollDay(dayKey);
-        if (pending.pollFirst() != null) {
+        today++;
+        if (urn.equals(pending.peekFirst())) {
+            pending.pollFirst();
             done++;
-            today++;
         }
     }
 
-    /** The first track needs no like (it is liked already, or cannot be liked): it counts as done, for no like of the day. */
-    void skipped() {
-        if (pending.pollFirst() != null) done++;
+    /**
+     * The track {@code urn} needs no like (it is liked already, or cannot be liked): it counts as done, for no like of the
+     * day. Only while it is still the first one.
+     */
+    void skipped(String urn) {
+        if (urn.equals(pending.peekFirst())) {
+            pending.pollFirst();
+            done++;
+        }
     }
 
-    /** The first track could not be liked now: it goes to the back, to be tried again after the others. */
-    void postponed() {
-        String urn = pending.pollFirst();
-        if (urn != null) pending.addLast(urn);
+    /** The track {@code urn} could not be liked now: it goes to the back, to be tried again after the others. Only while it is still the first one. */
+    void postponed(String urn) {
+        if (!urn.equals(pending.peekFirst())) return;
+        String first = pending.pollFirst();
+        pending.addLast(first);
     }
 
     void clear() {
@@ -165,6 +177,17 @@ final class LikeQueueState {
         return done;
     }
 
+    /** An independent copy, so a screen can read it while the queue is changed. */
+    LikeQueueState copy() {
+        LikeQueueState copy = new LikeQueueState();
+        copy.pending.addAll(pending);
+        copy.total = total;
+        copy.done = done;
+        copy.day = day;
+        copy.today = today;
+        return copy;
+    }
+
     /** The likes given on this day. */
     int givenOn(String dayKey) {
         return dayKey.equals(day) ? today : 0;
@@ -175,8 +198,23 @@ final class LikeQueueState {
         return !pending.isEmpty() && allowanceOf(dayKey) == 0;
     }
 
-    private int allowanceOf(String dayKey) {
+    /** The same as {@link #allowance}, but without moving the count to the day: a read that never changes the queue. */
+    int allowanceOf(String dayKey) {
         return dayKey.equals(day) ? Math.max(0, PER_DAY - today) : PER_DAY;
+    }
+
+    /**
+     * The part of a file name that tells the queues of accounts apart. Letters, digits and "-" stay as they are, every
+     * other character becomes "_" and its code in hex and "_", so two different names never give the same key.
+     */
+    static String keyOf(String owner) {
+        StringBuilder key = new StringBuilder();
+        for (char c : owner.toCharArray()) {
+            boolean plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-';
+            if (plain) key.append(c);
+            else key.append('_').append(Integer.toHexString(c)).append('_');
+        }
+        return key.toString();
     }
 
     /** The calendar day of a moment in the given zone, as {@code 2026-11-18}. */

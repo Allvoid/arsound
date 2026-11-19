@@ -194,7 +194,14 @@ final class SoundCloudSide {
         DailyLikeQueue.enqueue(trackUrns, alreadyInLikes);
         int before = alreadyInLikes.size();
         progress.accept(before);
-        return before + DailyLikeQueue.runBatch(count -> progress.accept(before + count));
+        // The queue may hold tracks of an earlier transfer: only the likes of this transfer's tracks count here.
+        Set<String> ours = new java.util.HashSet<>(trackUrns);
+        int[] given = {0};
+        DailyLikeQueue.runBatch(urn -> {
+            if (!ours.contains(urn)) return;
+            progress.accept(before + ++given[0]);
+        });
+        return before + given[0];
     }
 
     /**

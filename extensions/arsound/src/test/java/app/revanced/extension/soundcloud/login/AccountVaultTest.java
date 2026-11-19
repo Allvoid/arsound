@@ -63,6 +63,18 @@ public class AccountVaultTest {
     }
 
     @Test
+    public void aTruncatedListIsDamagedAndAnEmptyOrGoodOneIsNot() {
+        assertTrue(AccountVault.damaged("[{\"name\":\"a-1\",\"accessToken\":\"secret-tok"));
+        assertTrue(AccountVault.damaged("not json"));
+        assertFalse(AccountVault.damaged(null));
+        assertFalse(AccountVault.damaged(""));
+        assertFalse(AccountVault.damaged("[]"));
+        List<SavedAccount> accounts = new ArrayList<>();
+        accounts.add(account("a-1", "1", "access", 1));
+        assertFalse(AccountVault.damaged(AccountVault.serialize(accounts)));
+    }
+
+    @Test
     public void anAccountWithoutTokensOrUserIdIsNotKept() {
         assertFalse(new SavedAccount("a-1", "1", null, null, null, null, null, 0).usable());
         assertFalse(new SavedAccount("a-1", null, "t", null, null, null, null, 0).usable());

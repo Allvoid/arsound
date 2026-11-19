@@ -80,8 +80,9 @@ val streamCachePatch = bytecodePatch {
         // The folders of the caches: the shared app folder only if it can be written. On some phones Android returns
         // its path but cannot make it (bot ticket #65): the cache could not open there and no streamed track started.
         // With null (or the app's own files first) SoundCloud's own fallback, the app's files, is used.
-        var replaced = 0
+        // Counted per method: a total of 3 could also come from two calls in one method and none in another.
         listOf(playerCacheFolderMethod, streamingCacheConfigMethod, offlineCacheConfigMethod).forEach { method ->
+            var replaced = 0
             method.implementation!!.instructions.withIndex().filter { (_, instruction) ->
                 instruction.opcode == Opcode.INVOKE_VIRTUAL &&
                     instruction.methodReference?.definingClass == "Landroid/content/Context;" &&
@@ -98,8 +99,8 @@ val streamCachePatch = bytecodePatch {
                 )
                 replaced++
             }
+            if (replaced != 1) throw PatchException("Expected 1 cache folder call in ${method.name}, found $replaced")
         }
-        if (replaced != 3) throw PatchException("Expected 3 cache folder calls in the caching module, found $replaced")
 
         // Before the monitor: v0 is written before it is read.
         openCacheMethod.addInstructions(

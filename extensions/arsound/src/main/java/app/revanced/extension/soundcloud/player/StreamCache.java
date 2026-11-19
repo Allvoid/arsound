@@ -1,6 +1,8 @@
 package app.revanced.extension.soundcloud.player;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
@@ -82,25 +84,32 @@ public final class StreamCache {
         if (opened) return;
         opened = true;
         try {
-            if (directory == null || !directory.isDirectory()) return;
-            File trash = trashOf(directory);
-            if (Settings.getBoolean(CLEAR_REQUESTED, false)) {
-                boolean moved = clear(directory, trash);
-                Settings.putBoolean(CLEAR_REQUESTED, false);
-                Logger.printInfo(() -> "Stream cache cleared: " + (moved ? "moved to the trash at once" : "could not be moved"));
-                deleteInBackground(trash);
-            } else {
-                long days = Settings.getLong(Settings.STREAM_CACHE_DAYS, 0);
-                Logger.printInfo(() -> "Stream cache opens, size " + (hasCustomSize() ? customSize() : "default")
-                        + ", keep days " + days);
-                // The old parts are found and moved to the trash in the background, not while SoundCloud waits for the
-                // cache: walking thousands of parts took seconds. A part moved away under the open cache is one it
-                // forgets when it misses it, and these were not played for days.
-                if (days > 0) removeOldInBackground(directory, trash, System.currentTimeMillis() - days * DAY_MS);
-                // Also what an earlier run did not finish deleting.
-                else deleteInBackground(trash);
+            boolean clearRequested = Settings.getBoolean(CLEAR_REQUESTED, false);
+            long days = Settings.getLong(Settings.STREAM_CACHE_DAYS, 0);
+            if (directory != null && directory.isDirectory()) {
+                File trash = trashOf(directory);
+                if (clearRequested) {
+                    boolean moved = clear(directory, trash);
+                    Logger.printInfo(() -> "Stream cache cleared: " + (moved ? "moved to the trash at once" : "could not be moved"));
+                    deleteInBackground(trash);
+                } else {
+                    Logger.printInfo(() -> "Stream cache opens, size " + (hasCustomSize() ? customSize() : "default")
+                            + ", keep days " + days);
+                    // The old parts are found and moved to the trash in the background, not while SoundCloud waits for the
+                    // cache: walking thousands of parts took seconds. A part moved away under the open cache is one it
+                    // forgets when it misses it, and these were not played for days.
+                    if (days > 0) removeOldInBackground(directory, trash, System.currentTimeMillis() - days * DAY_MS);
+                    // Also what an earlier run did not finish deleting.
+                    else deleteInBackground(trash);
+                }
+                if (hasCustomSize()) measureInBackground(directory);
             }
-            if (hasCustomSize()) measureInBackground(directory);
+            // The other place the cache may be in is not opened by SoundCloud, so it is tidied here the same way.
+            for (File other : candidates()) {
+                if (!other.equals(directory)) tidyOther(other, clearRequested, days);
+            }
+            // Settled whether or not the folder was there: nothing is left to clear after this start.
+            if (clearRequested) Settings.putBoolean(CLEAR_REQUESTED, false);
         } catch (Exception ex) {
             Logger.printException(() -> "Stream cache cleanup failure", ex);
         }
@@ -109,6 +118,37 @@ public final class StreamCache {
     private static File trashOf(File directory) {
         File parent = directory.getParentFile();
         return parent == null ? null : new File(parent, TRASH);
+    }
+
+    /** The other place the cache may be in, tidied the way the opened one is. Not opened by SoundCloud in this run. */
+    private static void tidyOther(File other, boolean clearRequested, long days) {
+        File trash = trashOf(other);
+        if (clearRequested) {
+            if (other.isDirectory()) clear(other, trash);
+        } else if (days > 0 && other.isDirectory()) {
+            removeOldInBackground(other, trash, System.currentTimeMillis() - days * DAY_MS);
+            return;
+        }
+        deleteInBackground(trash);
+    }
+
+    /**
+     * The places the cache may be in: the shared app folder (when Android gives one) and the app's own files. A cache
+     * written under one of them stays there after the other one is used, so both are counted, cleared and tidied.
+     */
+    private static List<File> candidates() {
+        List<File> result = new ArrayList<>(2);
+        android.content.Context context = Utils.getContext();
+        if (context == null) return result;
+        File shared = null;
+        try {
+            shared = context.getExternalFilesDir(null);
+        } catch (Exception ignored) {
+            // No shared storage at all: only the app's own files are left.
+        }
+        if (shared != null) result.add(new File(shared, "exocache"));
+        result.add(new File(context.getFilesDir(), "exocache"));
+        return result;
     }
 
     /**
@@ -205,9 +245,11 @@ public final class StreamCache {
         return new File(base != null ? base : context.getFilesDir(), "exocache");
     }
 
-    /** Space taken by the cache, in bytes. Blocks. */
+    /** Space taken by the cache, in bytes, in both places it may be (see {@link #candidates()}). Blocks. */
     public static long usedBytes() {
-        return FileTree.size(directory());
+        long total = 0;
+        for (File folder : candidates()) total += FileTree.size(folder);
+        return total;
     }
 
     /**

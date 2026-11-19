@@ -143,7 +143,7 @@ public final class AccountEntry {
             activity.runOnUiThread(() -> {
                 View old = content.findViewWithTag(PILL_TAG);
                 if (accounts.isEmpty() || signedIn) {
-                    if (old != null) content.removeView(old);
+                    if (old != null) removePill(activity, content, old);
                     return;
                 }
                 if (old == null) addPill(activity, content);
@@ -173,7 +173,7 @@ public final class AccountEntry {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
         params.setMargins(margin, margin, margin, margin);
         content.addView(pill, params);
-        content.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+        View.OnLayoutChangeListener follow = (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             WindowInsets insets = view.getRootWindowInsets();
             if (insets == null) return;
             int[] position = new int[2];
@@ -183,7 +183,18 @@ public final class AccountEntry {
             if (layout.topMargin == margin + covered) return;
             layout.topMargin = margin + covered;
             pill.setLayoutParams(layout);
-        });
+        };
+        // Kept on the pill, so it is taken off the content together with it: the content outlives the pill.
+        pill.setTag(tagKey(activity), follow);
+        content.addOnLayoutChangeListener(follow);
+    }
+
+    private static void removePill(Activity activity, ViewGroup content, View pill) {
+        Object follow = pill.getTag(tagKey(activity));
+        if (follow instanceof View.OnLayoutChangeListener) {
+            content.removeOnLayoutChangeListener((View.OnLayoutChangeListener) follow);
+        }
+        content.removeView(pill);
     }
 
     /** The kept accounts: a tap signs in with one. */

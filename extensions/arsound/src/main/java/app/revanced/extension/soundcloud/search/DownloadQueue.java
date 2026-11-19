@@ -257,8 +257,9 @@ final class DownloadQueue {
                 downloaded().put(url, path);
                 boolean single = !inBatch;
                 boolean like = likeWhenDone.remove(url);
-                if (like) ImportedLikes.likeFile(new File(path), true);
+                // The download is over before the like: a failing like must not leave the row "downloading".
                 ended(context, url, true);
+                if (like) ImportedLikes.likeFile(new File(path), true);
                 if (single && like) {
                     Toasts.showLong(context, text("«" + track.title + "» скачан и в понравившихся",
                             "\"" + track.title + "\" downloaded and added to your likes"));

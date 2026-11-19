@@ -4,8 +4,10 @@ import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Outline;
 import android.net.Uri;
+import android.provider.OpenableColumns;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -29,6 +31,7 @@ import java.io.OutputStream;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.theme.ArsoundTheme;
+import app.revanced.extension.soundcloud.wallpaper.BoundedCopy;
 import app.revanced.extension.soundcloud.wallpaper.TopBarStyle;
 import app.revanced.extension.soundcloud.wallpaper.WallpaperStore;
 
@@ -337,6 +340,16 @@ final class WallpaperRows {
     /** The request code of {@link #pickOwnPicture}, for the screen's {@code onActivityResult}. */
     static final int REQUEST_OWN_PICTURE = 7101;
 
+    /** The size the system names for the picked file, or -1 when it names none: then the copy counts the bytes itself. */
+    private static long reportedSize(Context context, Uri picture) {
+        try (Cursor cursor = context.getContentResolver().query(picture, new String[]{OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getLong(0);
+        } catch (Exception ignored) {
+            // Not every provider answers this query.
+        }
+        return -1;
+    }
+
     /**
      * The picture the user picked: copied into the cache, kept as the wallpaper the same way a catalogue picture is
      * (an odd file is refused with a message), then the screen is built again with it.
@@ -346,18 +359,23 @@ final class WallpaperRows {
         Context context = activity.getApplicationContext();
         Utils.runOnBackgroundThread(() -> {
             File copy = new File(context.getCacheDir(), "arsound-own-wallpaper.tmp");
-            boolean kept = false;
-            try (InputStream input = context.getContentResolver().openInputStream(picture);
-                 OutputStream output = new FileOutputStream(copy)) {
-                if (input != null) {
-                    byte[] buffer = new byte[64 * 1024];
-                    for (int read; (read = input.read(buffer)) > 0; ) output.write(buffer, 0, read);
-                    kept = true;
+            // A file the system says is too big is refused before a byte of it is copied.
+            boolean tooBig = reportedSize(context, picture) > WallpaperStore.MAX_OWN_BYTES;
+            boolean read = false;
+            if (!tooBig) {
+                try (InputStream input = context.getContentResolver().openInputStream(picture);
+                     OutputStream output = new FileOutputStream(copy)) {
+                    if (input != null) {
+                        // The copy stops at the limit: a bigger file is not written to the end before it is refused.
+                        tooBig = BoundedCopy.copy(input, output, WallpaperStore.MAX_OWN_BYTES) < 0;
+                        read = !tooBig;
+                    }
+                } catch (Exception ex) {
+                    app.revanced.extension.shared.Logger.printException(() -> "Wallpaper: could not read the picked picture", ex);
                 }
-            } catch (Exception ex) {
-                app.revanced.extension.shared.Logger.printException(() -> "Wallpaper: could not read the picked picture", ex);
             }
-            WallpaperStore.Result result = kept ? WallpaperStore.installOwnMedia(context, copy) : WallpaperStore.Result.FAILED;
+            WallpaperStore.Result result = tooBig ? WallpaperStore.Result.TOO_BIG
+                    : read ? WallpaperStore.installOwnMedia(context, copy) : WallpaperStore.Result.FAILED;
             boolean installed = result == WallpaperStore.Result.KEPT;
             copy.delete();
             Utils.runOnMainThread(() -> {

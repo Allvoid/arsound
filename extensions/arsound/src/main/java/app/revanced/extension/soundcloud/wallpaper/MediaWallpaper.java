@@ -1,7 +1,10 @@
 package app.revanced.extension.soundcloud.wallpaper;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.ImageDecoder;
 import android.graphics.Matrix;
@@ -80,6 +83,24 @@ public final class MediaWallpaper {
         }
     }
 
+    /**
+     * Called when an activity is destroyed (from the theme's lifecycle). The layer's entry is taken out here: the map
+     * is weak on the activity, but the layer holds the activity, so the entry would keep every destroyed main screen
+     * with its decoded frames until the process ends.
+     */
+    public static void onActivityDestroyed(Activity activity) {
+        Layer layer;
+        synchronized (LAYERS) {
+            layer = LAYERS.remove(activity);
+        }
+        if (layer == null) return;
+        try {
+            layer.destroy();
+        } catch (Throwable ex) {
+            Logger.printException(() -> "Wallpaper: could not remove the moving wallpaper", ex);
+        }
+    }
+
     /** The dim, the blur or the file changed (see {@link WallpaperStore}): every layer follows. */
     static void onChanged() {
         Utils.runOnMainThread(() -> {
@@ -109,7 +130,11 @@ public final class MediaWallpaper {
         private View media;
         private String stamp = "";
         private boolean resumed;
-        private boolean broken;
+        /** Set by a failure on a background thread too, so it is volatile. */
+        private volatile boolean broken;
+        private boolean watchingSaver;
+        /** The generation an animation is being decoded for, or -1 while none is: one decode per picture at a time. */
+        private int decodingFor = -1;
 
         private MediaPlayer player;
         private Surface surface;
@@ -132,12 +157,57 @@ public final class MediaWallpaper {
 
         void resume() {
             resumed = true;
+            watchSaver();
             follow();
         }
 
         void pause() {
             resumed = false;
+            unwatchSaver();
             stopPlaying();
+        }
+
+        /** The activity is gone: the player, the decoded frames and the layer in its window go with it. */
+        void destroy() {
+            resumed = false;
+            unwatchSaver();
+            stopPlaying();
+            dropMedia();
+            ViewGroup parent = (ViewGroup) getParent();
+            if (parent != null) parent.removeView(this);
+        }
+
+        /**
+         * While the layer is on the screen, a change of battery saver stops or starts the moving picture at once: the
+         * activity is not paused by the change, so without this the video kept decoding until the next visit.
+         */
+        private final BroadcastReceiver saverWatch = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!resumed) return;
+                if (mayPlay()) startPlaying();
+                else stopPlaying();
+            }
+        };
+
+        private void watchSaver() {
+            if (watchingSaver) return;
+            try {
+                activity.registerReceiver(saverWatch, new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+                watchingSaver = true;
+            } catch (Exception ex) {
+                Logger.printException(() -> "Wallpaper: could not watch battery saver", ex);
+            }
+        }
+
+        private void unwatchSaver() {
+            if (!watchingSaver) return;
+            watchingSaver = false;
+            try {
+                activity.unregisterReceiver(saverWatch);
+            } catch (Exception ignored) {
+                // Already gone.
+            }
         }
 
         /** Brings the layer up to date with the files and the sliders, and plays when it may. */
@@ -287,7 +357,10 @@ public final class MediaWallpaper {
                 animation.start();
                 return;
             }
+            // Every slider step asks again while the first decode still runs: a second one would decode the frames twice.
+            if (decodingFor == generation) return;
             int expected = generation;
+            decodingFor = expected;
             Utils.runOnBackgroundThread(() -> {
                 try {
                     int shortSide = Math.min(activity.getResources().getDisplayMetrics().widthPixels,
@@ -299,7 +372,9 @@ public final class MediaWallpaper {
                         decoder.setTargetSize(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
                     });
                     Utils.runOnMainThread(() -> {
-                        if (expected != generation || !(media instanceof ImageView) || !(drawable instanceof AnimatedImageDrawable)) {
+                        if (decodingFor == expected) decodingFor = -1;
+                        if (expected != generation || animation != null || !(media instanceof ImageView)
+                                || !(drawable instanceof AnimatedImageDrawable)) {
                             return;
                         }
                         animation = (AnimatedImageDrawable) drawable;
@@ -310,6 +385,9 @@ public final class MediaWallpaper {
                 } catch (Exception | OutOfMemoryError ex) {
                     Logger.printException(() -> "Wallpaper: could not play the animation", ex);
                     broken = true;
+                    Utils.runOnMainThread(() -> {
+                        if (decodingFor == expected) decodingFor = -1;
+                    });
                 }
             });
         }

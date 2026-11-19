@@ -96,4 +96,25 @@ public class LyricsAlignerTest {
         assertTrue(!LyricsAligner.same("go", "no"));
         assertTrue(!LyricsAligner.same("planet", "plantain"));
     }
+
+    @Test
+    public void parenthesisedSungLinesStayButPartMarksGo() {
+        LyricsAligner.Result result = LyricsAligner.align(
+                "(Chorus)\n(oh yeah, oh yeah)\nla la la one two\n(2x)\n(Outro)\nla la la three four", null, null, 100_000);
+        assertEquals(Arrays.asList("(oh yeah, oh yeah)", "la la la one two", "la la la three four"), Arrays.asList(result.lines));
+    }
+
+    @Test
+    public void trailingLinesStayInsideTheTrack() {
+        String[] heard = {"first line of a song", "second line goes here", "third line comes after", "fourth line ends it all"};
+        long[] at = {10_000, 20_000, 40_000, 179_000};
+        String text = TEXT + "\nsilver kettle drum\namber window glass\nmorning copper field\n"
+                + "velvet harbour light\nwinter paper ship\nhollow cedar bell\nstone meadow ember\n"
+                + "quiet ridge thunder\nsalt garden hour\nlast brass lantern";
+        LyricsAligner.Result result = LyricsAligner.align(text, heard, at, 180_000);
+        assertEquals(14, result.lines.length);
+        assertEquals(179_000, result.times[3]);
+        for (int i = 1; i < result.times.length; i++) assertTrue(result.times[i] > result.times[i - 1]);
+        assertTrue(result.times[result.times.length - 1] < 180_000);
+    }
 }

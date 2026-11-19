@@ -41,24 +41,55 @@ final class AccountAvatars {
         Drawable photo = photo(picture, 0);
         if (photo == null) {
             Logger.printInfo(() -> "Accounts: the profile button shows no photo (" + picture.getClass().getSimpleName() + ")");
-            forget(context, account);
+            // Only the grey figure is a sure sign of "no photo". A photo still loading looks the same to us, and the
+            // kept picture must not go because of it.
+            if (isPlaceholder(picture, 0)) forget(context, account);
             return;
         }
+        Bitmap bitmap = null;
+        File temporary = null;
         try {
-            Bitmap bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888);
+            bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(bitmap);
             Drawable copy = photo.getConstantState() != null ? photo.getConstantState().newDrawable().mutate() : photo;
             copy.setBounds(0, 0, SIZE, SIZE);
             copy.draw(canvas);
             File folder = file.getParentFile();
             if (folder != null && !folder.isDirectory() && !folder.mkdirs()) return;
-            try (FileOutputStream out = new FileOutputStream(file)) {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+            // Written beside the picture and renamed over it: a break in the middle leaves the old one, not half a PNG.
+            temporary = new File(file.getPath() + ".tmp");
+            boolean written;
+            try (FileOutputStream out = new FileOutputStream(temporary)) {
+                written = bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
             }
-            bitmap.recycle();
+            if (written && temporary.renameTo(file)) {
+                temporary = null;
+            }
         } catch (Exception ex) {
             Logger.printException(() -> "Accounts: could not keep the picture of the account", ex);
+        } finally {
+            if (bitmap != null) bitmap.recycle();
+            if (temporary != null && !temporary.delete() && temporary.exists()) {
+                Logger.printInfo(() -> "Accounts: could not delete a half-written picture");
+            }
         }
+    }
+
+    /** True when the drawable is SoundCloud's grey figure (a vector), possibly inside a ripple or an inset. */
+    private static boolean isPlaceholder(Drawable drawable, int depth) {
+        if (drawable == null || depth > 4) return false;
+        if (drawable.getClass().getName().contains("Vector")) return true;
+        if (drawable instanceof android.graphics.drawable.LayerDrawable) {
+            android.graphics.drawable.LayerDrawable layers = (android.graphics.drawable.LayerDrawable) drawable;
+            for (int i = 0; i < layers.getNumberOfLayers(); i++) {
+                if (isPlaceholder(layers.getDrawable(i), depth + 1)) return true;
+            }
+            return false;
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 23 && drawable instanceof android.graphics.drawable.DrawableWrapper) {
+            return isPlaceholder(((android.graphics.drawable.DrawableWrapper) drawable).getDrawable(), depth + 1);
+        }
+        return false;
     }
 
     /** The photo inside the button's drawable (a ripple, an inset), or null if it shows none. */

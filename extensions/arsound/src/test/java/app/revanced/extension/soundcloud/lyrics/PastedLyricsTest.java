@@ -2,6 +2,7 @@ package app.revanced.extension.soundcloud.lyrics;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -64,5 +65,23 @@ public class PastedLyricsTest {
     public void trackNamesBecomeSafeFileNames() {
         File file = PastedLyrics.fileOf(new File("f"), "soundcloud:tracks:1/../x");
         assertEquals("soundcloud_tracks_1_.._x.json", file.getName());
+    }
+
+    @Test
+    public void aFileThatIsGoneCountsAsDeleted() throws Exception {
+        File folder = temp.newFolder("gone");
+        assertTrue(PastedLyrics.delete(folder, "never-saved"));
+        PastedLyrics.write(folder, "a", "x", PastedLyrics.toLyrics(LyricsAligner.align("la la\nlo lo", null, null, 0)), 0);
+        assertTrue(PastedLyrics.delete(folder, "a"));
+        assertFalse(PastedLyrics.fileOf(folder, "a").exists());
+    }
+
+    @Test
+    public void aTextOverTheLimitIsRefusedAndOneAtTheLimitIsNot() {
+        String atLimit = new String(new char[PastedLyrics.MAX_CHARS]).replace('\0', 'a');
+        String overLimit = atLimit + "a";
+        assertFalse(PastedLyrics.tooLong(atLimit));
+        assertTrue(PastedLyrics.tooLong(overLimit));
+        assertFalse(PastedLyrics.tooLong(null));
     }
 }

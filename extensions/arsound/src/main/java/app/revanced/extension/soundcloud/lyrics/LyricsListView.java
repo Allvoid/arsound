@@ -580,8 +580,8 @@ final class LyricsListView extends ScrollView {
     }
 
     private void tapped(float x, float y, long time) {
-        // The button answers its own tap: it is not the cover's (pause and play).
-        if (isOn(again, x, y)) return;
+        // The buttons answer their own taps: they are not the cover's (pause and play).
+        if (isOn(again, x, y) || isOn(pasteButton, x, y) || isOn(removeButton, x, y)) return;
         int line = lineAt(Math.round(y) + getScrollY());
         boolean seekable = line >= 0 && isTimed() && !lyrics.lines[line].isEmpty();
         if (!seekable) {

@@ -26,9 +26,9 @@ public class LikeQueueStateTest {
         LikeQueueState state = new LikeQueueState();
         assertEquals(3, state.add(urns(3), Collections.emptySet()));
         assertEquals("soundcloud:tracks:3", state.peek());
-        state.liked("d1");
+        state.liked("soundcloud:tracks:3", "d1");
         assertEquals("soundcloud:tracks:2", state.peek());
-        state.liked("d1");
+        state.liked("soundcloud:tracks:2", "d1");
         assertEquals("soundcloud:tracks:1", state.peek());
     }
 
@@ -47,7 +47,8 @@ public class LikeQueueStateTest {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(120), Collections.emptySet());
         assertEquals(50, state.allowance("d1"));
-        for (int i = 0; i < 50; i++) state.liked("d1");
+        // The head of the queue is the last track of the playlist: 120 first, then 119 and so on.
+        for (int i = 120; i > 70; i--) state.liked("soundcloud:tracks:" + i, "d1");
         assertEquals(0, state.allowance("d1"));
         assertTrue(state.dayUsed("d1"));
         assertEquals(70, state.remaining());
@@ -61,7 +62,7 @@ public class LikeQueueStateTest {
     public void skippedTracksTakeNothingFromTheDay() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(3), Collections.emptySet());
-        state.skipped();
+        state.skipped("soundcloud:tracks:3");
         assertEquals(50, state.allowance("d1"));
         assertEquals(1, state.done());
         assertEquals(2, state.remaining());
@@ -71,7 +72,7 @@ public class LikeQueueStateTest {
     public void postponedTrackGoesToTheBack() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(3), Collections.emptySet());
-        state.postponed();
+        state.postponed("soundcloud:tracks:3");
         assertEquals("soundcloud:tracks:2", state.peek());
         assertEquals(3, state.remaining());
     }
@@ -80,7 +81,7 @@ public class LikeQueueStateTest {
     public void survivesTheTrip() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(60), Collections.emptySet());
-        for (int i = 0; i < 7; i++) state.liked("2026-11-18");
+        for (int i = 60; i > 53; i--) state.liked("soundcloud:tracks:" + i, "2026-11-18");
         LikeQueueState back = LikeQueueState.parse(state.serialize());
         assertEquals(state.peek(), back.peek());
         assertEquals(53, back.remaining());
@@ -102,11 +103,56 @@ public class LikeQueueStateTest {
     public void aNewQueueAfterAnEmptyOneCountsAnew() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(2), Collections.emptySet());
-        state.liked("d1");
-        state.liked("d1");
+        state.liked("soundcloud:tracks:2", "d1");
+        state.liked("soundcloud:tracks:1", "d1");
         state.add(urns(5), Collections.emptySet());
         assertEquals(5, state.total());
         assertEquals(0, state.done());
+    }
+
+    @Test
+    public void aLikeOfAStoppedQueueIsCountedButDoesNotLeaveTheNewOne() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(3), Collections.emptySet());
+        // The queue was stopped and filled again while the like of track 3 was on its way.
+        state.clear();
+        state.add(urns(2), Collections.emptySet());
+        state.liked("soundcloud:tracks:3", "d1");
+        assertEquals("soundcloud:tracks:2", state.peek());
+        assertEquals(2, state.remaining());
+        assertEquals(0, state.done());
+        // The server took the like, so it counts for the day.
+        assertEquals(49, state.allowanceOf("d1"));
+    }
+
+    @Test
+    public void aTrackNotAtTheFrontIsLeftAlone() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(3), Collections.emptySet());
+        state.skipped("soundcloud:tracks:1");
+        state.postponed("soundcloud:tracks:1");
+        assertEquals("soundcloud:tracks:3", state.peek());
+        assertEquals(3, state.remaining());
+        assertEquals(0, state.done());
+    }
+
+    @Test
+    public void aCopyDoesNotFollowLaterChanges() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(3), Collections.emptySet());
+        LikeQueueState copy = state.copy();
+        state.liked("soundcloud:tracks:3", "d1");
+        assertEquals(3, copy.remaining());
+        assertEquals(0, copy.done());
+        assertEquals(2, state.remaining());
+        assertEquals(1, state.done());
+    }
+
+    @Test
+    public void accountsGetTheirOwnFileKeys() {
+        assertEquals("matvey_40_mail_2e_ru-123", LikeQueueState.keyOf("matvey@mail.ru-123"));
+        assertEquals("abc-9", LikeQueueState.keyOf("abc-9"));
+        assertFalse(LikeQueueState.keyOf("a.b").equals(LikeQueueState.keyOf("a_b")));
     }
 
     @Test

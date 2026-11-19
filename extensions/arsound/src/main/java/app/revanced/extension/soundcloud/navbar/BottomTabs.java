@@ -44,11 +44,19 @@ public final class BottomTabs {
         try {
             List<?> all = TabOrder.reorder(withWave(tabs), BottomTabs::keyOf, TabChoice.order());
             TabOrder.Arranged<Object> arranged = TabOrder.arrange(all, BottomTabs::placementOf);
-            shown = arranged.shown;
+            // The keys and marks describe the list handed back, place by place. With nothing hidden that is the list as
+            // it came, which can differ from the arranged order (the Upgrade tab may sit elsewhere in it).
+            boolean nothingHidden = arranged.hiddenCount() == 0;
+            List<?> result = nothingHidden ? all : arranged.tabs;
+            List<Boolean> marks = new java.util.ArrayList<>();
             List<String> arrangedKeys = new java.util.ArrayList<>();
-            for (Object tab : arranged.tabs) arrangedKeys.add(keyOf(tab));
+            for (int i = 0; i < result.size(); i++) {
+                arrangedKeys.add(keyOf(result.get(i)));
+                marks.add(nothingHidden || arranged.shown.get(i));
+            }
+            shown = marks;
             keys = arrangedKeys;
-            if (arranged.hiddenCount() == 0) return all;
+            if (nothingHidden) return all;
             Logger.printInfo(() -> "Bottom bar: " + arranged.hiddenCount() + " of " + tabs.size() + " tabs hidden");
             return arranged.tabs;
         } catch (Throwable ex) {
@@ -108,8 +116,12 @@ public final class BottomTabs {
 
     /**
      * The tab the user chose to start on, opened once per run of the app and only when the app was started from the
-     * launcher: a link, a shortcut or a restored screen already say where to go. The first tab of the bar is what the
-     * app opens by itself; here another one is selected by its button, as a tap on it would.
+     * launcher: a link or a shortcut already says where to go. The first tab of the bar is what the app opens by itself;
+     * here another one is selected by its button, as a tap on it would.
+     * <p>
+     * Known limit: when Android brings the app back after its process was killed, the restored screen (say Library) looks
+     * the same as a launch from here. The hook cannot see the saved instance state, so the start tab replaces that screen
+     * once, 400 ms after the bar is built.
      */
     private static void openStartTab(View navigationBar, Menu menu, List<Boolean> places) throws Exception {
         if (startApplied) return;

@@ -128,7 +128,7 @@ public final class FontChoice {
                 Logger.printInfo(() -> "Font: the picked file is not a font Android can read");
                 return false;
             }
-            if (target.exists() && !target.delete()) return false;
+            // Android renames over the old font in one step: the kept font stays in place if this fails.
             if (!temporary.renameTo(target)) return false;
             Logger.printInfo(() -> "Font: own font kept, " + target.length() + " bytes");
             return true;

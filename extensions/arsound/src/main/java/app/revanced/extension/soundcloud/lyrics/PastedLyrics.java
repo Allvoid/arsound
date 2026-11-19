@@ -49,12 +49,13 @@ final class PastedLyrics {
     /**
      * Aligns the text with the track and keeps it.
      *
-     * @return The words to show, or null when the text is empty or could not be kept.
+     * @return The words to show, or null when the text is empty, too long or could not be kept.
      */
     static Lyrics save(TrackInfo info, String pasted) {
         File folder = folder();
-        if (folder == null || pasted == null) return null;
-        String text = pasted.length() > MAX_CHARS ? pasted.substring(0, MAX_CHARS) : pasted;
+        // A text over the limit is refused whole: cutting it would drop the end of the words without a word to the user.
+        if (folder == null || pasted == null || tooLong(pasted)) return null;
+        String text = pasted;
         Transcript heard = null;
         try {
             heard = TranscriptionManager.stored(info.urn, info.durationMs);
@@ -74,10 +75,15 @@ final class PastedLyrics {
         return lyrics;
     }
 
-    /** Forgets the pasted words of the track. */
-    static void remove(TrackInfo info) {
+    /** Whether a pasted text is longer than the limit, so that it is refused rather than kept cut. */
+    static boolean tooLong(String pasted) {
+        return pasted != null && pasted.length() > MAX_CHARS;
+    }
+
+    /** Forgets the pasted words of the track; false when the file is still there, so the words still show. */
+    static boolean remove(TrackInfo info) {
         File folder = folder();
-        if (folder != null) delete(folder, info.urn);
+        return folder == null || delete(folder, info.urn);
     }
 
     private static File folder() {
@@ -149,10 +155,10 @@ final class PastedLyrics {
         return json == null ? null : json.optString("raw", null);
     }
 
-    static void delete(File folder, String urn) {
+    /** Deletes the file of the track; false when it could not be deleted. A file that is already gone counts as deleted. */
+    static boolean delete(File folder, String urn) {
         File file = fileOf(folder, urn);
-        //noinspection ResultOfMethodCallIgnored
-        file.delete();
+        return file.delete() || !file.exists();
     }
 
     private static JSONObject readJson(File folder, String urn) {

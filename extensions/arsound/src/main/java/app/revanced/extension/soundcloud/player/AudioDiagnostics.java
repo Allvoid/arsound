@@ -168,8 +168,12 @@ final class AudioDiagnostics {
         }
     }
 
+    /**
+     * The kind of the output only. The product name is left out on purpose: a headset is often named after its owner
+     * ("Ivan's AirPods"), and the log is shared when a problem is reported.
+     */
     private static String deviceName(AudioDeviceInfo device) {
-        return typeName(device.getType()) + " " + device.getProductName();
+        return typeName(device.getType());
     }
 
     /** The common kinds of output by name; the rest by number. */
