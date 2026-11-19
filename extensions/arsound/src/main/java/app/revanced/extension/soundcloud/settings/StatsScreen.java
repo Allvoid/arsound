@@ -18,6 +18,7 @@ import app.revanced.extension.soundcloud.player.ListenBuckets;
 import app.revanced.extension.soundcloud.player.ListeningStats;
 import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 import app.revanced.extension.soundcloud.shared.Colors;
+import app.revanced.extension.soundcloud.stats.ReviewDialogs;
 
 /**
  * What was listened to and for how long, kept on this phone only. The results are three cards: the totals with a bar
@@ -81,6 +82,10 @@ final class StatsScreen extends SectionScreen {
                 new long[]{7, 30, 365, 0},
                 new String[]{text("7 дней", "7 days"), text("30 дней", "30 days"), text("Год", "Year"), text("Всё время", "All time")},
                 () -> showStats(content)).icon("clock"));
+        list.addView(ui.createActionRow(text("Итоги года", "Year in review"),
+                text("Время, прослушивания, лучший исполнитель, самый музыкальный день, дни подряд и новые исполнители за любой год или выбранный период. Карточкой-картинкой можно поделиться.",
+                        "Time, plays, top artist, busiest day, days in a row and new artists for any year or the chosen period. The card can be shared as a picture."),
+                v -> ReviewDialogs.open(activity, Settings.getLong("stats_period", 30), ui.accent())).icon("stats"));
         list.addView(ui.createSubHeading(text("Результаты", "Results")));
         list.addView(content);
         showStats(content);

@@ -3,7 +3,7 @@ package app.revanced.extension.soundcloud.settings;
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
 /** Counts with their words, in the form Russian wants after the number. */
-final class Numerals {
+public final class Numerals {
     private Numerals() {
     }
 
@@ -24,7 +24,7 @@ final class Numerals {
     }
 
     /** The form of a word after a number: one (1, 21), few (2-4, 22-24), many (the rest, and 11-14). */
-    static String russianForm(long count, String one, String few, String many) {
+    public static String russianForm(long count, String one, String few, String many) {
         long tens = count % 100, ones = count % 10;
         return tens >= 11 && tens <= 14 ? many : ones == 1 ? one : ones >= 2 && ones <= 4 ? few : many;
     }
