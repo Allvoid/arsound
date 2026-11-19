@@ -21,7 +21,9 @@ final class ImportedQuery {
         ARTIST,
         ALBUM,
         YEAR,
-        BITRATE
+        BITRATE,
+        /** The longest first, as on the desktop. */
+        DURATION
     }
 
     /** One track of the playlist as the search sees it; {@link #known} is false while its tags are not read yet. */
@@ -31,9 +33,21 @@ final class ImportedQuery {
         final String title, artist, album, fileName;
         final int year, track, bitRate;
         final boolean lossless;
+        /** The length of the file in milliseconds, 0 when it is not known. */
+        final long durationMs;
+        /**
+         * The year the album order tells albums of one name apart by, set by {@link #apply} (see {@link #albumYears}):
+         * 0 for an album that has one year at most, so its tracks stay together.
+         */
+        int albumYear;
 
         Item(Object urn, boolean known, String title, String artist, String album, String fileName,
              int year, int track, int bitRate, boolean lossless) {
+            this(urn, known, title, artist, album, fileName, year, track, bitRate, lossless, 0);
+        }
+
+        Item(Object urn, boolean known, String title, String artist, String album, String fileName,
+             int year, int track, int bitRate, boolean lossless, long durationMs) {
             this.urn = urn;
             this.known = known;
             this.title = title == null ? "" : title;
@@ -44,6 +58,7 @@ final class ImportedQuery {
             this.track = track;
             this.bitRate = bitRate;
             this.lossless = lossless;
+            this.durationMs = durationMs;
         }
 
         /** A track of the playlist that is not a file (a SoundCloud track): only its title is known, if at all. */
@@ -80,6 +95,7 @@ final class ImportedQuery {
         List<Item> kept = new ArrayList<>();
         for (Item item : items) if (matches(item, words, losslessOnly)) kept.add(item);
         // A stable sort: tracks that compare equal keep the playlist's order.
+        if (sort == Sort.ALBUM) albumYears(kept);
         if (sort != Sort.ADDED) kept.sort(comparator(sort));
         List<Object> result = new ArrayList<>(kept.size());
         for (Item item : kept) result.add(item.urn);
@@ -101,15 +117,103 @@ final class ImportedQuery {
             case ARTIST:
                 return knownFirst.thenComparing(artist).thenComparing(album).thenComparing(track).thenComparing(title);
             case ALBUM:
-                return knownFirst.thenComparing(album).thenComparing(track).thenComparing(title);
+                // Two albums of one name are told apart by their years; the tracks of an album go by their numbers.
+                return knownFirst.thenComparing(album).thenComparing((a, b) -> numberUp(a.albumYear, b.albumYear))
+                        .thenComparing(track).thenComparing(title);
             case YEAR:
                 return knownFirst.thenComparing((a, b) -> numberDown(a.year, b.year)).thenComparing(album)
                         .thenComparing(track);
             case BITRATE:
                 return knownFirst.thenComparing((a, b) -> numberDown(a.bitRate, b.bitRate));
+            case DURATION:
+                return knownFirst.thenComparing((a, b) -> longDown(a.durationMs, b.durationMs));
             default:
                 return (a, b) -> 0;
         }
+    }
+
+    /**
+     * Sets {@link Item#albumYear} of the given tracks. Albums of one name ("Greatest Hits" of two bands) are told apart
+     * by their years, but an album whose tracks give one year at most (or a compilation of many artists with one
+     * year) stays together, and a track without a year of an album that has several goes after them. The desktop
+     * compares the years of two tracks only when both are known; this decides it per album, so the order is
+     * consistent (a sort that is not may fail in Java).
+     */
+    static void albumYears(List<Item> items) {
+        java.util.Map<String, java.util.Set<Integer>> years = new java.util.HashMap<>();
+        for (Item item : items) {
+            java.util.Set<Integer> set = years.get(albumKey(item.album));
+            if (set == null) years.put(albumKey(item.album), set = new java.util.HashSet<>());
+            if (item.year > 0) set.add(item.year);
+        }
+        for (Item item : items) {
+            // The files without an album are one group whatever their years.
+            item.albumYear = !item.album.isEmpty() && years.get(albumKey(item.album)).size() > 1 ? item.year : 0;
+        }
+    }
+
+    private static String albumKey(String album) {
+        return normalize(album);
+    }
+
+    /** One album of the list in album order: what a header over its tracks would say. */
+    static final class AlbumGroup {
+        final String album;
+        /** The artist when all its tracks share one, else empty (a collection). */
+        final String artist;
+        /** The year of the album when its tracks give one, else 0. */
+        final int year;
+        final int count;
+
+        AlbumGroup(String album, String artist, int year, int count) {
+            this.album = album;
+            this.artist = artist;
+            this.year = year;
+            this.count = count;
+        }
+    }
+
+    /**
+     * The albums of tracks that are already in album order ({@link Sort#ALBUM}), in that order: a new one starts where
+     * the album name or the album's year changes. Files without an album are one group with an empty name.
+     */
+    static List<AlbumGroup> albumGroups(List<Item> inAlbumOrder) {
+        List<AlbumGroup> groups = new ArrayList<>();
+        String album = null;
+        int albumYear = 0, year = 0, count = 0;
+        String artist = "";
+        for (Item item : inAlbumOrder) {
+            boolean other = album == null || !albumKey(album).equals(albumKey(item.album)) || albumYear != item.albumYear;
+            if (other) {
+                if (album != null) groups.add(new AlbumGroup(album, artist, year, count));
+                album = item.album;
+                albumYear = item.albumYear;
+                artist = item.artist;
+                year = item.year;
+                count = 0;
+            }
+            count++;
+            if (!artist.equals(item.artist)) artist = "";
+            if (year == 0) year = item.year;
+        }
+        if (album != null) groups.add(new AlbumGroup(album, artist, year, count));
+        return groups;
+    }
+
+    /** The number of albums the list has in album order. */
+    static int albumCount(List<Item> items, String query, boolean losslessOnly) {
+        String[] words = words(query);
+        List<Item> kept = new ArrayList<>();
+        for (Item item : items) if (matches(item, words, losslessOnly)) kept.add(item);
+        albumYears(kept);
+        kept.sort(comparator(Sort.ALBUM));
+        return albumGroups(kept).size();
+    }
+
+    /** Large first, 0 (not known) last. */
+    private static int longDown(long a, long b) {
+        if ((a <= 0) != (b <= 0)) return a <= 0 ? 1 : -1;
+        return Long.compare(b, a);
     }
 
     /** Alphabetical, an empty value last. */

@@ -173,6 +173,20 @@ final class ThemeTableBuilder {
             if (typeAndName.length != 2 || typeAndName[1].startsWith("arsound_")) continue;
             overrides.alias(typeAndName[0], typeAndName[1], "arsound_" + theme.id + "__" + typeAndName[1]);
         }
+        // The play button glow switched off in Appearance: the flat copies of the buttons (the same circle without the
+        // glow around it) take the glowing ones' place. Only for a theme that has the buttons at all.
+        if (!PlayGlow.isOn()) {
+            for (String name : PlayGlow.BUTTONS) {
+                if (contains(replaced, "drawable/" + name)) {
+                    overrides.alias("drawable", name, "arsound_" + theme.id + "__" + PlayGlow.flatName(name));
+                }
+            }
+        }
+    }
+
+    private static boolean contains(JSONArray array, String value) {
+        for (int i = 0; i < array.length(); i++) if (value.equals(array.optString(i))) return true;
+        return false;
     }
 
     private void addRadii() {
