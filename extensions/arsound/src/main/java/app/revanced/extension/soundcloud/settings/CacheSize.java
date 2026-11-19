@@ -11,6 +11,8 @@ import app.revanced.extension.soundcloud.player.StreamCache;
 final class CacheSize {
     private static final long FRESH_MS = 60_000;
     private static volatile long bytes = -1;
+    /** The part of {@link #bytes} that is pictures: the catalogue's and the covers kept for playing offline. */
+    private static volatile long imageBytes;
     private static long countedAt;
 
     private CacheSize() {
@@ -18,14 +20,30 @@ final class CacheSize {
 
     /** Blocks while counting. Callers at the same time wait for the one count instead of walking the folder too. */
     static synchronized long get() {
+        count();
+        return bytes;
+    }
+
+    /** The parts of tracks streamed from the network. Blocks while counting. */
+    static synchronized long streamBytes() {
+        count();
+        return bytes - imageBytes;
+    }
+
+    /** The pictures Arsound keeps (the wallpaper catalogue, the covers for playing offline). Blocks while counting. */
+    static synchronized long imageBytes() {
+        count();
+        return imageBytes;
+    }
+
+    private static void count() {
         long now = SystemClock.elapsedRealtime();
-        long known = bytes;
-        if (known < 0 || now - countedAt > FRESH_MS) {
-            known = StreamCache.usedBytes() + StreamCache.otherCachesBytes();
-            bytes = known;
+        if (bytes < 0 || now - countedAt > FRESH_MS) {
+            long images = StreamCache.otherCachesBytes();
+            imageBytes = images;
+            bytes = StreamCache.usedBytes() + images;
             countedAt = now;
         }
-        return known;
     }
 
     /**

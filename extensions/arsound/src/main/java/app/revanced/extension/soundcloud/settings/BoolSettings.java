@@ -73,6 +73,11 @@ public final class BoolSettings {
     public static final BoolSetting THEME_EFFECTS = new BoolSetting(Settings.THEME_EFFECTS, true);
     /** Removes the picture behind the title of "Your likes" (the hearts) and of the purchases page. Off by default. */
     public static final BoolSetting HIDE_HEADER_ARTWORK = new BoolSetting(Settings.HIDE_HEADER_ARTWORK, false);
+    /**
+     * The glow around the play and pause buttons in the theme's colour. On by default; off swaps in flat buttons and
+     * restarts the app, as the buttons are part of the theme's resource table. Written at once for that restart.
+     */
+    public static final BoolSetting PLAY_GLOW = new BoolSetting(Settings.PLAY_GLOW, true, true);
     /** Removes the theme's greeting ("Привет, имя / Что послушаем?") from the top of the home screen. Off by default. */
     public static final BoolSetting HIDE_HOME_GREETING = new BoolSetting(Settings.HIDE_HOME_GREETING, false);
     /**

@@ -109,4 +109,69 @@ public class ImportedQueryTest {
         ImportedQuery.Item c = item("c", "Charlie", "", "", 0, 0, 0, false);
         assertEquals(Arrays.asList("a", "sc", "c"), ImportedQuery.apply(Arrays.asList(c, cloud, a), "", false, ImportedQuery.Sort.TITLE));
     }
+
+    private static ImportedQuery.Item timed(String urn, String album, int year, int track, long durationMs) {
+        return new ImportedQuery.Item(urn, true, urn, "Artist " + urn, album, urn + ".mp3", year, track, 0, false, durationMs);
+    }
+
+    @Test
+    public void durationGoesFromTheLongestAndUnknownLengthsLast() {
+        List<ImportedQuery.Item> items = Arrays.asList(
+                timed("short", "", 0, 0, 60_000), timed("unknown", "", 0, 0, 0), timed("long", "", 0, 0, 400_000),
+                timed("middle", "", 0, 0, 200_000));
+        assertEquals(Arrays.asList("long", "middle", "short", "unknown"),
+                ImportedQuery.apply(items, "", false, ImportedQuery.Sort.DURATION));
+    }
+
+    @Test
+    public void equalLengthsKeepTheGivenOrder() {
+        List<ImportedQuery.Item> items = Arrays.asList(timed("x", "", 0, 0, 5_000), timed("y", "", 0, 0, 5_000));
+        assertEquals(Arrays.asList("x", "y"), ImportedQuery.apply(items, "", false, ImportedQuery.Sort.DURATION));
+    }
+
+    @Test
+    public void twoAlbumsOfOneNameAreToldApartByTheirYears() {
+        List<ImportedQuery.Item> items = Arrays.asList(
+                timed("new2", "Greatest Hits", 2015, 2, 1), timed("old1", "Greatest Hits", 1999, 1, 1),
+                timed("new1", "Greatest Hits", 2015, 1, 1), timed("old2", "Greatest Hits", 1999, 2, 1));
+        assertEquals(Arrays.asList("old1", "old2", "new1", "new2"),
+                ImportedQuery.apply(items, "", false, ImportedQuery.Sort.ALBUM));
+    }
+
+    @Test
+    public void anAlbumWithOneYearStaysTogetherWhateverTheMissingYears() {
+        List<ImportedQuery.Item> items = Arrays.asList(
+                timed("t3", "Album", 2010, 3, 1), timed("t1", "Album", 0, 1, 1), timed("t2", "Album", 2010, 2, 1));
+        assertEquals(Arrays.asList("t1", "t2", "t3"), ImportedQuery.apply(items, "", false, ImportedQuery.Sort.ALBUM));
+    }
+
+    @Test
+    public void albumGroupsCountTracksAndKeepACommonArtistOnly() {
+        List<ImportedQuery.Item> items = Arrays.asList(
+                new ImportedQuery.Item("a1", true, "One", "Band", "First", "a1.mp3", 2001, 1, 0, false),
+                new ImportedQuery.Item("a2", true, "Two", "Band", "First", "a2.mp3", 0, 2, 0, false),
+                new ImportedQuery.Item("b1", true, "Three", "Alice", "Mix", "b1.mp3", 2005, 1, 0, false),
+                new ImportedQuery.Item("b2", true, "Four", "Bob", "Mix", "b2.mp3", 2005, 2, 0, false),
+                new ImportedQuery.Item("n1", true, "Loose", "Solo", "", "n1.mp3", 0, 0, 0, false));
+        assertEquals(3, ImportedQuery.albumCount(items, "", false));
+        List<ImportedQuery.Item> sorted = new java.util.ArrayList<>(items);
+        ImportedQuery.albumYears(sorted);
+        sorted.sort(ImportedQuery.comparator(ImportedQuery.Sort.ALBUM));
+        List<ImportedQuery.AlbumGroup> groups = ImportedQuery.albumGroups(sorted);
+        assertEquals("First", groups.get(0).album);
+        assertEquals("Band", groups.get(0).artist);
+        assertEquals(2001, groups.get(0).year);
+        assertEquals(2, groups.get(0).count);
+        assertEquals("Mix", groups.get(1).album);
+        assertEquals("", groups.get(1).artist);
+        assertEquals("", groups.get(2).album);
+        assertEquals(1, groups.get(2).count);
+    }
+
+    @Test
+    public void theLengthSurvivesTheKeptRecordAndAnOlderRecordIsReadAgain() {
+        FileTags.Tags tags = new FileTags.Tags("Title", "Artist", "Album", 2019, 3, 320_000, 215_000);
+        assertEquals(215_000, FileTags.Tags.parse(tags.format()).durationMs);
+        assertNull(FileTags.Tags.parse("tab20193320000"));
+    }
 }

@@ -46,6 +46,8 @@ final class ImportedView {
     private static volatile String query = "";
     private static volatile boolean losslessOnly;
     private static volatile ImportedQuery.Sort sort;
+    /** How many albums the list had when it was last shown in album order; 0 in another order. */
+    private static volatile int albums;
     /** SoundCloud tracks whose title was asked for, and when: a failed load (no network) is asked again later. */
     private static final java.util.Map<String, Long> ASKED_TITLES = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long ASK_AGAIN_MS = 60_000;
@@ -98,6 +100,7 @@ final class ImportedView {
         // is shown again with them.
         if (!untitled.isEmpty()) TrackTitles.rememberAll(untitled, ImportedView::refresh);
         List<Object> result = ImportedQuery.apply(items, query, losslessOnly, sort());
+        albums = sort() == ImportedQuery.Sort.ALBUM ? ImportedQuery.albumCount(items, query, losslessOnly) : 0;
         Logger.printInfo(() -> "Imported: " + result.size() + " of " + urns.size() + " shown (search \"" + query
                 + "\", lossless only " + losslessOnly + ", order " + sort() + ")");
         return result;
@@ -127,7 +130,7 @@ final class ImportedView {
             return new ImportedQuery.Item(urn, false, base, "", "", name, 0, 0, 0, FileTags.isLossless(file));
         }
         return new ImportedQuery.Item(urn, true, tags.title.isEmpty() ? base : tags.title, tags.artist, tags.album, name,
-                tags.year, tags.track, tags.bitRate, FileTags.isLossless(file));
+                tags.year, tags.track, tags.bitRate, FileTags.isLossless(file), tags.durationMs);
     }
 
     /** The tags of new files were read: a search or order that is on is applied again with them. */
@@ -153,8 +156,20 @@ final class ImportedView {
         if (sort() != ImportedQuery.Sort.ADDED) {
             if (part.length() > 0) part.append(' ');
             part.append("↕ ").append(sortLabel(sort()).toLowerCase(java.util.Locale.getDefault()));
+            // In album order the albums are the groups of the list: how many there are, since the list has no headings.
+            int count = albums;
+            if (sort() == ImportedQuery.Sort.ALBUM && count > 0) {
+                part.append(" · ").append(albumsText(count));
+            }
         }
         return part.toString();
+    }
+
+    /** "3 albums" / "3 альбома", in the language of the app. */
+    static String albumsText(int count) {
+        int tens = count % 100, ones = count % 10;
+        String ru = tens >= 11 && tens <= 14 ? "альбомов" : ones == 1 ? "альбом" : ones >= 2 && ones <= 4 ? "альбома" : "альбомов";
+        return text(count + " " + ru, count + (count == 1 ? " album" : " albums"));
     }
 
     private static String sortLabel(ImportedQuery.Sort sort) {
@@ -169,6 +184,8 @@ final class ImportedView {
                 return text("Год", "Year");
             case BITRATE:
                 return text("Битрейт", "Bit rate");
+            case DURATION:
+                return text("Длительность", "Duration");
             default:
                 return text("Добавлены", "Added");
         }

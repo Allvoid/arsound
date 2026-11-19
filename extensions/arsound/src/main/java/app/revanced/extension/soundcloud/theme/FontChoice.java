@@ -48,7 +48,10 @@ public final class FontChoice {
         }
         // The text colour rides in the same key: both are put into the one table.
         String colour = TextColour.key();
-        return colour.isEmpty() ? font : font + "~" + colour.substring(1);
+        String key = colour.isEmpty() ? font : font + "~" + colour.substring(1);
+        // And the play button glow: the flat buttons are put into the same table too.
+        String glow = PlayGlow.key();
+        return glow.isEmpty() ? key : key + "^" + glow;
     }
 
     /**

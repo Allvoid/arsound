@@ -33,28 +33,36 @@ final class FileTags {
     static final class Tags {
         final String title, artist, album;
         final int year, track, bitRate;
+        /** The length in milliseconds, 0 when the file does not say. */
+        final long durationMs;
 
         Tags(String title, String artist, String album, int year, int track, int bitRate) {
+            this(title, artist, album, year, track, bitRate, 0);
+        }
+
+        Tags(String title, String artist, String album, int year, int track, int bitRate, long durationMs) {
             this.title = clean(title);
             this.artist = clean(artist);
             this.album = clean(album);
             this.year = year;
             this.track = track;
             this.bitRate = bitRate;
+            this.durationMs = Math.max(0, durationMs);
         }
 
         String format() {
             return title + SEPARATOR + artist + SEPARATOR + album + SEPARATOR + year + SEPARATOR + track + SEPARATOR
-                    + bitRate;
+                    + bitRate + SEPARATOR + durationMs;
         }
 
         /** @return Null for a record of another shape (an older version, damage). */
         static Tags parse(String text) {
             String[] parts = text.split(String.valueOf(SEPARATOR), -1);
-            if (parts.length != 6) return null;
+            // Six fields were kept before the length was: such a file is read again, once.
+            if (parts.length != 7) return null;
             try {
                 return new Tags(parts[0], parts[1], parts[2], Integer.parseInt(parts[3]), Integer.parseInt(parts[4]),
-                        Integer.parseInt(parts[5]));
+                        Integer.parseInt(parts[5]), Long.parseLong(parts[6]));
             } catch (NumberFormatException ex) {
                 return null;
             }
@@ -149,7 +157,8 @@ final class FileTags {
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM),
                     year(year),
                     leadingNumber(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)),
-                    leadingNumber(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)));
+                    leadingNumber(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)),
+                    leadingNumber(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)));
         } catch (Exception ex) {
             Logger.printInfo(() -> "File tags: could not read " + file + ": " + ex);
             return new Tags("", "", "", 0, 0, 0);

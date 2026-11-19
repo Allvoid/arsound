@@ -17,7 +17,7 @@ import app.revanced.extension.soundcloud.shared.Colors;
 
 /**
  * The card at the top of the storage screen: one bar that shows how the space is shared between the downloaded tracks,
- * the stream cache and the saved lyrics, and a legend with the sizes. The sizes are counted in the background. Made by
+ * the stream cache, the pictures and the saved lyrics, and a legend with the sizes, then the free space of the phone. The sizes are counted in the background. Made by
  * {@link StorageScreen}.
  */
 final class StorageUsage {
@@ -43,7 +43,8 @@ final class StorageUsage {
         top.addView(total);
         body.addView(top);
 
-        int[] colors = {ui.accent(), Colors.blend(ui.accent(), ui.secondary(), 0.5f), ui.secondary()};
+        int[] colors = {ui.accent(), Colors.blend(ui.accent(), ui.secondary(), 0.35f),
+                Colors.blend(ui.accent(), ui.secondary(), 0.7f), ui.secondary()};
         UsageBar bar = new UsageBar(ui.activity, Colors.withAlpha(ui.secondary(), 0x33));
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(10));
         barParams.topMargin = ui.dp(12);
@@ -51,7 +52,7 @@ final class StorageUsage {
         body.addView(bar, barParams);
 
         String[] names = {text("Скачанные треки", "Downloaded tracks"), text("Кэш потоков", "Stream cache"),
-                text("Кэш текстов", "Lyrics cache")};
+                text("Кэш изображений", "Image cache"), text("Кэш текстов", "Lyrics cache")};
         TextView[] sizes = new TextView[names.length];
         for (int i = 0; i < names.length; i++) {
             LinearLayout line = new LinearLayout(ui.activity);
@@ -70,15 +71,26 @@ final class StorageUsage {
             line.setMinimumHeight(ui.dp(28));
             body.addView(line);
         }
+        // Apart from the bar: it is not Arsound's, it is what the phone has left.
+        LinearLayout freeLine = new LinearLayout(ui.activity);
+        freeLine.setGravity(Gravity.CENTER_VERTICAL);
+        freeLine.addView(ui.createText("Body.Secondary", text("Свободно на телефоне", "Free on the phone")),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView free = ui.createText("Body.Primary", "…");
+        freeLine.addView(free);
+        freeLine.setMinimumHeight(ui.dp(28));
+        body.addView(freeLine);
 
         ui.fillInBackground(() -> {
-            long[] parts = {StorageScreen.downloadsUsage()[1], CacheSize.get(),
+            long[] parts = {StorageScreen.downloadsUsage()[1], CacheSize.streamBytes(), CacheSize.imageBytes(),
                     LyricsRepository.storedBytes()};
-            long sum = parts[0] + parts[1] + parts[2];
+            long sum = parts[0] + parts[1] + parts[2] + parts[3];
+            long space = FreeSpace.bytes();
             Utils.runOnMainThread(() -> {
                 if (ui.activity.isFinishing() || ui.activity.isDestroyed()) return;
                 total.setText(Formatter.formatShortFileSize(ui.activity, sum));
                 for (int i = 0; i < parts.length; i++) sizes[i].setText(Formatter.formatShortFileSize(ui.activity, parts[i]));
+                free.setText(space < 0 ? "–" : Formatter.formatShortFileSize(ui.activity, space));
                 bar.setParts(parts, colors);
             });
         });

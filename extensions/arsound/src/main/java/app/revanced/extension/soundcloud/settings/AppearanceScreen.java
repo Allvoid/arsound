@@ -117,9 +117,9 @@ final class AppearanceScreen extends SectionScreen {
         list.addView(ui.createToggleRow(
                 text("Анимация темы", "Theme animation"),
                 text("Лёгкий живой фон: искры у «Алого», звёзды у «Кобальта», светлячки у «Мяты», лепестки у «Сакуры», "
-                                + "сканер у «Лайма», снег и иней у «Зимы». Замирает в режиме экономии батареи и когда анимации выключены в Android.",
+                                + "сканер у «Лайма», снег и иней у «Зимы», мягкие цветные пятна у Monet. Замирает в режиме экономии батареи и когда анимации выключены в Android.",
                         "A light living background: sparks for Scarlet, stars for Cobalt, fireflies for Mint, petals for "
-                                + "Sakura, a scanner for Lime, snow and frost for Winter. Stands still in battery saver mode and when Android's "
+                                + "Sakura, a scanner for Lime, snow and frost for Winter, soft colour blobs for Monet. Stands still in battery saver mode and when Android's "
                                 + "animations are off."),
                 BoolSettings.THEME_EFFECTS,
                 effectOptions,
@@ -300,6 +300,14 @@ final class AppearanceScreen extends SectionScreen {
                 "The track's cover and colours in the notification and on the lock screen.")));
         playerOptions.follow(ArsoundTheme.isPlayerSkinEnabled());
         list.addView(playerOptions);
+        list.addView(ui.createToggleRow(
+                text("Свечение кнопки «Играть»", "Play button glow"),
+                text("Кнопка воспроизведения светится цветом темы. Выключено — плоская кнопка без свечения. "
+                                + "Приложение перезапустится.",
+                        "The play button glows in the theme's colour. Off: a flat button without the glow. The app restarts."),
+                BoolSettings.PLAY_GLOW,
+                (button, checked) -> ArsoundTheme.restartApp(activity)
+        ).icon("player").brief(text("Кнопка «Играть» светится цветом темы.", "The play button glows in the theme's colour.")));
         list.addView(ui.createToggleRow(
                 text("Обложка целиком в плеере", "Whole cover in the player"),
                 text("Полноэкранный плеер показывает всю обложку между названием и волной, а за ней — размытую "

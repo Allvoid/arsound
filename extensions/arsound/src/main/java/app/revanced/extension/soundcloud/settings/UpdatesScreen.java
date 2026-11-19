@@ -60,6 +60,18 @@ final class UpdatesScreen extends SectionScreen {
     @Override
     void fill(LinearLayout list) {
         list.addView(ui.createSubHeading(text("Версия", "Version")));
+        // As the desktop's about card: the name, the version and what the app is, then the page of what is new.
+        list.addView(ui.createActionRow(
+                "Arsound",
+                text("Версия " + UpdateChecker.VERSION, "Version " + UpdateChecker.VERSION) + " · "
+                        + text("SoundCloud без рекламы", "SoundCloud without ads"),
+                v -> { }
+        ).icon("info"));
+        list.addView(ui.createActionRow(
+                text("Что нового", "What's new"),
+                text("Список изменений последнего выпуска на GitHub", "The changes of the latest release on GitHub"),
+                v -> UpdateChecker.openUrl(activity, UpdateChecker.REPOSITORY_URL + "/releases/latest")
+        ).icon("link").chevron().keywords(text("новое изменения список выпуск релиз", "new changes changelog release notes")));
         list.addView(ui.createActionRow(
                 text("Проверить обновления", "Check for updates"),
                 text("Версия " + UpdateChecker.VERSION, "Version " + UpdateChecker.VERSION),
