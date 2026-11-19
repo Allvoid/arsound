@@ -1723,6 +1723,30 @@ public final class DownloadTrackPatch {
     }
 
     /**
+     * The address a second player can stream a track from, for the overlap of the smooth transition when the next track
+     * is not on the phone: the progressive file, or the HLS playlist if it is not protected. Asks SoundCloud, so it is
+     * for a background thread.
+     *
+     * @return The address, or null for a preview, a track that needs a subscription, a DRM stream or a failed request.
+     */
+    public static String streamSource(String trackId) {
+        try {
+            TrackSource source = resolveSource(trackId);
+            switch (source.status) {
+                case READY:
+                    return source.url;
+                case REQUIRES_HLS_PROCESSING:
+                    return source.url != null && !HlsDownloader.isDrmProtected(source.url) ? source.url : null;
+                default:
+                    return null;
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "No stream address for track " + trackId + ": " + ex);
+            return null;
+        }
+    }
+
+    /**
      * The player reads the source of a file stream with {@code Uri.parse}, so a path with {@code #} or {@code ?} in the
      * file name (a title such as "Song #2016") was cut at that character and the file was not found: "Track cannot be
      * played". A {@code %} was read as an escape the same way. Such a path is handed over as a {@code file:} address

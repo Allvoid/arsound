@@ -76,7 +76,11 @@ public final class AudioEqualizer {
             short[] levels = levels(EffectParams.BANDS);
             for (int i = 0; i < bands.length; i++) bands[i] = levels[i] / 100f;
         }
-        return new EffectParams(bands, preamp() / 100f, TrackVersions.bass().bassShelfDb(), TrackVersions.reverb().ordinal());
+        // The track that plays may keep a reverb or a bass boost of its own (TrackSpeeds); the others follow the common choice.
+        String urn = SlowedPlayback.currentUrn();
+        VersionStrength bass = urn == null ? TrackVersions.bass() : TrackSpeeds.bassOf(urn);
+        VersionStrength reverb = urn == null ? TrackVersions.reverb() : TrackSpeeds.reverbOf(urn);
+        return new EffectParams(bands, preamp() / 100f, bass.bassShelfDb(), reverb.ordinal());
     }
 
     /**

@@ -87,6 +87,11 @@ public final class BoolSettings {
     public static final BoolSetting WHOLE_PLAYER_COVER = new BoolSetting(Settings.WHOLE_PLAYER_COVER, true, true);
     /** The end of a track fades out and the next one fades in. Off by default. */
     public static final BoolSetting CROSSFADE = new BoolSetting(Settings.CROSSFADE, false);
+    /**
+     * The next track starts without a gap: it is opened in a second player ahead and goes on the moment the first one
+     * ends, as on Arsound Desktop. Off by default until it is tried on a phone.
+     */
+    public static final BoolSetting GAPLESS = new BoolSetting(Settings.GAPLESS, false);
     /** Every track plays slowed, unless its title says it is slowed or sped up already. Off by default. */
     public static final BoolSetting SLOWED_PLAYBACK = new BoolSetting(Settings.SLOWED_PLAYBACK, false);
     /** Hides the comments that pop up over the player and their marks on the waveform. Off by default. */

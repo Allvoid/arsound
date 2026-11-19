@@ -85,7 +85,9 @@ public final class Crossfade {
             reportedAt = SystemClock.uptimeMillis();
             current = handler;
         }
+        // The smooth transition overlaps with a fade; without it the gapless change overlaps without one (fade 0).
         if (isEnabled()) CrossfadeOverlap.onProgress(position, duration, fadeLength(duration));
+        else if (BoolSettings.GAPLESS.get()) CrossfadeOverlap.onProgress(position, duration, 0);
         if (current != null) current.post(TICK);
     }
 
