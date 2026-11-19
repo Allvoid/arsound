@@ -93,6 +93,8 @@ public final class BoolSettings {
     public static final BoolSetting HIDE_PLAYER_COMMENTS = new BoolSetting(Settings.HIDE_PLAYER_COMMENTS, false);
     public static final BoolSetting DUPLICATE_FILTER = new BoolSetting(Settings.DUPLICATE_FILTER, false);
     public static final BoolSetting MERGE_EDITED_VERSIONS = new BoolSetting(Settings.MERGE_EDITED_VERSIONS, false);
+    /** The Feed tab leaves out reposts, as the desktop's "Hide reposts" tick does. Off by default. */
+    public static final BoolSetting HIDE_FEED_REPOSTS = new BoolSetting(Settings.HIDE_FEED_REPOSTS, false);
     public static final BoolSetting DEVELOPER_MODE = new BoolSetting(Settings.DEVELOPER_MODE, false);
     /**
      * Controls the player-level ad request guard. Enabled by default because an ad request that

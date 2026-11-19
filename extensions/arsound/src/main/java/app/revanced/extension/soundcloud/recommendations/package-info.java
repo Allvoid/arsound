@@ -15,10 +15,16 @@
  * has {@code filterSystemPlaylist}, called by {@code local.LocalAdditions}.</li>
  * <li>{@code TrackDislikes.addTrackMenuRow(Dialog, Object trackUrn)} - the "Not for me" row; called from the
  * track-menu hook in {@code download/DownloadTrackPatch.java}. {@code isDisliked} is used by the filters.</li>
+ * <li>{@code MyWave.addTrackMenuRow(Dialog, Object trackUrn)} - the "My Wave by this track" row ({@code WaveTrackRow}) of the
+ * same track-menu hook; a tap calls {@code MyWave.startFromTrack}, which plays the track and then what
+ * {@code WaveBuilder.buildStation} finds for it (SoundCloud related and their neighbours, Deezer, Last.fm).</li>
+ * <li>{@code StreamReposts.hideReposts(Object)} - a page of the Feed about to be stored; called by
+ * {@code recommendations/StreamRepostsPatch.kt}. Switch {@code hide_feed_reposts}, default off.</li>
  * </ul>
  *
  * <p>Main classes: filters - {@code DuplicatePass} (one pass over a list, subclasses differ in reading a track),
- * {@code SongKeys}/{@code SongFingerprint}/{@code SongRef} (what makes two titles the same song); dislikes -
+ * {@code SongKeys}/{@code SongFingerprint}/{@code SongRef} (what makes two titles the same song), {@code WaveDedupe} (one copy
+ * of a song in a wave batch, against the queue and the batch itself); dislikes -
  * {@code DislikeStore}, {@code DislikeMenuRow}; names - {@code SongNames}; {@code LastFm}; My Wave - {@code MyWave} (start, stop, refill when four tracks are left,
  * called by {@code player.PlaybackEvents}), {@code WaveBuilder} (taste, sources, matching to SoundCloud), {@code WaveMixer}
  * (order and the never-again rules), {@code WaveSource} (SoundCloud related / Last.fm / Deezer, ticked in the settings),
@@ -32,7 +38,7 @@
  * settings screen is {@code settings.WaveScreen} (the tab switch, sources, memory; behind the page's gear and in the
  * settings, {@code settings.WaveScreenLauncher}).
  *
- * <p>Settings: {@code duplicate_filter} and {@code merge_edited_versions} ({@code settings.Settings}),
+ * <p>Settings: {@code duplicate_filter}, {@code merge_edited_versions} and {@code hide_feed_reposts} ({@code settings.Settings}),
  * {@code dislikes_enabled} ({@code TrackDislikes.ENABLED}, default on).
  * {@code hide_tab_wave} ({@code settings.BoolSettings.HIDE_TAB_WAVE}), {@code wave_src_soundcloud/lastfm/deezer}. Preference files: {@code arsound_dislikes}, {@code arsound_dislike_songs}, {@code arsound_wave_session},
  * {@code arsound_wave}. Screen:

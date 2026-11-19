@@ -32,7 +32,7 @@ final class RecommendationsScreen extends SectionScreen {
 
     @Override
     String description() {
-        return text("Моя волна, дубликаты, «Не нравится»", "My Wave, duplicates, dislikes");
+        return text("Моя волна, дубликаты, репосты в ленте, «Не нравится»", "My Wave, duplicates, feed reposts, dislikes");
     }
 
     @Override
@@ -70,6 +70,7 @@ final class RecommendationsScreen extends SectionScreen {
                 BoolSettings.MERGE_EDITED_VERSIONS
         ));
         list.addView(duplicateOptions);
+        addFeedOptions(list);
         addDislikeOptions(list);
     }
 
@@ -82,6 +83,19 @@ final class RecommendationsScreen extends SectionScreen {
                         "The tab of the bottom bar, the sources and what the wave remembers. The wave itself starts on its tab, "
                                 + "right after Home."),
                 WaveScreen.ID).icon("recs"));
+    }
+
+    /** The Feed tab: the switch that leaves reposts out. */
+    private void addFeedOptions(LinearLayout list) {
+        list.addView(ui.createSubHeading(text("Лента", "Feed")));
+        list.addView(ui.createToggleRow(
+                text("Скрывать репосты в ленте", "Hide reposts in Feed"),
+                text("В ленте остаются только записи самих авторов, без репостов. Применяется к тому, что лента загружает "
+                                + "после этого: потяните ленту вниз, чтобы обновить её. Лайки и плейлисты не меняются.",
+                        "The Feed keeps only what the artists posted themselves, no reposts. It applies to what the Feed "
+                                + "loads from now on: pull the Feed down to refresh it. Likes and playlists stay as they are."),
+                BoolSettings.HIDE_FEED_REPOSTS
+        ).icon("feed").brief(text("В ленте только записи авторов.", "The Feed shows only the artists' own posts.")));
     }
 
     private void addDislikeOptions(LinearLayout list) {
