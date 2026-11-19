@@ -33,6 +33,8 @@ public final class MyWave {
     /** Tracks picked ahead while the tab is open are played if the tap comes within this long. */
     private static final long PREPARED_FRESH_MS = 15 * 60 * 1000L;
     private static final int NEXT_BATCH = 12;
+    /** The tracks that follow the seed of "My Wave by this track"; the desktop station queues about as many. */
+    private static final int STATION_BATCH = 24;
     /** The tracks of this wave, for the "never again" rule and to see whether the playing one is still the wave's. */
     private static final Set<String> QUEUED = new LinkedHashSet<>();
     private static volatile boolean active;
@@ -45,6 +47,8 @@ public final class MyWave {
     /** How long after the start the player may still report the track it played before. */
     private static final long START_HOLD_MS = 3_000;
     private static volatile boolean building;
+    /** Whether the wave being started was started from a track menu ({@link #startFromTrack}), not from the tab. */
+    private static volatile boolean fromTrack;
     /**
      * Batches built in a row that brought nothing, and when the next one may be tried. Without the wait every change
      * of track asked every source again while they had nothing to give (no network, everything offered already heard).
@@ -141,9 +145,37 @@ public final class MyWave {
         return active;
     }
 
+    /** Adds "My Wave by this track" to the track menu. */
+    public static void addTrackMenuRow(android.app.Dialog dialog, Object trackUrn) {
+        WaveTrackRow.add(dialog, trackUrn);
+    }
+
     /** Starts the wave: builds the first batch off the main thread and plays it. */
     public static void start(Context context) {
+        begin(null);
+    }
+
+    /**
+     * "My Wave by this track": starts the wave from one track. That track plays first, then the tracks the sources the
+     * person ticked offer for it (like the desktop station by a track); the wave then goes on from there as usual.
+     * Main thread; the work is done in the background.
+     *
+     * @param urn The track, as {@code soundcloud:tracks:ID} (a "sounds" urn is read as a track).
+     */
+    public static void startFromTrack(Object urn) {
+        if (!TrackUrn.isTrack(urn)) return;
+        if (building) {
+            Utils.showToastShort(text("Волна ещё собирается, подождите секунду", "The wave is still being built, wait a second"));
+            return;
+        }
+        Utils.showToastShort(text("Включаю «Мою волну» по этому треку…", "Starting My Wave by this track…"));
+        begin(TrackUrn.normalize(urn));
+    }
+
+    /** @param seed The track the wave starts from, or null for the wave of the person's taste. */
+    private static void begin(String seed) {
         if (building) return;
+        fromTrack = seed != null;
         building = true;
         active = true;
         holdUntil = Long.MAX_VALUE;
@@ -153,7 +185,7 @@ public final class MyWave {
             restored = true;
             QUEUED.clear();
         }
-        List<String> ready = takePrepared();
+        List<String> ready = seed == null ? takePrepared() : null;
         if (ready != null) {
             // Picked while the tab was open: the music starts at once.
             play(ready);
@@ -161,7 +193,8 @@ public final class MyWave {
         }
         Utils.runOnBackgroundThread(() -> {
             try {
-                List<String> entries = new WaveBuilder(new ArrayList<>()).buildQuick(QUICK_BATCH);
+                List<String> entries = seed == null ? new WaveBuilder(new ArrayList<>()).buildQuick(QUICK_BATCH)
+                        : stationEntries(seed);
                 Utils.runOnMainThread(() -> play(entries));
             } catch (Exception ex) {
                 Logger.printException(() -> "My Wave: could not start", ex);
@@ -171,10 +204,23 @@ public final class MyWave {
         });
     }
 
+    /** The track itself and then what the sources offer for it; empty when nothing similar was found. */
+    private static List<String> stationEntries(String seed) throws Exception {
+        List<String> similar = new WaveBuilder(new ArrayList<>()).buildStation(seed, STATION_BATCH);
+        List<String> entries = new ArrayList<>();
+        if (similar.isEmpty()) return entries;
+        entries.add(seed);
+        entries.addAll(similar);
+        return entries;
+    }
+
     /** Plays the first tracks, then at once looks for the rest with every source, while those play. */
     private static void play(List<String> entries) {
         if (entries.isEmpty()) {
-            fail(text("Пока нечего предложить: полайкайте пару треков или включите источник",
+            fail(fromTrack
+                    ? text("К этому треку ничего похожего не нашлось: проверьте интернет и источники волны",
+                    "Nothing similar to this track was found: check the connection and the wave's sources")
+                    : text("Пока нечего предложить: полайкайте пару треков или включите источник",
                     "Nothing to offer yet: like a few tracks or tick a source"));
             return;
         }
@@ -233,6 +279,8 @@ public final class MyWave {
         building = false;
         holdUntil = 0;
         problem = message;
+        // A wave started from a track menu has no tab open to show the problem on.
+        if (fromTrack) Utils.showToastLong(message);
     }
 
     /** What went wrong at the last start, for the tab to show; null when it went well. */

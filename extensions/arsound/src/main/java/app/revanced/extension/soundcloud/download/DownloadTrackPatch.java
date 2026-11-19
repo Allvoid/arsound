@@ -128,6 +128,7 @@ public final class DownloadTrackPatch {
                 addDownloadRow(dialog, trackId);
                 app.revanced.extension.soundcloud.local.LocalAdditions.addTrackMenuRow(dialog, trackUrn);
                 app.revanced.extension.soundcloud.recommendations.TrackDislikes.addTrackMenuRow(dialog, trackUrn);
+                app.revanced.extension.soundcloud.recommendations.MyWave.addTrackMenuRow(dialog, trackUrn);
                 app.revanced.extension.soundcloud.player.TrackSpeedPanel.addTrackMenuRow(dialog, trackUrn);
             });
         } catch (Exception ex) {

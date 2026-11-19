@@ -450,6 +450,12 @@ public final class Settings {
 
     public static final String DUPLICATE_FILTER = "duplicate_filter";
     public static final String MERGE_EDITED_VERSIONS = "merge_edited_versions";
+    /** The Feed tab leaves out what people repost (off by default); recommendations/StreamReposts reads it. */
+    public static final String HIDE_FEED_REPOSTS = "hide_feed_reposts";
+
+    public static boolean isHideFeedRepostsEnabled() {
+        return BoolSettings.HIDE_FEED_REPOSTS.get();
+    }
 
     public static boolean isDuplicateFilterEnabled() {
         return BoolSettings.DUPLICATE_FILTER.get();
