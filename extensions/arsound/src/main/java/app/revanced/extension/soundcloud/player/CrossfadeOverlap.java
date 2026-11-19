@@ -3,6 +3,7 @@ package app.revanced.extension.soundcloud.player;
 import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
+import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -18,12 +19,18 @@ import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
  * between them. When SoundCloud gets to the next track it starts it where the second player has got to
  * ({@link #startPosition}), at full volume, and the second player stops.
  * <p>
- * Only when the next track is on the phone: downloaded, imported or loaded ahead ({@link NextTrackPreload}); a track
- * from the cloud has no file the second player could open, and then the fade is the one after the other of
+ * When the next track is on the phone (downloaded, imported or loaded ahead by {@link NextTrackPreload}) the second
+ * player opens the file; otherwise it streams the track from SoundCloud, prepared {@link #STREAM_PREPARE_MS} earlier.
+ * Only a track that cannot be streamed (a preview, a subscription, DRM) keeps the fade one after the other of
  * {@link Crossfade}. A skip, a pause or another track than the expected one stops the second player at once.
  */
 public final class CrossfadeOverlap {
     private static final long TICK_MS = 40;
+    /**
+     * Gapless: the second player starts this much before the end of the track, as a started player takes a moment to
+     * make its first sound. It plays at full volume at once (there is no fade), so this is the most it overlaps the tail.
+     */
+    private static final long GAPLESS_LEAD_MS = 80;
     /** The second player starts this much before the fade of the first, to be heard from the fade's start. */
     private static final long LEAD_MS = 250;
     /** How long the second player plays on after SoundCloud started the track, fading out under it. */
@@ -71,7 +78,8 @@ public final class CrossfadeOverlap {
     /**
      * A position report of the current track. Starts the second player when the fade-out is about to begin.
      *
-     * @param fade The length of the fade-out of this track.
+     * @param fade The length of the fade-out of this track; 0 for the gapless change: no fade, the second player starts
+     *             at the end of the track at full volume and SoundCloud's player takes over under it.
      */
     static void onProgress(long position, long duration, long fade) {
         if (duration <= 0 || position <= 0) return;
@@ -81,7 +89,7 @@ public final class CrossfadeOverlap {
             reportedAt = SystemClock.uptimeMillis();
             // A seek back out of the fade: the overlap is not wanted any more. That holds also while the second player is
             // still being prepared, so its pending start is cancelled too.
-            seekedAway = (player != null || starting) && !handedOff && left > fade + LEAD_MS + 1_500;
+            seekedAway = (player != null || starting) && !handedOff && left > startWindow(fade) + 500;
             if (seekedAway) {
                 starting = false;
                 attempt++;
@@ -96,7 +104,7 @@ public final class CrossfadeOverlap {
         synchronized (lock) {
             if (player != null || starting) return;
             // Too late to be heard properly, or a track too short for a fade of its own.
-            if (left > fade + LEAD_MS + 1_000 || left < fade / 2 || duration < 3 * fade) return;
+            if (left > startWindow(fade) || left < fade / 2 || duration < 3 * fade) return;
             starting = true;
             long now = SystemClock.uptimeMillis();
             endAt = now + left;
@@ -111,6 +119,14 @@ public final class CrossfadeOverlap {
     private static void start(long mine) {
         String next = NextTrackPreload.nextTrackId();
         String source = next == null ? null : DownloadTrackPatch.playableSource(next);
+        // A track that is not on the phone is streamed by the second player too: its address is asked for here, on the
+        // thread of the overlap, ahead of the fade.
+        // A gapless change without a fade streams only where data is not counted: it opens the track twice.
+        boolean gapless;
+        synchronized (lock) {
+            gapless = fadeMs == 0;
+        }
+        if (source == null && next != null && !(gapless && isMetered())) source = DownloadTrackPatch.streamSource(next);
         Context context = Utils.getContext();
         if (source == null || context == null) {
             synchronized (lock) {
@@ -131,15 +147,42 @@ public final class CrossfadeOverlap {
             created.prepare();
             long wait;
             synchronized (lock) {
-                wait = startAt(fadeStartAt) - SystemClock.uptimeMillis();
+                wait = startAt(fadeStartAt, fadeMs) - SystemClock.uptimeMillis();
             }
             // Started a little before the fade-out, so it is heard from the fade's start: prepare took its time already.
-            if (wait > 0) SystemClock.sleep(Math.min(wait, 3_000));
+            // Waited for without holding the thread, so a pause or a skip can still stop the overlap meanwhile.
+            handler().postDelayed(() -> begin(mine, created, next), Math.max(0, wait));
+        } catch (Exception ex) {
+            created.release();
+            Logger.printInfo(() -> "Crossfade: the next track cannot be played ahead (" + ex + "), one after the other");
+        }
+    }
+
+    /** Plays the prepared second player, unless a seek, a pause or the next track moved on while it waited. */
+    private static void begin(long mine, MediaPlayer created, String next) {
+        try {
             synchronized (lock) {
                 // Stale when a seek, a pause or the next track moved on meanwhile, or when another player took the slot.
                 if (!starting || mine != attempt || player != null) {
                     created.release();
                     return;
+                }
+                if (fadeMs == 0) {
+                    long now = SystemClock.uptimeMillis();
+                    // The track stopped reporting before its end: it was paused, not played out. Nothing starts under a pause;
+                    // the next report starts the overlap again once the track plays on.
+                    if (now - reportedAt > SILENT_MS + 500) {
+                        starting = false;
+                        attempt++;
+                        created.release();
+                        return;
+                    }
+                    // The end moved (a stall, a seek inside the last seconds): the player waits for the real end.
+                    long again = startAt(endAt, 0) - now;
+                    if (again > 40) {
+                        handler().postDelayed(() -> begin(mine, created, next), again);
+                        return;
+                    }
                 }
                 created.start();
                 player = created;
@@ -154,9 +197,28 @@ public final class CrossfadeOverlap {
         }
     }
 
+    private static boolean isMetered() {
+        Context context = Utils.getContext();
+        ConnectivityManager connectivity = context == null ? null : context.getSystemService(ConnectivityManager.class);
+        return connectivity == null || connectivity.isActiveNetworkMetered();
+    }
+
+    /** How long the second player may need to open a stream; the overlap is prepared this much earlier. */
+    private static final long STREAM_PREPARE_MS = 6_000;
+
+    /** How far before the end of a track the second player is prepared: its lead, a second of slack, a stream's opening. */
+    static long startWindow(long fade) {
+        return fade + LEAD_MS + 1_000 + STREAM_PREPARE_MS;
+    }
+
     /** The uptime the second player starts at: a little before the fade-out, so it is heard from the fade's start. */
     static long startAt(long fadeStartAt) {
         return fadeStartAt - LEAD_MS;
+    }
+
+    /** The same for a fade of the given length; with none (gapless) the lead is the short one: the sound is not faded in. */
+    static long startAt(long fadeStartAt, long fade) {
+        return fade == 0 ? fadeStartAt - GAPLESS_LEAD_MS : startAt(fadeStartAt);
     }
 
     /** The volume of the second player while it fades in: 0 before the fade, 1 at its end, squared as in {@link Crossfade}. */
@@ -188,7 +250,8 @@ public final class CrossfadeOverlap {
                 if (now - handedOffAt >= HANDOFF_FADE_MS) again = false;
             } else {
                 // The silence is checked whatever the time left: a pause near the end is caught here too.
-                if (now - reportedAt > SILENT_MS) {
+                // Gapless: the reports stop when the track has played out, and SoundCloud needs a moment to go on.
+                if (fadeMs != 0 && now - reportedAt > SILENT_MS) {
                     Logger.printInfo(() -> "Crossfade: the track was paused, the overlap stops");
                     again = false;
                     volume = 0f;

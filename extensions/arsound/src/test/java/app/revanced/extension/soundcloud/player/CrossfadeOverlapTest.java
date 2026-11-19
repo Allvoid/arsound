@@ -15,6 +15,19 @@ public class CrossfadeOverlapTest {
     }
 
     @Test
+    public void theGaplessChangeStartsJustBeforeTheEndNotEarlier() {
+        // No fade: the sound is not faded in, so the lead is only what a started player needs to make its first sound.
+        assertEquals(FADE_STARTS - 80, CrossfadeOverlap.startAt(FADE_STARTS, 0));
+        assertEquals(FADE_STARTS - 250, CrossfadeOverlap.startAt(FADE_STARTS, FADE));
+    }
+
+    @Test
+    public void withoutAFadeTheSecondPlayerIsFullFromTheEndOfTheTrack() {
+        assertEquals(0f, CrossfadeOverlap.fadeInLevel(FADE_STARTS - 1, FADE_STARTS, 0), 0f);
+        assertEquals(1f, CrossfadeOverlap.fadeInLevel(FADE_STARTS + 1, FADE_STARTS, 0), 0f);
+    }
+
+    @Test
     public void theFadeInIsSilentBeforeItStartsAndFullAtItsEnd() {
         assertEquals(0f, CrossfadeOverlap.fadeInLevel(FADE_STARTS - 1, FADE_STARTS, FADE), 0f);
         assertEquals(0f, CrossfadeOverlap.fadeInLevel(FADE_STARTS, FADE_STARTS, FADE), 0f);
@@ -34,5 +47,12 @@ public class CrossfadeOverlapTest {
         assertEquals(0.5f, CrossfadeOverlap.handoffLevel(580, 500), 1e-6f);
         assertEquals(0f, CrossfadeOverlap.handoffLevel(660, 500), 0f);
         assertEquals(0f, CrossfadeOverlap.handoffLevel(9_000, 500), 0f);
+    }
+
+    @Test
+    public void theSecondPlayerIsPreparedEarlierToOpenAStream() {
+        // The fade, the 250 ms lead, a second of slack and six seconds for a stream to open.
+        assertEquals(6_000 + 250 + 1_000 + 6_000, CrossfadeOverlap.startWindow(6_000));
+        assertEquals(0 + 250 + 1_000 + 6_000, CrossfadeOverlap.startWindow(0));
     }
 }

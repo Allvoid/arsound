@@ -18,7 +18,8 @@ import app.revanced.extension.soundcloud.shared.ArsoundDialog;
 
 /**
  * "Set up playback…" in the menu of a track, and the small window it opens: the speed this one track always plays
- * at (normal, slowed, sped up), wherever it plays, or none of its own. Kept by {@link TrackSpeeds}.
+ * at (normal, slowed, sped up), and its own reverb and bass boost with their strengths (off, weak, medium, strong),
+ * wherever it plays, or none of its own: then it plays like the others. Kept by {@link TrackSpeeds}.
  * <p>
  * For the listener who wants one track of a playlist always slowed or sped up, without switching the version of every
  * track back and forth.
@@ -30,7 +31,11 @@ public final class TrackSpeedPanel {
     private final PopupParts parts;
     private final Object urn;
     private final TextView[] chips = new TextView[VersionSpeed.values().length];
+    private final TextView[] reverbChips = new TextView[VersionStrength.values().length];
+    private final TextView[] bassChips = new TextView[VersionStrength.values().length];
     private TextView note;
+    private TextView reverbNote;
+    private TextView bassNote;
 
     private TrackSpeedPanel(Context context, Object urn) {
         this.context = context;
@@ -51,8 +56,9 @@ public final class TrackSpeedPanel {
             Context context = dialog.getContext();
             VersionSpeed own = TrackSpeeds.of(trackUrn);
             // The row says what is set, so the menu shows it without opening the window.
-            String title = own == null ? text("Настроить проигрывание…", "Set up playback…")
-                    : text("Проигрывание: всегда ", "Playback: always ") + own.label();
+            String title = own != null ? text("Проигрывание: всегда ", "Playback: always ") + own.label()
+                    : !TrackSpeeds.fxOf(trackUrn).isEmpty() ? text("Проигрывание: свои настройки", "Playback: its own settings")
+                    : text("Настроить проигрывание…", "Set up playback…");
             ViewGroup row = DownloadTrackPatch.createMenuRow(context, title, "ic_actions_filter", v -> {
                 dialog.dismiss();
                 show(context, trackUrn);
@@ -91,6 +97,15 @@ public final class TrackSpeedPanel {
         }
         root.addView(row);
 
+        root.addView(parts.heading(text("Реверб", "Reverb")));
+        root.addView(strengthRow(reverbChips, true));
+        reverbNote = hint();
+        root.addView(reverbNote);
+        root.addView(parts.heading(text("Усиление баса", "Bass boost")));
+        root.addView(strengthRow(bassChips, false));
+        bassNote = hint();
+        root.addView(bassNote);
+
         note = parts.label("", 14);
         note.setTextColor(parts.secondary);
         note.setPadding(0, parts.dp(12), 0, parts.dp(4));
@@ -101,13 +116,40 @@ public final class TrackSpeedPanel {
                 .setTitle(text("Проигрывание трека", "Playback of the track"))
                 .setView(root)
                 .setNeutralButton(text("Сбросить", "Reset"), (dialog, which) -> {
-                    if (TrackSpeeds.of(urn) == null) return;
+                    if (TrackSpeeds.of(urn) == null && TrackSpeeds.fxOf(urn).isEmpty()) return;
                     TrackSpeeds.set(urn, null);
+                    TrackSpeeds.setFx(urn, null, null);
                     Toast.makeText(context, text("Трек снова играет как остальные", "The track plays like the others again"),
                             Toast.LENGTH_SHORT).show();
                 })
                 .setPositiveButton(text("Готово", "Done"), null)
                 .show();
+    }
+
+    /** Off, weak, medium, strong: a tap on the chosen one takes the choice back, and the track follows the others. */
+    private LinearLayout strengthRow(TextView[] chipsOf, boolean reverb) {
+        LinearLayout row = parts.chipRow();
+        for (VersionStrength strength : VersionStrength.values()) {
+            TextView chip = parts.chip(strength.label(), false);
+            chipsOf[strength.ordinal()] = chip;
+            chip.setOnClickListener(v -> {
+                TrackFxList.Own own = TrackSpeeds.fxOf(urn);
+                VersionStrength now = reverb ? own.reverb : own.bass;
+                VersionStrength choice = now == strength ? null : strength;
+                if (reverb) TrackSpeeds.setFx(urn, choice, own.bass);
+                else TrackSpeeds.setFx(urn, own.reverb, choice);
+                paint();
+            });
+            row.addView(chip, new LinearLayout.LayoutParams(0, parts.dp(40), 1));
+        }
+        return row;
+    }
+
+    private TextView hint() {
+        TextView hint = parts.label("", 14);
+        hint.setTextColor(parts.secondary);
+        hint.setPadding(0, parts.dp(4), 0, parts.dp(8));
+        return hint;
     }
 
     private void choose(VersionSpeed speed) {
@@ -119,6 +161,13 @@ public final class TrackSpeedPanel {
     private void paint() {
         VersionSpeed own = TrackSpeeds.of(urn);
         for (VersionSpeed speed : VersionSpeed.values()) parts.paint(chips[speed.ordinal()], speed == own);
+        TrackFxList.Own fx = TrackSpeeds.fxOf(urn);
+        for (VersionStrength strength : VersionStrength.values()) {
+            parts.paint(reverbChips[strength.ordinal()], strength == fx.reverb);
+            parts.paint(bassChips[strength.ordinal()], strength == fx.bass);
+        }
+        reverbNote.setText(fxNote(fx.reverb, TrackVersions.reverb()));
+        bassNote.setText(fxNote(fx.bass, TrackVersions.bass()));
         if (own == null) {
             note.setText(text("Сейчас трек играет как остальные (" + TrackVersions.speed().label() + "). Выберите скорость, "
                             + "и он всегда будет играть так: в любом плейлисте, в очереди и в «Моей волне».",
@@ -134,5 +183,13 @@ public final class TrackSpeedPanel {
                     "The track always plays " + own.label() + " (" + percent + "% of its speed, the pitch follows). "
                             + "How much to slow down and speed up is one choice for all tracks: Settings → Arsound → Playback."));
         }
+    }
+
+    /** What a reverb or bass choice means: the common one (as for all) or the track's own. */
+    private static String fxNote(VersionStrength own, VersionStrength common) {
+        return own == null
+                ? text("Как у всех (" + common.label() + "). Выберите силу, и трек всегда будет играть с ней.",
+                "As for all (" + common.label() + "). Pick a strength, and the track will always play with it.")
+                : text("Только у этого трека: " + own.label() + ".", "Only for this track: " + own.label() + ".");
     }
 }

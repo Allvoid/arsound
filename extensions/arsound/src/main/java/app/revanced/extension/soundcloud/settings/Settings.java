@@ -429,6 +429,8 @@ public final class Settings {
 
     /** The end of a track fades out and the next one fades in (player/Crossfade). Off by default. */
     public static final String CROSSFADE = "crossfade";
+    /** The next track goes on without a gap, also when it has to be streamed (player/CrossfadeOverlap). Off by default. */
+    public static final String GAPLESS = "gapless_next";
     /** How long one fade of the smooth transition takes, in seconds. */
     public static final String CROSSFADE_SECONDS = "crossfade_seconds";
     /** Every track plays slowed (player/SlowedPlayback), except one whose title says it is slowed or sped up already. Off by default. */

@@ -48,11 +48,19 @@ final class VersionsPopup {
         root.addView(parts.heading(text("Эффекты", "Effects")));
         root.addView(effectRow("Reverb", TrackVersions.reverb(), TrackVersions::setReverb));
         root.addView(effectRow("Bass boost", TrackVersions.bass(), TrackVersions::setBass));
-        new ArsoundDialog(context)
+        ArsoundDialog dialog = new ArsoundDialog(context)
                 .setTitle(text("Версии трека", "Versions of the track"))
                 .setView(root)
-                .setPositiveButton(text("Готово", "Done"), null)
-                .show();
+                .setPositiveButton(text("Готово", "Done"), null);
+        // The choice above is for every track; this one track may keep its own speed, reverb and bass boost.
+        String playing = SlowedPlayback.currentUrn();
+        if (playing != null && TrackSpeeds.keyOf(playing) != null) {
+            boolean own = TrackSpeeds.of(playing) != null || !TrackSpeeds.fxOf(playing).isEmpty();
+            dialog.setNeutralButton(own ? text("Свои для трека", "This track's own")
+                            : text("Только для этого трека", "Only for this track"),
+                    (d, which) -> TrackSpeedPanel.show(context, playing));
+        }
+        dialog.show();
     }
 
     /** Normal, Slowed, Sped up: one of the three. */

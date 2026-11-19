@@ -60,6 +60,13 @@ public final class SlowedPlayback {
     private SlowedPlayback() {
     }
 
+    /** The item that started last, or null before any. Any thread. */
+    static String currentUrn() {
+        synchronized (lock) {
+            return urn;
+        }
+    }
+
     /** Whether a version with another speed is chosen. */
     public static boolean isEnabled() {
         return TrackVersions.speed() != VersionSpeed.NORMAL;
@@ -101,6 +108,8 @@ public final class SlowedPlayback {
                 target.post(SlowedPlayback::apply);
                 return;
             }
+            // The reverb and the bass boost of the track (its own, or the common ones) are heard from its first moment.
+            SoftEqualizer.publish();
             // After SoundCloud has started the item: the speed is the player's own and stays for the items that follow.
             readTitle(itemUrn, target);
         } catch (Throwable ex) {

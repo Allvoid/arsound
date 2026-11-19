@@ -9,16 +9,23 @@ import app.revanced.extension.soundcloud.settings.Settings;
  * choice of the versions window ({@link TrackVersions}).
  * <p>
  * Kept in the app's settings as one text ({@link TrackSpeedList}), so it travels with the backup of the settings.
+ * <p>
+ * The same goes for the reverb and the bass boost of a track and their strengths ({@link TrackFxList}, the setting
+ * {@link #FX_KEY}): each is "as for every track" (none of its own), off, weak, medium or strong, as on the desktop.
  */
 public final class TrackSpeeds {
     /** The setting that holds the list. */
     public static final String KEY = "track_speeds";
+    /** The setting that holds the list of the reverbs and bass boosts of single tracks. */
+    public static final String FX_KEY = "track_fx";
 
     private static final Object LOCK = new Object();
     /** The list, read once. */
     private static TrackSpeedList list;
     /** The text the list was read from, to notice that the settings were imported or reset meanwhile. */
     private static String readFrom;
+    private static TrackFxList fxList;
+    private static String fxReadFrom;
 
     private TrackSpeeds() {
     }
@@ -73,5 +80,50 @@ public final class TrackSpeeds {
             readFrom = text;
         }
         SlowedPlayback.onSettingChanged();
+    }
+
+    private static TrackFxList fxList() {
+        String stored = Settings.getString(FX_KEY, "");
+        if (fxList == null || (stored != fxReadFrom && !stored.equals(fxReadFrom))) {
+            fxList = TrackFxList.parse(stored);
+            fxReadFrom = stored;
+        }
+        return fxList;
+    }
+
+    /** The reverb and bass boost this track keeps of its own, or {@link TrackFxList.Own#NONE}. Any thread. */
+    static TrackFxList.Own fxOf(Object urn) {
+        String key = keyOf(urn);
+        if (key == null) return TrackFxList.Own.NONE;
+        synchronized (LOCK) {
+            return fxList().get(key);
+        }
+    }
+
+    /** The reverb the track plays with: its own, or the common choice. Any thread. */
+    static VersionStrength reverbOf(Object urn) {
+        return TrackFxList.effective(fxOf(urn).reverb, TrackVersions.reverb());
+    }
+
+    /** The bass boost the track plays with: its own, or the common choice. Any thread. */
+    static VersionStrength bassOf(Object urn) {
+        return TrackFxList.effective(fxOf(urn).bass, TrackVersions.bass());
+    }
+
+    /**
+     * Sets the reverb and the bass boost of the track; null for either is "as for every track", and null for both
+     * gives the track back to the common choice. The playing track follows at once.
+     */
+    static void setFx(Object urn, VersionStrength reverb, VersionStrength bass) {
+        String key = keyOf(urn);
+        if (key == null) return;
+        synchronized (LOCK) {
+            TrackFxList rows = fxList();
+            rows.put(key, reverb, bass);
+            String text = rows.format();
+            Settings.putString(FX_KEY, text);
+            fxReadFrom = text;
+        }
+        AudioEqualizer.onVersionsChanged();
     }
 }
