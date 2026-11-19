@@ -358,5 +358,31 @@ public final class ListeningStats {
         summary.addListen(entry(tracks, current.urn), current.start, current.playedMs);
     }
 
+    /**
+     * The year in review of [from, to): totals, tops, the busiest day, the longest streak and the new artists, out of
+     * the whole history. Blocks: reads the history file and may ask SoundCloud for track titles.
+     *
+     * @param from Epoch milliseconds, 0 from the beginning.
+     * @param to   Epoch milliseconds, exclusive; {@link Long#MAX_VALUE} up to now.
+     */
+    public static YearReview.Result review(long from, long to, java.util.TimeZone zone) {
+        List<ListenRecord> listens = new ArrayList<>();
+        HistoryFile.forEachLine(line -> {
+            // One damaged line must not hide the rest of the history; the listens before 2000 are damaged too.
+            ListenRecord record = ListenRecord.parse(line);
+            if (record != null && record.start >= ListenBuckets.EARLIEST) listens.add(record);
+        });
+        Map<String, Entry> tracks = new HashMap<>();
+        for (ListenRecord listen : listens) entry(tracks, listen.urn);
+        TrackTitleResolver.resolve(new ArrayList<>(tracks.values()), preferences());
+        YearReview.Result result = YearReview.build(listens, from, to, urn -> tracks.get(urn).artist, zone);
+        for (YearReview.TrackPlays track : result.topTracks) {
+            Entry entry = tracks.get(track.urn);
+            track.title = entry.title == null ? "" : entry.title;
+            track.artist = entry.artist == null ? "" : entry.artist;
+        }
+        return result;
+    }
+
     // endregion
 }
