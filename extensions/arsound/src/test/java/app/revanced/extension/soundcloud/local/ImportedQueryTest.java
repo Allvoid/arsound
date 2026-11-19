@@ -153,7 +153,9 @@ public class ImportedQueryTest {
                 new ImportedQuery.Item("b1", true, "Three", "Alice", "Mix", "b1.mp3", 2005, 1, 0, false),
                 new ImportedQuery.Item("b2", true, "Four", "Bob", "Mix", "b2.mp3", 2005, 2, 0, false),
                 new ImportedQuery.Item("n1", true, "Loose", "Solo", "", "n1.mp3", 0, 0, 0, false));
-        assertEquals(3, ImportedQuery.albumCount(items, "", false));
+        // "First" and "Mix" are the albums; the file without an album is not one.
+        assertEquals(2, ImportedQuery.shown(items, "", false, ImportedQuery.Sort.ALBUM).albums);
+        assertEquals(0, ImportedQuery.shown(items, "", false, ImportedQuery.Sort.TITLE).albums);
         List<ImportedQuery.Item> sorted = new java.util.ArrayList<>(items);
         ImportedQuery.albumYears(sorted);
         sorted.sort(ImportedQuery.comparator(ImportedQuery.Sort.ALBUM));
@@ -166,6 +168,18 @@ public class ImportedQueryTest {
         assertEquals("", groups.get(1).artist);
         assertEquals("", groups.get(2).album);
         assertEquals(1, groups.get(2).count);
+    }
+
+    @Test
+    public void sameNameAlbumsOfTwoYearsCountTwiceATrackWithoutYearAndFilesWithoutAlbumNotAtAll() {
+        List<ImportedQuery.Item> items = Arrays.asList(
+                new ImportedQuery.Item("h1", true, "A", "X", "Hits", "h1.mp3", 1999, 1, 0, false),
+                new ImportedQuery.Item("h2", true, "B", "Y", "Hits", "h2.mp3", 2015, 1, 0, false),
+                new ImportedQuery.Item("h3", true, "C", "Z", "Hits", "h3.mp3", 0, 1, 0, false),
+                new ImportedQuery.Item("s1", true, "D", "W", "", "s1.mp3", 0, 0, 0, false));
+        assertEquals(2, ImportedQuery.shown(items, "", false, ImportedQuery.Sort.ALBUM).albums);
+        assertEquals(Arrays.asList("h1", "h2", "h3", "s1"),
+                ImportedQuery.shown(items, "", false, ImportedQuery.Sort.ALBUM).urns);
     }
 
     @Test

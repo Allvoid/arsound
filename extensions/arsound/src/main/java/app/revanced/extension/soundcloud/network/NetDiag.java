@@ -1,5 +1,8 @@
 package app.revanced.extension.soundcloud.network;
 
+import java.net.IDN;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,8 +36,9 @@ public final class NetDiag {
             "redirector.googlevideo.com",
             "www.cloudflare.com"));
 
+    /** Names in ASCII: a non-Latin name is turned into its xn-- form first, so its top level is xn--... too. */
     private static final Pattern DOMAIN = Pattern.compile(
-            "([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}");
+            "([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+([a-z]{2,63}|xn--[a-z0-9-]{1,59})");
 
     private NetDiag() {
     }
@@ -130,6 +134,11 @@ public final class NetDiag {
         int colon = domain.lastIndexOf(':');
         if (colon >= 0 && domain.substring(colon + 1).matches("[0-9]{1,5}")) domain = domain.substring(0, colon);
         while (domain.endsWith(".")) domain = domain.substring(0, domain.length() - 1);
+        try {
+            domain = IDN.toASCII(domain);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
         if (domain.length() > 253 || !DOMAIN.matcher(domain).matches()) return null;
         return domain;
     }
@@ -208,12 +217,29 @@ public final class NetDiag {
         return text.toString();
     }
 
+    /**
+     * The DoH server as the report shows it: scheme and host only. The path of a DoH address may carry a key or a token,
+     * so it is never copied; a string that is not a parsable address gives "custom DoH".
+     */
+    public static String dohOrigin(String dohUrl) {
+        if (dohUrl == null) return "custom DoH";
+        try {
+            URI uri = new URI(dohUrl.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null) return "custom DoH";
+            return scheme + "://" + host;
+        } catch (URISyntaxException e) {
+            return "custom DoH";
+        }
+    }
+
     /** The DNS path line of the report: what the app does with a name. */
     public static String describeDnsPath(boolean customDnsOn, String mode, String dohUrl, String servers) {
         if (!customDnsOn) return "system resolver (custom DNS is off)";
         if (DnsModes.SYSTEM.equals(mode)) return "system resolver (mode: phone DNS only)";
-        if (DnsModes.DOH.equals(mode)) return "DoH " + dohUrl;
+        if (DnsModes.DOH.equals(mode)) return "DoH " + dohOrigin(dohUrl);
         if (DnsModes.PLAIN.equals(mode)) return "UDP " + servers;
-        return "auto: " + (dohUrl.isEmpty() ? "no DoH" : "DoH " + dohUrl) + ", then UDP " + servers;
+        return "auto: " + (dohUrl.isEmpty() ? "no DoH" : "DoH " + dohOrigin(dohUrl)) + ", then UDP " + servers;
     }
 }

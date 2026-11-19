@@ -199,7 +199,7 @@ final class DnsRows {
                         return;
                     }
                     String list = servers.getText().toString().trim();
-                    if (!list.isEmpty() && !list.matches("[0-9a-fA-F:.,\\s]+")) {
+                    if (!list.isEmpty() && !allAddresses(list)) {
                         Toast.makeText(activity, text("Серверы — только IP-адреса", "Servers must be IP addresses"),
                                 Toast.LENGTH_LONG).show();
                         return;
@@ -210,5 +210,13 @@ final class DnsRows {
                     description.setText(dnsServerDescription());
                 })
                 .show();
+    }
+
+    /** Every item of the list (split by commas or spaces) is an IP address written out; a name is refused. */
+    private static boolean allAddresses(String list) {
+        for (String item : list.split("[,\\s]+")) {
+            if (!item.isEmpty() && !CustomDns.isIpLiteral(item)) return false;
+        }
+        return true;
     }
 }

@@ -1,5 +1,7 @@
 package app.revanced.extension.soundcloud.player;
 
+import static app.revanced.extension.soundcloud.shared.Lang.text;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
@@ -122,7 +124,8 @@ public final class TrackTitleResolver {
             if (known != null) {
                 name(entry, known.optString(0), known.optString(1));
             } else {
-                entry.title = entry.key;
+                // Not the urn: the statistics show this name on the lists and on the review card.
+                entry.title = text("Неизвестный трек", "Unknown track");
                 entry.artist = "";
             }
         }

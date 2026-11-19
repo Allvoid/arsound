@@ -3,6 +3,7 @@ package app.revanced.extension.soundcloud.player;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -61,6 +62,8 @@ public final class YearReview {
         public int tracks;
         /** Different artists listened to. */
         public int artists;
+        /** Listens of the period whose artist is unknown: they count in the time, not in the artists. */
+        public int unknownArtistPlays;
         /** The most played first, then the longer listened; at most {@link #TOP}. */
         public final List<TrackPlays> topTracks = new ArrayList<>();
         /** The most listened first; at most {@link #TOP}. */
@@ -93,7 +96,8 @@ public final class YearReview {
      */
     static Result build(List<ListenRecord> listens, long from, long to, Function<String, String> artistOf, TimeZone zone) {
         Result result = new Result();
-        Calendar calendar = Calendar.getInstance(zone);
+        // Always the Gregorian calendar: the default locale may give another one (the Buddhist years of Thailand).
+        Calendar calendar = new GregorianCalendar(zone);
         Map<String, String> artists = new HashMap<>();
         Set<String> heardBefore = new HashSet<>();
         Map<String, TrackPlays> perTrack = new HashMap<>();
@@ -126,6 +130,8 @@ public final class YearReview {
                 if (names == null) spellings.put(artistKey, names = new HashMap<>());
                 Long named = names.get(name);
                 names.put(name, (named == null ? 0 : named) + listen.playedMs);
+            } else {
+                result.unknownArtistPlays++;
             }
             int year = calendar.get(Calendar.YEAR);
             int month = calendar.get(Calendar.MONTH) + 1;
@@ -185,7 +191,7 @@ public final class YearReview {
 
     /** The first moment of the year and of the year after it, in the zone: [start, end). */
     public static long[] yearBounds(int year, TimeZone zone) {
-        Calendar calendar = Calendar.getInstance(zone);
+        Calendar calendar = new GregorianCalendar(zone);
         calendar.clear();
         calendar.set(year, Calendar.JANUARY, 1, 0, 0, 0);
         long start = calendar.getTimeInMillis();

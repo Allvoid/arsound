@@ -99,8 +99,9 @@ final class ImportedView {
         // SoundCloud tracks in "Imported" are searched by title: titles not known yet are loaded once, then the list
         // is shown again with them.
         if (!untitled.isEmpty()) TrackTitles.rememberAll(untitled, ImportedView::refresh);
-        List<Object> result = ImportedQuery.apply(items, query, losslessOnly, sort());
-        albums = sort() == ImportedQuery.Sort.ALBUM ? ImportedQuery.albumCount(items, query, losslessOnly) : 0;
+        ImportedQuery.Shown shown = ImportedQuery.shown(items, query, losslessOnly, sort());
+        List<Object> result = shown.urns;
+        albums = shown.albums;
         Logger.printInfo(() -> "Imported: " + result.size() + " of " + urns.size() + " shown (search \"" + query
                 + "\", lossless only " + losslessOnly + ", order " + sort() + ")");
         return result;

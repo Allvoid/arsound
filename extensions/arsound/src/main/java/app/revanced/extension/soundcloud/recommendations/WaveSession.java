@@ -24,6 +24,8 @@ final class WaveSession {
     private static final String PREFERENCES_NAME = "arsound_wave_session";
     /** "tracks_v2": the first kept the uploader where the player shows the artist; those are read again. */
     private static final String QUEUE = "queue", CURRENT = "current", TRACKS = "tracks_v2";
+    /** The title and length of the kept tracks: {@code urn: [title, length in ms]}, for the song checks of a restored wave. */
+    private static final String SONGS = "songs_v1";
     /** How many tracks of the last wave are kept, the newest ones. */
     static final int KEEP = 60;
 
@@ -55,12 +57,43 @@ final class WaveSession {
         return preferences == null ? null : preferences.getString(CURRENT, null);
     }
 
-    /** Keeps the wave's tracks (the newest {@link #KEEP}) and the one playing. */
+    /**
+     * Keeps the wave's tracks (the newest {@link #KEEP}), the one playing, and the title and length of those tracks as
+     * they are known now, so that a song is recognised after a restart as it was before.
+     */
     static void save(List<String> queue, String current) {
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
         List<String> kept = queue.subList(Math.max(0, queue.size() - KEEP), queue.size());
-        preferences.edit().putString(QUEUE, new JSONArray(kept).toString()).putString(CURRENT, current).apply();
+        JSONObject songs = new JSONObject();
+        try {
+            for (String urn : kept) {
+                SongRef song = KnownTracks.get(urn);
+                if (song != null && song.title != null) songs.put(urn, new JSONArray().put(song.title).put(song.durationMs));
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "My Wave: the song lengths were not kept: " + ex);
+        }
+        preferences.edit().putString(QUEUE, new JSONArray(kept).toString()).putString(CURRENT, current)
+                .putString(SONGS, songs.toString()).apply();
+    }
+
+    /** The title and length of the tracks of the last wave, by urn, as they were when it was kept. */
+    static Map<String, SongRef> songs() {
+        Map<String, SongRef> songs = new HashMap<>();
+        try {
+            SharedPreferences preferences = preferences();
+            if (preferences == null) return songs;
+            JSONObject object = new JSONObject(preferences.getString(SONGS, "{}"));
+            for (Iterator<String> keys = object.keys(); keys.hasNext(); ) {
+                String urn = keys.next();
+                JSONArray parts = object.getJSONArray(urn);
+                songs.put(urn, new SongRef(parts.getString(0), parts.getLong(1)));
+            }
+        } catch (Exception ex) {
+            Logger.printInfo(() -> "My Wave: the song lengths were not read: " + ex);
+        }
+        return songs;
     }
 
     /** Whether every one of the tracks is kept with its artist (in the current form). */

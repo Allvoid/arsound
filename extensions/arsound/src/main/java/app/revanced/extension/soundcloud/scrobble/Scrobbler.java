@@ -63,6 +63,8 @@ public final class Scrobbler {
 
     private static final String PREFERENCES = "arsound_scrobble";
     private static final long RETRY_AFTER_SECONDS = 60;
+    /** How many times the names of a track are asked for before its listen is given up (the first ask included). */
+    private static final int NAME_TRIES = 5;
     /** Last.fm refuses a listen older than two weeks. */
     private static final long LAST_FM_OLDEST_SECONDS = 14L * 24 * 3600;
 
@@ -94,7 +96,7 @@ public final class Scrobbler {
         final String prefix;
         ListenQueue queue = new ListenQueue();
         /** The credential the service refused; nothing is sent while the credential stays this one. */
-        String refused = "";
+        volatile String refused = "";
         boolean retryScheduled;
 
         Channel(Service service, String name, String prefix) {
@@ -157,13 +159,28 @@ public final class Scrobbler {
      */
     public static void onTrackStarted(String urn, long lengthMs) {
         long now = System.currentTimeMillis();
-        STATE.execute(() -> guarded(() -> trackStarted(urn, lengthMs, now)));
+        STATE.execute(() -> guarded(() -> trackStarted(urn, lengthMs, 0, now)));
     }
 
     /** The player started or stopped playing (ready and wanted). Called on the player's thread: only posts. */
     public static void onPlayingChanged(boolean playing) {
         long now = System.currentTimeMillis();
         STATE.execute(() -> guarded(() -> playingChanged(playing, now)));
+    }
+
+    /**
+     * The player took a track up again at a position after the start (the app was closed and opened mid-track, or play
+     * came after a pause). Does nothing while this track's listen is in progress; otherwise it begins one that already has
+     * {@code heardMs} behind it. Called on the player's thread: only posts.
+     *
+     * @param heardMs What was heard of the listen before, as the statistics kept it.
+     */
+    public static void onTrackResumed(String urn, long lengthMs, long heardMs) {
+        long now = System.currentTimeMillis();
+        STATE.execute(() -> guarded(() -> {
+            if (current != null && current.urn.equals(urn)) return;
+            trackStarted(urn, lengthMs, heardMs, now);
+        }));
     }
 
     // endregion
@@ -178,16 +195,17 @@ public final class Scrobbler {
         }
     }
 
-    private static void trackStarted(String urn, long lengthMs, long now) {
+    private static void trackStarted(String urn, long lengthMs, long heardMs, long now) {
         loadQueues();
         cancelCheck();
         current = null;
         if (!LISTENBRAINZ.active() && !LASTFM.active()) return;
-        Current started = new Current(urn, now / 1000);
-        started.heard.begin(lengthMs);
+        // A listen taken up again began that long ago.
+        Current started = new Current(urn, (now - heardMs) / 1000);
+        started.heard.begin(lengthMs, heardMs);
         started.heard.onPlaying(lastPlaying, now);
         current = started;
-        NET.execute(() -> guarded(() -> resolveNames(started)));
+        NET.execute(() -> guarded(() -> resolveNames(started, 0)));
         // The queues may hold what an earlier session could not send.
         NET.execute(() -> guarded(Scrobbler::flushAll));
     }
@@ -253,9 +271,23 @@ public final class Scrobbler {
 
     // region Network thread
 
-    private static void resolveNames(Current listen) {
-        String[] names = ListeningStats.namesOf(listen.urn);
-        STATE.execute(() -> guarded(() -> namesFound(listen, names)));
+    private static void resolveNames(Current listen, int tried) {
+        ListeningStats.NameLookup found = ListeningStats.lookupNames(listen.urn);
+        STATE.execute(() -> guarded(() -> {
+            if (current == listen && shouldAskAgain(found.names, found.unresolved, tried)) {
+                // The server did not answer (no network, a busy API): the listen waits for its names, it is not lost.
+                STATE.schedule(() -> guarded(() -> {
+                    if (current == listen) NET.execute(() -> guarded(() -> resolveNames(listen, tried + 1)));
+                }), RETRY_AFTER_SECONDS, TimeUnit.SECONDS);
+                return;
+            }
+            namesFound(listen, found.names);
+        }));
+    }
+
+    /** Whether a failed lookup of the names is asked again: only a lookup that never got an answer, and only a few times. */
+    static boolean shouldAskAgain(String[] names, boolean unresolved, int tried) {
+        return names == null && unresolved && tried + 1 < NAME_TRIES;
     }
 
     private static void sendPlayingNow(ScrobbleListen now) {
@@ -501,6 +533,10 @@ public final class Scrobbler {
         SharedPreferences preferences = preferences();
         if (preferences == null) return;
         preferences.edit().putString(channel.prefix + "_credential", credential).putString(channel.prefix + "_user", user).apply();
+        // The service just accepted this credential: an earlier refusal of the same text (a fault, a brief revoke) is over.
+        synchronized (LOCK) {
+            channel.refused = "";
+        }
         // A fresh connection is also an intention to scrobble: the service stays as the user left its switch.
         settingsChanged();
     }

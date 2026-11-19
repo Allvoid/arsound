@@ -1,12 +1,14 @@
 package app.revanced.extension.soundcloud.network;
 
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.soundcloud.settings.Settings;
@@ -64,9 +66,30 @@ public final class CustomDns {
         if (!PRESET_CUSTOM.equals(Settings.getDnsPreset())) return XBOX_SERVERS;
         List<String> servers = new ArrayList<>();
         for (String server : Settings.getCustomDnsServers().split("[,\\s]+")) {
-            if (!server.trim().isEmpty()) servers.add(server.trim());
+            // A name here would be looked up through the system resolver first: only addresses are kept.
+            if (isIpLiteral(server.trim())) servers.add(server.trim());
         }
         return servers.toArray(new String[0]);
+    }
+
+    private static final Pattern IPV4 = Pattern.compile(
+            "((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])");
+
+    /**
+     * Whether the text is an IPv4 or IPv6 address written out, so that it needs no lookup. Checked by shape first: Java
+     * would send a dotted text that is not a valid address to the system resolver, and that is what this must not do.
+     */
+    public static boolean isIpLiteral(String text) {
+        if (text == null || text.isEmpty()) return false;
+        if (IPV4.matcher(text).matches()) return true;
+        if (text.indexOf(':') < 0 || !text.matches("[0-9a-fA-F:.]+")) return false;
+        try {
+            // With a colon in it, Java parses the text as an address and never asks a resolver.
+            InetAddress.getByName(text);
+            return true;
+        } catch (UnknownHostException ex) {
+            return false;
+        }
     }
 
     /**

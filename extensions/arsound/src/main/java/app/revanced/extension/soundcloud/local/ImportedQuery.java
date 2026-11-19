@@ -91,6 +91,22 @@ final class ImportedQuery {
 
     /** The urns to show, in the order to show them. The order of {@link Sort#ADDED} and of ties is the given one. */
     static List<Object> apply(List<Item> items, String query, boolean losslessOnly, Sort sort) {
+        return shown(items, query, losslessOnly, sort).urns;
+    }
+
+    /** What the playlist shows for a search: the urns in order, and the albums they make (0 unless in album order). */
+    static final class Shown {
+        final List<Object> urns;
+        final int albums;
+
+        Shown(List<Object> urns, int albums) {
+            this.urns = urns;
+            this.albums = albums;
+        }
+    }
+
+    /** The same as {@link #apply}, with the album count of the same sorted list, so it is not sorted a second time. */
+    static Shown shown(List<Item> items, String query, boolean losslessOnly, Sort sort) {
         String[] words = words(query);
         List<Item> kept = new ArrayList<>();
         for (Item item : items) if (matches(item, words, losslessOnly)) kept.add(item);
@@ -99,7 +115,7 @@ final class ImportedQuery {
         if (sort != Sort.ADDED) kept.sort(comparator(sort));
         List<Object> result = new ArrayList<>(kept.size());
         for (Item item : kept) result.add(item.urn);
-        return result;
+        return new Shown(result, sort == Sort.ALBUM ? albumCount(kept) : 0);
     }
 
     static Comparator<Item> comparator(Sort sort) {
@@ -200,14 +216,23 @@ final class ImportedQuery {
         return groups;
     }
 
-    /** The number of albums the list has in album order. */
-    static int albumCount(List<Item> items, String query, boolean losslessOnly) {
-        String[] words = words(query);
-        List<Item> kept = new ArrayList<>();
-        for (Item item : items) if (matches(item, words, losslessOnly)) kept.add(item);
-        albumYears(kept);
-        kept.sort(comparator(Sort.ALBUM));
-        return albumGroups(kept).size();
+    /**
+     * The number of albums of tracks already in album order, as the playlist counts them. Files without an album are
+     * not one. A track without a year of an album that has years is part of that album's last group, not one more.
+     */
+    static int albumCount(List<Item> inAlbumOrder) {
+        int count = 0;
+        String album = null;
+        int albumYear = 0;
+        for (Item item : inAlbumOrder) {
+            boolean other = album == null || !albumKey(album).equals(albumKey(item.album)) || albumYear != item.albumYear;
+            if (!other) continue;
+            boolean sameAlbum = album != null && albumKey(album).equals(albumKey(item.album));
+            if (!item.album.isEmpty() && !(sameAlbum && item.albumYear == 0)) count++;
+            album = item.album;
+            albumYear = item.albumYear;
+        }
+        return count;
     }
 
     /** Large first, 0 (not known) last. */

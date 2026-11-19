@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicReference;
 
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.network.CustomDns;
@@ -57,7 +58,11 @@ final class NetDiagRows {
     private String dnsPath = "";
     /** Counts the checks; an answer of an older one is dropped. Main thread only. */
     private int generation;
-    private NetDiagRunner running;
+    /**
+     * The check under way, whichever screen started it: the screen is rebuilt on every visit, so a check started on an
+     * earlier visit must still be found and cancelled here. Cleared by the checking thread when the check ends.
+     */
+    private static final AtomicReference<NetDiagRunner> RUNNING = new AtomicReference<>();
 
     NetDiagRows(SettingsUi ui) {
         this.ui = ui;
@@ -68,9 +73,9 @@ final class NetDiagRows {
         startRow = ui.createActionRow(
                 text("Проверить сеть", "Check the network"),
                 text("Для каждого сайта SoundCloud и Arsound: что отвечает DNS телефона, что отвечает свой DNS и "
-                                + "отвечает ли сайт по HTTPS. Занимает до четверти минуты.",
+                                + "отвечает ли сайт по HTTPS. Обычно занимает до полминуты, на мёртвой сети — до минуты.",
                         "For each SoundCloud and Arsound site: what the phone DNS says, what the custom DNS says and "
-                                + "whether the site answers over HTTPS. Takes up to fifteen seconds."),
+                                + "whether the site answers over HTTPS. Usually up to half a minute, on a dead network up to a minute."),
                 v -> startAll());
         startRow.icon("network").keywords(text("диагностика сети dns ping проверка сайтов", "network diagnostics dns ping site check"));
         list.addView(startRow);
@@ -99,7 +104,7 @@ final class NetDiagRows {
     }
 
     private void checkDomain(String domain) {
-        if (running != null) {
+        if (RUNNING.get() != null) {
             // Starting over would drop the check under way: the sites would stay on "waiting".
             Toast.makeText(activity, text("Проверка ещё идёт, подождите", "A check is still running, wait"), Toast.LENGTH_SHORT).show();
             return;
@@ -113,7 +118,6 @@ final class NetDiagRows {
      * @param whole True for the sites of the list, false for one domain typed by hand.
      */
     private void beginCheck(List<String> hosts, boolean whole) {
-        if (running != null) running.cancel();
         final int mine = ++generation;
         if (whole) {
             table.removeAllViews();
@@ -146,13 +150,17 @@ final class NetDiagRows {
         startRow.description().setText(text("Проверено 0 из ", "Checked 0 of ") + hosts.size());
 
         NetDiagRunner runner = new NetDiagRunner();
-        running = runner;
+        // A check still under way, from this visit or an earlier one, is cancelled: two would run side by side.
+        NetDiagRunner previous = RUNNING.getAndSet(runner);
+        if (previous != null) previous.cancel();
         WeakReference<NetDiagRows> self = new WeakReference<>(this);
         Utils.runOnBackgroundThread(() -> {
             NetDiagRunner.Result result = runner.run(hosts, whole, (row, done, total) -> Utils.runOnMainThread(() -> {
                 NetDiagRows me = self.get();
                 if (me != null) me.showHost(mine, row, done, total, whole);
             }));
+            // Cleared here, not on the main thread: the screen may be gone by then, and a stuck flag would block domain checks.
+            RUNNING.compareAndSet(runner, null);
             Utils.runOnMainThread(() -> {
                 NetDiagRows me = self.get();
                 if (me != null) me.finish(mine, result, whole);
@@ -173,7 +181,6 @@ final class NetDiagRows {
 
     private void finish(int check, NetDiagRunner.Result result, boolean whole) {
         if (gone(check)) return;
-        running = null;
         for (NetDiag.Row row : result.rows) results.add(row);
         if (whole) {
             country = result.country;

@@ -1,5 +1,6 @@
 package app.revanced.extension.soundcloud.player;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
+import java.util.Locale;
 import java.util.TimeZone;
 
 public class YearReviewTest {
@@ -95,7 +97,25 @@ public class YearReviewTest {
         YearReview.Result result = year2026(listens);
         assertEquals(8 * MINUTE, result.totalMs);
         assertEquals(0, result.artists);
+        assertEquals(1, result.unknownArtistPlays);
         assertTrue(result.topArtists.isEmpty());
+    }
+
+    @Test
+    public void periodsAreGregorianWhateverTheDefaultCalendar() {
+        List<ListenRecord> listens = new ArrayList<>(Arrays.asList(listen(at(2026, 5, 1, 10), "t:1", 8)));
+        long[] expected = YearReview.yearBounds(2026, ZONE);
+        Locale saved = Locale.getDefault();
+        // In the Thai Buddhist calendar 2026 is another year: the review must still count the Gregorian one.
+        Locale.setDefault(Locale.forLanguageTag("th-TH-u-ca-buddhist"));
+        try {
+            assertArrayEquals(expected, YearReview.yearBounds(2026, ZONE));
+            YearReview.Result result = year2026(listens);
+            assertEquals(Arrays.asList(2026), result.years);
+            assertEquals(8 * MINUTE, result.totalMs);
+        } finally {
+            Locale.setDefault(saved);
+        }
     }
 
     @Test

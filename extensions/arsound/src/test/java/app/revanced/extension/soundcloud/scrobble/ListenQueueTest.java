@@ -60,6 +60,17 @@ public class ListenQueueTest {
     }
 
     @Test
+    public void aListenOfANewAccountReplacesWhatWaitedForTheOldOne() {
+        ListenQueue queue = new ListenQueue();
+        queue.add(listen(1), "first");
+        queue.add(listen(2), "first");
+        queue.add(listen(3), "second");
+        assertEquals(1, queue.size());
+        assertEquals("Song 3", queue.peek().title);
+        assertEquals("second", queue.owner());
+    }
+
+    @Test
     public void oldListensAreDroppedForLastFm() {
         ListenQueue queue = new ListenQueue();
         queue.add(listen(1), "me");

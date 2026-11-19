@@ -300,13 +300,21 @@ final class AppearanceScreen extends SectionScreen {
                 "The track's cover and colours in the notification and on the lock screen.")));
         playerOptions.follow(ArsoundTheme.isPlayerSkinEnabled());
         list.addView(playerOptions);
+        // The buttons are drawn by the Arsound themes only: with SoundCloud's own look the switch changes nothing on
+        // screen, so it does not restart the app there.
+        boolean themeDrawsButtons = !ArsoundTheme.SOUNDCLOUD.equals(ArsoundTheme.current());
         list.addView(ui.createToggleRow(
                 text("Свечение кнопки «Играть»", "Play button glow"),
-                text("Кнопка воспроизведения светится цветом темы. Выключено — плоская кнопка без свечения. "
+                themeDrawsButtons
+                        ? text("Кнопка воспроизведения светится цветом темы. Выключено — плоская кнопка без свечения. "
                                 + "Приложение перезапустится.",
-                        "The play button glows in the theme's colour. Off: a flat button without the glow. The app restarts."),
+                        "The play button glows in the theme's colour. Off: a flat button without the glow. The app restarts.")
+                        : text("Свечение есть у кнопки в темах Arsound. У вида SoundCloud кнопка не меняется.",
+                        "The glow is on the play button in the Arsound themes. SoundCloud's own look keeps its button."),
                 BoolSettings.PLAY_GLOW,
-                (button, checked) -> ArsoundTheme.restartApp(activity)
+                (button, checked) -> {
+                    if (themeDrawsButtons) ArsoundTheme.restartApp(activity);
+                }
         ).icon("player").brief(text("Кнопка «Играть» светится цветом темы.", "The play button glows in the theme's colour.")));
         list.addView(ui.createToggleRow(
                 text("Обложка целиком в плеере", "Whole cover in the player"),

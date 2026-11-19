@@ -65,7 +65,7 @@ final class UpdatesScreen extends SectionScreen {
                 "Arsound",
                 text("Версия " + UpdateChecker.VERSION, "Version " + UpdateChecker.VERSION) + " · "
                         + text("SoundCloud без рекламы", "SoundCloud without ads"),
-                v -> { }
+                null
         ).icon("info"));
         list.addView(ui.createActionRow(
                 text("Что нового", "What's new"),

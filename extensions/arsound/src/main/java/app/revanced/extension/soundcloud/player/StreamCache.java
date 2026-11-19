@@ -245,26 +245,34 @@ public final class StreamCache {
         return new File(base != null ? base : context.getFilesDir(), "exocache");
     }
 
-    /** Space taken by the cache, in bytes, in both places it may be (see {@link #candidates()}). Blocks. */
+    /**
+     * Space taken by the stream cache, in bytes, in both places it may be (see {@link #candidates()}), and by the track
+     * fetched ahead, which is a stream too. Blocks.
+     */
     public static long usedBytes() {
         long total = 0;
         for (File folder : candidates()) total += FileTree.size(folder);
+        android.content.Context context = Utils.getContext();
+        if (context != null) total += FileTree.size(new File(context.getCacheDir(), PREFETCH_CACHE));
         return total;
     }
 
+    /** The track fetched ahead: a stream, so it is counted with {@link #usedBytes()}. */
+    private static final String PREFETCH_CACHE = "arsound-next";
+    /** The pictures of the wallpaper catalogue: counted with the pictures, not with the streams. */
+    private static final String PICTURE_CACHE = "wallhaven-grid";
     /**
-     * The other caches of Arsound: the next track fetched ahead and the pictures of the wallpaper catalogue. They are
-     * counted with the stream cache and go with it: they were neither shown in the storage nor cleared. So are the
-     * covers kept for playing without a network (OfflineArtwork), which lie in the app's files, not in its cache.
+     * The other caches of Arsound, all cleared together. They go with the stream cache and were neither shown in the
+     * storage nor cleared before. The covers kept for playing without a network (OfflineArtwork) lie in the app's files,
+     * not in its cache, and are counted in {@link #otherCachesBytes()}.
      */
-    private static final String[] OTHER_CACHES = {"arsound-next", "wallhaven-grid"};
+    private static final String[] OTHER_CACHES = {PREFETCH_CACHE, PICTURE_CACHE};
 
-    /** Space the other caches take, in bytes. Blocks. */
+    /** Space the pictures take (the wallpaper catalogue and the covers kept for offline play), in bytes. Blocks. */
     public static long otherCachesBytes() {
         android.content.Context context = Utils.getContext();
         if (context == null) return 0;
-        long total = 0;
-        for (String name : OTHER_CACHES) total += FileTree.size(new File(context.getCacheDir(), name));
+        long total = FileTree.size(new File(context.getCacheDir(), PICTURE_CACHE));
         // The covers kept for playing without a network: up to 150 MB that no screen showed.
         total += app.revanced.extension.soundcloud.network.OfflineArtwork.usedBytes();
         return total;

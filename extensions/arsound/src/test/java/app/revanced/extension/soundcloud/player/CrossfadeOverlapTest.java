@@ -1,6 +1,8 @@
 package app.revanced.extension.soundcloud.player;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -47,6 +49,33 @@ public class CrossfadeOverlapTest {
         assertEquals(0.5f, CrossfadeOverlap.handoffLevel(580, 500), 1e-6f);
         assertEquals(0f, CrossfadeOverlap.handoffLevel(660, 500), 0f);
         assertEquals(0f, CrossfadeOverlap.handoffLevel(9_000, 500), 0f);
+    }
+
+    @Test
+    public void theSecondPlayerPlaysAtTheSpeedSoundCloudWouldGiveTheTrack() {
+        // The common choice slows a track, unless its title says it is retimed already.
+        assertTrue(CrossfadeOverlap.playsSlowed(null, VersionSpeed.SLOWED, false));
+        assertFalse(CrossfadeOverlap.playsSlowed(null, VersionSpeed.SLOWED, true));
+        assertFalse(CrossfadeOverlap.playsSlowed(null, VersionSpeed.NORMAL, false));
+        // The track's own speed holds whatever its title says and whatever is chosen for the rest.
+        assertTrue(CrossfadeOverlap.playsSlowed(VersionSpeed.SPEED_UP, VersionSpeed.NORMAL, true));
+        assertFalse(CrossfadeOverlap.playsSlowed(VersionSpeed.NORMAL, VersionSpeed.SLOWED, false));
+    }
+
+    @Test
+    public void aSilenceWithAFadeIsAPause() {
+        assertFalse(CrossfadeOverlap.isPaused(6_000, 11_000, 10_000, 15_000));
+        assertTrue(CrossfadeOverlap.isPaused(6_000, 11_501, 10_000, 10_200));
+    }
+
+    @Test
+    public void withoutAFadeOnlyASilenceFarFromTheEndIsAPause() {
+        // The track played out: the last report was 300 ms before its end.
+        assertFalse(CrossfadeOverlap.isPaused(0, 12_000, 10_000, 10_300));
+        // Paused with 5 s left.
+        assertTrue(CrossfadeOverlap.isPaused(0, 12_000, 10_000, 15_000));
+        // Reports are still coming.
+        assertFalse(CrossfadeOverlap.isPaused(0, 10_500, 10_000, 15_000));
     }
 
     @Test

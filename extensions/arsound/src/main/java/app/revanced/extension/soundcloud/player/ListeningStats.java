@@ -74,7 +74,15 @@ public final class ListeningStats {
             // Before the resume check: a listen taken up again after a restart still needs its length. A preview item
             // gives the preview's length, so a preview heard through counts as heard.
             if (value.contains(":tracks:")) WaveMemory.onTrackStarted(value, itemLength(item));
-            if (isResume(item, value)) return;
+            if (isResume(item, value)) {
+                // After a restart the scrobbler has no listen of this track: it takes the resumed one up, with what was
+                // heard before (it does nothing when the listen is in progress there already).
+                if (value.contains(":tracks:")) {
+                    ListenRecord progress = SESSION.progress(System.currentTimeMillis());
+                    Scrobbler.onTrackResumed(value, itemLength(item), progress == null ? 0 : progress.playedMs);
+                }
+                return;
+            }
             finishListen();
             // Ads and other items that are not tracks are not counted.
             if (!value.contains(":tracks:")) return;
@@ -196,13 +204,36 @@ public final class ListeningStats {
      * @return {artist, title}, or null when the track has no artist (a listen needs both).
      */
     public static String[] namesOf(String urn) {
+        return lookupNames(urn).names;
+    }
+
+    /** What {@link #lookupNames} found. */
+    public static final class NameLookup {
+        /** {artist, title}, or null. */
+        public final String[] names;
+        /**
+         * Whether the track was not found at all (no answer from the server, nothing stored), as against a track that is
+         * known but has no artist. Asking again later may help only in the first case.
+         */
+        public final boolean unresolved;
+
+        NameLookup(String[] names, boolean unresolved) {
+            this.names = names;
+            this.unresolved = unresolved;
+        }
+    }
+
+    /** {@link #namesOf} that also tells a track that could not be looked up from one that has no artist. Blocks, as it does. */
+    public static NameLookup lookupNames(String urn) {
         Entry entry = new Entry(urn);
         TrackTitleResolver.resolve(java.util.Collections.singletonList(entry), preferences());
+        // A track the resolver knows nothing of is named by its own urn.
+        boolean unresolved = urn.equals(entry.title);
         if (entry.artist == null || entry.artist.trim().isEmpty() || entry.title == null || entry.title.trim().isEmpty()
-                || entry.title.equals(urn)) {
-            return null;
+                || unresolved) {
+            return new NameLookup(null, unresolved);
         }
-        return new String[]{entry.artist, entry.title};
+        return new NameLookup(new String[]{entry.artist, entry.title}, false);
     }
 
     public static synchronized void clear() {

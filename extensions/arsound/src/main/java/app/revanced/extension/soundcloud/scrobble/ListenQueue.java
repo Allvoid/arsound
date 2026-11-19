@@ -39,9 +39,11 @@ final class ListenQueue {
         return listens.peekFirst();
     }
 
-    /** Adds a finished listen made under {@code ownerDigest}. */
+    /** Adds a finished listen made under {@code ownerDigest}; what waited under another account is let go first. */
     void add(ScrobbleListen listen, String ownerDigest) {
-        if (listens.isEmpty()) owner = ownerDigest;
+        // The account changed and the flush that clears the old listens has not run yet: the new listen must not be lost with them.
+        if (!listens.isEmpty() && !owner.equals(ownerDigest)) listens.clear();
+        owner = ownerDigest;
         listens.addLast(listen);
         while (listens.size() > MAX) listens.removeFirst();
     }

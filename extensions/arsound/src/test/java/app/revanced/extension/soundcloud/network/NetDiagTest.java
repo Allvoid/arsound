@@ -70,6 +70,24 @@ public class NetDiagTest {
     }
 
     @Test
+    public void aNonLatinDomainIsCheckedInItsAsciiForm() {
+        // Cyrillic: the name is turned into xn-- form before the check.
+        String cyrillic = NetDiag.cleanDomain("яндекс.рф");
+        assertTrue(cyrillic != null && cyrillic.endsWith(".xn--p1ai"));
+        assertEquals("site.xn--p1ai", NetDiag.cleanDomain("site.xn--p1ai"));
+        assertNull(NetDiag.cleanDomain("site.xn--"));
+    }
+
+    @Test
+    public void aDohAddressInTheReportKeepsOnlySchemeAndHost() {
+        assertEquals("https://dns.example", NetDiag.dohOrigin("https://dns.example/dns-query/abcd1234"));
+        assertEquals("https://dns.example", NetDiag.dohOrigin("https://dns.example/dns-query?id=SECRET"));
+        assertEquals("custom DoH", NetDiag.dohOrigin("dns.example/dns-query/abcd1234"));
+        assertEquals("custom DoH", NetDiag.dohOrigin(""));
+        assertEquals("custom DoH", NetDiag.dohOrigin(null));
+    }
+
+    @Test
     public void theCountryComesFromTheLocLineOfTheTrace() {
         assertEquals("FI", NetDiag.parseTraceCountry("fl=1\r\nip=192.0.2.7\r\nloc=FI\r\ntls=TLSv1.3\r\n"));
         assertEquals("", NetDiag.parseTraceCountry("ip=192.0.2.7\n"));
@@ -111,9 +129,9 @@ public class NetDiagTest {
     public void theDnsPathFollowsTheModeAndTheSwitch() {
         assertTrue(NetDiag.describeDnsPath(false, "auto", "", "").startsWith("system resolver"));
         assertTrue(NetDiag.describeDnsPath(true, DnsModes.SYSTEM, "https://dns.example/q", "").startsWith("system resolver"));
-        assertEquals("DoH https://dns.example/q", NetDiag.describeDnsPath(true, DnsModes.DOH, "https://dns.example/q", "192.0.2.1"));
+        assertEquals("DoH https://dns.example", NetDiag.describeDnsPath(true, DnsModes.DOH, "https://dns.example/q", "192.0.2.1"));
         assertEquals("UDP 192.0.2.1", NetDiag.describeDnsPath(true, DnsModes.PLAIN, "", "192.0.2.1"));
-        assertEquals("auto: DoH https://dns.example/q, then UDP 192.0.2.1",
+        assertEquals("auto: DoH https://dns.example, then UDP 192.0.2.1",
                 NetDiag.describeDnsPath(true, DnsModes.AUTO, "https://dns.example/q", "192.0.2.1"));
     }
 

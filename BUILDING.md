@@ -244,6 +244,7 @@ local/
   lastfm.properties                      (необязательно) api_key=... — ключ Last.fm для «Моей волны»
                                          (last.fm/api/account/create). Без него плейлист не собирается.
                                          Вместо файла можно задать переменную ARSOUND_LASTFM_API_KEY
+                                         shared_secret=... (необязательно) общий секрет того же аккаунта Last.fm API; нужен для скроблинга в Last.fm; переменная ARSOUND_LASTFM_SHARED_SECRET. Без него скроблинг в Last.fm не предлагается, ListenBrainz работает
   out/                                   готовые APK и логи
 ```
 

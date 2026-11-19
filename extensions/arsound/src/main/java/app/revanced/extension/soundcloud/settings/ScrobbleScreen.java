@@ -214,8 +214,19 @@ final class ScrobbleScreen extends SectionScreen {
                 });
         if (Scrobbler.isConnected(Scrobbler.Service.LISTENBRAINZ)) {
             dialog.setNeutralButton(text("Отключить", "Disconnect"), (d, which) -> {
-                Scrobbler.disconnect(Scrobbler.Service.LISTENBRAINZ);
-                onChanged.run();
+                int waiting = Scrobbler.pending(Scrobbler.Service.LISTENBRAINZ);
+                new ArsoundDialog(ui.activity)
+                        .setTitle(text("Токен ListenBrainz", "ListenBrainz token"))
+                        .setMessage(text("Отключить ListenBrainz? Токен будет забыт на этом телефоне, а то, что ждало отправки"
+                                        + (waiting > 0 ? " (" + waiting + ")" : "") + ", не уйдёт.",
+                                "Disconnect ListenBrainz? The token is forgotten on this phone, and what waited to be sent"
+                                        + (waiting > 0 ? " (" + waiting + ")" : "") + " is not sent."))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(text("Отключить", "Disconnect"), (confirm, button) -> {
+                            Scrobbler.disconnect(Scrobbler.Service.LISTENBRAINZ);
+                            onChanged.run();
+                        })
+                        .show();
             });
         }
         Dialog shown = dialog.show();

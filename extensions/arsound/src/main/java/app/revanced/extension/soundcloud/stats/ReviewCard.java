@@ -71,9 +71,7 @@ public final class ReviewCard {
             y += GAP;
             return footer(canvas, y);
         }
-        long hours = review.totalMs / 3_600_000;
-        y = tile(canvas, y, text("Время прослушивания", "Time listened"),
-                hours > 0 ? text(hours + " ч", hours + " h") : duration(review.totalMs), 132,
+        y = tile(canvas, y, text("Время прослушивания", "Time listened"), duration(review.totalMs), 132,
                 text("Прослушиваний: " + review.plays + " · разных треков: " + review.tracks,
                         review.plays + " plays · " + review.tracks + " different tracks"), true);
         if (!review.topArtists.isEmpty()) {
@@ -90,6 +88,14 @@ public final class ReviewCard {
                         review.longestStreak == 1 ? "day" : "days"), false);
         y = tile(canvas, y, text("Новые исполнители", "Artists heard first"), String.valueOf(review.newArtists), 56,
                 TextUtils.join(", ", review.newArtistNames), false);
+        if (review.unknownArtistPlays > 0) {
+            // The artist lists leave these listens out: the card says so instead of showing a partial count as whole.
+            int unknown = review.unknownArtistPlays;
+            y = line(canvas, text("Без исполнителя: " + unknown + " " + Numerals.russianForm(unknown, "прослушивание",
+                            "прослушивания", "прослушиваний") + ", в списках их нет",
+                    "No artist for " + unknown + (unknown == 1 ? " listen" : " listens") + ": not in the artist lists"),
+                    PAD, y, 30, SECONDARY, false, WIDTH - 2 * PAD) + GAP;
+        }
         y = tracksList(canvas, y);
         y = artistsList(canvas, y);
         return footer(canvas, y);

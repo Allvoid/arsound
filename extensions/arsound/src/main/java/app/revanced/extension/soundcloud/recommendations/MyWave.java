@@ -7,6 +7,7 @@ import android.content.Context;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import app.revanced.extension.shared.Logger;
@@ -46,7 +47,15 @@ public final class MyWave {
     private static volatile long holdUntil;
     /** How long after the start the player may still report the track it played before. */
     private static final long START_HOLD_MS = 3_000;
+    /** A wave is being started: its first tracks are asked for. */
     private static volatile boolean building;
+    /**
+     * A batch is being asked for and will go to the end of the queue. Apart from {@link #building}, so a tap on "by this
+     * track" is not refused while a batch of the wave that is playing is on its way.
+     */
+    private static volatile boolean topUp;
+    /** Counts the waves started; a batch asked for an earlier wave is dropped when it comes back. */
+    private static volatile int generation;
     /** Whether the wave being started was started from a track menu ({@link #startFromTrack}), not from the tab. */
     private static volatile boolean fromTrack;
     /**
@@ -126,6 +135,10 @@ public final class MyWave {
             try {
                 QUEUED.addAll(WaveSession.queue());
                 current = WaveSession.current();
+                // The restored tracks are known again by their title and length, so the song checks see them as before.
+                for (Map.Entry<String, SongRef> song : WaveSession.songs().entrySet()) {
+                    KnownTracks.remember(song.getKey(), song.getValue());
+                }
             } catch (Exception ex) {
                 Logger.printInfo(() -> "My Wave: the last wave was not put back: " + ex);
             }
@@ -179,11 +192,11 @@ public final class MyWave {
         building = true;
         active = true;
         holdUntil = Long.MAX_VALUE;
-        current = null;
+        generation++;
         problem = null;
+        // The list of the last wave stays until the new one has tracks: a start that finds nothing keeps it on the tab.
         synchronized (QUEUED) {
             restored = true;
-            QUEUED.clear();
         }
         List<String> ready = seed == null ? takePrepared() : null;
         if (ready != null) {
@@ -229,11 +242,23 @@ public final class MyWave {
             return;
         }
         takeOutAddedTracks();
+        List<String> previous;
+        String previousCurrent;
         synchronized (QUEUED) {
+            previous = new ArrayList<>(QUEUED);
+            previousCurrent = current;
+            QUEUED.clear();
             QUEUED.addAll(entries);
+            current = null;
         }
         persist();
         if (!LocalMusic.playTracks(entries)) {
+            synchronized (QUEUED) {
+                QUEUED.clear();
+                QUEUED.addAll(previous);
+                current = previousCurrent;
+            }
+            persist();
             fail(notReady());
             return;
         }
@@ -332,28 +357,35 @@ public final class MyWave {
 
     /** Asks every source for the next batch right away and puts it at the end of the queue. */
     private static void extend(String playing) {
-        if (!active || building) return;
+        if (!active || building || topUp) return;
         buildNextBatch(playing);
     }
 
-    /** Builds the next batch in the background and puts it at the end of the queue. The caller checked {@link #building}. */
+    /**
+     * Builds the next batch in the background and puts it at the end of the queue. The caller checked {@link #building}
+     * and {@link #topUp}.
+     */
     private static void buildNextBatch(String playing) {
-        building = true;
+        topUp = true;
+        int started = generation;
         Utils.runOnBackgroundThread(() -> {
+            List<String> entries = null;
             try {
                 Set<String> queued;
                 synchronized (QUEUED) {
                     queued = new LinkedHashSet<>(QUEUED);
                 }
-                List<String> entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
+                entries = new WaveBuilder(queued).build(playing, NEXT_BATCH);
                 noteBatch(!entries.isEmpty());
-                Utils.runOnMainThread(() -> add(entries));
             } catch (Exception ex) {
                 noteBatch(false);
                 Logger.printException(() -> "My Wave: could not build the next batch", ex);
-            } finally {
-                building = false;
             }
+            List<String> batch = entries;
+            Utils.runOnMainThread(() -> {
+                topUp = false;
+                if (batch != null) add(batch, started);
+            });
         });
     }
 
@@ -387,7 +419,7 @@ public final class MyWave {
     }
 
     private static void refillIfLow(String playing) {
-        if (!active || building) return;
+        if (!active || building || topUp) return;
         if (android.os.SystemClock.elapsedRealtime() < nextBatchAt) return;
         int waiting = AutoplayQueue.upcomingCount();
         // When the player's queue cannot be read, the wave counts its own tracks after the playing one.
@@ -438,8 +470,9 @@ public final class MyWave {
     }
 
     /** Adds a batch at the end of the queue. */
-    private static void add(List<String> entries) {
-        if (!active || entries.isEmpty()) return;
+    private static void add(List<String> entries, int wave) {
+        // A batch asked for before a new wave started belongs to the old one: it is dropped.
+        if (!active || entries.isEmpty() || wave != generation) return;
         ClassLoader loader = AutoplayQueue.classLoader();
         if (loader == null) return;
         List<Object> urns = LocalAdditions.toUrns(loader, entries);

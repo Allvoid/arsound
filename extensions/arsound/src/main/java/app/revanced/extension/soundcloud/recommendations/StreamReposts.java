@@ -3,6 +3,8 @@ package app.revanced.extension.soundcloud.recommendations;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
 import app.revanced.extension.shared.Logger;
@@ -20,8 +22,9 @@ import app.revanced.extension.soundcloud.settings.Settings;
 public final class StreamReposts {
     /** The fields of {@code ApiStreamItem} that hold a repost, read by name (the class is not shrunk). */
     private static final String[] REPOST_FIELDS = {"apiTrackRepost", "apiPlaylistRepost"};
-    /** Looked up once: the class of the items is always the same. */
-    private static volatile Field[] repostFields;
+    /** The repost fields found for each item class, looked up once per class (a subclass of the item has its own). */
+    private static final Map<Class<?>, Field[]> REPOST_FIELDS_BY_CLASS = new ConcurrentHashMap<>();
+    private static final Field[] NO_FIELDS = new Field[0];
 
     private StreamReposts() {
     }
@@ -63,30 +66,49 @@ public final class StreamReposts {
         return kept == null ? items : kept;
     }
 
+    /** Whether the item holds a repost. An item that cannot be read is not one: the rest of its page is still hidden. */
     private static boolean isRepost(Object item) {
         try {
             for (Field field : repostFields(item.getClass())) {
                 if (field.get(item) != null) return true;
             }
         } catch (IllegalAccessException ex) {
-            throw new IllegalStateException(ex);
+            return false;
         }
         return false;
     }
 
     private static Field[] repostFields(Class<?> itemClass) {
-        Field[] fields = repostFields;
-        if (fields != null && fields.length > 0 && fields[0].getDeclaringClass() == itemClass) return fields;
-        try {
-            fields = new Field[REPOST_FIELDS.length];
-            for (int i = 0; i < fields.length; i++) {
-                fields[i] = itemClass.getDeclaredField(REPOST_FIELDS[i]);
-                fields[i].setAccessible(true);
-            }
-        } catch (NoSuchFieldException ex) {
-            throw new IllegalStateException("The Feed item has no field for reposts: " + itemClass.getName(), ex);
+        return REPOST_FIELDS_BY_CLASS.computeIfAbsent(itemClass, StreamReposts::findRepostFields);
+    }
+
+    /**
+     * The repost fields the class has, its superclasses included. A class without any is logged once and its items are
+     * not reposts; a missing field of a class that has the others only leaves that one out.
+     */
+    private static Field[] findRepostFields(Class<?> itemClass) {
+        List<Field> found = new ArrayList<>(REPOST_FIELDS.length);
+        for (String name : REPOST_FIELDS) {
+            Field field = findField(itemClass, name);
+            if (field != null) found.add(field);
         }
-        repostFields = fields;
-        return fields;
+        if (found.isEmpty()) {
+            Logger.printInfo(() -> "Feed item without repost fields, its items are not checked: " + itemClass.getName());
+            return NO_FIELDS;
+        }
+        return found.toArray(new Field[0]);
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            try {
+                Field field = c.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException ignored) {
+                // Not declared here: the class it extends may have it.
+            }
+        }
+        return null;
     }
 }

@@ -24,9 +24,10 @@ final class HeardTime {
         playingSince = 0;
     }
 
-    /** The length became known later (it was 0 at the start). */
-    void setDuration(long durationMs) {
-        if (durationMs > 0) this.durationMs = durationMs;
+    /** A listen taken up again after a restart: the count starts with what was heard before it. */
+    void begin(long durationMs, long alreadyHeardMs) {
+        begin(durationMs);
+        heardMs = Math.max(0, alreadyHeardMs);
     }
 
     long durationMs() {

@@ -12,9 +12,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.shared.Logger;
@@ -117,20 +121,27 @@ final class WaveBuilder {
         List<WaveSource> named = new ArrayList<>(sources);
         named.remove(WaveSource.SOUNDCLOUD);
         List<WaveMixer.Offer> offers = new ArrayList<>();
+        // Filled by the SoundCloud part as its answers come: what arrived is kept even when the wait ends first.
+        List<WaveMixer.Offer> related = new CopyOnWriteArrayList<>();
         ExecutorService stage = Executors.newFixedThreadPool(2);
         try {
             Future<List<WaveMixer.Offer>> byName = null;
             if (!named.isEmpty()) byName = stage.submit(() -> askSeeds(Collections.singletonList(seed), named));
-            Future<List<WaveMixer.Offer>> related = stage.submit(() -> relatedWithNeighbours(seed, sources.contains(WaveSource.SOUNDCLOUD)));
+            Future<?> relatedTask = stage.submit(() -> relatedWithNeighbours(seed, sources.contains(WaveSource.SOUNDCLOUD), related));
             long until = System.currentTimeMillis() + ASK_WAIT_SECONDS * 1000;
-            for (Future<List<WaveMixer.Offer>> answer : java.util.Arrays.asList(related, byName)) {
-                if (answer == null) continue;
+            if (byName != null) {
                 try {
-                    offers.addAll(answer.get(Math.max(0, until - System.currentTimeMillis()), TimeUnit.MILLISECONDS));
+                    offers.addAll(byName.get(Math.max(0, until - System.currentTimeMillis()), TimeUnit.MILLISECONDS));
                 } catch (Exception ex) {
                     Logger.printInfo(() -> "My Wave: a station source was too slow or failed: " + ex);
                 }
             }
+            try {
+                relatedTask.get(Math.max(0, until - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
+            } catch (Exception ex) {
+                Logger.printInfo(() -> "My Wave: SoundCloud's part of the station was too slow or failed: " + ex);
+            }
+            offers.addAll(related);
         } finally {
             stage.shutdownNow();
         }
@@ -144,34 +155,48 @@ final class WaveBuilder {
      * SoundCloud's related tracks of the seed and, when {@code ask} is on, of a few of the first ones. Learns the
      * seed's own title and length too, so its re-uploads are known and left out.
      */
-    private List<WaveMixer.Offer> relatedWithNeighbours(String seed, boolean ask) {
-        List<WaveMixer.Offer> offers = new ArrayList<>();
+    private void relatedWithNeighbours(String seed, boolean ask, List<WaveMixer.Offer> offers) {
         try {
             if (KnownTracks.get(seed) == null) nameOf(WaveBatch.trackId(seed));
         } catch (Exception ex) {
             Logger.printInfo(() -> "My Wave: the seed's own title was not read: " + ex);
         }
-        if (!ask) return offers;
+        if (!ask) return;
         List<String> first;
         try {
             first = relatedOnSoundCloud(WaveBatch.trackId(seed));
         } catch (Exception ex) {
             Logger.printInfo(() -> "My Wave: SoundCloud gave no related tracks for " + seed + ": " + ex);
-            return offers;
+            return;
         }
         for (String urn : first) offers.add(new WaveMixer.Offer(urn, 1.0));
         List<String> neighbours = new ArrayList<>(first.subList(0, Math.min(first.size(), SECOND_SEED_POOL)));
         Collections.shuffle(neighbours, random);
-        for (String other : neighbours.subList(0, Math.min(neighbours.size(), SECOND_SEEDS))) {
-            try {
-                for (String urn : relatedOnSoundCloud(WaveBatch.trackId(other))) {
-                    offers.add(new WaveMixer.Offer(urn, SECOND_SEED_SCORE));
-                }
-            } catch (Exception ex) {
-                Logger.printInfo(() -> "My Wave: no related tracks for the neighbour " + other + ": " + ex);
+        List<String> picked = neighbours.subList(0, Math.min(neighbours.size(), SECOND_SEEDS));
+        // The neighbours are asked together, as the sources are: one slow answer does not hold back the others.
+        ExecutorService asks = Executors.newFixedThreadPool(Math.max(1, picked.size()));
+        try {
+            List<Future<?>> answers = new ArrayList<>();
+            for (String other : picked) {
+                answers.add(asks.submit(() -> {
+                    try {
+                        for (String urn : relatedOnSoundCloud(WaveBatch.trackId(other))) {
+                            offers.add(new WaveMixer.Offer(urn, SECOND_SEED_SCORE));
+                        }
+                    } catch (Exception ex) {
+                        Logger.printInfo(() -> "My Wave: no related tracks for the neighbour " + other + ": " + ex);
+                    }
+                }));
             }
+            for (Future<?> answer : answers) answer.get();
+        } catch (InterruptedException ex) {
+            // The station stopped waiting: the neighbours still asked are stopped below.
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException ignored) {
+            // Each neighbour logged its own failure.
+        } finally {
+            asks.shutdownNow();
         }
-        return offers;
     }
 
     /** Asks every source about every seed, all together, and gives the offers in the order of the questions. */
@@ -285,8 +310,24 @@ final class WaveBuilder {
         if (!title.isEmpty() && duration > 0) KnownTracks.remember(urn, new SongRef(title, duration));
     }
 
-    /** The artist and the title of a track, for the sources that go by names. */
-    private static String[] nameOf(String id) throws Exception {
+    /** The names looked up in this build, by id: a track that two parts of a station need is asked for once. */
+    private final Map<String, FutureTask<String[]>> names = new ConcurrentHashMap<>();
+
+    /** The artist and the title of a track, for the sources that go by names. Asked once per build; a second caller waits for it. */
+    private String[] nameOf(String id) throws Exception {
+        FutureTask<String[]> task = new FutureTask<>(() -> fetchName(id));
+        FutureTask<String[]> earlier = names.putIfAbsent(id, task);
+        if (earlier == null) task.run();
+        else task = earlier;
+        try {
+            return task.get();
+        } catch (ExecutionException ex) {
+            if (ex.getCause() instanceof Exception) throw (Exception) ex.getCause();
+            throw ex;
+        }
+    }
+
+    private static String[] fetchName(String id) throws Exception {
         String[] response = DownloadTrackPatch.apiGet("https://api-v2.soundcloud.com/tracks/" + id);
         if (response[1] == null) throw new java.io.IOException("SoundCloud did not answer: HTTP " + response[0]);
         JSONObject track = new JSONObject(response[1]);

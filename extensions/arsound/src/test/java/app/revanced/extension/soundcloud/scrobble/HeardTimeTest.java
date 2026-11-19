@@ -68,6 +68,18 @@ public class HeardTimeTest {
     }
 
     @Test
+    public void aListenTakenUpAfterARestartKeepsWhatWasHeard() {
+        HeardTime heard = new HeardTime();
+        heard.begin(100_000, 40_000);
+        assertEquals(40_000, heard.heard(0));
+        assertEquals(10_000, heard.remainingMs(0));
+        heard.onPlaying(true, 0);
+        assertEquals(0, heard.remainingMs(10_000));
+        heard.begin(100_000, -5);
+        assertEquals(0, heard.heard(0));
+    }
+
+    @Test
     public void startingTwiceDoesNotRestartTheStretch() {
         HeardTime heard = new HeardTime();
         heard.begin(60_000);

@@ -167,7 +167,9 @@ public final class NetworkPatch {
             if (delayMs <= 0 && FaultSimulation.NONE.equals(mode)) return null;
             FaultSimulation.Verdict verdict = FaultSimulation.decide(mode, delayMs, FAULT_RANDOM.nextDouble());
             if (verdict.delayMs > 0) {
-                Logger.printInfo(() -> "Delaying request by " + verdict.delayMs + " ms (" + mode + "): " + request);
+                // Debug level: a slow-network delay hits every image and HLS request, and an info line for each would
+                // push the older lines out of the log ring.
+                Logger.printDebug(() -> "Delaying request by " + verdict.delayMs + " ms (" + mode + "): " + request);
                 try {
                     Thread.sleep(verdict.delayMs);
                 } catch (InterruptedException ex) {

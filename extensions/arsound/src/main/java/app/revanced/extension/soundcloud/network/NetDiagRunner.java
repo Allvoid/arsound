@@ -1,8 +1,7 @@
 package app.revanced.extension.soundcloud.network;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
@@ -41,8 +40,14 @@ public final class NetDiagRunner {
     private static final int HTTP_TIMEOUT_MS = 10_000;
     private static final long SYSTEM_DNS_TIMEOUT_MS = 5_000;
     private static final String TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace";
-    /** The system lookups run here so that one that hangs can be given up on; they cannot be cancelled. */
-    private static final ExecutorService LOOKUPS = Executors.newCachedThreadPool(runnable -> {
+    /** The longest first line of an answer that is read; a server that sends no newline must not fill the memory. */
+    private static final int MAX_LINE = 512;
+    /**
+     * The system lookups run here so that one that hangs can be given up on. A lookup cannot be interrupted, so a hung
+     * one keeps its thread until the resolver gives up; the pool is bounded so that repeated checks cannot pile up
+     * threads (the lookups queued behind them time out as usual).
+     */
+    private static final ExecutorService LOOKUPS = Executors.newFixedThreadPool(8, runnable -> {
         Thread thread = new Thread(runnable, "arsound-netdiag-lookup");
         thread.setDaemon(true);
         return thread;
@@ -147,7 +152,6 @@ public final class NetDiagRunner {
             }
             if (system.isEmpty()) row.systemError = "no address";
         } catch (TimeoutException ex) {
-            lookup.cancel(true);
             row.systemError = "timed out";
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -215,10 +219,25 @@ public final class NetDiagRunner {
                 out.write(("HEAD / HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: Arsound-diagnostics\r\n"
                         + "Accept: */*\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
                 out.flush();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(tls.getInputStream(), StandardCharsets.ISO_8859_1));
-                return NetDiag.parseStatusLine(reader.readLine());
+                return NetDiag.parseStatusLine(boundedLine(tls.getInputStream()));
             }
         }
+    }
+
+    /**
+     * One line of an answer, read byte by byte. Null if the line is longer than {@link #MAX_LINE} or the stream ends
+     * with no data, so a server that sends no newline cannot make the memory grow.
+     */
+    private static String boundedLine(InputStream in) throws IOException {
+        StringBuilder line = new StringBuilder();
+        int b;
+        while ((b = in.read()) != -1) {
+            if (b == '\n') return line.toString();
+            if (b == '\r') continue;
+            if (line.length() >= MAX_LINE) return null;
+            line.append((char) (b & 0xFF));
+        }
+        return line.length() == 0 ? null : line.toString();
     }
 
     private static String readCountry() {
@@ -226,10 +245,11 @@ public final class NetDiagRunner {
             HttpURLConnection connection = (HttpURLConnection) new URL(TRACE_URL).openConnection();
             connection.setConnectTimeout(HTTP_TIMEOUT_MS);
             connection.setReadTimeout(HTTP_TIMEOUT_MS);
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            try {
+                InputStream in = connection.getInputStream();
                 StringBuilder text = new StringBuilder();
                 String line;
-                while ((line = reader.readLine()) != null && text.length() < 4_096) text.append(line).append('\n');
+                while (text.length() < 4_096 && (line = boundedLine(in)) != null) text.append(line).append('\n');
                 return NetDiag.parseTraceCountry(text.toString());
             } finally {
                 connection.disconnect();
