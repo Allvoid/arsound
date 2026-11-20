@@ -26,8 +26,6 @@ final class AccountVault {
     private static final String LAST_CURRENT = "last_current";
     /** The switch is to an empty sign-in screen, for one more account. */
     static final String PENDING_ADD = "\u0000add";
-    /** A switch older than this is not finished any more: the app was killed in the middle of it. */
-    private static final long PENDING_FOR_MS = 120_000;
     /**
      * While this very run of the app has the switch going (its wipe is followed, the user may be reading the question
      * about it), the mark is kept this long: the wipe of a big account takes minutes, and a mark that went stale by then
@@ -94,9 +92,27 @@ final class AccountVault {
         return written;
     }
 
-    /** Whether a mark of this age is no longer a switch under way. */
+    /**
+     * Whether a mark of this age is no longer a switch under way. A mark this run did not write is a leftover of a run
+     * that was killed: its wipe is gone with it, so it is no switch at all (an own sign-out in SoundCloud meanwhile
+     * must not be taken for its end).
+     */
     static boolean isStale(long ageMs, boolean startedHere) {
-        return ageMs < 0 || ageMs > (startedHere ? PENDING_HERE_FOR_MS : PENDING_FOR_MS);
+        return ageMs < 0 || !startedHere || ageMs > PENDING_HERE_FOR_MS;
+    }
+
+    private static volatile long finishedAt;
+    /** How long after a switch put the next account in the end of the old wipe is still part of that switch. */
+    private static final long FINISHED_GRACE_MS = 5_000;
+
+    /** The switch has put the next account in and the app is about to start again. */
+    static void markFinished() {
+        finishedAt = System.currentTimeMillis();
+    }
+
+    static boolean justFinished() {
+        long age = System.currentTimeMillis() - finishedAt;
+        return finishedAt != 0 && age >= 0 && age < FINISHED_GRACE_MS;
     }
 
     /** Puts the switch under way back to a new time, so a wait that went on does not make it look abandoned. */
@@ -145,9 +161,10 @@ final class AccountVault {
         FINISH
     }
 
-    static AfterPurge afterPurge(boolean pending, boolean abandoned, boolean failed) {
-        // A given-up switch first: even when its mark went stale meanwhile, this was our removal, not a sign-out.
-        if (abandoned) return AfterPurge.LEAVE;
+    static AfterPurge afterPurge(boolean pending, boolean abandoned, boolean failed, boolean justFinished) {
+        // A given-up switch first: even when its mark went stale meanwhile, this was our removal, not a sign-out. The
+        // same for a switch that has just put the next account in: the "current" account is already that one.
+        if (abandoned || justFinished) return AfterPurge.LEAVE;
         if (!pending) return AfterPurge.OWN_SIGN_OUT;
         return failed ? AfterPurge.ASK : AfterPurge.FINISH;
     }

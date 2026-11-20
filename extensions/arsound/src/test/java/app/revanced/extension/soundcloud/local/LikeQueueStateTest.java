@@ -177,4 +177,19 @@ public class LikeQueueStateTest {
         assertFalse(LikeQueueState.isTrackFailure(new RuntimeException("like failed", new java.io.IOException("reset"))));
         assertFalse(LikeQueueState.isTrackFailure(new RuntimeException("a", new RuntimeException("b", new java.util.concurrent.TimeoutException()))));
     }
+
+    @Test
+    public void aStoppedQueueKeepsTheCountOfTheDay() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        for (int i = 0; i < 50; i++) state.liked(state.peek(), "d1");
+        state.clear();
+        // Nothing waits, but 50 were given today: the file stays, or a new queue would give 50 more and risk a block.
+        assertTrue(state.worthKeeping("d1"));
+        LikeQueueState again = LikeQueueState.parse(state.serialize());
+        again.add(urns(10), Collections.emptySet());
+        assertEquals(0, again.allowance("d1"));
+        // Another day, nothing waiting: nothing to keep.
+        assertFalse(state.worthKeeping("d2"));
+    }
 }

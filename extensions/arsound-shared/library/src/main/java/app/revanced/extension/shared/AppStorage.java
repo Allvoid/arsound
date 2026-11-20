@@ -64,17 +64,24 @@ public final class AppStorage {
      * sizes and out of the clearing. "No folder yet" is an answer too (the own folder), kept the same way.
      */
     private static boolean usable(File folder) {
-        Boolean first = usable;
-        Boolean ok = settle(first, probe(folder));
-        if (first != null) return ok;
-        usable = ok;
-        Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
-        return ok;
+        // One answer for two threads that ask first at the same time, and no probe (it may make the folder) once it is kept.
+        synchronized (AppStorage.class) {
+            Boolean first = usable;
+            if (first != null) return settle(first, folder == null ? null : Boolean.TRUE);
+            Boolean ok = settle(null, probe(folder));
+            usable = ok;
+            Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
+            return ok;
+        }
     }
 
-    /** The answer to keep: the first one given, else what the probe found (no folder at all counts as unusable). */
+    /**
+     * The answer for this call: the first one given when there is one, but never a folder that is not there (a card that
+     * came out later, a start before the storage is unlocked: SoundCloud takes the first of the array, a null would fail
+     * it); else what the probe found (no folder at all counts as unusable).
+     */
     static boolean settle(Boolean kept, Boolean probed) {
-        if (kept != null) return kept;
+        if (kept != null) return kept && probed != null;
         return probed != null && probed;
     }
 

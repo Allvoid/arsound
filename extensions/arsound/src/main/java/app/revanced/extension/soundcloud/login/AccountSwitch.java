@@ -61,7 +61,12 @@ public final class AccountSwitch {
         Utils.runOnBackgroundThread(() -> {
             Context context = Utils.getContext();
             // Not a switch of ours (SoundCloud's own sign-out): nothing to ask.
-            if (context == null || AccountVault.pending(context) == null) return;
+            if (context == null) return;
+            if (AccountVault.pending(context) == null) {
+                // The switch is gone while a spinner may still cover the screen (the mark expired during "Wait more").
+                MAIN.post(AccountSwitch::switchGone);
+                return;
+            }
             askAboutWipe(false);
         });
     };
@@ -204,6 +209,18 @@ public final class AccountSwitch {
         Context context = activity.getApplicationContext();
         showProgress(activity);
         Utils.runOnBackgroundThread(() -> {
+            if (AccountVault.pending(context) != null) {
+                // A switch is still under way: SoundCloud wipes the old account's data, and a restart now would cut it off.
+                MAIN.post(() -> {
+                    hideProgress();
+                    new ArsoundDialog(activity)
+                            .setTitle(Lang.text("Данные прошлого аккаунта ещё убираются", "The previous account's data is still being cleared"))
+                            .setMessage(Lang.text("Подождите немного и выберите аккаунт ещё раз.", "Wait a little and pick the account again."))
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                });
+                return;
+            }
             if (current(context) != null) {
                 // Signed in after all (in another window): this is a switch.
                 MAIN.post(() -> start(activity, target.name));
@@ -320,9 +337,13 @@ public final class AccountSwitch {
         MAIN.removeCallbacks(PURGE_TIMEOUT);
         // Read before pending(): a stale mark is cleared there, and the flag with it.
         boolean gaveUp = AccountVault.isAbandoned();
-        AccountVault.AfterPurge after = AccountVault.afterPurge(AccountVault.pending(context) != null, gaveUp, error != null);
+        AccountVault.AfterPurge after = AccountVault.afterPurge(AccountVault.pending(context) != null, gaveUp, error != null,
+                AccountVault.justFinished());
         if (after == AccountVault.AfterPurge.LEAVE) {
             Logger.printInfo(() -> "Accounts: the wipe ended after the switch was given up, nothing is changed");
+            // The wipe is over, so nothing is waited for: a mark kept on would turn a later sign-out of SoundCloud's own
+            // into this switch's end.
+            Utils.runOnBackgroundThread(() -> AccountVault.clearPending(context));
             return;
         }
         if (after == AccountVault.AfterPurge.OWN_SIGN_OUT) {
@@ -356,8 +377,11 @@ public final class AccountSwitch {
                 hideProgress();
                 // Given up, but SoundCloud's wipe of the old account still runs: the mark stays (its end must not look like
                 // a sign-out of SoundCloud's own, which would drop the kept copy of the account left), and the end of the
-                // wipe neither removes anything nor restarts the app in the background.
-                AccountVault.markAbandoned();
+                // wipe neither removes anything nor restarts the app in the background. A wipe that already failed has no
+                // end to wait for: the mark goes at once.
+                Context left = Utils.getContext();
+                if (failed && left != null) Utils.runOnBackgroundThread(() -> AccountVault.clearPending(left));
+                else AccountVault.markAbandoned();
                 return;
             }
             hideProgress();
@@ -399,23 +423,50 @@ public final class AccountSwitch {
     /** The wipe is over: puts the next account in (or none, for one more) and starts the app again. */
     private static synchronized void finishPending(Context context) {
         String what = AccountVault.pending(context);
-        if (what == null) return;
-        AccountVault.clearPending(context);
+        if (what == null) {
+            // Nothing to go on with (the mark expired while the question waited): the screen must not stay covered.
+            MAIN.post(AccountSwitch::switchGone);
+            return;
+        }
         if (!AccountVault.PENDING_ADD.equals(what)) {
             SavedAccount target = AccountVault.find(context, what);
             if (target == null || !putIn(context, target)) {
                 Logger.printInfo(() -> "Accounts: could not sign in as " + SavedAccount.shownName(what) + ", the sign-in screen opens");
             }
         }
+        // After the account is in: a wipe that ends before this point still finds the mark and waits for this method. The
+        // end of a wipe in the moments after it is told from a sign-out by justFinished.
+        AccountVault.markFinished();
+        AccountVault.clearPending(context);
         MAIN.post(() -> restart(context));
+    }
+
+    /** The switch is gone (its mark expired): the progress goes and the user is told what to do. */
+    private static void switchGone() {
+        boolean covered = progress.get() != null;
+        hideProgress();
+        if (!covered) return;
+        Activity activity = UpdateChecker.resumedActivity();
+        if (activity == null || activity.isFinishing()) return;
+        new ArsoundDialog(activity)
+                .setTitle(Lang.text("Смена аккаунта прервана", "The account switch was interrupted"))
+                .setMessage(Lang.text("Слишком долго не было ответа. Войдите в нужный аккаунт из списка «Мои аккаунты» на экране входа.",
+                        "There was no answer for too long. Sign in to the account you want from the My accounts list on the sign-in screen."))
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
     }
 
     private static void restart(Context context) {
         hideProgress();
         Settings.flush();
-        Activity activity = starter.get();
-        if (activity == null || activity.isFinishing()) activity = UpdateChecker.resumedActivity();
-        Context from = activity != null ? activity : context;
+        // Only from a screen the user is looking at: from the background the system does not start an activity, and the exit
+        // would only end the process (and the music). The new account is in; the next start shows it.
+        Activity activity = UpdateChecker.resumedActivity();
+        if (activity == null || activity.isFinishing()) {
+            Logger.printInfo(() -> "Accounts: the app is in the background, it is not restarted");
+            return;
+        }
+        Context from = activity;
         Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (launch == null) return;
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

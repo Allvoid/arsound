@@ -169,6 +169,14 @@ final class LikeQueueState {
         return true;
     }
 
+    /**
+     * Whether the file is still needed: tracks wait, or this day's likes are counted. A queue that was stopped keeps its
+     * day's count, or a new queue the same day would give another {@link #PER_DAY} likes and risk the account's block.
+     */
+    boolean worthKeeping(String dayKey) {
+        return !pending.isEmpty() || total > 0 || givenOn(dayKey) > 0;
+    }
+
     void clear() {
         pending.clear();
         total = 0;

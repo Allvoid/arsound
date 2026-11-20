@@ -316,7 +316,9 @@ public final class DailyLikeQueue {
             try (FileInputStream in = new FileInputStream(file)) {
                 saved = new String(readAll(in), StandardCharsets.UTF_8);
             } catch (IOException ex) {
+                // Not an empty queue to cache: the next change would overwrite the file that is there.
                 Logger.printInfo(() -> "Like queue: could not read the kept queue: " + ex);
+                return null;
             }
         }
         state = LikeQueueState.parse(saved);
@@ -342,7 +344,7 @@ public final class DailyLikeQueue {
         try {
             File folder = file.getParentFile();
             if (folder != null && !folder.isDirectory() && !folder.mkdirs()) return;
-            if (state.isEmpty() && state.total() == 0) {
+            if (!state.worthKeeping(today())) {
                 //noinspection ResultOfMethodCallIgnored
                 file.delete();
                 return;

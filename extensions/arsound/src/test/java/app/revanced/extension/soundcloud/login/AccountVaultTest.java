@@ -85,9 +85,6 @@ public class AccountVaultTest {
 
     @Test
     public void aSwitchOfThisRunIsNotAbandonedWhileItsWipeTakesMinutes() {
-        // Left by a run that was killed: dropped after two minutes.
-        assertFalse(AccountVault.isStale(119_000, false));
-        assertTrue(AccountVault.isStale(121_000, false));
         // Followed by this run (the question about the wipe may wait on the screen): kept, or the end of the wipe would
         // look like SoundCloud's own sign-out and drop the saved copy of the account the user switched from.
         assertFalse(AccountVault.isStale(121_000, true));
@@ -97,19 +94,32 @@ public class AccountVaultTest {
     }
 
     @Test
+    public void aMarkLeftByAKilledRunIsNoSwitch() {
+        // Its wipe died with it: an own sign-out of SoundCloud's in the next two minutes must not be taken for its end.
+        assertTrue(AccountVault.isStale(1_000, false));
+    }
+
+    @Test
+    public void theEndOfAWipeRightAfterTheNextAccountWentInChangesNothing() {
+        // The mark is gone, the account left is already the new one: not an own sign-out that would delete its copy.
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(false, false, false, true));
+        assertEquals(AccountVault.AfterPurge.OWN_SIGN_OUT, AccountVault.afterPurge(false, false, false, false));
+    }
+
+    @Test
     public void theEndOfTheWipeAfterAGivenUpSwitchChangesNothing() {
         // Switch given up (no screen to ask on) while the wipe still runs: its end is not SoundCloud's own sign-out
         // (that would drop the kept copy of the account left) and starts nothing in the background.
-        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(true, true, false));
-        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(true, true, true));
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(true, true, false, false));
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(true, true, true, false));
         // Even when its mark went stale meanwhile.
-        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(false, true, false));
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(false, true, false, false));
     }
 
     @Test
     public void theEndOfTheWipeOfALiveSwitchOrOfAnOwnSignOut() {
-        assertEquals(AccountVault.AfterPurge.OWN_SIGN_OUT, AccountVault.afterPurge(false, false, false));
-        assertEquals(AccountVault.AfterPurge.FINISH, AccountVault.afterPurge(true, false, false));
-        assertEquals(AccountVault.AfterPurge.ASK, AccountVault.afterPurge(true, false, true));
+        assertEquals(AccountVault.AfterPurge.OWN_SIGN_OUT, AccountVault.afterPurge(false, false, false, false));
+        assertEquals(AccountVault.AfterPurge.FINISH, AccountVault.afterPurge(true, false, false, false));
+        assertEquals(AccountVault.AfterPurge.ASK, AccountVault.afterPurge(true, false, true, false));
     }
 }

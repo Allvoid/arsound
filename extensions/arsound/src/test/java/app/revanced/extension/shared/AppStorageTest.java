@@ -37,7 +37,9 @@ public class AppStorageTest {
         assertEquals(false, first);
         assertEquals(false, AppStorage.settle(first, AppStorage.probe(temp.newFolder("shared"))));
         // And the other way round.
-        assertEquals(true, AppStorage.settle(true, AppStorage.probe(null)));
+        assertEquals(true, AppStorage.settle(true, AppStorage.probe(temp.newFolder("again"))));
+        // The kept answer "usable" never gives a folder that is not there now (a card taken out, a locked storage).
+        assertEquals(false, AppStorage.settle(true, AppStorage.probe(null)));
         assertEquals(true, AppStorage.settle(null, AppStorage.probe(temp.newFolder("later"))));
     }
 }
