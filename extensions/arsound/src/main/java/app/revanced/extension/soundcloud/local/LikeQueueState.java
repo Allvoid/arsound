@@ -155,6 +155,16 @@ final class LikeQueueState {
         pending.addLast(first);
     }
 
+    /**
+     * Whether a failed like says something about the track itself (gone from SoundCloud, not likeable) rather than about
+     * the moment: no like service yet, no answer in time, no network. Only the first kind may drop a track from the queue.
+     */
+    static boolean isTrackFailure(Throwable failure) {
+        return !(failure instanceof java.util.concurrent.TimeoutException
+                || failure instanceof IllegalStateException
+                || failure instanceof java.io.IOException);
+    }
+
     void clear() {
         pending.clear();
         total = 0;

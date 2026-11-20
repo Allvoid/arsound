@@ -165,4 +165,13 @@ public class LikeQueueStateTest {
         assertEquals("2026-11-17", LikeQueueState.dayKey(moment, la));
         assertEquals("2026-11-19", LikeQueueState.dayKey(LikeQueueState.nextDayStart(moment, moscow), moscow));
     }
+
+    @Test
+    public void onlyAFailureOfTheTrackItselfMayDropIt() {
+        // No like service yet, no answer in time, no network: the moment's fault, the track stays queued.
+        assertFalse(LikeQueueState.isTrackFailure(new IllegalStateException("No LikeToggler yet")));
+        assertFalse(LikeQueueState.isTrackFailure(new java.util.concurrent.TimeoutException("Completable timed out")));
+        assertFalse(LikeQueueState.isTrackFailure(new java.net.UnknownHostException("api-v2.soundcloud.com")));
+        assertTrue(LikeQueueState.isTrackFailure(new RuntimeException("404 not found")));
+    }
 }

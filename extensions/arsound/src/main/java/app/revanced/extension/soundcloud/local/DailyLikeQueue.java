@@ -66,6 +66,9 @@ public final class DailyLikeQueue {
     private static String stateOwner;
     /** The queue as the screens last saw it, with its account: set under {@link #LOCK}, read without it. */
     private static volatile Shown shown;
+    /** The account the screens read the queue of, see {@link #view}. */
+    private static final TimedCache<String> VIEW_OWNER = new TimedCache<>(1_000);
+    private static final AtomicBoolean LOADING = new AtomicBoolean();
     private static final AtomicBoolean TIMER_SET = new AtomicBoolean();
     private static volatile long noticeAt;
 
@@ -192,6 +195,9 @@ public final class DailyLikeQueue {
                     continue;
                 }
                 Logger.printInfo(() -> "Like queue: could not like " + urn + ": " + failure);
+                // Not the track's fault (no like service yet, no answer, no network): the run ends and the track stays
+                // queued, or a short queue would give up its tracks one after the other within the run.
+                if (!LikeQueueState.isTrackFailure(failure)) break;
                 synchronized (LOCK) {
                     LikeQueueState current = queueOf(owner);
                     if (current == null) break;
@@ -357,10 +363,24 @@ public final class DailyLikeQueue {
      * file, once. Null when nobody is signed in.
      */
     private static LikeQueueState view() {
-        String owner = currentOwner();
+        // The owner is asked from the account manager (a binder call): kept for a moment, as the screens ask often.
+        String owner = VIEW_OWNER.get(android.os.SystemClock.uptimeMillis(), DailyLikeQueue::currentOwner);
         if (owner == null) return null;
         Shown seen = shown;
         if (seen != null && owner.equals(seen.owner)) return seen.queue;
+        // The file is read once per account, and not on the main thread: the screen gets the queue on its next look.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            if (LOADING.compareAndSet(false, true)) {
+                Utils.runOnBackgroundThread(() -> {
+                    try {
+                        view();
+                    } finally {
+                        LOADING.set(false);
+                    }
+                });
+            }
+            return null;
+        }
         synchronized (LOCK) {
             if (load() == null) return null;
             publish();
