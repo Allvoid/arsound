@@ -35,4 +35,9 @@ public class PurgeGateTest {
         assertTrue(gate.busy(1_000 + PurgeGate.LOST_AFTER_MS - 1));
         assertFalse(gate.busy(1_000 + PurgeGate.LOST_AFTER_MS));
     }
+
+    @Test
+    public void theGateAndTheMarkOfASwitchAgreeOnHowLongAWipeIsWaitedFor() {
+        org.junit.Assert.assertEquals(AccountVault.PENDING_HERE_FOR_MS, PurgeGate.LOST_AFTER_MS);
+    }
 }
