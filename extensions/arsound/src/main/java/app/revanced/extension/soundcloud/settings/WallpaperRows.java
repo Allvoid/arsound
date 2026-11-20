@@ -363,7 +363,7 @@ final class WallpaperRows {
             long reported = reportedSize(context, picture);
             boolean tooBig = reported > WallpaperStore.MAX_OWN_BYTES;
             // The copy needs room of its own: a full storage is told as that, not as an odd file.
-            boolean noRoom = !tooBig && !OwnPicture.hasRoom(reported, context.getCacheDir().getUsableSpace());
+            boolean noRoom = !tooBig && !OwnPicture.hasRoom(reported, OwnPicture.usableOf(context.getCacheDir()));
             boolean read = false;
             if (!tooBig && !noRoom) {
                 try (InputStream input = context.getContentResolver().openInputStream(picture);

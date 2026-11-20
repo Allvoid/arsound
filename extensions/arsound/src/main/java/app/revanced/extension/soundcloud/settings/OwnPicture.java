@@ -18,12 +18,19 @@ final class OwnPicture {
     /**
      * Whether the storage has room for the copy of the picked file.
      *
-     * @param reportedSize The size the system names, or -1 when it names none (the limit is assumed then).
-     * @param usable       The free bytes where the copy goes.
+     * @param reportedSize The size the system names, or -1 when it names none.
+     * @param usable       The free bytes where the copy goes, or -1 when they could not be read.
+     * @return False only when both are known and the copy does not fit; what is not known is let through, and a full
+     * storage during the copy is caught as such ({@link #isNoSpace}).
      */
     static boolean hasRoom(long reportedSize, long usable) {
-        long needed = reportedSize >= 0 ? Math.min(reportedSize, WallpaperStore.MAX_OWN_BYTES) : WallpaperStore.MAX_OWN_BYTES;
-        return usable >= needed + RESERVE_BYTES;
+        if (reportedSize < 0 || usable < 0) return true;
+        return usable >= Math.min(reportedSize, WallpaperStore.MAX_OWN_BYTES) + RESERVE_BYTES;
+    }
+
+    /** The free bytes under the folder, or -1 when there is no folder or it is not there (the system answers 0 then). */
+    static long usableOf(java.io.File folder) {
+        return folder == null || !folder.exists() ? -1 : folder.getUsableSpace();
     }
 
     /** Whether a failure of the copy came from a full storage. */

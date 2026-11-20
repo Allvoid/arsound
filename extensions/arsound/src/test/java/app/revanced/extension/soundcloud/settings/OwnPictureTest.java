@@ -26,9 +26,17 @@ public class OwnPictureTest {
     }
 
     @Test
-    public void aFileOfUnknownSizeIsAssumedToBeAsBigAsTheLimit() {
-        assertFalse(OwnPicture.hasRoom(-1, 300 * MB));
-        assertTrue(OwnPicture.hasRoom(-1, 400 * MB + OwnPicture.RESERVE_BYTES));
+    public void whatIsNotKnownIsLetThrough() {
+        // A small file of unknown size on a phone with 300 MB free, or a free space that could not be read.
+        assertTrue(OwnPicture.hasRoom(-1, 300 * MB));
+        assertTrue(OwnPicture.hasRoom(100 * MB, -1));
+        assertTrue(OwnPicture.hasRoom(-1, -1));
+    }
+
+    @Test
+    public void aMissingFolderHasNoKnownFreeSpace() {
+        assertEquals(-1, OwnPicture.usableOf(null));
+        assertEquals(-1, OwnPicture.usableOf(new java.io.File("/no/such/folder/for/arsound")));
     }
 
     @Test
