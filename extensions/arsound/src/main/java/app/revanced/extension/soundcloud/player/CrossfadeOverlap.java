@@ -12,6 +12,7 @@ import android.os.SystemClock;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
+import app.revanced.extension.soundcloud.local.LocalAdditions;
 
 /**
  * The real overlap of the smooth transition (bot ticket #63): while the end of a track fades out in SoundCloud's
@@ -228,10 +229,9 @@ public final class CrossfadeOverlap {
         VersionSpeed own = TrackSpeeds.of(urn);
         VersionSpeed common = TrackVersions.speed();
         boolean retimed = false;
-        if (own == null && common != VersionSpeed.NORMAL) {
-            String[] title = TrackTitleResolver.storedTitles(java.util.Collections.singletonList(urn)).get(urn);
-            retimed = title != null && SlowedPlayback.isRetimed(title[0]);
-        }
+        // The same reading as the player's own (SlowedPlayback): the stored title of a track, the tag or the file name of an
+        // imported file, so "x (slowed).mp3" is left at its own speed here as there.
+        if (own == null && common != VersionSpeed.NORMAL) retimed = SlowedPlayback.titleSaysRetimed(urn);
         return playsSlowed(own, common, retimed) ? TrackVersions.factorOf(own != null ? own : common) : 1f;
     }
 
@@ -270,9 +270,18 @@ public final class CrossfadeOverlap {
         handler().post(() -> currentFactor = factorOfPlaying(PlaybackEvents.playingUrn()));
     }
 
+    /**
+     * Whether the item has a speed of its own at all: a SoundCloud track, or an imported file; any other item (an ad) plays
+     * at the normal speed, as {@code SlowedPlayback.apply} treats it.
+     */
+    static boolean hasSpeed(String urn, boolean importedFile) {
+        return urn != null && (urn.contains(":tracks:") || importedFile);
+    }
+
     private static float factorOfPlaying(String urn) {
         if (urn == null) return 1f;
         try {
+            if (!hasSpeed(urn, LocalAdditions.importedFileOf(urn) != null)) return 1f;
             return trackFactor(urn);
         } catch (Exception ex) {
             // Not known: the normal speed.
@@ -293,8 +302,19 @@ public final class CrossfadeOverlap {
     }
 
     /** Plays the prepared second player, unless a seek, a pause or the next track moved on while it waited. */
-    private static void begin(long mine, MediaPlayer created, String next, float speed) {
+    private static void begin(long mine, MediaPlayer created, String next, float requestedSpeed) {
         try {
+            // The speed may have been changed while the player waited (up to six seconds): looked at again, outside the lock
+            // (it reads the title store). With a reverb or a bass boost chosen meanwhile there is no overlap any more.
+            float speed = next == null ? requestedSpeed : overlapSpeed(TRACK_URN + next);
+            if (speed <= 0f) {
+                synchronized (lock) {
+                    if (mine == attempt) starting = true;
+                }
+                created.release();
+                return;
+            }
+            final float useSpeed = speed;
             synchronized (lock) {
                 // Stale when a seek, a pause or the next track moved on meanwhile, or when another player took the slot.
                 if (!starting || mine != attempt || player != null) {
@@ -312,14 +332,22 @@ public final class CrossfadeOverlap {
                         return;
                     }
                     // The end moved (a stall, a seek inside the last seconds): the player waits for the real end.
-                    long again = startAt(endAt, 0) - now;
-                    if (again > 40) {
-                        handler().postDelayed(() -> begin(mine, created, next, speed), again);
+                    long again = rewait(startAt(endAt, 0), now);
+                    if (again > 0) {
+                        handler().postDelayed(() -> begin(mine, created, next, useSpeed), again);
+                        return;
+                    }
+                } else {
+                    // The same with a fade: a change of speed moves the end and the fade, and the second player must not start
+                    // at the old time (a silent intro, or the next track skipping its first seconds at the handoff).
+                    long again = rewait(startAt(fadeStartAt, fadeMs), SystemClock.uptimeMillis());
+                    if (again > 0) {
+                        handler().postDelayed(() -> begin(mine, created, next, useSpeed), again);
                         return;
                     }
                 }
                 // The speed SoundCloud's player gives this track. Set on a prepared player it starts it, as start() does.
-                if (speed != 1f) created.setPlaybackParams(new PlaybackParams().setSpeed(speed).setPitch(speed));
+                if (useSpeed != 1f) created.setPlaybackParams(new PlaybackParams().setSpeed(useSpeed).setPitch(useSpeed));
                 created.start();
                 player = created;
                 trackId = next;
@@ -331,6 +359,16 @@ public final class CrossfadeOverlap {
             created.release();
             Logger.printInfo(() -> "Crossfade: the next track cannot be played ahead (" + ex + "), one after the other");
         }
+    }
+
+    /**
+     * How much longer the second player waits before it starts.
+     *
+     * @return The wait in milliseconds, or 0 when it is time (within 40 ms of it).
+     */
+    static long rewait(long startAtUptime, long now) {
+        long again = startAtUptime - now;
+        return again > 40 ? again : 0;
     }
 
     /** How long the second player may need to open a file (a slow card); the overlap is prepared this much earlier. */
@@ -448,7 +486,8 @@ public final class CrossfadeOverlap {
         synchronized (lock) {
             if (!newTrack) return false;
             // The speed this track plays at, for the time left: looked up on the overlap thread (it reads the title store).
-            String urn = trackId == null ? null : TRACK_URN + trackId;
+            // The same item as refreshFactor looks at: the urn of the item that started (set just before this call).
+            String urn = PlaybackEvents.playingUrn();
             handler().post(() -> currentFactor = factorOfPlaying(urn));
             boolean expected = player != null && !handedOff && trackId != null && trackId.equals(CrossfadeOverlap.trackId);
             starting = false;

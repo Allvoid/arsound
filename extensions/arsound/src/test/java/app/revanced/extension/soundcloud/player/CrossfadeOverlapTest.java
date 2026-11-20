@@ -174,4 +174,30 @@ public class CrossfadeOverlapTest {
         // Sped up to 140 %: it is over sooner.
         assertEquals(now + 14_286, CrossfadeOverlap.endAtFor(now, left, 1.4f));
     }
+
+    @Test
+    public void theSecondPlayerWaitsAgainWhenTheFadeMovedWhileItWaited() {
+        // The start moved 100 ms later (a speed chosen meanwhile): it is posted again for that time.
+        assertEquals(100, CrossfadeOverlap.rewait(1_000, 900));
+        // Within 40 ms of the time, or past it: it starts.
+        assertEquals(0, CrossfadeOverlap.rewait(1_000, 960));
+        assertEquals(0, CrossfadeOverlap.rewait(1_000, 2_000));
+    }
+
+    @Test
+    public void onlyTracksAndImportedFilesHaveASpeedOfTheirOwn() {
+        assertTrue(CrossfadeOverlap.hasSpeed("soundcloud:tracks:42", false));
+        // An imported file: no ":tracks:" in its urn, a file of the phone.
+        assertTrue(CrossfadeOverlap.hasSpeed("arsound:local:abc", true));
+        // An ad, or nothing: the normal speed.
+        assertFalse(CrossfadeOverlap.hasSpeed("soundcloud:ads:7", false));
+        assertFalse(CrossfadeOverlap.hasSpeed(null, true));
+    }
+
+    @Test
+    public void aFileNamedSlowedIsLeftAtItsOwnSpeedLikeThePlayerDoes() {
+        // The file name of an imported file says it is retimed: with Slowed chosen the player stays at 1.0, so does the overlap.
+        assertTrue(SlowedPlayback.isRetimed("x (slowed).mp3"));
+        assertFalse(CrossfadeOverlap.playsSlowed(null, VersionSpeed.SLOWED, SlowedPlayback.isRetimed("x (slowed).mp3")));
+    }
 }

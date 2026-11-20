@@ -170,7 +170,7 @@ public final class SlowedPlayback {
         });
     }
 
-    private static boolean titleSaysRetimed(String itemUrn) {
+    static boolean titleSaysRetimed(String itemUrn) {
         try {
             File local = LocalAdditions.importedFileOf(itemUrn);
             if (local != null) {
