@@ -154,11 +154,22 @@ public final class BottomTabs {
         }
         if (!(context instanceof android.app.Activity)) return false;
         android.content.Intent intent = ((android.app.Activity) context).getIntent();
-        if (intent == null || intent.getData() != null) return false;
-        // The launcher screen of SoundCloud hands a plain start on to the main screen without any action (checked on
-        // the emulator); a link or a shortcut carries a data address or its own action.
-        String action = intent.getAction();
-        return action == null || android.content.Intent.ACTION_MAIN.equals(action);
+        if (intent == null) return false;
+        android.os.Bundle extras = intent.getExtras();
+        return isLauncherStart(intent.getAction(), intent.getData() != null,
+                intent.hasCategory(android.content.Intent.CATEGORY_LAUNCHER), extras != null && !extras.isEmpty());
+    }
+
+    /**
+     * Whether an intent is a start from the launcher: no data address, and no action or the main one. The launcher screen
+     * of SoundCloud hands a plain start on to the main screen without any action (checked on the emulator); a link or a
+     * shortcut carries a data address or its own action. A start with neither but with extras and without the launcher
+     * category (a notification or a widget that only carries extras) already says where to go, as a link does.
+     */
+    static boolean isLauncherStart(String action, boolean hasData, boolean launcherCategory, boolean hasExtras) {
+        if (hasData) return false;
+        if (action != null && !android.content.Intent.ACTION_MAIN.equals(action)) return false;
+        return launcherCategory || !hasExtras;
     }
 
     /**
