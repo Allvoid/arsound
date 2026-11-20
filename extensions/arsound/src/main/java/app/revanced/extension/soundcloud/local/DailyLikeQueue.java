@@ -68,6 +68,8 @@ public final class DailyLikeQueue {
     private static volatile Shown shown;
     /** The account the screens read the queue of, see {@link #view}. */
     private static final TimedCache<String> VIEW_OWNER = new TimedCache<>(1_000);
+    /** Told (on the main thread) when the first read of the queue ended, for a screen that found nothing before. */
+    private static volatile Runnable onViewLoaded;
     private static final QueueWork.OffMainLoad<LikeQueueState> VIEW_LOAD = new QueueWork.OffMainLoad<>(
             Utils::runOnBackgroundThread, () -> Utils.runOnMainThread(() -> {
         Runnable listener = onViewLoaded;
@@ -384,9 +386,6 @@ public final class DailyLikeQueue {
                     }
                 });
     }
-
-    /** Told (on the main thread) when the first read of the queue ended, for a screen that found nothing before. */
-    private static volatile Runnable onViewLoaded;
 
     /** A screen asks to be told when the queue was read in the background; null stops it. */
     public static void setOnViewLoaded(Runnable listener) {

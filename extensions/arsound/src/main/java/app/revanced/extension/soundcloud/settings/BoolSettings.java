@@ -94,7 +94,7 @@ public final class BoolSettings {
     public static final BoolSetting CROSSFADE = new BoolSetting(Settings.CROSSFADE, false);
     /**
      * The next track starts without a gap: it is opened in a second player ahead and goes on the moment the first one
-     * ends, as on Arsound Desktop. Off by default until it is tried on a phone.
+     * ends, as on Arsound Desktop; only for a track on the phone (a streamed one starts the usual way). Off by default until it is tried on a phone.
      */
     public static final BoolSetting GAPLESS = new BoolSetting(Settings.GAPLESS, false);
     /** Every track plays slowed, unless its title says it is slowed or sped up already. Off by default. */

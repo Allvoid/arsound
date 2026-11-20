@@ -139,15 +139,15 @@ final class PlaybackScreen extends SectionScreen {
         list.addView(ui.createToggleRow(
                 text("Плавный переход между треками", "Smooth transition between tracks"),
                 text("Конец трека плавно затихает, а следующий в это же время плавно набирает громкость, без паузы "
-                                + "между ними. Следующий трек, если он не на телефоне (скачан, свой или загружен "
-                                + "заранее, строка ниже), открывается из сети во втором плеере, и тоже нарастает поверх "
-                                + "конца текущего; только предпросмотр, подписка и DRM-треки начинаются тихо после затихшего. "
+                                + "между ними. Внахлёст идёт, когда следующий трек на телефоне (скачан, свой или "
+                                + "загружен заранее, строка ниже); трек из сети затихает и нарастает по очереди, без "
+                                + "нахлёста, потому что SoundCloud начинает поток с начала. "
                                 + "Срабатывает, когда трек доиграл сам; трек, который вы включили или переключили сами, "
                                 + "начинается сразу на полной громкости. Меняется громкость плеера, а не телефона.",
                         "The end of a track fades out while the next one fades in, with no gap between them. "
-                                + "The next track is opened in a second player: from the phone if it is downloaded, your "
-                                + "own or loaded ahead (the row below), else streamed from the network; only a preview, "
-                                + "subscription or DRM track starts quietly after the faded one. It works when a "
+                                + "The two overlap when the next track is on the phone (downloaded, your own or "
+                                + "loaded ahead, the row below); a streamed one fades one after the other, as SoundCloud "
+                                + "starts a stream from its beginning. It works when a "
                                 + "track played to its end; a track you picked or skipped to starts at full volume at "
                                 + "once. The player's volume changes, not the phone's."),
                 BoolSettings.CROSSFADE,
@@ -163,13 +163,12 @@ final class PlaybackScreen extends SectionScreen {
         list.addView(ui.createToggleRow(
                 text("Без паузы между треками", "No gap between tracks"),
                 text("Следующий трек открывается заранее во втором плеере и продолжается в тот же миг, когда кончается "
-                                + "текущий: альбомы и концерты звучат без щелчка тишины между песнями. Трек не из памяти "
-                                + "телефона для этого открывается из сети, поэтому по мобильной сети такой трек "
-                                + "идёт как обычно. Когда включён плавный переход, работает он.",
+                                + "текущий: альбомы и концерты звучат без щелчка тишины между песнями. Только для трека на телефоне "
+                                + "(скачан, свой или загружен заранее); трек из сети идёт как обычно, с короткой паузой. Когда включён плавный переход, работает он.",
                         "The next track is opened ahead in a second player and goes on the moment the current one "
                                 + "ends: albums and live recordings play without a bit of silence between the songs. "
-                                + "A track that is not on the phone is opened from the network for this, so on mobile "
-                                + "data such a track plays as usual. While the smooth transition is on, it does the job."),
+                                + "Only for a track on the phone (downloaded, your own or loaded ahead); a streamed "
+                                + "track plays as usual, with a short pause. While the smooth transition is on, it does the job."),
                 BoolSettings.GAPLESS
         ).icon("volume").brief(text("Следующий трек начинается в тот же миг, когда кончился текущий.",
                 "The next track starts the moment the current one ends.")));
