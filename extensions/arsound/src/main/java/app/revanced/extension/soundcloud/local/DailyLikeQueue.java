@@ -166,6 +166,7 @@ public final class DailyLikeQueue {
         if (!SoundCloudLikes.isReady() || !RUNNING.compareAndSet(false, true)) return 0;
         int given = 0;
         try {
+            liftAndSave();
             int failures = 0;
             String owner = null;
             while (true) {
@@ -283,7 +284,11 @@ public final class DailyLikeQueue {
 
     /** Called when SoundCloud's like service is ready (and by the timer): gives what today allows, off the main thread. */
     public static void tick() {
-        QueueWork.tick(Utils::runOnBackgroundThread, DailyLikeQueue::hasQueue, DailyLikeQueue::schedule, () -> {
+        registerTimeReceiver();
+        QueueWork.tick(Utils::runOnBackgroundThread, () -> {
+            liftAndSave();
+            return hasQueue();
+        }, DailyLikeQueue::schedule, () -> {
             try {
                 runBatch(null);
             } catch (InterruptedException ignored) {
@@ -456,6 +461,39 @@ public final class DailyLikeQueue {
             // Not readable: nothing is taken for the same start.
         }
         return new Moment(System.currentTimeMillis(), android.os.SystemClock.elapsedRealtime(), boot);
+    }
+
+    /**
+     * A look at the queue under the lock that puts its stamps right for the clock as it is now, and writes the file when any
+     * changed (see {@link LikeQueueState#refreshAndKeep}). Off the main thread.
+     */
+    static void liftAndSave() {
+        synchronized (LOCK) {
+            LikeQueueState current = load();
+            if (current != null) current.refreshAndKeep(moment(), DailyLikeQueue::save);
+        }
+    }
+
+    private static final AtomicBoolean TIME_RECEIVER = new AtomicBoolean();
+
+    /**
+     * A change of the clock (the network set it right, the user did) lifts the stamps at once: the phone may start again
+     * before any other look at the queue. Registered once, as soon as the queue is looked at.
+     */
+    private static void registerTimeReceiver() {
+        Context context = Utils.getContext();
+        if (context == null || !TIME_RECEIVER.compareAndSet(false, true)) return;
+        try {
+            context.getApplicationContext().registerReceiver(new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context received, android.content.Intent intent) {
+                    Utils.runOnBackgroundThread(DailyLikeQueue::liftAndSave);
+                }
+            }, new android.content.IntentFilter(android.content.Intent.ACTION_TIME_CHANGED));
+        } catch (RuntimeException ex) {
+            TIME_RECEIVER.set(false);
+            Logger.printInfo(() -> "Like queue: could not watch the clock: " + ex);
+        }
     }
 
     /** Whether the user is offered the repair of a clock that was ahead (see {@link LikeQueueState#repairOffered}). */

@@ -14,15 +14,25 @@ final class Moment {
     final long elapsed;
     /** Which start of the phone; empty when not known. */
     final String boot;
+    /** Whether {@link #elapsed} is a real reading (false for a moment known by the wall clock only). */
+    final boolean elapsedKnown;
 
     Moment(long wall, long elapsed, String boot) {
         this.wall = wall;
         this.elapsed = elapsed;
         this.boot = boot == null ? "" : boot;
+        this.elapsedKnown = true;
+    }
+
+    private Moment(long wall) {
+        this.wall = wall;
+        this.elapsed = 0;
+        this.boot = "";
+        this.elapsedKnown = false;
     }
 
     /** A moment known by the wall clock only (as the stamps of older files are). */
     static Moment wall(long wall) {
-        return new Moment(wall, 0, "");
+        return new Moment(wall);
     }
 }

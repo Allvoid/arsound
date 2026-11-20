@@ -562,4 +562,61 @@ public class LikeQueueStateTest {
         assertFalse(LikeQueueState.needsCopy("garbage", "garbage"));
         assertTrue(LikeQueueState.needsCopy("garbage", "other garbage"));
     }
+
+    @Test
+    public void aClockFixedWhileTheWindowIsFullIsLiftedAndSavedByTheLooksWithoutAnyLike() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        // Start B, the clock three days behind: fifty likes counted through the public step.
+        Moment behind = at(NOW - 72 * H, 100, "B");
+        for (int i = 0; i < 50; i++) {
+            assertEquals(LikeQueueState.Counted.COUNTED,
+                    state.countIfAllowed(new Moment(behind.wall, behind.elapsed + i, "B"), () -> true));
+        }
+        // The window is full, so nothing more is counted and nothing is saved; the clock is then set right (NTP).
+        int[] saves = {0};
+        // A look (the start of a run, the tick, the timer, the clock-change receiver) lifts and has it written.
+        assertTrue(state.refreshAndKeep(at(NOW + H, 100 + 5_000, "B"), () -> {
+            saves[0]++;
+            return true;
+        }));
+        assertEquals(1, saves[0]);
+        // Another look changes nothing and writes nothing.
+        assertFalse(state.refreshAndKeep(at(NOW + H, 100 + 5_000, "B"), () -> {
+            saves[0]++;
+            return true;
+        }));
+        assertEquals(1, saves[0]);
+        // The phone starts again: the fifty are not three days old by the wall clock.
+        assertEquals(0, state.allowance(at(NOW + 2 * H, 10, "C")));
+    }
+
+    @Test
+    public void aFailedWriteTakesTheCountBackEvenWhenTheWriteLiftedTheStamp() {
+        LikeQueueState state = new LikeQueueState();
+        Moment behind = at(NOW - 72 * H, 100, "B");
+        // The write lifts the stamp (a clock set right) and then fails: the count must not stay in memory.
+        boolean kept = state.countAndKeep(behind, () -> {
+            state.lift(at(NOW, 200, "B"));
+            return false;
+        });
+        assertFalse(kept);
+        assertEquals(0, state.countIn(at(NOW, 300, "B")));
+    }
+
+    @Test
+    public void withoutABootCountAForwardJumpOpensNothingWhileTheElapsedTimeGoesOn() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        giveAt(state, 50, at(NOW, 1_000, ""));
+        // The wall clock jumps 25 hours; the phone's own time went on by an hour only.
+        assertEquals(0, state.allowance(at(NOW + 25 * H, 1_000 + H, "")));
+        assertEquals(50, state.allowance(at(NOW + H, 1_000 + 24 * H + 100, "")));
+        // The elapsed time went back: the phone started again, and only the wall clock is left.
+        assertEquals(50, state.allowance(at(NOW + 25 * H, 5, "")));
+        assertEquals(0, state.allowance(at(NOW + 23 * H, 5, "")));
+        // The stamps keep their elapsed time through the file.
+        LikeQueueState back = LikeQueueState.parse(state.serialize());
+        assertEquals(0, back.allowance(at(NOW + 25 * H, 1_000 + H, "")));
+    }
 }

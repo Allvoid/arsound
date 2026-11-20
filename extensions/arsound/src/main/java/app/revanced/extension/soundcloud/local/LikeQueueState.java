@@ -50,15 +50,24 @@ final class LikeQueueState {
         final long wall;
         final long elapsed;
         final String boot;
+        /** Whether {@link #elapsed} was read (a stamp of an older file has none). */
+        final boolean known;
 
-        Stamp(long wall, long elapsed, String boot) {
+        Stamp(long wall, long elapsed, String boot, boolean known) {
             this.wall = wall;
             this.elapsed = elapsed;
             this.boot = boot == null ? "" : boot;
+            this.known = known;
         }
 
+        /**
+         * Whether it was counted on this start of the phone. When the start cannot be told (no boot count), it is taken for
+         * the same start while the elapsed time has not gone back: the age is then the elapsed difference, which can only
+         * over-count after a restart nobody noticed (the safe way), and a forward jump of the wall clock opens nothing.
+         */
         boolean sameStart(Moment now) {
-            return !boot.isEmpty() && boot.equals(now.boot);
+            if (!boot.isEmpty()) return boot.equals(now.boot);
+            return known && now.elapsedKnown && now.boot.isEmpty() && now.elapsed >= elapsed;
         }
 
         /** How long ago it was counted: the elapsed time within one start, else the wall clock's, never below 0. */
@@ -68,13 +77,15 @@ final class LikeQueueState {
 
         /** {@code wall} alone, or {@code wall/elapsed/boot}. */
         String format() {
-            return boot.isEmpty() ? String.valueOf(wall) : wall + "/" + elapsed + "/" + boot;
+            if (boot.isEmpty()) return known ? wall + "/" + elapsed : String.valueOf(wall);
+            return wall + "/" + elapsed + "/" + boot;
         }
 
         static Stamp parse(String text) {
             String[] parts = text.trim().split("/");
-            if (parts.length == 3) return new Stamp(Long.parseLong(parts[0]), Long.parseLong(parts[1]), parts[2]);
-            return new Stamp(Long.parseLong(parts[0]), 0, "");
+            if (parts.length == 3) return new Stamp(Long.parseLong(parts[0]), Long.parseLong(parts[1]), parts[2], true);
+            if (parts.length == 2) return new Stamp(Long.parseLong(parts[0]), Long.parseLong(parts[1]), "", true);
+            return new Stamp(Long.parseLong(parts[0]), 0, "", false);
         }
     }
 
@@ -150,7 +161,7 @@ final class LikeQueueState {
         if (state.given.isEmpty() && oldToday > 0) {
             // A day long past has nothing in the window: only today's and yesterday's count are carried over.
             long start = dayStart(oldDay, zone);
-            if (start >= 0 && start > now - 2 * WINDOW_MS) for (int i = 0; i < Math.min(oldToday, PER_DAY); i++) state.given.add(new Stamp(now, 0, ""));
+            if (start >= 0 && start > now - 2 * WINDOW_MS) for (int i = 0; i < Math.min(oldToday, PER_DAY); i++) state.given.add(new Stamp(now, 0, "", false));
         }
         return state;
     }
@@ -239,7 +250,7 @@ final class LikeQueueState {
         // Unknown starts (both empty) are taken as one: the conservative way, as before the start was told.
         boolean sameStart = last != null && last.boot.equals(now.boot);
         long wall = sameStart ? Math.max(now.wall, last.wall) : now.wall;
-        Stamp stamp = new Stamp(wall, now.elapsed, now.boot);
+        Stamp stamp = new Stamp(wall, now.elapsed, now.boot, now.elapsedKnown);
         given.add(stamp);
         while (given.size() > KEEP_STAMPS) given.remove(0);
         return stamp;
@@ -251,14 +262,32 @@ final class LikeQueueState {
      * while the clock was days behind would, at the next start of the phone (where only the wall clock is left), look days
      * old and expire early. Done whenever a like is counted and whenever the state is saved.
      */
-    void lift(Moment now) {
-        if (now.boot.isEmpty()) return;
+    boolean lift(Moment now) {
+        boolean changed = false;
         for (int i = 0; i < given.size(); i++) {
             Stamp stamp = given.get(i);
             if (!stamp.sameStart(now)) continue;
             long wall = Math.max(stamp.wall, now.wall - Math.max(0, now.elapsed - stamp.elapsed));
-            if (wall != stamp.wall) given.set(i, new Stamp(wall, stamp.elapsed, stamp.boot));
+            if (wall != stamp.wall) {
+                given.set(i, new Stamp(wall, stamp.elapsed, stamp.boot, stamp.known));
+                changed = true;
+            }
         }
+        return changed;
+    }
+
+    /**
+     * What every look at the queue under the lock does first (the start of a run, the tick, the timer, a change of the
+     * clock): lifts the stamps of this start to the clock as it is now, and has the state written if any changed. Without it
+     * a clock set right while the window is full (nothing is counted, so nothing is saved) would leave the wrong wall
+     * moments in the file for the next start of the phone.
+     *
+     * @return Whether anything changed (and the write was asked for).
+     */
+    boolean refreshAndKeep(Moment now, java.util.function.BooleanSupplier save) {
+        if (!lift(now)) return false;
+        save.getAsBoolean();
+        return true;
     }
 
     /** As above for a moment known by the wall clock only; returns the wall moment given. */
@@ -308,7 +337,7 @@ final class LikeQueueState {
         for (int i = 0; i < given.size(); i++) {
             Stamp stamp = given.get(i);
             if (!stamp.sameStart(now) && stamp.wall > now.wall) {
-                given.set(i, new Stamp(now.wall, now.elapsed, now.boot));
+                given.set(i, new Stamp(now.wall, now.elapsed, now.boot, now.elapsedKnown));
                 moved++;
             }
         }
@@ -326,7 +355,7 @@ final class LikeQueueState {
      */
     static LikeQueueState afterUnreadable(Moment now) {
         LikeQueueState state = new LikeQueueState();
-        for (int i = 0; i < PER_DAY; i++) state.given.add(new Stamp(now.wall, now.elapsed, now.boot));
+        for (int i = 0; i < PER_DAY; i++) state.given.add(new Stamp(now.wall, now.elapsed, now.boot, now.elapsedKnown));
         return state;
     }
 
@@ -366,12 +395,26 @@ final class LikeQueueState {
     boolean countAndKeep(Moment now, java.util.function.BooleanSupplier written) {
         Stamp stamp = count(now);
         if (written.getAsBoolean()) return true;
-        given.remove(stamp);
+        removeCounted(stamp);
         return false;
     }
 
     boolean countAndKeep(long now, java.util.function.BooleanSupplier written) {
         return countAndKeep(Moment.wall(now), written);
+    }
+
+    /**
+     * Takes back a stamp that was counted, found by what the lift never changes (its elapsed time and start), not by the
+     * object: a write that failed may have lifted it into another object.
+     */
+    private void removeCounted(Stamp counted) {
+        for (int i = given.size() - 1; i >= 0; i--) {
+            Stamp stamp = given.get(i);
+            if (stamp.elapsed == counted.elapsed && stamp.boot.equals(counted.boot) && stamp.known == counted.known) {
+                given.remove(i);
+                return;
+            }
+        }
     }
 
     /** What {@link #countIfAllowed} did. */
