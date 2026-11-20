@@ -68,7 +68,11 @@ public final class DailyLikeQueue {
     private static volatile Shown shown;
     /** The account the screens read the queue of, see {@link #view}. */
     private static final TimedCache<String> VIEW_OWNER = new TimedCache<>(1_000);
-    private static final AtomicBoolean LOADING = new AtomicBoolean();
+    private static final QueueWork.OffMainLoad<LikeQueueState> VIEW_LOAD = new QueueWork.OffMainLoad<>(
+            Utils::runOnBackgroundThread, () -> Utils.runOnMainThread(() -> {
+        Runnable listener = onViewLoaded;
+        if (listener != null) listener.run();
+    }));
     private static final AtomicBoolean TIMER_SET = new AtomicBoolean();
     private static volatile long noticeAt;
 
@@ -223,9 +227,7 @@ public final class DailyLikeQueue {
 
     /** Called when SoundCloud's like service is ready (and by the timer): gives what today allows, off the main thread. */
     public static void tick() {
-        if (!hasQueue()) return;
-        schedule();
-        Utils.runOnBackgroundThread(() -> {
+        QueueWork.tick(Utils::runOnBackgroundThread, DailyLikeQueue::hasQueue, DailyLikeQueue::schedule, () -> {
             try {
                 runBatch(null);
             } catch (InterruptedException ignored) {
@@ -368,24 +370,27 @@ public final class DailyLikeQueue {
         if (owner == null) return null;
         Shown seen = shown;
         if (seen != null && owner.equals(seen.owner)) return seen.queue;
-        // The file is read once per account, and not on the main thread: the screen gets the queue on its next look.
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            if (LOADING.compareAndSet(false, true)) {
-                Utils.runOnBackgroundThread(() -> {
-                    try {
-                        view();
-                    } finally {
-                        LOADING.set(false);
+        // The file is read once per account, and not on the main thread: the screen is told when it is there.
+        return VIEW_LOAD.read(Looper.myLooper() == Looper.getMainLooper(),
+                () -> {
+                    Shown now = shown;
+                    return now != null && owner.equals(now.owner) ? now.queue : null;
+                },
+                () -> {
+                    synchronized (LOCK) {
+                        if (load() == null) return null;
+                        publish();
+                        return shown.queue;
                     }
                 });
-            }
-            return null;
-        }
-        synchronized (LOCK) {
-            if (load() == null) return null;
-            publish();
-            return shown.queue;
-        }
+    }
+
+    /** Told (on the main thread) when the first read of the queue ended, for a screen that found nothing before. */
+    private static volatile Runnable onViewLoaded;
+
+    /** A screen asks to be told when the queue was read in the background; null stops it. */
+    public static void setOnViewLoaded(Runnable listener) {
+        onViewLoaded = listener;
     }
 
     /**

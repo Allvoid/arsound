@@ -107,6 +107,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         list.addView(historyPart);
 
         TransferJob.addListener(this);
+        // The first read of the queue may come after the first look: the row is filled again when it ends.
+        DailyLikeQueue.setOnViewLoaded(this::fillLikes);
         fillLikes();
         fillProgress();
         fillAccount();
@@ -125,6 +127,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     @Override
     void onDestroy() {
         TransferJob.removeListener(this);
+        DailyLikeQueue.setOnViewLoaded(null);
     }
 
     @Override
