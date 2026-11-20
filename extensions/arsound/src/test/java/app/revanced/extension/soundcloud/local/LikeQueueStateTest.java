@@ -173,5 +173,8 @@ public class LikeQueueStateTest {
         assertFalse(LikeQueueState.isTrackFailure(new java.util.concurrent.TimeoutException("Completable timed out")));
         assertFalse(LikeQueueState.isTrackFailure(new java.net.UnknownHostException("api-v2.soundcloud.com")));
         assertTrue(LikeQueueState.isTrackFailure(new RuntimeException("404 not found")));
+        // Wrapped by SoundCloud: still the network's.
+        assertFalse(LikeQueueState.isTrackFailure(new RuntimeException("like failed", new java.io.IOException("reset"))));
+        assertFalse(LikeQueueState.isTrackFailure(new RuntimeException("a", new RuntimeException("b", new java.util.concurrent.TimeoutException()))));
     }
 }

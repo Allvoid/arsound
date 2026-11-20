@@ -160,9 +160,13 @@ final class LikeQueueState {
      * the moment: no like service yet, no answer in time, no network. Only the first kind may drop a track from the queue.
      */
     static boolean isTrackFailure(Throwable failure) {
-        return !(failure instanceof java.util.concurrent.TimeoutException
-                || failure instanceof IllegalStateException
-                || failure instanceof java.io.IOException);
+        // Also what the failure was caused by: SoundCloud may wrap the network's exception in its own.
+        for (int depth = 0; failure != null && depth < 6; depth++, failure = failure.getCause()) {
+            if (failure instanceof java.util.concurrent.TimeoutException
+                    || failure instanceof IllegalStateException
+                    || failure instanceof java.io.IOException) return false;
+        }
+        return true;
     }
 
     void clear() {
