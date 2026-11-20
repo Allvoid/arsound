@@ -57,22 +57,35 @@ public final class StreamCache {
             // The free space now (one call to the file system), with the cache as last counted (that count walks
             // every part, so it is done in the background): the space of the last start could be long gone.
             File directory = directory();
-            long free = directory == null ? -1 : (directory.isDirectory() ? directory : directory.getParentFile()).getUsableSpace();
-            if (free <= 0) {
-                long available = Settings.getLong(AVAILABLE_BYTES, -1);
-                if (available < 0) return chosen;
-                free = available;
-            } else {
-                free += Math.max(0, Settings.getLong(USED_BYTES, 0));
-            }
-            long available = free;
-            long limit = Math.max(MIN_SIZE, available - FREE_SPACE_RESERVE);
+            File measured = directory == null ? null : (directory.isDirectory() ? directory : directory.getParentFile());
+            // Unknown only when there is nothing to ask: a full storage answers 0, and that is the answer.
+            long free = measured == null ? -1 : measured.getUsableSpace();
+            long limit = limitBySpace(free, Settings.getLong(AVAILABLE_BYTES, -1), Settings.getLong(USED_BYTES, 0));
+            if (limit < 0) return chosen;
             if (limit < chosen) Logger.printInfo(() -> "Stream cache size " + chosen + " is limited by free space to " + limit);
             return Math.min(chosen, limit);
         } catch (Exception ex) {
             Logger.printException(() -> "Could not limit the stream cache by free space", ex);
             return chosen;
         }
+    }
+
+    /**
+     * The most the cache may grow to for the space there is.
+     *
+     * @param free      The free space now, in bytes; negative when it could not be asked (0 is a full storage).
+     * @param available The cache and the free space as last measured, negative when never.
+     * @param used      The cache as last counted.
+     * @return The limit, never below the smallest cache; negative when the space is not known at all.
+     */
+    static long limitBySpace(long free, long available, long used) {
+        if (free < 0) {
+            if (available < 0) return -1;
+            free = available;
+        } else {
+            free += Math.max(0, used);
+        }
+        return Math.max(MIN_SIZE, free - FREE_SPACE_RESERVE);
     }
 
     /**
