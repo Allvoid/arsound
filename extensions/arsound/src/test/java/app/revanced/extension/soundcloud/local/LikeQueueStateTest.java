@@ -298,8 +298,8 @@ public class LikeQueueStateTest {
         LikeQueueState again = LikeQueueState.parse(state.serialize());
         again.add(urns(10), Collections.emptySet());
         assertEquals(0, again.allowance(NOW + H));
-        // A day later, nothing waiting: nothing to keep.
-        assertFalse(state.worthKeeping(NOW + 25 * H));
+        // A day later it is still kept: the stamps are never dropped by age, a clock that jumped would find the file gone.
+        assertTrue(state.worthKeeping(NOW + 25 * H));
     }
 
     @Test
@@ -356,5 +356,65 @@ public class LikeQueueStateTest {
         }
         // The new likes were not pruned as they came: the window filled, and fifty is the end.
         assertEquals(50, state.countIn(dead + 100));
+    }
+
+    @Test
+    public void aClockForwardMoreThanADayThenASaveThenBackKeepsTheFifty() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 50, NOW);
+        state.clear();
+        // The clock jumped forward 30 hours: the window looks empty, but the file is not deleted for it.
+        assertTrue(state.worthKeeping(NOW + 30 * H));
+        LikeQueueState again = LikeQueueState.parse(state.serialize());
+        // Back in real time: the fifty are all there.
+        assertEquals(0, again.allowance(NOW + H));
+    }
+
+    @Test
+    public void aClockForwardMoreThanAWeekThenALikeThenBackKeepsTheFifty() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 50, NOW);
+        long forward = NOW + 10 * 24 * H;
+        state.count(forward);
+        // Nothing was dropped by age.
+        assertEquals(51, state.countIn(NOW + H));
+        assertEquals(0, state.allowance(NOW + H));
+    }
+
+    @Test
+    public void likesGivenWhileTheClockWasADayBehindStillCountAfterItIsFixed() {
+        LikeQueueState state = new LikeQueueState();
+        state.count(NOW);
+        // The clock fell back two days: the likes of that time are not stamped older than the newest one.
+        long behind = NOW - 48 * H;
+        for (int i = 0; i < 49; i++) state.count(behind + i);
+        // The clock is set right an hour later: all fifty still count.
+        assertEquals(0, state.allowance(NOW + H));
+        assertTrue(state.clockLooksWrong(behind + 100));
+        assertFalse(state.clockLooksWrong(NOW + H));
+    }
+
+    @Test
+    public void onlyTheOldestBeyondTwoHundredStampsAreDropped() {
+        LikeQueueState state = new LikeQueueState();
+        for (int i = 0; i < 250; i++) state.count(NOW + i);
+        LikeQueueState back = LikeQueueState.parse(state.serialize());
+        assertEquals(LikeQueueState.KEEP_STAMPS, back.countIn(NOW));
+    }
+
+    @Test
+    public void aFileTornInTheMiddleOfTheStampsIsNotAShorterQueue() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 50, NOW);
+        String whole = state.serialize();
+        assertTrue(LikeQueueState.tryParse(whole, TimeZone.getTimeZone("UTC"), NOW) != null);
+        // Cut inside the given= line: no end line.
+        int cut = whole.indexOf("given=") + 40;
+        assertNull(LikeQueueState.tryParse(whole.substring(0, cut), TimeZone.getTimeZone("UTC"), NOW));
+        // Cut before the end line.
+        assertNull(LikeQueueState.tryParse(whole.substring(0, whole.lastIndexOf("end")), TimeZone.getTimeZone("UTC"), NOW));
     }
 }

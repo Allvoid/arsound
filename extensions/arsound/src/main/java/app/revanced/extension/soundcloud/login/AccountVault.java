@@ -68,15 +68,34 @@ final class AccountVault {
         SharedPreferences preferences = preferences(context);
         String before = preferences.getString(LIST_BACKUP, null);
         String after = addBackup(before, text);
+        if (after == null) {
+            // The earlier backups are themselves unreadable: kept as they are under another key, not cleared.
+            if (preferences.getString(LIST_BACKUP + "_unreadable", null) == null) {
+                if (!preferences.edit().putString(LIST_BACKUP + "_unreadable", before).commit()) return false;
+            }
+            after = addBackup(null, text);
+        }
         return after.equals(before) || preferences.edit().putString(LIST_BACKUP, after).commit();
     }
 
-    /** How many different bad lists are kept. */
+    /** How many different bad lists are kept, besides the largest. */
     static final int BACKUPS = 3;
 
+    /** How many accounts a backed up text holds; what cannot be read counts as none. */
+    private static int entriesOf(String text) {
+        try {
+            return new JSONArray(text).length();
+        } catch (JSONException ex) {
+            return 0;
+        }
+    }
+
     /**
-     * The backups with this text added: a JSON list of the last {@link #BACKUPS} different texts, the oldest dropped. A text
+     * The backups with this text added: a JSON list of different texts, at most {@link #BACKUPS}. When it is too long the
+     * oldest goes, but never the one that holds the most accounts (the first, largest list is the one worth most). A text
      * that is there already changes nothing.
+     *
+     * @return The new list; null when {@code backups} cannot be read (the caller keeps it aside, it is not cleared).
      */
     static String addBackup(String backups, String text) {
         List<String> kept = new ArrayList<>();
@@ -84,11 +103,22 @@ final class AccountVault {
             JSONArray array = backups == null || backups.isEmpty() ? new JSONArray() : new JSONArray(backups);
             for (int i = 0; i < array.length(); i++) kept.add(array.getString(i));
         } catch (JSONException ex) {
-            kept.clear();
+            return null;
         }
         if (kept.contains(text)) return new JSONArray(kept).toString();
         kept.add(text);
-        while (kept.size() > BACKUPS) kept.remove(0);
+        while (kept.size() > BACKUPS) {
+            int largest = 0;
+            for (int i = 1; i < kept.size(); i++) {
+                if (entriesOf(kept.get(i)) > entriesOf(kept.get(largest))) largest = i;
+            }
+            // Texts that hold no account at all protect nothing.
+            if (entriesOf(kept.get(largest)) == 0) largest = -1;
+            // The oldest that is not the largest; the new text is never the one to go.
+            int drop = largest == 0 ? 1 : 0;
+            if (drop == kept.size() - 1) drop = 0;
+            kept.remove(drop);
+        }
         return new JSONArray(kept).toString();
     }
 

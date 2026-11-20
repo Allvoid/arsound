@@ -29,6 +29,8 @@ final class LikeQueueState {
     /** The window the limit is counted over. */
     static final long WINDOW_MS = 24L * 60 * 60 * 1000;
     private static final String HEADER = "arsound-like-queue 1";
+    /** The last line of a file written whole. */
+    private static final String END = "end";
     /** Longest queue kept: far more than any transfer gives (a playlist holds 500 tracks). */
     private static final int MAX_QUEUE = 20_000;
 
@@ -67,6 +69,7 @@ final class LikeQueueState {
     static LikeQueueState tryParse(String saved, TimeZone zone, long now) {
         String oldDay = "";
         int oldToday = 0;
+        boolean sawEnd = false, sawGiven = false, sawDay = false;
         LikeQueueState state = new LikeQueueState();
         if (saved == null) return state;
         try {
@@ -75,14 +78,22 @@ final class LikeQueueState {
             for (int i = 1; i < lines.length; i++) {
                 String line = lines[i].trim();
                 if (line.isEmpty()) continue;
+                if (line.equals(END)) {
+                    sawEnd = true;
+                    continue;
+                }
                 int equals = line.indexOf('=');
                 if (equals > 0 && !line.startsWith("soundcloud:")) {
                     String key = line.substring(0, equals), value = line.substring(equals + 1);
                     if (key.equals("total")) state.total = Integer.parseInt(value);
                     else if (key.equals("done")) state.done = Integer.parseInt(value);
-                    else if (key.equals("day")) oldDay = value;
+                    else if (key.equals("day")) {
+                        oldDay = value;
+                        sawDay = true;
+                    }
                     else if (key.equals("today")) oldToday = Integer.parseInt(value);
                     else if (key.equals("given")) {
+                        sawGiven = true;
                         for (String stamp : value.split(",")) {
                             if (!stamp.trim().isEmpty()) state.given.add(Long.parseLong(stamp.trim()));
                         }
@@ -94,6 +105,9 @@ final class LikeQueueState {
         } catch (RuntimeException ex) {
             return null;
         }
+        // A file of the rolling kind must end with its end line; only a file of the calendar-day kind (it has its day line
+        // and no stamps line) is read without one.
+        if (!sawEnd && !(sawDay && !sawGiven)) return null;
         state.total = Math.max(state.total, state.done + state.pending.size());
         // A file of the calendar-day kind: the day's likes become that many moments at the start of that day, once.
         if (state.given.isEmpty() && oldToday > 0) {
@@ -113,6 +127,8 @@ final class LikeQueueState {
         for (int i = 0; i < given.size(); i++) out.append(i == 0 ? "" : ",").append(given.get(i));
         out.append('\n');
         for (String urn : pending) out.append(urn).append('\n');
+        // Written last: a file cut in the middle (a power loss) has no end, and is not read as a shorter one.
+        out.append(END).append('\n');
         return out.toString();
     }
 
@@ -160,23 +176,34 @@ final class LikeQueueState {
         return Math.max(0, PER_DAY - countIn(now));
     }
 
-    /** Counts a like at {@code now}: before it is asked for, or for one the user gave by hand. */
-    void count(long now) {
-        given.add(now);
-        prune(now);
-    }
-
-    /** The moments kept for a clock that goes forward and comes back: only those older than a week before now are dropped. */
-    private static final long KEEP_MS = 7 * WINDOW_MS;
+    /** The most stamps kept: the window needs the last fifty, the rest is room for a clock that jumps. */
+    static final int KEEP_STAMPS = 200;
 
     /**
-     * Drops what is a week older than {@code now}. Measured from now, not from the newest moment: with the clock far behind
-     * (a dead clock, the year 2000) the moments of the real time are in the future and must not push the new ones out. The
-     * one just added is never dropped.
+     * Counts a like: before it is asked for, or for one the user gave by hand. The stamp is never earlier than the newest
+     * one (RULE B, final form): a clock that went back does not make the likes of that time look old, so they still count
+     * after the clock is set right; and stamps are never dropped by age, only the oldest beyond {@link #KEEP_STAMPS}, so a
+     * clock that jumped forward and back finds them all.
+     *
+     * @return The stamp given to the like.
      */
-    private void prune(long now) {
-        long horizon = now - KEEP_MS;
-        for (int i = given.size() - 2; i >= 0; i--) if (given.get(i) < horizon) given.remove(i);
+    long count(long now) {
+        long stamp = Math.max(now, newestStamp());
+        given.add(stamp);
+        while (given.size() > KEEP_STAMPS) given.remove(0);
+        return stamp;
+    }
+
+    /** The latest moment counted, 0 when none. */
+    long newestStamp() {
+        long newest = 0;
+        for (long at : given) newest = Math.max(newest, at);
+        return newest;
+    }
+
+    /** Whether the clock looks wrong: the likes were counted at a moment more than an hour ahead of it. */
+    boolean clockLooksWrong(long now) {
+        return newestStamp() > now + 3_600_000;
     }
 
     /**
@@ -195,9 +222,9 @@ final class LikeQueueState {
      * of Arsound's own goes through (the queue, My Wave, the transfer).
      */
     boolean countAndKeep(long now, java.util.function.BooleanSupplier written) {
-        count(now);
+        long stamp = count(now);
         if (written.getAsBoolean()) return true;
-        giveBack(now);
+        giveBack(stamp);
         return false;
     }
 
@@ -319,7 +346,8 @@ final class LikeQueueState {
      * day's count, or a new queue the same day would give another {@link #PER_DAY} likes and risk the account's block.
      */
     boolean worthKeeping(long now) {
-        return !pending.isEmpty() || total > 0 || countIn(now) > 0;
+        // Never while any like is counted: a clock that jumped would find the file gone and the window empty.
+        return !pending.isEmpty() || total > 0 || !given.isEmpty();
     }
 
     void clear() {

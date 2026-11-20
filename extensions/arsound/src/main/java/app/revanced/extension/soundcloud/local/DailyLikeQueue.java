@@ -133,6 +133,13 @@ public final class DailyLikeQueue {
         long now = System.currentTimeMillis();
         String head = text("Пролайкано ", "Liked ") + current.done() + text(" из ", " of ") + current.total();
         int left = current.remaining();
+        if (current.waitingForSlot(now) && current.clockLooksWrong(now)) {
+            // The likes were counted at a moment ahead of the phone's clock (it was ahead and was set back): conservative.
+            String when = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                    .format(new java.util.Date(current.nextSlotAt(now)));
+            return head + text(", часы телефона шли вперёд; следующий лайк после " + when,
+                    ", the phone's clock was ahead; the next like after " + when);
+        }
         if (current.waitingForSlot(now)) {
             long hours = Math.max(1, (current.nextSlotAt(now) - now + 3_600_000 - 1) / 3_600_000);
             return head + text(", следующие — через " + hours + " ч", ", the next in " + hours + " h");
@@ -214,15 +221,7 @@ public final class DailyLikeQueue {
                     continue;
                 }
                 Logger.printInfo(() -> "Like queue: could not like " + urn + ": " + failure);
-                if (LikeQueueState.givesCountBack(failure)) {
-                    synchronized (LOCK) {
-                        LikeQueueState current = queueOf(owner);
-                        if (current != null) {
-                            current.giveBack(stamp);
-                            save();
-                        }
-                    }
-                }
+                // No failure gives the count back (see LikeQueueState.givesCountBack): the like stays counted.
                 // Not the track's fault (no like service yet, no answer, no network): the run ends and the track stays
                 // queued, or a short queue would give up its tracks one after the other within the run.
                 if (!LikeQueueState.isTrackFailure(failure)) break;

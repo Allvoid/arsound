@@ -216,4 +216,20 @@ public class AccountVaultTest {
             throw new AssertionError("no backup needed");
         }));
     }
+
+    @Test
+    public void theLargestBadListIsNeverTheOneThatGoes() throws Exception {
+        String big = "[{\"a\":1},{\"a\":2},{\"a\":3},{\"a\":4}]";
+        String backups = AccountVault.addBackup(null, big);
+        for (int i = 0; i < 6; i++) backups = AccountVault.addBackup(backups, "[{\"b\":" + i + "}]");
+        assertTrue(backups.contains("{\\\"a\\\":4}"));
+        assertEquals(AccountVault.BACKUPS, new org.json.JSONArray(backups).length());
+        // The newest is in too.
+        assertTrue(backups.contains("{\\\"b\\\":5}"));
+    }
+
+    @Test
+    public void unreadableBackupsAreNotClearedByAddingOne() {
+        assertNull(AccountVault.addBackup("not a list", "[{\"a\":1}]"));
+    }
 }
