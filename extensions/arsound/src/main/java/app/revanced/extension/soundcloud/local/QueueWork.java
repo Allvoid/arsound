@@ -37,15 +37,37 @@ final class QueueWork {
             if (!main) return load.get();
             if (loading.compareAndSet(false, true)) {
                 background.execute(() -> {
+                    T found;
                     try {
-                        load.get();
+                        found = load.get();
                     } finally {
                         loading.set(false);
                     }
-                    loaded.run();
+                    // Only when there is something to look at: a load that found nothing would send the screen back to
+                    // look, find nothing, and start the next load.
+                    if (found != null) loaded.run();
                 });
             }
             return null;
+        }
+    }
+
+    /** The one screen that wants to hear of a finished load; a screen that goes removes only its own listener. */
+    static final class ListenerSlot {
+        private final java.util.concurrent.atomic.AtomicReference<Runnable> slot = new java.util.concurrent.atomic.AtomicReference<>();
+
+        void set(Runnable listener) {
+            slot.set(listener);
+        }
+
+        /** Removes the listener only if it is still the given one (another screen may have taken the slot since). */
+        void clear(Runnable mine) {
+            slot.compareAndSet(mine, null);
+        }
+
+        void run() {
+            Runnable listener = slot.get();
+            if (listener != null) listener.run();
         }
     }
 

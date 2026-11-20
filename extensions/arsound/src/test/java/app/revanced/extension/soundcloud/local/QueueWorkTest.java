@@ -75,4 +75,32 @@ public class QueueWorkTest {
         background.runAll();
         assertEquals(0, scheduled.get());
     }
+
+    @Test
+    public void aLoadThatFoundNothingDoesNotSendTheScreenBackToLook() {
+        Later background = new Later();
+        AtomicInteger told = new AtomicInteger();
+        QueueWork.OffMainLoad<String> load = new QueueWork.OffMainLoad<>(background, told::incrementAndGet);
+        assertNull(load.read(true, () -> null, () -> null));
+        background.runAll();
+        assertEquals(0, told.get());
+    }
+
+    @Test
+    public void aScreenThatGoesLeavesTheListenerOfTheNewerScreen() {
+        QueueWork.ListenerSlot slot = new QueueWork.ListenerSlot();
+        AtomicInteger first = new AtomicInteger();
+        AtomicInteger second = new AtomicInteger();
+        Runnable one = first::incrementAndGet;
+        Runnable two = second::incrementAndGet;
+        slot.set(one);
+        slot.set(two);
+        slot.clear(one);
+        slot.run();
+        assertEquals(0, first.get());
+        assertEquals(1, second.get());
+        slot.clear(two);
+        slot.run();
+        assertEquals(1, second.get());
+    }
 }

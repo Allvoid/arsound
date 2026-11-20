@@ -41,6 +41,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     private LinearLayout progressPart;
     /** The likes that wait for their days ({@link DailyLikeQueue}). */
     private LinearLayout likesPart;
+    private final Runnable likesListener = this::fillLikes;
     /** The row of those likes, kept so a tick only changes its text and a tap on it is not lost. */
     private ActionRow likesRow;
     private LinearLayout accountPart;
@@ -108,7 +109,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
 
         TransferJob.addListener(this);
         // The first read of the queue may come after the first look: the row is filled again when it ends.
-        DailyLikeQueue.setOnViewLoaded(this::fillLikes);
+        DailyLikeQueue.setOnViewLoaded(likesListener);
         fillLikes();
         fillProgress();
         fillAccount();
@@ -127,7 +128,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     @Override
     void onDestroy() {
         TransferJob.removeListener(this);
-        DailyLikeQueue.setOnViewLoaded(null);
+        DailyLikeQueue.clearOnViewLoaded(likesListener);
     }
 
     @Override
