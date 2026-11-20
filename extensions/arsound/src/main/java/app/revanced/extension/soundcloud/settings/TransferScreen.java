@@ -350,8 +350,14 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                                 "The tracks left will not be liked any more. The likes already given stay."))
                         .setPositiveButton(text("Остановить", "Stop"), (dialog, which) ->
                                 Utils.runOnBackgroundThread(() -> {
-                                    DailyLikeQueue.clear();
-                                    Utils.runOnMainThread(this::fillLikes);
+                                    boolean stopped = DailyLikeQueue.clear();
+                                    Utils.runOnMainThread(() -> {
+                                        if (!stopped) {
+                                            Toast.makeText(activity, text("Очередь не удалось прочитать: попробуйте ещё раз",
+                                                    "The queue could not be read: try again"), Toast.LENGTH_LONG).show();
+                                        }
+                                        fillLikes();
+                                    });
                                 }))
                         .setNegativeButton(text("Продолжить", "Keep going"), null)
                         .show());
@@ -360,8 +366,8 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     }
 
     private static String likesStatus(String line) {
-        return line + text(". Идут, пока приложение запускалось в этот день. Нажмите, чтобы остановить.",
-                ". They go while the app was started that day. Tap to stop.");
+        return line + text(". Не больше 50 за любые 24 часа; идут, пока приложение запущено. Нажмите, чтобы остановить.",
+                ". No more than 50 in any 24 hours; they go while the app runs. Tap to stop.");
     }
 
     /** A transfer the app was closed in the middle of: a tap goes on with it, the playlists made are reused. */

@@ -108,31 +108,33 @@ public final class DailyLikeQueue {
     }
 
     /** The queue of the account signed in is dropped: the user does not want the rest of its likes. */
-    public static void clear() {
+    public static boolean clear() {
         synchronized (LOCK) {
             LikeQueueState current = load();
-            if (current == null) return;
+            // Not read (the file could not be opened): nothing was stopped, and the caller says so.
+            if (current == null) return false;
             current.clear();
             save();
+            return true;
         }
     }
 
     /**
      * One line about the queue for the screen and the notification, or null when none waits:
-     * "Liked 120 of 430, the next 50 tomorrow".
+     * "Liked 120 of 430, the next in 5 h".
      */
     public static String progressLine() {
         LikeQueueState current = view();
         if (current == null || current.isEmpty()) return null;
-        String day = today();
+        long now = System.currentTimeMillis();
         String head = text("Пролайкано ", "Liked ") + current.done() + text(" из ", " of ") + current.total();
         int left = current.remaining();
-        if (current.dayUsed(day)) {
-            int next = Math.min(LikeQueueState.PER_DAY, left);
-            return head + text(", следующие " + next + " — завтра", ", the next " + next + " tomorrow");
+        if (current.waitingForSlot(now)) {
+            long hours = Math.max(1, (current.nextSlotAt(now) - now + 3_600_000 - 1) / 3_600_000);
+            return head + text(", следующие — через " + hours + " ч", ", the next in " + hours + " h");
         }
-        int now = Math.min(current.allowanceOf(day), left);
-        return head + text(", сегодня ещё " + now, ", " + now + " more today");
+        int allowed = Math.min(current.allowance(now), left);
+        return head + text(", сейчас можно ещё " + allowed, ", " + allowed + " more now");
     }
 
     // endregion
@@ -160,7 +162,7 @@ public final class DailyLikeQueue {
                 String urn;
                 synchronized (LOCK) {
                     LikeQueueState current = load();
-                    if (current == null || current.isEmpty() || current.allowance(today()) == 0) break;
+                    if (current == null || current.isEmpty() || current.allowance(System.currentTimeMillis()) == 0) break;
                     urn = current.peek();
                     owner = stateOwner;
                 }
@@ -174,6 +176,16 @@ public final class DailyLikeQueue {
                         save();
                     }
                     continue;
+                }
+                // Counted before the like is asked for, and the account is looked at once more: a like that reaches the server
+                // and is not known to have, a process that dies meanwhile, an account switched under the run all stay
+                // inside the limit.
+                long stamp = System.currentTimeMillis();
+                synchronized (LOCK) {
+                    LikeQueueState current = queueOf(owner);
+                    if (current == null || !LikeQueueState.ownerStillSame(owner, currentOwner())) break;
+                    current.count(stamp);
+                    save();
                 }
                 OWN.add(urn);
                 Throwable failure;
@@ -189,7 +201,7 @@ public final class DailyLikeQueue {
                     synchronized (LOCK) {
                         LikeQueueState current = queueOf(owner);
                         if (current != null) {
-                            current.liked(urn, today());
+                            current.liked(urn);
                             save();
                         }
                     }
@@ -198,6 +210,16 @@ public final class DailyLikeQueue {
                     continue;
                 }
                 Logger.printInfo(() -> "Like queue: could not like " + urn + ": " + failure);
+                if (!LikeQueueState.countsAsGiven(failure)) {
+                    // The track itself was refused: the like did not happen, the count is given back.
+                    synchronized (LOCK) {
+                        LikeQueueState current = queueOf(owner);
+                        if (current != null) {
+                            current.giveBack(stamp);
+                            save();
+                        }
+                    }
+                }
                 // Not the track's fault (no like service yet, no answer, no network): the run ends and the track stays
                 // queued, or a short queue would give up its tracks one after the other within the run.
                 if (!LikeQueueState.isTrackFailure(failure)) break;
@@ -241,13 +263,13 @@ public final class DailyLikeQueue {
         HANDLER.postDelayed(DailyLikeQueue::tick, 20_000);
     }
 
-    /** The timer: after midnight, and every hour while likes wait (a run may stop on a refusal). */
+    /** The timer: when the window lets the next like through, and every hour while likes wait (a run may stop on a refusal). */
     private static void schedule() {
         if (!TIMER_SET.compareAndSet(false, true)) return;
         long now = System.currentTimeMillis();
-        TimeZone zone = TimeZone.getDefault();
-        long midnight = LikeQueueState.nextDayStart(now, zone) + 60_000 + (long) (Math.random() * 120_000);
-        long wait = Math.min(Math.max(1_000, midnight - now), RETRY_MS);
+        LikeQueueState current = view();
+        long slot = current == null ? now : current.nextSlotAt(now);
+        long wait = slot <= now ? RETRY_MS : Math.min(Math.max(1_000, slot - now + 60_000 + (long) (Math.random() * 120_000)), RETRY_MS);
         HANDLER.postDelayed(() -> {
             TIMER_SET.set(false);
             tick();
@@ -273,8 +295,17 @@ public final class DailyLikeQueue {
         try {
             if (isOwnLike(urn)) return;
             long now = System.currentTimeMillis();
+            // A heart by hand counts in the window too, or the limit would be passed by it and the queue together.
+            Utils.runOnBackgroundThread(() -> {
+                synchronized (LOCK) {
+                    LikeQueueState counting = load();
+                    if (counting == null) return;
+                    counting.count(System.currentTimeMillis());
+                    save();
+                }
+            });
             LikeQueueState current = view();
-            if (current == null || !current.dayUsed(today()) || now - noticeAt < NOTICE_GAP_MS) return;
+            if (current == null || !current.waitingForSlot(now) || now - noticeAt < NOTICE_GAP_MS) return;
             noticeAt = now;
             Context context = Utils.getContext();
             if (context == null) return;
@@ -290,10 +321,6 @@ public final class DailyLikeQueue {
     }
 
     // endregion
-
-    private static String today() {
-        return LikeQueueState.dayKey(System.currentTimeMillis(), TimeZone.getDefault());
-    }
 
     /**
      * Under {@link #LOCK}. The queue of the account signed in, read from its file the first time it is asked for. Null
@@ -344,7 +371,7 @@ public final class DailyLikeQueue {
         try {
             File folder = file.getParentFile();
             if (folder != null && !folder.isDirectory() && !folder.mkdirs()) return;
-            if (!state.worthKeeping(today())) {
+            if (!state.worthKeeping(System.currentTimeMillis())) {
                 //noinspection ResultOfMethodCallIgnored
                 file.delete();
                 return;

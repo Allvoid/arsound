@@ -26,9 +26,9 @@ public class LikeQueueStateTest {
         LikeQueueState state = new LikeQueueState();
         assertEquals(3, state.add(urns(3), Collections.emptySet()));
         assertEquals("soundcloud:tracks:3", state.peek());
-        state.liked("soundcloud:tracks:3", "d1");
+        state.liked("soundcloud:tracks:3");
         assertEquals("soundcloud:tracks:2", state.peek());
-        state.liked("soundcloud:tracks:2", "d1");
+        state.liked("soundcloud:tracks:2");
         assertEquals("soundcloud:tracks:1", state.peek());
     }
 
@@ -42,20 +42,109 @@ public class LikeQueueStateTest {
         assertEquals(2, state.total());
     }
 
+    private static final long H = 60L * 60 * 1000;
+    private static final long NOW = 1_800_000_000_000L;
+
+    private static void give(LikeQueueState state, int count, long at) {
+        for (int i = 0; i < count; i++) {
+            state.count(at);
+            state.liked(state.peek());
+        }
+    }
+
     @Test
-    public void givesFiftyALikeAndWaitsForTheNextDay() {
+    public void givesFiftyInAnyTwentyFourHoursAndThenWaits() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(120), Collections.emptySet());
-        assertEquals(50, state.allowance("d1"));
-        // The head of the queue is the last track of the playlist: 120 first, then 119 and so on.
-        for (int i = 120; i > 70; i--) state.liked("soundcloud:tracks:" + i, "d1");
-        assertEquals(0, state.allowance("d1"));
-        assertTrue(state.dayUsed("d1"));
+        assertEquals(50, state.allowance(NOW));
+        give(state, 50, NOW);
+        assertEquals(0, state.allowance(NOW));
+        assertTrue(state.waitingForSlot(NOW));
         assertEquals(70, state.remaining());
         assertEquals(50, state.done());
-        // The next day the count starts again.
-        assertFalse(state.dayUsed("d2"));
-        assertEquals(50, state.allowance("d2"));
+        // Not at midnight, not after 23 hours 59 minutes: only when the first of the fifty is 24 hours old.
+        assertEquals(0, state.allowance(NOW + 24 * H - 1));
+        assertEquals(NOW + 24 * H, state.nextSlotAt(NOW));
+        assertEquals(50, state.allowance(NOW + 24 * H + 1));
+    }
+
+    @Test
+    public void aSpreadOutDayFreesTheLikesOneByOne() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        give(state, 25, NOW);
+        give(state, 25, NOW + 10 * H);
+        assertEquals(0, state.allowance(NOW + 11 * H));
+        assertEquals(NOW + 24 * H, state.nextSlotAt(NOW + 11 * H));
+        // The first 25 are 24 hours old: 25 may go, not 50.
+        assertEquals(25, state.allowance(NOW + 24 * H + 1));
+    }
+
+    @Test
+    public void aClockMovedBackDoesNotOpenAnotherFiftyNorBlockForDays() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        give(state, 50, NOW);
+        // The clock went back two days: the moments in the future count as now, so the likes are still counted ...
+        long back = NOW - 48 * H;
+        assertEquals(0, state.allowance(back));
+        // ... and leave the window 24 hours after the moment they were seen, not 24 hours after the old future.
+        assertEquals(0, state.allowance(back + 23 * H));
+        assertEquals(50, state.allowance(back + 24 * H + 1));
+    }
+
+    @Test
+    public void aChangeOfTimeZoneChangesNothing() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 50, NOW);
+        // The moments are UTC: whichever zone the phone is in, the same likes are in the window.
+        LikeQueueState back = LikeQueueState.parse(state.serialize(), TimeZone.getTimeZone("Pacific/Auckland"));
+        assertEquals(0, back.allowance(NOW + H));
+        assertEquals(0, LikeQueueState.parse(state.serialize(), TimeZone.getTimeZone("America/Los_Angeles")).allowance(NOW + H));
+    }
+
+    @Test
+    public void aLikeWhoseResultIsNotKnownStaysCounted() {
+        assertTrue(LikeQueueState.countsAsGiven(new java.util.concurrent.TimeoutException("no answer")));
+        assertTrue(LikeQueueState.countsAsGiven(new java.io.IOException("reset")));
+        assertTrue(LikeQueueState.countsAsGiven(new IllegalStateException("No LikeToggler yet")));
+        // Only the track's own refusal gives the like back.
+        assertFalse(LikeQueueState.countsAsGiven(new RuntimeException("404 not found")));
+        LikeQueueState state = new LikeQueueState();
+        state.count(NOW);
+        state.giveBack(NOW);
+        assertEquals(50, state.allowance(NOW));
+    }
+
+    @Test
+    public void aLikeByHandCountsInTheWindowToo() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 49, NOW);
+        state.count(NOW + H);
+        assertEquals(0, state.allowance(NOW + 2 * H));
+    }
+
+    @Test
+    public void theLikesOfACalendarDayAreMigratedOnce() {
+        String old = "arsound-like-queue 1\ntotal=60\ndone=30\nday=2026-11-18\ntoday=30\nsoundcloud:tracks:7\n";
+        TimeZone zone = TimeZone.getTimeZone("Europe/Moscow");
+        LikeQueueState state = LikeQueueState.parse(old, zone);
+        long dayStart = LikeQueueState.dayStart("2026-11-18", zone);
+        assertEquals(20, state.allowance(dayStart + H));
+        // Saved anew it is the new kind: no day any more, the moments only.
+        assertFalse(state.serialize().contains("day="));
+        assertEquals(20, LikeQueueState.parse(state.serialize(), zone).allowance(dayStart + H));
+        assertEquals(50, state.allowance(dayStart + 25 * H));
+    }
+
+    @Test
+    public void aQueueIsGivenLikesOnlyWhileItsAccountIsStillTheOne() {
+        assertTrue(LikeQueueState.ownerStillSame("a-1", "a-1"));
+        assertFalse(LikeQueueState.ownerStillSame("a-1", "b-2"));
+        assertFalse(LikeQueueState.ownerStillSame("a-1", null));
+        assertFalse(LikeQueueState.ownerStillSame(null, null));
     }
 
     @Test
@@ -63,7 +152,7 @@ public class LikeQueueStateTest {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(3), Collections.emptySet());
         state.skipped("soundcloud:tracks:3");
-        assertEquals(50, state.allowance("d1"));
+        assertEquals(50, state.allowance(NOW));
         assertEquals(1, state.done());
         assertEquals(2, state.remaining());
     }
@@ -81,14 +170,12 @@ public class LikeQueueStateTest {
     public void survivesTheTrip() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(60), Collections.emptySet());
-        for (int i = 60; i > 53; i--) state.liked("soundcloud:tracks:" + i, "2026-11-18");
+        for (int i = 60; i > 53; i--) state.liked("soundcloud:tracks:" + i);
         LikeQueueState back = LikeQueueState.parse(state.serialize());
         assertEquals(state.peek(), back.peek());
         assertEquals(53, back.remaining());
         assertEquals(60, back.total());
         assertEquals(7, back.done());
-        assertEquals(7, back.givenOn("2026-11-18"));
-        assertEquals(0, back.givenOn("2026-11-19"));
     }
 
     @Test
@@ -103,8 +190,8 @@ public class LikeQueueStateTest {
     public void aNewQueueAfterAnEmptyOneCountsAnew() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(2), Collections.emptySet());
-        state.liked("soundcloud:tracks:2", "d1");
-        state.liked("soundcloud:tracks:1", "d1");
+        state.liked("soundcloud:tracks:2");
+        state.liked("soundcloud:tracks:1");
         state.add(urns(5), Collections.emptySet());
         assertEquals(5, state.total());
         assertEquals(0, state.done());
@@ -117,12 +204,10 @@ public class LikeQueueStateTest {
         // The queue was stopped and filled again while the like of track 3 was on its way.
         state.clear();
         state.add(urns(2), Collections.emptySet());
-        state.liked("soundcloud:tracks:3", "d1");
+        state.liked("soundcloud:tracks:3");
         assertEquals("soundcloud:tracks:2", state.peek());
         assertEquals(2, state.remaining());
         assertEquals(0, state.done());
-        // The server took the like, so it counts for the day.
-        assertEquals(49, state.allowanceOf("d1"));
     }
 
     @Test
@@ -141,7 +226,7 @@ public class LikeQueueStateTest {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(3), Collections.emptySet());
         LikeQueueState copy = state.copy();
-        state.liked("soundcloud:tracks:3", "d1");
+        state.liked("soundcloud:tracks:3");
         assertEquals(3, copy.remaining());
         assertEquals(0, copy.done());
         assertEquals(2, state.remaining());
@@ -153,17 +238,6 @@ public class LikeQueueStateTest {
         assertEquals("matvey_40_mail_2e_ru-123", LikeQueueState.keyOf("matvey@mail.ru-123"));
         assertEquals("abc-9", LikeQueueState.keyOf("abc-9"));
         assertFalse(LikeQueueState.keyOf("a.b").equals(LikeQueueState.keyOf("a_b")));
-    }
-
-    @Test
-    public void dayKeysFollowTheZone() {
-        TimeZone moscow = TimeZone.getTimeZone("Europe/Moscow");
-        TimeZone la = TimeZone.getTimeZone("America/Los_Angeles");
-        // 2026-11-17 22:30 UTC is already the 18th in Moscow and still the 17th in Los Angeles.
-        long moment = 1_794_954_600_000L;
-        assertEquals("2026-11-18", LikeQueueState.dayKey(moment, moscow));
-        assertEquals("2026-11-17", LikeQueueState.dayKey(moment, la));
-        assertEquals("2026-11-19", LikeQueueState.dayKey(LikeQueueState.nextDayStart(moment, moscow), moscow));
     }
 
     @Test
@@ -179,17 +253,17 @@ public class LikeQueueStateTest {
     }
 
     @Test
-    public void aStoppedQueueKeepsTheCountOfTheDay() {
+    public void aStoppedQueueKeepsTheCountOfTheWindow() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(60), Collections.emptySet());
-        for (int i = 0; i < 50; i++) state.liked(state.peek(), "d1");
+        give(state, 50, NOW);
         state.clear();
-        // Nothing waits, but 50 were given today: the file stays, or a new queue would give 50 more and risk a block.
-        assertTrue(state.worthKeeping("d1"));
+        // Nothing waits, but 50 were given lately: the file stays, or a new queue would give 50 more.
+        assertTrue(state.worthKeeping(NOW + H));
         LikeQueueState again = LikeQueueState.parse(state.serialize());
         again.add(urns(10), Collections.emptySet());
-        assertEquals(0, again.allowance("d1"));
-        // Another day, nothing waiting: nothing to keep.
-        assertFalse(state.worthKeeping("d2"));
+        assertEquals(0, again.allowance(NOW + H));
+        // A day later, nothing waiting: nothing to keep.
+        assertFalse(state.worthKeeping(NOW + 25 * H));
     }
 }
