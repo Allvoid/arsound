@@ -90,6 +90,7 @@ final class AccountVault {
     static boolean setPending(Context context, String what) {
         boolean written = preferences(context).edit().putString(PENDING, what).putLong(PENDING_AT, System.currentTimeMillis()).commit();
         pendingHere = written;
+        abandoned = false;
         return written;
     }
 
@@ -118,18 +119,42 @@ final class AccountVault {
         return what;
     }
 
-    /** Whether the switch under way was started by this run of the app. */
-    static boolean startedHere() {
-        return pendingHere;
+    /**
+     * The switch was given up on this run (no screen to ask on) while SoundCloud's wipe may still be running. The mark
+     * stays, with {@link #pendingHere}: the end of that wipe must not look like SoundCloud's own sign-out.
+     */
+    private static volatile boolean abandoned;
+
+    static void markAbandoned() {
+        abandoned = true;
     }
 
-    /** The run no longer follows a switch: its mark goes stale at the usual time. */
-    static void forgetHere() {
-        pendingHere = false;
+    static boolean isAbandoned() {
+        return abandoned;
+    }
+
+    /** What the end of SoundCloud's wipe means for the switch. */
+    enum AfterPurge {
+        /** No switch of ours: SoundCloud's own sign-out; the kept copy of that account is dead. */
+        OWN_SIGN_OUT,
+        /** A switch given up on: nothing is removed and nothing starts in the background. */
+        LEAVE,
+        /** The wipe failed: the user decides. */
+        ASK,
+        /** The wipe is over: the next account goes in. */
+        FINISH
+    }
+
+    static AfterPurge afterPurge(boolean pending, boolean abandoned, boolean failed) {
+        // A given-up switch first: even when its mark went stale meanwhile, this was our removal, not a sign-out.
+        if (abandoned) return AfterPurge.LEAVE;
+        if (!pending) return AfterPurge.OWN_SIGN_OUT;
+        return failed ? AfterPurge.ASK : AfterPurge.FINISH;
     }
 
     static boolean clearPending(Context context) {
-        forgetHere();
+        pendingHere = false;
+        abandoned = false;
         return preferences(context).edit().remove(PENDING).remove(PENDING_AT).commit();
     }
 

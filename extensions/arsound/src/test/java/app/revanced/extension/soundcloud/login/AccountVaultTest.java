@@ -97,14 +97,19 @@ public class AccountVaultTest {
     }
 
     @Test
-    public void anAbandonedSwitchIsNoLongerFollowedByThisRun() throws Exception {
-        java.lang.reflect.Field field = AccountVault.class.getDeclaredField("pendingHere");
-        field.setAccessible(true);
-        field.set(null, true);
-        assertTrue(AccountVault.startedHere());
-        AccountVault.forgetHere();
-        assertFalse(AccountVault.startedHere());
-        // Its mark then goes stale at the usual two minutes, not after a quarter of an hour.
-        assertTrue(AccountVault.isStale(121_000, AccountVault.startedHere()));
+    public void theEndOfTheWipeAfterAGivenUpSwitchChangesNothing() {
+        // Switch given up (no screen to ask on) while the wipe still runs: its end is not SoundCloud's own sign-out
+        // (that would drop the kept copy of the account left) and starts nothing in the background.
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(true, true, false));
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(true, true, true));
+        // Even when its mark went stale meanwhile.
+        assertEquals(AccountVault.AfterPurge.LEAVE, AccountVault.afterPurge(false, true, false));
+    }
+
+    @Test
+    public void theEndOfTheWipeOfALiveSwitchOrOfAnOwnSignOut() {
+        assertEquals(AccountVault.AfterPurge.OWN_SIGN_OUT, AccountVault.afterPurge(false, false, false));
+        assertEquals(AccountVault.AfterPurge.FINISH, AccountVault.afterPurge(true, false, false));
+        assertEquals(AccountVault.AfterPurge.ASK, AccountVault.afterPurge(true, false, true));
     }
 }

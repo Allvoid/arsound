@@ -318,7 +318,14 @@ public final class AccountSwitch {
         Context context = Utils.getContext();
         if (context == null) return;
         MAIN.removeCallbacks(PURGE_TIMEOUT);
-        if (AccountVault.pending(context) == null) {
+        // Read before pending(): a stale mark is cleared there, and the flag with it.
+        boolean gaveUp = AccountVault.isAbandoned();
+        AccountVault.AfterPurge after = AccountVault.afterPurge(AccountVault.pending(context) != null, gaveUp, error != null);
+        if (after == AccountVault.AfterPurge.LEAVE) {
+            Logger.printInfo(() -> "Accounts: the wipe ended after the switch was given up, nothing is changed");
+            return;
+        }
+        if (after == AccountVault.AfterPurge.OWN_SIGN_OUT) {
             // SoundCloud's own sign-out: it ended the session on the server, the kept tokens of that account are dead.
             String gone = AccountVault.lastCurrent(context);
             if (gone != null) {
@@ -328,7 +335,7 @@ public final class AccountSwitch {
             return;
         }
         // A wipe that failed leaves the old user's data on the phone: the user decides, nothing goes on by itself.
-        if (error != null) {
+        if (after == AccountVault.AfterPurge.ASK) {
             askAboutWipe(true);
             return;
         }
@@ -347,10 +354,10 @@ public final class AccountSwitch {
                 // Nobody to ask: the switch stays pending (and goes stale on its own), the app is not restarted.
                 Logger.printInfo(() -> "Accounts: the wipe did not finish, no screen to ask on");
                 hideProgress();
-                // Abandoned: the mark must not outlive this, or SoundCloud's own sign-out finishing later would be taken for
-                // the end of this switch and restart the app into the other account.
-                Context abandoned = Utils.getContext();
-                if (abandoned != null) Utils.runOnBackgroundThread(() -> AccountVault.clearPending(abandoned));
+                // Given up, but SoundCloud's wipe of the old account still runs: the mark stays (its end must not look like
+                // a sign-out of SoundCloud's own, which would drop the kept copy of the account left), and the end of the
+                // wipe neither removes anything nor restarts the app in the background.
+                AccountVault.markAbandoned();
                 return;
             }
             hideProgress();
