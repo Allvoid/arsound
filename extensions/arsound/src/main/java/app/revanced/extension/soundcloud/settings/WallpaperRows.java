@@ -360,9 +360,12 @@ final class WallpaperRows {
         Utils.runOnBackgroundThread(() -> {
             File copy = new File(context.getCacheDir(), "arsound-own-wallpaper.tmp");
             // A file the system says is too big is refused before a byte of it is copied.
-            boolean tooBig = reportedSize(context, picture) > WallpaperStore.MAX_OWN_BYTES;
+            long reported = reportedSize(context, picture);
+            boolean tooBig = reported > WallpaperStore.MAX_OWN_BYTES;
+            // The copy needs room of its own: a full storage is told as that, not as an odd file.
+            boolean noRoom = !tooBig && !OwnPicture.hasRoom(reported, context.getCacheDir().getUsableSpace());
             boolean read = false;
-            if (!tooBig) {
+            if (!tooBig && !noRoom) {
                 try (InputStream input = context.getContentResolver().openInputStream(picture);
                      OutputStream output = new FileOutputStream(copy)) {
                     if (input != null) {
@@ -371,9 +374,11 @@ final class WallpaperRows {
                         read = !tooBig;
                     }
                 } catch (Exception ex) {
+                    noRoom = OwnPicture.isNoSpace(ex);
                     app.revanced.extension.shared.Logger.printException(() -> "Wallpaper: could not read the picked picture", ex);
                 }
             }
+            boolean full = noRoom;
             WallpaperStore.Result result = tooBig ? WallpaperStore.Result.TOO_BIG
                     : read ? WallpaperStore.installOwnMedia(context, copy) : WallpaperStore.Result.FAILED;
             boolean installed = result == WallpaperStore.Result.KEPT;
@@ -381,8 +386,9 @@ final class WallpaperRows {
             Utils.runOnMainThread(() -> {
                 if (activity.isFinishing() || activity.isDestroyed()) return;
                 if (!installed) {
-                    Toast.makeText(activity, result == WallpaperStore.Result.TOO_BIG
-                                    ? text("Файл больше 400 МБ: возьмите покороче или полегче", "The file is over 400 MB: pick a shorter or lighter one")
+                    boolean russian = app.revanced.extension.soundcloud.shared.Lang.russian();
+                    Toast.makeText(activity, result == WallpaperStore.Result.TOO_BIG ? OwnPicture.tooBigText(russian)
+                                    : full ? OwnPicture.noRoomText(russian)
                                     : text("Не получилось открыть этот файл: нужна картинка, GIF или видео, которые умеет открыть Android",
                                     "Could not open this file: a picture, a GIF or a video that Android can open is needed"),
                             Toast.LENGTH_LONG).show();
