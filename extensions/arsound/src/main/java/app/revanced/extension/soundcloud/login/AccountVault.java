@@ -89,6 +89,7 @@ final class AccountVault {
         boolean written = preferences(context).edit().putString(PENDING, what).putLong(PENDING_AT, System.currentTimeMillis()).commit();
         pendingHere = written;
         abandoned = false;
+        newSwitch();
         return written;
     }
 
@@ -102,17 +103,56 @@ final class AccountVault {
     }
 
     private static volatile long finishedAt;
+    /** Counts the switches begun by this run; {@link #finishedId} is the one that has just put its account in. */
+    private static volatile long switchId;
+    private static volatile long finishedId = -1;
+    private static final String WIPE_OPEN = "wipe_open";
     /** How long after a switch put the next account in the end of the old wipe is still part of that switch. */
     private static final long FINISHED_GRACE_MS = 5_000;
 
     /** The switch has put the next account in and the app is about to start again. */
     static void markFinished() {
         finishedAt = System.currentTimeMillis();
+        finishedId = switchId;
     }
 
+    /** A new switch begins: the grace of the one before it does not apply to it. */
+    static void newSwitch() {
+        switchId++;
+    }
+
+    /** Only for the switch that finished: a new one begun within the grace must hear the end of its own wipe. */
     static boolean justFinished() {
         long age = System.currentTimeMillis() - finishedAt;
-        return finishedAt != 0 && age >= 0 && age < FINISHED_GRACE_MS;
+        return finishedAt != 0 && finishedId == switchId && age >= 0 && age < FINISHED_GRACE_MS;
+    }
+
+    /** A wipe of ours is about to start: written before it, cleared when it ends, so a cut one is known afterwards. */
+    static void markWipeOpen(Context context) {
+        preferences(context).edit().putBoolean(WIPE_OPEN, true).commit();
+    }
+
+    static void clearWipeOpen(Context context) {
+        preferences(context).edit().remove(WIPE_OPEN).commit();
+    }
+
+    /** Whether the last wipe of ours did not end (the app died in it, it failed, or the app was restarted over it). */
+    static boolean wipeUnfinished(Context context) {
+        return preferences(context).getBoolean(WIPE_OPEN, false);
+    }
+
+    /** What signing in with a kept account does now. */
+    enum SignInGate {
+        /** A wipe is running (ours or SoundCloud's own): a restart would cut it off. */
+        WAIT,
+        /** The last wipe did not end: the user is warned that data of the earlier account may show. */
+        WARN,
+        GO
+    }
+
+    static SignInGate signInGate(boolean purgeRunning, boolean switchPending, boolean wipeUnfinished) {
+        if (purgeRunning || switchPending) return SignInGate.WAIT;
+        return wipeUnfinished ? SignInGate.WARN : SignInGate.GO;
     }
 
     /** Puts the switch under way back to a new time, so a wait that went on does not make it look abandoned. */

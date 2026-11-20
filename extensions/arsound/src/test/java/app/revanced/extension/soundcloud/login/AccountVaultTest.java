@@ -122,4 +122,32 @@ public class AccountVaultTest {
         assertEquals(AccountVault.AfterPurge.FINISH, AccountVault.afterPurge(true, false, false, false));
         assertEquals(AccountVault.AfterPurge.ASK, AccountVault.afterPurge(true, false, true, false));
     }
+
+    @Test
+    public void aNewSwitchWithinTheGraceHearsTheEndOfItsOwnWipe() {
+        AccountVault.newSwitch();
+        AccountVault.markFinished();
+        assertTrue(AccountVault.justFinished());
+        // The next switch begins within the five seconds: the grace was the earlier switch's, not this one's.
+        AccountVault.newSwitch();
+        assertFalse(AccountVault.justFinished());
+    }
+
+    @Test
+    public void signingInWaitsForARunningWipeAndWarnsAboutACutOne() {
+        assertEquals(AccountVault.SignInGate.WAIT, AccountVault.signInGate(true, false, false));
+        // SoundCloud's own sign-out runs a wipe too, with no mark of ours.
+        assertEquals(AccountVault.SignInGate.WAIT, AccountVault.signInGate(true, false, true));
+        assertEquals(AccountVault.SignInGate.WAIT, AccountVault.signInGate(false, true, false));
+        assertEquals(AccountVault.SignInGate.WARN, AccountVault.signInGate(false, false, true));
+        assertEquals(AccountVault.SignInGate.GO, AccountVault.signInGate(false, false, false));
+    }
+
+    @Test
+    public void theSwitchCodeNeverDeletesAKeptAccountByItself() throws Exception {
+        // RULE: a kept account goes only when the user removes it from the list (AccountSheet).
+        String source = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                "src/main/java/app/revanced/extension/soundcloud/login/AccountSwitch.java")), java.nio.charset.StandardCharsets.UTF_8);
+        assertFalse(source.contains("AccountVault.remove("));
+    }
 }

@@ -62,6 +62,8 @@ public final class AppStorage {
      * an early start and shows up later, would send the stream cache to the shared folder and then to the app's own
      * files, or the other way round. The part written under the other one would be left behind, out of the settings'
      * sizes and out of the clearing. "No folder yet" is an answer too (the own folder), kept the same way.
+     * Accepted as it is (20.11): a card that leaves and comes back may move the cache within a run; nothing is lost, the
+     * parts are only read from another place.
      */
     private static boolean usable(File folder) {
         // One answer for two threads that ask first at the same time, and no probe (it may make the folder) once it is kept.

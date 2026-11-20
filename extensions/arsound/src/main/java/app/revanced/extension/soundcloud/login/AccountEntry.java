@@ -51,6 +51,7 @@ public final class AccountEntry {
     /** Screen hook, on every activity that comes to the screen. */
     public static void onActivityResumed(Activity activity) {
         try {
+            AccountSwitch.performPendingRestart(activity);
             String name = activity.getClass().getName();
             if (MAIN_ACTIVITY.equals(name)) onMain(activity);
             else if (AUTHENTICATION_ACTIVITY.equals(name)) onSignIn(activity);
