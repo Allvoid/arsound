@@ -167,7 +167,7 @@ final class SoundCloudSide {
         int failuresInRow = 0;
         for (String urn : plan) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-            Throwable failure = SoundCloudLikes.like(urn);
+            Throwable failure = DailyLikeQueue.likeCounted(urn);
             if (failure == null) {
                 failuresInRow = 0;
                 progress.accept(++liked);

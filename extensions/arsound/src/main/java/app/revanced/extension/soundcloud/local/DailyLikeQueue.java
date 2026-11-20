@@ -28,20 +28,23 @@ import app.revanced.extension.soundcloud.shared.AppResources;
 import app.revanced.extension.soundcloud.shared.AtomicFiles;
 
 /**
- * The likes of transferred tracks, {@link LikeQueueState#PER_DAY} a day. SoundCloud takes about fifty likes a day and,
- * when more are given, bars the account from liking for a day, so a transfer that was asked to like everything puts
- * the tracks in this queue instead of liking them at once: today's fifty are given, the rest wait for the next days.
+ * The likes of transferred tracks, {@link LikeQueueState#PER_DAY} in any 24 hours. SoundCloud takes about fifty likes a day
+ * and, when more are given, bars the account from liking for a day, so a transfer that was asked to like everything puts
+ * the tracks in this queue instead of liking them at once: fifty are given, the rest wait until the window lets them through.
+ * The queue never likes more than fifty in any 24 hours, counting every like of the account made by Arsound (the queue, My
+ * Wave, the transfer's own fifty: {@link #likeCounted}) or by hand ({@link #onManualLike}); a like is counted before it is
+ * asked for, and one whose result is not known stays counted.
  * The queue is kept in a file after every like, so a restart or a phone that ended the app goes on where it stopped.
  * Each account has a queue of its own: it waits for the account it was made for, and is given only while that account
  * is the one signed in.
  * <p>
- * Who gives the likes: the transfer, for today's fifty; after that {@link #tick} on its own, when the app has made
- * SoundCloud's like service ({@link SoundCloudLikes#setToggler}), and from a timer that fires after midnight and every
- * hour while the app lives and the queue waits. SoundCloud's like service lives in the app's process, so the likes go
- * only while the app has been started that day; a phone on which the app was not opened gives them on its next start.
+ * Who gives the likes: the transfer, for the first fifty; after that {@link #tick} on its own, when the app has made
+ * SoundCloud's like service ({@link SoundCloudLikes#setToggler}), and from a timer that fires when the window lets the next
+ * like through and every hour while the app lives and the queue waits. SoundCloud's like service lives in the app's process,
+ * so the likes go only while the app runs; a phone on which the app was not opened gives them on its next start.
  * <p>
- * While the day's likes are all given, a heart tapped by hand shows a short notice ({@link #onManualLike}): the limit of
- * the account is used up by the transfer, and a like of the user's own may not be kept.
+ * While the window is full, a heart tapped by hand shows a short notice ({@link #onManualLike}): the limit of the account is
+ * used up by the transfer, and a like of the user's own may not be kept.
  */
 public final class DailyLikeQueue {
     /** The queue kept before each account had its own: it becomes the queue of the account signed in first. */
@@ -155,7 +158,6 @@ public final class DailyLikeQueue {
         int given = 0;
         try {
             int failures = 0;
-            Set<String> failedOnce = new HashSet<>();
             String owner = null;
             while (true) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
@@ -181,20 +183,18 @@ public final class DailyLikeQueue {
                 // and is not known to have, a process that dies meanwhile, an account switched under the run all stay
                 // inside the limit.
                 long stamp = System.currentTimeMillis();
+                boolean written;
                 synchronized (LOCK) {
                     LikeQueueState current = queueOf(owner);
                     if (current == null || !LikeQueueState.ownerStillSame(owner, currentOwner())) break;
-                    current.count(stamp);
-                    save();
+                    // No like when the count did not reach the disk: a process that dies after it would have forgotten it.
+                    written = current.countAndKeep(stamp, DailyLikeQueue::save);
                 }
-                OWN.add(urn);
-                Throwable failure;
-                try {
-                    failure = SoundCloudLikes.like(urn);
-                } finally {
-                    // A moment of grace: the hook that tells the likes apart runs a little after the call.
-                    HANDLER.postDelayed(() -> OWN.remove(urn), 15_000);
+                if (!written) {
+                    Logger.printInfo(() -> "Like queue: the count could not be written, no like is given");
+                    break;
                 }
+                Throwable failure = likeMarkedOwn(urn);
                 if (failure == null) {
                     failures = 0;
                     given++;
@@ -210,8 +210,7 @@ public final class DailyLikeQueue {
                     continue;
                 }
                 Logger.printInfo(() -> "Like queue: could not like " + urn + ": " + failure);
-                if (!LikeQueueState.countsAsGiven(failure)) {
-                    // The track itself was refused: the like did not happen, the count is given back.
+                if (LikeQueueState.givesCountBack(failure)) {
                     synchronized (LOCK) {
                         LikeQueueState current = queueOf(owner);
                         if (current != null) {
@@ -226,9 +225,9 @@ public final class DailyLikeQueue {
                 synchronized (LOCK) {
                     LikeQueueState current = queueOf(owner);
                     if (current == null) break;
-                    // A track that fails twice in one run is not liked at all: gone from SoundCloud, or not likeable.
-                    if (!failedOnce.add(urn)) current.skipped(urn);
-                    else current.postponed(urn);
+                    // Nothing says what the failure was (see givesCountBack): the like stays counted and the track goes to
+                    // the back, to be tried again later; it is never dropped from the queue because of a failure.
+                    current.postponed(urn);
                     save();
                 }
                 if (++failures >= FAILURES_IN_ROW) break;
@@ -244,6 +243,38 @@ public final class DailyLikeQueue {
         int total = given;
         Logger.printInfo(() -> "Like queue: this run gave " + total + " likes");
         return given;
+    }
+
+    /** Likes the track as the queue's own like (a heart tapped by hand is told from it); the count is written already. */
+    private static Throwable likeMarkedOwn(String urn) throws Exception {
+        OWN.add(urn);
+        try {
+            return SoundCloudLikes.like(urn);
+        } finally {
+            // A moment of grace: the hook that tells the likes apart runs a little after the call.
+            HANDLER.postDelayed(() -> OWN.remove(urn), 15_000);
+        }
+    }
+
+    /**
+     * The one entry for likes of Arsound's own features other than the queue (My Wave, the transfer's own fifty): the like
+     * is counted in the window of the account first and written to the disk, then given. Those features keep their own
+     * limits; counting them is what keeps the queue from adding to them past 50 in any 24 hours. Blocks: off the main thread.
+     *
+     * @return Null when it went through; what went wrong otherwise (also when the count could not be written: no like then).
+     */
+    public static Throwable likeCounted(String urn) throws Exception {
+        if (!countOne()) return new IllegalStateException("The like could not be counted");
+        return likeMarkedOwn(urn);
+    }
+
+    /** Counts one like now in the window of the account signed in; false when that could not be written. */
+    static boolean countOne() {
+        synchronized (LOCK) {
+            LikeQueueState current = load();
+            if (current == null) return false;
+            return current.countAndKeep(System.currentTimeMillis(), DailyLikeQueue::save);
+        }
     }
 
     /** Called when SoundCloud's like service is ready (and by the timer): gives what today allows, off the main thread. */
@@ -363,22 +394,24 @@ public final class DailyLikeQueue {
      * Under {@link #LOCK}. Keeps the queue of its account in its file and shows a copy of it to the screens. Called after
      * every change of the queue.
      */
-    private static void save() {
-        if (state == null) return;
+    private static boolean save() {
+        if (state == null) return false;
         publish();
         File file = file(stateOwner);
-        if (file == null) return;
+        if (file == null) return false;
         try {
             File folder = file.getParentFile();
-            if (folder != null && !folder.isDirectory() && !folder.mkdirs()) return;
+            if (folder != null && !folder.isDirectory() && !folder.mkdirs()) return false;
             if (!state.worthKeeping(System.currentTimeMillis())) {
                 //noinspection ResultOfMethodCallIgnored
                 file.delete();
-                return;
+                return true;
             }
             AtomicFiles.write(new File(file.getPath() + ".part"), file, state.serialize().getBytes(StandardCharsets.UTF_8));
+            return true;
         } catch (IOException ex) {
             Logger.printException(() -> "Like queue: could not keep the queue", ex);
+            return false;
         }
     }
 

@@ -32,7 +32,7 @@ final class AccountVault {
      * made the end of the wipe look like SoundCloud's own sign-out, which dropped the saved copy of the account the user
      * was switching away from.
      */
-    private static final long PENDING_HERE_FOR_MS = 15 * 60_000;
+    static final long PENDING_HERE_FOR_MS = 15 * 60_000;
     /** The switch under way was started by this run of the app (not left by one that was killed). */
     private static volatile boolean pendingHere;
     /** More are not kept: the oldest goes. */
@@ -45,14 +45,41 @@ final class AccountVault {
         return context.getApplicationContext().getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
     }
 
+    /** The text of a list that was damaged or lost entries, kept as it was (never lost silently): see {@link #losesEntries}. */
+    static final String LIST_BACKUP = "accounts_backup";
+
     static synchronized List<SavedAccount> list(Context context) {
         String text = preferences(context).getString(LIST, null);
+        keepBackup(context, text);
         if (damaged(text)) {
-            // Dropped, so it is not read (and logged) again on every call; the next save starts a clean list.
+            // Dropped, so it is not read (and logged) again on every call; the next save starts a clean list. The text
+            // stays in the backup key.
             preferences(context).edit().remove(LIST).commit();
             return new ArrayList<>();
         }
         return parse(text);
+    }
+
+    /**
+     * Keeps the text of a list the code cannot read whole (damaged, or with an entry that is skipped) before anything
+     * rewrites it. The first such text is kept: it is the one with the most in it.
+     */
+    private static void keepBackup(Context context, String text) {
+        SharedPreferences preferences = preferences(context);
+        if (losesEntries(text) && preferences.getString(LIST_BACKUP, null) == null) {
+            preferences.edit().putString(LIST_BACKUP, text).commit();
+        }
+    }
+
+    /** Whether reading the text drops something: it is damaged, or it holds entries that do not read as accounts. */
+    static boolean losesEntries(String text) {
+        if (text == null || text.isEmpty()) return false;
+        if (damaged(text)) return true;
+        try {
+            return new JSONArray(text).length() != parse(text).size();
+        } catch (JSONException ex) {
+            return true;
+        }
     }
 
     static boolean isEmpty(Context context) {
@@ -68,7 +95,14 @@ final class AccountVault {
 
     /** Keeps the account, in place of an older copy of it, at the top of the list. False when it was not committed. */
     static synchronized boolean save(Context context, SavedAccount account) {
-        return write(context, upsert(list(context), account));
+        List<SavedAccount> updated = upsert(list(context), account);
+        // The list is full of other accounts: nothing is dropped to make room, the user removes one first.
+        return updated != null && write(context, updated);
+    }
+
+    /** Whether the account cannot be kept because ten others are: adding it would drop one of them. */
+    static synchronized boolean isFullFor(Context context, String name) {
+        return upsert(list(context), new SavedAccount(name, "", "", "", null, null, null, 0)) == null;
     }
 
     static synchronized void remove(Context context, String name) {
@@ -228,13 +262,18 @@ final class AccountVault {
 
     // region Pure list work (tested on the JVM)
 
+    /**
+     * The list with the account at the top in place of its older copy. RULE A: nothing kept is dropped to make room.
+     *
+     * @return The new list; null when the account is a new one and {@link #MAX_ACCOUNTS} others are kept already.
+     */
     static List<SavedAccount> upsert(List<SavedAccount> accounts, SavedAccount account) {
         List<SavedAccount> result = new ArrayList<>();
         result.add(account);
         for (SavedAccount other : accounts) {
-            if (!other.name.equals(account.name) && result.size() < MAX_ACCOUNTS) result.add(other);
+            if (!other.name.equals(account.name)) result.add(other);
         }
-        return result;
+        return result.size() > MAX_ACCOUNTS ? null : result;
     }
 
     static List<SavedAccount> parse(String text) {

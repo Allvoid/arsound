@@ -6,8 +6,8 @@ package app.revanced.extension.soundcloud.login;
  * cut it off, so the sign-in waits. A wipe whose end never comes (SoundCloud changed its code) does not block for ever.
  */
 final class PurgeGate {
-    /** A wipe that has not ended after this long is taken for lost. */
-    static final long LOST_AFTER_MS = 5 * 60_000;
+    /** A wipe that has not ended after this long is taken for lost: the same time the mark of a switch lives. */
+    static final long LOST_AFTER_MS = AccountVault.PENDING_HERE_FOR_MS;
 
     private int running;
     private long lastBeganAt;

@@ -236,13 +236,13 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         dailyRow.addView(app.revanced.extension.soundcloud.shared.HelpBadge.create(activity,
                 ArsoundTheme.palette(activity, "secondary"), text("Что такое лайки по 50 в день", "What liking 50 a day is"),
                 text("В SoundCloud ограничение — около 50 лайков в сутки. Если лайкнуть больше, аккаунт на сутки теряет "
-                                + "возможность ставить лайки. Эта функция ставит ровно по 50 лайков в день, пока не пролайкает "
-                                + "все перенесённые треки. Пока она работает, дневной лимит уходит на неё — свои лайки в эти дни "
-                                + "могут не сохраниться.",
+                                + "возможность ставить лайки. Эта функция ставит не больше 50 лайков за любые 24 часа, считая "
+                                + "все лайки этого аккаунта, поставленные Arsound или вручную, пока не пролайкает все "
+                                + "перенесённые треки. Пока окно занято, свои лайки могут не сохраниться.",
                         "SoundCloud limits likes to about 50 a day. If you like more, the account loses the ability to like "
-                                + "for a day. This feature gives exactly 50 likes a day until all the transferred tracks are "
-                                + "liked. While it works, the daily limit goes to it, so your own likes on those days may not "
-                                + "be kept.")), app.revanced.extension.soundcloud.shared.HelpBadge.layoutParams(activity));
+                                + "for a day. This feature never likes more than 50 in any 24 hours, counting every like of this "
+                                + "account made by Arsound or by hand, until all the transferred tracks are liked. While the "
+                                + "window is full, your own likes may not be kept.")), app.revanced.extension.soundcloud.shared.HelpBadge.layoutParams(activity));
         dailyRow.setVisibility(View.GONE);
         option.addView(dailyRow, 1);
         like.setOnCheckedChangeListener((button, checked) -> {

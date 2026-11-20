@@ -38,11 +38,29 @@ public class AccountVaultTest {
     }
 
     @Test
-    public void theListKeepsAtMostTenAccounts() {
+    public void anEleventhAccountIsRefusedAndNoneIsDropped() {
         List<SavedAccount> accounts = new ArrayList<>();
-        for (int i = 0; i < 15; i++) accounts = AccountVault.upsert(accounts, account("u-" + i, "" + i, "t", i));
+        for (int i = 0; i < AccountVault.MAX_ACCOUNTS; i++) {
+            accounts = AccountVault.upsert(accounts, account("u-" + i, "" + i, "t", i));
+            assertEquals(i + 1, accounts.size());
+        }
+        // RULE A: the vault itself never drops a usable entry to make room.
+        assertNull(AccountVault.upsert(accounts, account("u-new", "99", "t", 99)));
         assertEquals(AccountVault.MAX_ACCOUNTS, accounts.size());
-        assertEquals("u-14", accounts.get(0).name);
+        // A copy of an account that is there is renewed in place, at the top.
+        List<SavedAccount> renewed = AccountVault.upsert(accounts, account("u-3", "3", "fresh", 100));
+        assertEquals(AccountVault.MAX_ACCOUNTS, renewed.size());
+        assertEquals("u-3", renewed.get(0).name);
+        assertEquals("fresh", renewed.get(0).accessToken);
+    }
+
+    @Test
+    public void aListThatLosesEntriesIsKeptAsItWasBeforeAnythingRewritesIt() {
+        // Damaged text, and a list with an entry that is no usable account: both are backed up, not lost silently.
+        assertTrue(AccountVault.losesEntries("not json"));
+        assertTrue(AccountVault.losesEntries("[{\"name\":\"a-1\"},{\"bad\":1}]"));
+        assertFalse(AccountVault.losesEntries(null));
+        assertFalse(AccountVault.losesEntries(AccountVault.serialize(java.util.Collections.singletonList(account("a-1", "1", "t", 1)))));
     }
 
     @Test

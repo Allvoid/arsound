@@ -81,16 +81,42 @@ public class LikeQueueStateTest {
     }
 
     @Test
-    public void aClockMovedBackDoesNotOpenAnotherFiftyNorBlockForDays() {
+    public void aClockMovedBackDoesNotOpenAnotherFifty() {
         LikeQueueState state = new LikeQueueState();
         state.add(urns(120), Collections.emptySet());
         give(state, 50, NOW);
-        // The clock went back two days: the moments in the future count as now, so the likes are still counted ...
+        // The clock went back two days: the moments are in the future, and count until 24 hours after themselves.
         long back = NOW - 48 * H;
         assertEquals(0, state.allowance(back));
-        // ... and leave the window 24 hours after the moment they were seen, not 24 hours after the old future.
-        assertEquals(0, state.allowance(back + 23 * H));
-        assertEquals(50, state.allowance(back + 24 * H + 1));
+        assertEquals(0, state.allowance(back + 40 * H));
+        assertEquals(50, state.allowance(NOW + 24 * H + 1));
+    }
+
+    @Test
+    public void backThenForwardAndForwardThenBackFindTheLikesWhereTheyWere() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        give(state, 50, NOW);
+        // Forward 30 hours (the window is empty), then the clock comes back: the likes are counted again, nothing was dropped.
+        assertEquals(50, state.allowance(NOW + 30 * H));
+        assertEquals(0, state.allowance(NOW + H));
+        // A like given while the clock was forward, then back: it counts too, until 24 hours after its own moment.
+        state.count(NOW + 30 * H);
+        assertEquals(1, state.countIn(NOW + H) - 50);
+        assertEquals(49, state.allowance(NOW + 25 * H));
+    }
+
+    @Test
+    public void theViewsOfTheWindowChangeNothing() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 50, NOW);
+        String before = state.serialize();
+        state.allowance(NOW + 30 * H);
+        state.nextSlotAt(NOW + 30 * H);
+        state.countIn(NOW - 10 * H);
+        state.waitingForSlot(NOW + 40 * H);
+        assertEquals(before, state.serialize());
     }
 
     @Test
@@ -99,22 +125,27 @@ public class LikeQueueStateTest {
         state.add(urns(60), Collections.emptySet());
         give(state, 50, NOW);
         // The moments are UTC: whichever zone the phone is in, the same likes are in the window.
-        LikeQueueState back = LikeQueueState.parse(state.serialize(), TimeZone.getTimeZone("Pacific/Auckland"));
-        assertEquals(0, back.allowance(NOW + H));
-        assertEquals(0, LikeQueueState.parse(state.serialize(), TimeZone.getTimeZone("America/Los_Angeles")).allowance(NOW + H));
+        assertEquals(0, LikeQueueState.parse(state.serialize(), TimeZone.getTimeZone("Pacific/Auckland"), NOW + H).allowance(NOW + H));
+        assertEquals(0, LikeQueueState.parse(state.serialize(), TimeZone.getTimeZone("America/Los_Angeles"), NOW + H).allowance(NOW + H));
     }
 
     @Test
-    public void aLikeWhoseResultIsNotKnownStaysCounted() {
-        assertTrue(LikeQueueState.countsAsGiven(new java.util.concurrent.TimeoutException("no answer")));
-        assertTrue(LikeQueueState.countsAsGiven(new java.io.IOException("reset")));
-        assertTrue(LikeQueueState.countsAsGiven(new IllegalStateException("No LikeToggler yet")));
-        // Only the track's own refusal gives the like back.
-        assertFalse(LikeQueueState.countsAsGiven(new RuntimeException("404 not found")));
+    public void noFailureGivesTheCountBackBecauseNothingSaysWhatTheFailureWas() {
+        // SoundCloud writes the like locally first and sends it later: no failure of the call tells a refused track.
+        assertFalse(LikeQueueState.givesCountBack(new java.util.concurrent.TimeoutException("no answer")));
+        assertFalse(LikeQueueState.givesCountBack(new java.io.IOException("reset")));
+        assertFalse(LikeQueueState.givesCountBack(new IllegalStateException("No LikeToggler yet")));
+        assertFalse(LikeQueueState.givesCountBack(new RuntimeException("404 not found")));
+    }
+
+    @Test
+    public void aLikeIsGivenOnlyWhenItsCountIsWritten() {
         LikeQueueState state = new LikeQueueState();
-        state.count(NOW);
-        state.giveBack(NOW);
-        assertEquals(50, state.allowance(NOW));
+        assertTrue(state.countAndKeep(NOW, () -> true));
+        assertEquals(49, state.allowance(NOW));
+        // Not written: taken back, and no like is to be given.
+        assertFalse(state.countAndKeep(NOW + 1, () -> false));
+        assertEquals(49, state.allowance(NOW + 1));
     }
 
     @Test
@@ -127,16 +158,20 @@ public class LikeQueueStateTest {
     }
 
     @Test
-    public void theLikesOfACalendarDayAreMigratedOnce() {
+    public void theLikesOfACalendarDayAreMigratedAtTheMomentOfTheMigration() {
         String old = "arsound-like-queue 1\ntotal=60\ndone=30\nday=2026-11-18\ntoday=30\nsoundcloud:tracks:7\n";
         TimeZone zone = TimeZone.getTimeZone("Europe/Moscow");
-        LikeQueueState state = LikeQueueState.parse(old, zone);
         long dayStart = LikeQueueState.dayStart("2026-11-18", zone);
-        assertEquals(20, state.allowance(dayStart + H));
+        // 50 given at 23:00 and read at 05:00 the next day are not 29 hours old: they are counted from the migration.
+        long migrated = dayStart + 29 * H;
+        LikeQueueState state = LikeQueueState.parse(old, zone, migrated);
+        assertEquals(20, state.allowance(migrated + H));
+        assertEquals(20, state.allowance(migrated + 23 * H));
+        assertEquals(50, state.allowance(migrated + 24 * H + 1));
         // Saved anew it is the new kind: no day any more, the moments only.
         assertFalse(state.serialize().contains("day="));
-        assertEquals(20, LikeQueueState.parse(state.serialize(), zone).allowance(dayStart + H));
-        assertEquals(50, state.allowance(dayStart + 25 * H));
+        // A day long past has nothing in the window.
+        assertEquals(50, LikeQueueState.parse(old, zone, dayStart + 10 * 24 * H).allowance(dayStart + 10 * 24 * H));
     }
 
     @Test

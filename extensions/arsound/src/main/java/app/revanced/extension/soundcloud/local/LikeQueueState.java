@@ -45,13 +45,15 @@ final class LikeQueueState {
 
     /** Reads the kept text; a damaged one gives an empty queue. */
     static LikeQueueState parse(String saved) {
-        return parse(saved, TimeZone.getDefault());
+        return parse(saved, TimeZone.getDefault(), System.currentTimeMillis());
     }
 
     /**
      * @param zone Where the old calendar day of a file made before the rolling window began is read (once).
+     * @param now  The moment of the migration of such a file: its likes are counted as given now (the hour they were given
+     *             is not known, and a day's likes given late in the evening are hours old only).
      */
-    static LikeQueueState parse(String saved, TimeZone zone) {
+    static LikeQueueState parse(String saved, TimeZone zone, long now) {
         String oldDay = "";
         int oldToday = 0;
         LikeQueueState state = new LikeQueueState();
@@ -84,8 +86,9 @@ final class LikeQueueState {
         state.total = Math.max(state.total, state.done + state.pending.size());
         // A file of the calendar-day kind: the day's likes become that many moments at the start of that day, once.
         if (state.given.isEmpty() && oldToday > 0) {
+            // A day long past has nothing in the window: only today's and yesterday's count are carried over.
             long start = dayStart(oldDay, zone);
-            if (start >= 0) for (int i = 0; i < Math.min(oldToday, PER_DAY); i++) state.given.add(start);
+            if (start >= 0 && start > now - 2 * WINDOW_MS) for (int i = 0; i < Math.min(oldToday, PER_DAY); i++) state.given.add(now);
         }
         return state;
     }
@@ -131,18 +134,14 @@ final class LikeQueueState {
     }
 
     /**
-     * Puts the moments right: one in the future (the clock went back) counts as now, so it leaves the window 24 hours from
-     * now and not later; those that left the window are dropped.
+     * How many likes the window of the 24 hours before {@code now} holds. Reads only: nothing is changed or dropped, so
+     * a view of the queue on the main thread and the timer on another can share it, and a clock that jumps and comes back
+     * finds the likes where they were. A moment in the future (the clock went back) counts until 24 hours after it.
      */
-    private void tidy(long now) {
-        for (int i = 0; i < given.size(); i++) if (given.get(i) > now) given.set(i, now);
-        given.removeIf(at -> at <= now - WINDOW_MS);
-    }
-
-    /** How many likes the window of the 24 hours before {@code now} holds. */
     int countIn(long now) {
-        tidy(now);
-        return given.size();
+        int count = 0;
+        for (long at : given) if (at > now - WINDOW_MS) count++;
+        return count;
     }
 
     /** How many more likes the window lets through now. */
@@ -152,8 +151,30 @@ final class LikeQueueState {
 
     /** Counts a like at {@code now}: before it is asked for, or for one the user gave by hand. */
     void count(long now) {
-        tidy(now);
         given.add(now);
+        prune(now);
+    }
+
+    /** The moments kept for a clock that comes back: only those older than a week before the newest one are dropped. */
+    private static final long KEEP_MS = 7 * WINDOW_MS;
+
+    private void prune(long now) {
+        long newest = now;
+        for (long at : given) newest = Math.max(newest, at);
+        long horizon = newest - KEEP_MS;
+        given.removeIf(at -> at < horizon);
+    }
+
+    /**
+     * Counts a like at {@code now} and has it written; when it is not written the count is taken back and false is
+     * returned: no like is given then, so a process that dies after it cannot have forgotten one. The single step every like
+     * of Arsound's own goes through (the queue, My Wave, the transfer).
+     */
+    boolean countAndKeep(long now, java.util.function.BooleanSupplier written) {
+        count(now);
+        if (written.getAsBoolean()) return true;
+        giveBack(now);
+        return false;
     }
 
     /** Takes back a like counted at {@code at}: the server said no to the track itself, so nothing was given. */
@@ -163,9 +184,9 @@ final class LikeQueueState {
 
     /** The moment the window lets the next like through: now when it does already, else when the oldest needed one leaves. */
     long nextSlotAt(long now) {
-        tidy(now);
-        if (given.size() < PER_DAY) return now;
-        List<Long> sorted = new ArrayList<>(given);
+        List<Long> sorted = new ArrayList<>();
+        for (long at : given) if (at > now - WINDOW_MS) sorted.add(at);
+        if (sorted.size() < PER_DAY) return now;
         java.util.Collections.sort(sorted);
         return sorted.get(sorted.size() - PER_DAY) + WINDOW_MS;
     }
@@ -176,11 +197,13 @@ final class LikeQueueState {
     }
 
     /**
-     * Whether a failed like stays counted: yes unless the failure is the track's own (the like did not happen). A result
-     * that is not known may be a like the server took.
+     * Whether the count of a failed like is given back: only for a failure that positively says the track itself was
+     * refused (not found, not likeable). Nothing in SoundCloud's like call says so: it writes the like to its database
+     * first and sends it to the server later, and what its answer carries is not told apart anywhere in this code. So no
+     * failure gives the count back: every failed like stays counted, and the track stays queued for a later run.
      */
-    static boolean countsAsGiven(Throwable failure) {
-        return failure == null || !isTrackFailure(failure);
+    static boolean givesCountBack(Throwable failure) {
+        return false;
     }
 
     /** The queue may be given likes only while the account it belongs to is still the one signed in. */

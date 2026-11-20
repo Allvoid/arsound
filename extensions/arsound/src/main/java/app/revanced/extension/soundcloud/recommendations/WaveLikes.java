@@ -12,6 +12,7 @@ import java.util.Set;
 import app.revanced.extension.shared.Logger;
 import app.revanced.extension.shared.Utils;
 import app.revanced.extension.soundcloud.download.DownloadPlaylistPatch;
+import app.revanced.extension.soundcloud.local.DailyLikeQueue;
 import app.revanced.extension.soundcloud.local.SoundCloudLikes;
 
 /**
@@ -81,7 +82,7 @@ final class WaveLikes {
         boolean stopped = false;
         Logger.printInfo(() -> "My Wave: liking " + plan.size() + " of " + urns.size() + " tracks");
         for (String urn : plan) {
-            Throwable failure = SoundCloudLikes.like(urn);
+            Throwable failure = DailyLikeQueue.likeCounted(urn);
             if (failure == null) {
                 failures = 0;
                 liked++;
