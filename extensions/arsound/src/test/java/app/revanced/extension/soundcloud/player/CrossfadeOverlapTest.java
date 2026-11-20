@@ -166,11 +166,12 @@ public class CrossfadeOverlapTest {
         // Normal speed: the end is 20 s away and the fade begins 14 s from now.
         long end = CrossfadeOverlap.endAtFor(now, left, 1f);
         assertEquals(now + 20_000, end);
-        assertEquals(now + 14_000, CrossfadeOverlap.fadeStartFor(end, fade));
-        // Slowed 85 % chosen: the same 20 s of the track take 23.5 s, so the fade begins 2.5 s later, not 2.5 s too early.
+        assertEquals(now + 14_000, CrossfadeOverlap.fadeStartFor(end, fade, 1f));
+        // Slowed 85 % chosen: the same 20 s of the track take 23.5 s; the fade begins when 6 s OF THE TRACK are left (Crossfade fades by
+        // position), 14 s of the track = 16.5 s from now, not 2.5 s too early.
         long slowedEnd = CrossfadeOverlap.endAtFor(now, left, 0.85f);
         assertEquals(now + 23_529, slowedEnd);
-        assertEquals(now + 17_529, CrossfadeOverlap.fadeStartFor(slowedEnd, fade));
+        assertEquals(now + 16_470, CrossfadeOverlap.fadeStartFor(slowedEnd, fade, 0.85f));
         // Sped up to 140 %: it is over sooner.
         assertEquals(now + 14_286, CrossfadeOverlap.endAtFor(now, left, 1.4f));
     }
@@ -199,5 +200,32 @@ public class CrossfadeOverlapTest {
         // The file name of an imported file says it is retimed: with Slowed chosen the player stays at 1.0, so does the overlap.
         assertTrue(SlowedPlayback.isRetimed("x (slowed).mp3"));
         assertFalse(CrossfadeOverlap.playsSlowed(null, VersionSpeed.SLOWED, SlowedPlayback.isRetimed("x (slowed).mp3")));
+    }
+    @Test
+    public void theFadeOutOfASlowedTrackTakesLongerOnTheWallClockAndTheFadeInMatchesIt() {
+        // Crossfade fades the first track by its position: at 85 % speed a 6 s fade lasts about 7.06 s of real time. The second
+        // player's fade-in starts as early and lasts as long, so the two meet without a dip (review r15).
+        long end = 100_000;
+        assertEquals(end - FADE, CrossfadeOverlap.fadeStartFor(end, FADE, 1f));
+        assertEquals(end - 7_059, CrossfadeOverlap.fadeStartFor(end, FADE, 0.85f));
+        assertEquals(end - 4_286, CrossfadeOverlap.fadeStartFor(end, FADE, 1.4f));
+        long start = CrossfadeOverlap.fadeStartFor(end, FADE, 0.85f);
+        long wallFade = CrossfadeOverlap.wallLeft(FADE, 0.85f);
+        // Half way through the fade on the wall clock the second player is at a quarter, as the first one is at its half.
+        assertEquals(0.25f, CrossfadeOverlap.fadeInLevel(start + wallFade / 2, start, wallFade), 1e-3f);
+        assertEquals(1f, CrossfadeOverlap.fadeInLevel(end, start, wallFade), 0f);
+        // The gapless change has no fade at any speed.
+        assertEquals(end, CrossfadeOverlap.fadeStartFor(end, 0, 0.85f));
+    }
+
+    @Test
+    public void theJitterOfReportsDoesNotPushAFadedStartAgainAndAgain() {
+        // With a fade a start up to 150 ms early is still under the 250 ms silent lead; the gapless start keeps 40 ms.
+        long slack = CrossfadeOverlap.FADE_REWAIT_SLACK_MS;
+        assertTrue(slack < 250);
+        assertEquals(0, CrossfadeOverlap.rewait(1_000, 900, slack));
+        assertEquals(0, CrossfadeOverlap.rewait(1_000, 850, slack));
+        assertEquals(200, CrossfadeOverlap.rewait(1_000, 800, slack));
+        assertEquals(100, CrossfadeOverlap.rewait(1_000, 900));
     }
 }

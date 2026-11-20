@@ -46,6 +46,11 @@ public final class CrossfadeOverlap {
     private static String trackId;
     /** Where the fade-out of the current track started (uptime) and how long the fade is. */
     private static long fadeStartAt, fadeMs;
+    /**
+     * The fade-out's length on the wall clock: {@link Crossfade} fades the first track by its POSITION, so at 85 % speed a 6 s
+     * fade takes about 7 s of real time, and the fade-in of the second player must take as long (review r15).
+     */
+    private static long fadeWallMs;
     /** The current track's end is expected at this uptime. */
     private static long endAt;
     private static boolean starting;
@@ -73,7 +78,7 @@ public final class CrossfadeOverlap {
     private CrossfadeOverlap() {
     }
 
-    private static Handler handler() {
+    private static synchronized Handler handler() {
         if (handler == null) {
             HandlerThread thread = new HandlerThread("arsound-crossfade-overlap");
             thread.start();
@@ -103,7 +108,10 @@ public final class CrossfadeOverlap {
             } else {
                 endAt = endAtFor(SystemClock.uptimeMillis(), left, currentFactor);
                 // A change of speed mid-track moves the end, and the fade with it (the fade of a handed-off track is over).
-                if ((starting || player != null) && !handedOff) fadeStartAt = fadeStartFor(endAt, fadeMs);
+                if ((starting || player != null) && !handedOff) {
+                    fadeWallMs = wallLeft(fadeMs, currentFactor);
+                    fadeStartAt = fadeStartFor(endAt, fadeMs, currentFactor);
+                }
             }
         }
         if (seekedAway) {
@@ -118,7 +126,8 @@ public final class CrossfadeOverlap {
             long now = SystemClock.uptimeMillis();
             endAt = endAtFor(now, left, currentFactor);
             fadeMs = fade;
-            fadeStartAt = fadeStartFor(endAt, fade);
+            fadeWallMs = wallLeft(fade, currentFactor);
+            fadeStartAt = fadeStartFor(endAt, fade, currentFactor);
             long mine = ++attempt;
             handler().post(() -> start(mine));
         }
@@ -256,9 +265,12 @@ public final class CrossfadeOverlap {
         return now + wallLeft(mediaLeft, factor);
     }
 
-    /** The uptime the fade-out begins at, for an end and a fade length. */
-    static long fadeStartFor(long endAt, long fadeMs) {
-        return endAt - fadeMs;
+    /**
+     * The uptime the fade-out begins at, for an end and a fade length in media time: the first track fades by its position, so
+     * the fade takes {@code fadeMs / factor} on the wall clock.
+     */
+    static long fadeStartFor(long endAt, long fadeMs, float factor) {
+        return endAt - wallLeft(fadeMs, factor);
     }
 
     /**
@@ -340,7 +352,7 @@ public final class CrossfadeOverlap {
                 } else {
                     // The same with a fade: a change of speed moves the end and the fade, and the second player must not start
                     // at the old time (a silent intro, or the next track skipping its first seconds at the handoff).
-                    long again = rewait(startAt(fadeStartAt, fadeMs), SystemClock.uptimeMillis());
+                    long again = rewait(startAt(fadeStartAt, fadeMs), SystemClock.uptimeMillis(), FADE_REWAIT_SLACK_MS);
                     if (again > 0) {
                         handler().postDelayed(() -> begin(mine, created, next, useSpeed), again);
                         return;
@@ -367,9 +379,21 @@ public final class CrossfadeOverlap {
      * @return The wait in milliseconds, or 0 when it is time (within 40 ms of it).
      */
     static long rewait(long startAtUptime, long now) {
-        long again = startAtUptime - now;
-        return again > 40 ? again : 0;
+        return rewait(startAtUptime, now, 40);
     }
+
+    /**
+     * The same with a slack of its own. With a fade the start is recomputed on every position report, and their jitter (tens of
+     * ms) must not push the start again and again: a start up to {@link #FADE_REWAIT_SLACK_MS} early is under the silent lead
+     * anyway (review r15). The gapless start keeps 40 ms: it is heard at full volume.
+     */
+    static long rewait(long startAtUptime, long now, long slack) {
+        long again = startAtUptime - now;
+        return again > slack ? again : 0;
+    }
+
+    /** See {@link #rewait(long, long, long)}; well under {@code LEAD_MS}. */
+    static final long FADE_REWAIT_SLACK_MS = 150;
 
     /** How long the second player may need to open a file (a slow card); the overlap is prepared this much earlier. */
     private static final long STREAM_PREPARE_MS = 6_000;
@@ -443,7 +467,7 @@ public final class CrossfadeOverlap {
                     rearm = true;
                     volume = 0f;
                 } else {
-                    volume = fadeInLevel(now, fadeStartAt, fadeMs) * sleep;
+                    volume = fadeInLevel(now, fadeStartAt, fadeWallMs) * sleep;
                 }
             }
         }
