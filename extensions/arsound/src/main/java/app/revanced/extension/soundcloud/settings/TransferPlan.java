@@ -106,8 +106,9 @@ final class TransferPlan {
      * <li>{@code download_folder}: a folder of that phone (or a grant on its SD card).</li>
      * <li>{@code stream_cache_available}, {@code stream_cache_used}, {@code stream_cache_clear}: measurements and a
      * waiting order of this phone's cache.</li>
-     * <li>{@code file_logging}, {@code developer_mode}, {@code developer_network_delay_seconds}, {@code playback_log}:
-     * debugging switches; a copy must not switch the log or a network delay on in a new place by itself.</li>
+     * <li>{@code file_logging}, {@code developer_mode}, {@code developer_network_delay_seconds},
+     * {@code developer_fault_mode}, {@code developer_request_delay_ms}, {@code playback_log}: debugging switches; a copy
+     * must not switch the log, a simulated network fault or a delay on in a new place by itself.</li>
      * <li>{@code lyrics_ai_heavy_notice_seen}: "this phone was warned that the recognition is heavy".</li>
      * </ul>
      */
@@ -119,7 +120,8 @@ final class TransferPlan {
             // A private DNS address can carry a personal token in the path.
             "custom_doh_url",
             "stream_cache_available", "stream_cache_used", "stream_cache_clear",
-            "file_logging", "developer_mode", "developer_network_delay_seconds", "playback_log",
+            "file_logging", "developer_mode", "developer_network_delay_seconds", "developer_fault_mode",
+            "developer_request_delay_ms", "playback_log",
             "lyrics_ai_heavy_notice_seen")));
 
     /**

@@ -215,6 +215,7 @@ public class SettingsTransferTest {
                 "download_folder", "tree:content://x", "arsound_theme_forced_night", "yes", "arsound_splash_style", "Arsound.Splash.Pine",
                 "stream_cache_used", 5L, "stream_cache_available", 6L, "stream_cache_clear", true, "arsound_wallpaper_enabled", true,
                 "file_logging", true, "developer_mode", true, "developer_network_delay_seconds", 3, "playback_log", true,
+                "developer_fault_mode", "timeout", "developer_request_delay_ms", 800,
                 "lyrics_ai_heavy_notice_seen", true, "crossfade", true));
         current.put("arsound_sleep_timer", map("stop_at", 123L, "at_clock", true));
         current.put("arsound_local_additions", map("additions", "{}", "titles", "{}", "likes_liked", set("file:1"),
