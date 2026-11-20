@@ -234,6 +234,7 @@ final class LikeQueueState {
      * @return The stamp given to the like.
      */
     Stamp count(Moment now) {
+        lift(now);
         Stamp last = given.isEmpty() ? null : given.get(given.size() - 1);
         // Unknown starts (both empty) are taken as one: the conservative way, as before the start was told.
         boolean sameStart = last != null && last.boot.equals(now.boot);
@@ -242,6 +243,22 @@ final class LikeQueueState {
         given.add(stamp);
         while (given.size() > KEEP_STAMPS) given.remove(0);
         return stamp;
+    }
+
+    /**
+     * A clock set right raises what was recorded under a wrong one: every stamp of this same start gets the wall moment it
+     * has by the elapsed time, {@code max(stamp.wall, now.wall - (now.elapsed - stamp.elapsed))}. Without it a stamp made
+     * while the clock was days behind would, at the next start of the phone (where only the wall clock is left), look days
+     * old and expire early. Done whenever a like is counted and whenever the state is saved.
+     */
+    void lift(Moment now) {
+        if (now.boot.isEmpty()) return;
+        for (int i = 0; i < given.size(); i++) {
+            Stamp stamp = given.get(i);
+            if (!stamp.sameStart(now)) continue;
+            long wall = Math.max(stamp.wall, now.wall - Math.max(0, now.elapsed - stamp.elapsed));
+            if (wall != stamp.wall) given.set(i, new Stamp(wall, stamp.elapsed, stamp.boot));
+        }
     }
 
     /** As above for a moment known by the wall clock only; returns the wall moment given. */
@@ -270,7 +287,13 @@ final class LikeQueueState {
      * stamp is more than an hour ahead of the clock.
      */
     boolean repairOffered(Moment now) {
-        return countIn(now) >= PER_DAY && clockLooksWrong(now);
+        if (countIn(now) < PER_DAY) return false;
+        // Only a stamp of ANOTHER start of the phone that counts and is ahead of the clock: on this start the age is the
+        // elapsed time, exact whatever the clock was set to, and the wait is true; there is nothing to repair.
+        for (Stamp stamp : given) {
+            if (!stamp.sameStart(now) && stamp.ageAt(now) < WINDOW_MS && stamp.wall > now.wall + 3_600_000) return true;
+        }
+        return false;
     }
 
     /**
@@ -283,12 +306,18 @@ final class LikeQueueState {
     int repairFuture(Moment now) {
         int moved = 0;
         for (int i = 0; i < given.size(); i++) {
-            if (given.get(i).wall > now.wall) {
+            Stamp stamp = given.get(i);
+            if (!stamp.sameStart(now) && stamp.wall > now.wall) {
                 given.set(i, new Stamp(now.wall, now.elapsed, now.boot));
                 moved++;
             }
         }
         return moved;
+    }
+
+    /** Whether an unreadable file is a new one to copy aside: not when the newest copy holds the same text already. */
+    static boolean needsCopy(String newestCopy, String content) {
+        return newestCopy == null || !newestCopy.equals(content);
     }
 
     /**

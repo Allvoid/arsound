@@ -517,4 +517,49 @@ public class LikeQueueStateTest {
         assertEquals(0, state.allowance(now));
         assertEquals(50, state.allowance(at(NOW + 24 * H + 1, 5 + 24 * H + 1, "7")));
     }
+
+    @Test
+    public void aClockSetRightRaisesWhatWasRecordedUnderAWrongOneForTheNextStart() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        // Start A: 10 likes at T. Start B: the clock is three days behind, 40 likes are stamped then.
+        giveAt(state, 10, at(NOW, 1_000, "A"));
+        giveAt(state, 40, at(NOW - 72 * H, 100, "B"));
+        // The clock is set right on start B (an hour after T): the state is saved, which lifts the stamps of B.
+        state.lift(at(NOW + H, 100 + 5_000, "B"));
+        // Start C: only the wall clock is left. B's forty are not three days old: all fifty count.
+        assertEquals(0, state.allowance(at(NOW + 2 * H, 10, "C")));
+    }
+
+    @Test
+    public void theRepairIsNotForTheSameStartWhereTheElapsedTimeIsExact() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        giveAt(state, 49, at(NOW + 48 * H, 1_000, "7"));
+        state.count(at(NOW + 48 * H, 2_000, "7"));
+        // The clock is merely corrected back on the same start: full window, stamps ahead, but nothing to repair.
+        assertFalse(state.repairOffered(at(NOW, 3_000, "7")));
+        assertEquals(0, state.repairFuture(at(NOW, 3_000, "7")));
+        // After a restart of the phone it is a case for repair.
+        assertTrue(state.repairOffered(at(NOW, 10, "8")));
+    }
+
+    @Test
+    public void aSalvagedStateIsAFileThatReadsAgain() {
+        String torn = "arsound-like-queue 1\ntotal=2\ngiven=1\nsoundcloud:tracks:5\nsoundcloud:tracks:6\nsoundcloud:t";
+        LikeQueueState saved = LikeQueueState.salvage(torn, at(NOW, 5, "7"));
+        // Written at once, it is a whole file: the next start reads it, and the day's wait is not begun anew.
+        LikeQueueState again = LikeQueueState.tryParse(saved.serialize(), TimeZone.getTimeZone("UTC"), NOW + 10 * H);
+        assertTrue(again != null);
+        assertEquals(2, again.remaining());
+        assertEquals(0, again.allowance(at(NOW + 10 * H, 5 + 10 * H, "7")));
+        assertEquals(50, again.allowance(at(NOW + 25 * H, 5 + 24 * H + 1, "7")));
+    }
+
+    @Test
+    public void theSameGarbageIsNotCopiedAsideTwice() {
+        assertTrue(LikeQueueState.needsCopy(null, "garbage"));
+        assertFalse(LikeQueueState.needsCopy("garbage", "garbage"));
+        assertTrue(LikeQueueState.needsCopy("garbage", "other garbage"));
+    }
 }

@@ -44,6 +44,7 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
     private final Runnable likesListener = this::fillLikes;
     /** The row of those likes, kept so a tick only changes its text and a tap on it is not lost. */
     private ActionRow likesRow;
+    private ActionRow repairRow;
     private LinearLayout accountPart;
     private LinearLayout historyPart;
     /** The service whose account is shown, {@link TransferSource#id} kept in the settings. */
@@ -338,14 +339,17 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
         if (line == null) {
             likesPart.removeAllViews();
             likesRow = null;
+            repairRow = null;
             return;
         }
         // Still on the screen: only its text changes, so a tap that is under way on the row is not lost.
         if (likesRow != null && likesRow.getParent() == likesPart) {
             likesRow.description().setText(likesStatus(line));
+            refreshRepairRow();
             return;
         }
         likesPart.removeAllViews();
+        repairRow = null;
         likesPart.addView(ui.createSubHeading(text("Лайки перенесённых треков", "Likes of transferred tracks")));
         likesRow = ui.createActionRow(text("Лайки по 50 в день", "Liking 50 a day"), likesStatus(line), v ->
                 new ArsoundDialog(activity)
@@ -367,34 +371,44 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                         .show());
         likesRow.icon("recs");
         likesPart.addView(likesRow);
-        // A like counted at a moment far ahead of the clock (it was set a year ahead for a while) blocks the queue: the user
-        // may count from now, after a confirmation.
-        if (DailyLikeQueue.clockRepairOffered()) {
-            likesPart.addView(ui.createActionRow(text("Часы телефона шли вперёд — считать от сейчас",
-                            "The phone's clock was ahead - count from now"),
-                    text("Лайки, посчитанные по сбившимся часам, будут считаться от этого момента: сутки от сейчас. "
-                                    + "Меньше лайков не засчитается, снимется только блок на месяцы вперёд.",
-                            "The likes counted by the wrong clock will count from this moment: 24 hours from now. Fewer "
-                                    + "likes are never counted; only the block that reaches far ahead is lifted."),
-                    v -> new ArsoundDialog(activity)
-                            .setTitle(text("Считать от сейчас?", "Count from now?"))
-                            .setMessage(text("Часы телефона шли вперёд, и очередь ждёт времени, которое ещё не наступило. "
-                                            + "Лайки будут считаться от этого момента: следующие лайки пойдут через сутки "
-                                            + "после последнего, а не раньше.",
-                                    "The phone's clock was ahead, and the queue waits for a time that has not come. The "
-                                            + "likes will count from this moment: the next ones go 24 hours after the last "
-                                            + "one, not sooner."))
-                            .setPositiveButton(text("Считать от сейчас", "Count from now"), (dialog, which) ->
-                                    Utils.runOnBackgroundThread(() -> {
-                                        DailyLikeQueue.repairClock();
-                                        Utils.runOnMainThread(() -> {
-                                            likesRow = null;
-                                            fillLikes();
-                                        });
-                                    }))
-                            .setNegativeButton(text("Отмена", "Cancel"), null)
-                            .show()).icon("info"));
+        refreshRepairRow();
+    }
+
+    /** The repair row: shown only while it is offered, taken away when it is not; looked at on every refill. */
+    private void refreshRepairRow() {
+        boolean offered = DailyLikeQueue.clockRepairOffered();
+        boolean shown = repairRow != null && repairRow.getParent() == likesPart;
+        if (!offered) {
+            if (shown) likesPart.removeView(repairRow);
+            repairRow = null;
+            return;
         }
+        if (shown) return;
+        // A like counted at a moment far ahead of the clock (the phone started again with a clock set a year ahead for a
+        // while) blocks the queue: the user may count from now, after a confirmation.
+        repairRow = ui.createActionRow(text("Часы телефона шли вперёд — считать от сейчас",
+                        "The phone's clock was ahead - count from now"),
+                text("Лайки, посчитанные по сбившимся часам, будут считаться от этого момента: сутки от сейчас. "
+                                + "Меньше лайков не засчитается, снимется только блок на месяцы вперёд.",
+                        "The likes counted by the wrong clock will count from this moment: 24 hours from now. Fewer "
+                                + "likes are never counted; only the block that reaches far ahead is lifted."),
+                v -> new ArsoundDialog(activity)
+                        .setTitle(text("Считать от сейчас?", "Count from now?"))
+                        .setMessage(text("Часы телефона шли вперёд, и очередь ждёт времени, которое ещё не наступило. "
+                                        + "Лайки будут считаться от этого момента: следующие лайки пойдут через сутки "
+                                        + "после последнего, а не раньше.",
+                                "The phone's clock was ahead, and the queue waits for a time that has not come. The "
+                                        + "likes will count from this moment: the next ones go 24 hours after the last "
+                                        + "one, not sooner."))
+                        .setPositiveButton(text("Считать от сейчас", "Count from now"), (dialog, which) ->
+                                Utils.runOnBackgroundThread(() -> {
+                                    DailyLikeQueue.repairClock();
+                                    Utils.runOnMainThread(this::fillLikes);
+                                }))
+                        .setNegativeButton(text("Отмена", "Cancel"), null)
+                        .show());
+        repairRow.icon("info");
+        likesPart.addView(repairRow);
     }
 
     private static String likesStatus(String line) {

@@ -386,6 +386,7 @@ public final class DailyLikeQueue {
         }
         LikeQueueState read = saved == null ? new LikeQueueState()
                 : LikeQueueState.tryParse(saved, TimeZone.getDefault(), System.currentTimeMillis());
+        boolean salvaged = read == null;
         if (read == null) {
             // The file is there but is not a queue (cut by a power loss, damaged): nothing is known of the likes given
             // lately. The file is kept as it was, beside it, and the window counts as full for 24 hours; it is not read as
@@ -397,6 +398,9 @@ public final class DailyLikeQueue {
         }
         state = read;
         stateOwner = owner;
+        // The salvaged state is written at once, once per unreadable file: otherwise every start finds the file unreadable
+        // again, and the day of waiting begins anew from each start.
+        if (salvaged) save();
         return state;
     }
 
@@ -406,6 +410,18 @@ public final class DailyLikeQueue {
     /** A copy of a file that cannot be read, next to it as {@code .bad1}; the earlier copies move on, the last three stay. */
     private static void copyAside(File file) {
         try {
+            // The same garbage again (a start that found it before the save below went through) is not copied over the
+            // earlier copies.
+            File newest = new File(file.getPath() + ".bad1");
+            if (newest.isFile()) {
+                String earlier;
+                String now;
+                try (FileInputStream a = new FileInputStream(newest); FileInputStream b = new FileInputStream(file)) {
+                    earlier = new String(readAll(a), StandardCharsets.UTF_8);
+                    now = new String(readAll(b), StandardCharsets.UTF_8);
+                }
+                if (!LikeQueueState.needsCopy(earlier, now)) return;
+            }
             File last = new File(file.getPath() + ".bad" + BAD_COPIES);
             //noinspection ResultOfMethodCallIgnored
             last.delete();
@@ -457,8 +473,10 @@ public final class DailyLikeQueue {
     public static boolean repairClock() {
         synchronized (LOCK) {
             LikeQueueState current = load();
-            if (current == null) return false;
-            current.repairFuture(moment());
+            Moment now = moment();
+            // The offer is looked at again here: it may have gone since the screen showed it.
+            if (current == null || !current.repairOffered(now)) return false;
+            current.repairFuture(now);
             return save();
         }
     }
@@ -475,6 +493,8 @@ public final class DailyLikeQueue {
      */
     private static boolean save() {
         if (state == null) return false;
+        // A clock set right raises the wall moments recorded under a wrong one (see LikeQueueState.lift).
+        state.lift(moment());
         publish();
         File file = file(stateOwner);
         if (file == null) return false;
