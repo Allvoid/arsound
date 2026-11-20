@@ -59,13 +59,6 @@ public enum EffectKind {
         public EffectScene scene(EffectBrush brush, float density) {
             return new VinylScene(brush, density, CurrentPlayState::isPlaying);
         }
-    },
-    /** Large soft blobs of the accent's colours drifting about (Monet; the accent follows the wallpaper). */
-    MONET("monet") {
-        @Override
-        public EffectScene scene(EffectBrush brush, float density) {
-            return new BlobsScene(brush, density);
-        }
     };
 
     /** The effect id, the id of the theme it was made for. */

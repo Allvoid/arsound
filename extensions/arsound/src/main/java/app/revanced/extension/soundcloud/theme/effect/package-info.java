@@ -16,7 +16,7 @@
  * <li>{@code EffectScene} - the interface of one animation ({@code layout(Rect)}, {@code draw(Canvas, time, w, h)});
  * scenes: {@code SparksScene} (Scarlet), {@code StarsScene} (Cobalt), {@code FirefliesScene} (Mint),
  * {@code PetalsScene} (Sakura), {@code SquaresScene} (Lime), {@code SnowScene} with {@code FrostLayer} (Winter),
- * {@code StormScene} (Storm), {@code VinylScene} (Vinyl), {@code BlobsScene} with {@code BlobColours} (Monet: soft blobs in the accent's hue).</li>
+ * {@code StormScene} (Storm), {@code VinylScene} (Vinyl).</li>
  * <li>{@code EffectBrush} - the paints, colours and scale a scene draws with; {@code Particles}, {@code ParticleRandom},
  * {@code Keyframes} - particles computed from time alone, from the design's seeded random sequence.</li>
  * </ul>
@@ -24,7 +24,7 @@
  * <p>Settings: none here; {@code theme_effects} and {@code theme_effects_density} are read by {@code theme.ThemeBackdrop}.
  *
  * <p>Gotchas: a scene is drawn from the time alone, like a CSS keyframe animation, so nothing piles up between
- * frames; only {@code VinylScene} keeps an angle, to stop where it was on pause. The theme ids ({@code scarlet}, {@code cobalt}, {@code mint}, {@code sakura}, {@code lime}, {@code winter}, {@code storm}, {@code vinyl}, {@code monet})
+ * frames; only {@code VinylScene} keeps an angle, to stop where it was on pause. The theme ids ({@code scarlet}, {@code cobalt}, {@code mint}, {@code sakura}, {@code lime}, {@code winter}, {@code storm}, {@code vinyl})
  * must match {@code themes.json}. Keep {@code ParticleRandom} unchanged so particles start where the design has them.
  */
 package app.revanced.extension.soundcloud.theme.effect;
