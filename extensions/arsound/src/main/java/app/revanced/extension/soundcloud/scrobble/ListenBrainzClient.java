@@ -48,7 +48,7 @@ final class ListenBrainzClient {
         headers.put("Content-Type", "application/json");
         headers.put("User-Agent", CLIENT);
         WebCall.Answer answer = WebCall.send(BASE + "/1/submit-listens", headers, body(type, listen));
-        if (!answer.ok()) throw new ScrobbleException(answer.status, "ListenBrainz answered " + answer.status);
+        if (!answer.ok()) throw new ScrobbleException(statusOf(answer), "ListenBrainz answered " + answer.status);
     }
 
     /** Asks whether the token is known. @return The user name. @throws ScrobbleException 401 when it is not valid. */
@@ -57,7 +57,7 @@ final class ListenBrainzClient {
         headers.put("Authorization", "Token " + token);
         headers.put("User-Agent", CLIENT);
         WebCall.Answer answer = WebCall.send(BASE + "/1/validate-token", headers, null);
-        if (!answer.ok()) throw new ScrobbleException(answer.status, "ListenBrainz answered " + answer.status);
+        if (!answer.ok()) throw new ScrobbleException(statusOf(answer), "ListenBrainz answered " + answer.status);
         try {
             JSONObject json = new JSONObject(answer.body);
             if (!json.optBoolean("valid", false)) throw new ScrobbleException(401, "The token is not valid");
@@ -65,6 +65,35 @@ final class ListenBrainzClient {
         } catch (JSONException ex) {
             throw new ScrobbleException(0, "The token check is not JSON");
         }
+    }
+
+    /** The status of a failed answer for {@link #classify}: a 401 or 403 that is not ListenBrainz's own JSON error is no refusal. */
+    private static int statusOf(WebCall.Answer answer) {
+        return WebCall.serviceStatus(answer.status, isServiceError(answer.body));
+    }
+
+    /** Whether the body is an error as ListenBrainz writes it: JSON with a {@code code} and an {@code error}. */
+    static boolean isServiceError(String body) {
+        if (body == null) return false;
+        try {
+            JSONObject json = new JSONObject(body);
+            return json.has("error") || json.has("code");
+        } catch (JSONException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether the text can be a token: printable ASCII without spaces. Anything else cannot go into a header, so it is
+     * refused before a request is made.
+     */
+    static boolean isTokenText(String token) {
+        if (token == null || token.isEmpty()) return false;
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            if (c < 0x21 || c > 0x7E) return false;
+        }
+        return true;
     }
 
     /** What an answer code means: 401 and 403 stop the channel; limits, a broken service and the network are for later. */

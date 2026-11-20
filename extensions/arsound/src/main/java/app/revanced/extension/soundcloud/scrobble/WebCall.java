@@ -30,6 +30,18 @@ final class WebCall {
     }
 
     /**
+     * The status the services' classification should see. A 401 or 403 means "the credential is refused" only when the
+     * service itself said so (its own JSON error): a block page of a filter, a captive portal or a firewall answers the
+     * same codes, and must not make the app forget the queue and ask to connect again. Such an answer is as good as no
+     * answer: 0, asked again later.
+     *
+     * @param serviceBody Whether the body is one the service writes (a JSON error).
+     */
+    static int serviceStatus(int status, boolean serviceBody) {
+        return (status == 401 || status == 403) && !serviceBody ? 0 : status;
+    }
+
+    /**
      * @param body The request body, or null for a GET.
      * @return The answer, whatever its status.
      * @throws ScrobbleException with code 0 when the network failed.
@@ -63,6 +75,10 @@ final class WebCall {
             return new Answer(status, text);
         } catch (IOException ex) {
             throw new ScrobbleException(0, "No connection: " + ex.getClass().getSimpleName());
+        } catch (RuntimeException ex) {
+            // A header the connection refuses (a token with a character that cannot go in a header): its text may carry the
+            // header's value, so only the kind of failure is kept.
+            throw new ScrobbleException(0, "The request could not be made: " + ex.getClass().getSimpleName());
         } finally {
             if (connection != null) connection.disconnect();
         }

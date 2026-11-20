@@ -125,4 +125,15 @@ public class ListenQueueTest {
         assertFalse(digest.equals(ListenQueue.ownerOf("other-token")));
         assertEquals("", ListenQueue.ownerOf(""));
     }
+
+    @Test
+    public void droppingOldListensTellsWhetherAnythingWasDropped() {
+        ListenQueue queue = new ListenQueue();
+        queue.add(listen(1), "me");
+        // Nothing is older than the bound: the queue is unchanged, so there is nothing to write.
+        assertFalse(queue.dropOlderThan(1_700_000_000L));
+        assertTrue(queue.dropOlderThan(1_700_000_002L));
+        assertTrue(queue.isEmpty());
+        assertFalse(queue.dropOlderThan(1_800_000_000L));
+    }
 }

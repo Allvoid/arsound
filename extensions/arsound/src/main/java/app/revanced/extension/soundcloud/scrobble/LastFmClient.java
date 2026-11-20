@@ -97,7 +97,7 @@ final class LastFmClient {
             String message = json.optString("message", "");
             throw new ScrobbleException(ERROR_BASE + code, "Last.fm error " + code + (message.isEmpty() ? "" : ": " + message));
         }
-        if (!answer.ok()) throw new ScrobbleException(answer.status, "Last.fm answered " + answer.status);
+        if (!answer.ok()) throw new ScrobbleException(WebCall.serviceStatus(answer.status, json != null), "Last.fm answered " + answer.status);
         // A 200 that is not JSON (a captive portal, a proxy's page) is not an answer of Last.fm: asked again later.
         if (json == null) throw new ScrobbleException(0, "Last.fm gave an answer that is not JSON");
         return answer.body;

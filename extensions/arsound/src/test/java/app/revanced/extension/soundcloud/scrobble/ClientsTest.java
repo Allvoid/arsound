@@ -114,4 +114,37 @@ public class ClientsTest {
         assertEquals(ListenOutcome.DROP, LastFmClient.classify(404));
         assertTrue(LastFmClient.ERROR_BASE > 599);
     }
+
+    @Test
+    public void aBlockPageWith403IsNoRefusalOfTheCredential() {
+        // A filter, a captive portal or a firewall answers 401/403 with a page of its own: asked again later.
+        assertEquals(0, WebCall.serviceStatus(403, false));
+        assertEquals(0, WebCall.serviceStatus(401, false));
+        assertEquals(ListenOutcome.RETRY, ListenBrainzClient.classify(WebCall.serviceStatus(403, ListenBrainzClient.isServiceError("<html>Blocked</html>"))));
+        assertEquals(ListenOutcome.RETRY, LastFmClient.classify(WebCall.serviceStatus(403, false)));
+    }
+
+    @Test
+    public void aRefusalWrittenByTheServiceStillStopsTheChannel() {
+        String body = "{\"code\":401,\"error\":\"Invalid authorization token.\"}";
+        assertTrue(ListenBrainzClient.isServiceError(body));
+        assertEquals(401, WebCall.serviceStatus(401, ListenBrainzClient.isServiceError(body)));
+        assertEquals(ListenOutcome.REJECTED, ListenBrainzClient.classify(WebCall.serviceStatus(401, true)));
+        // Other statuses are not touched.
+        assertEquals(429, WebCall.serviceStatus(429, false));
+        assertEquals(500, WebCall.serviceStatus(500, false));
+        assertFalse(ListenBrainzClient.isServiceError(null));
+        assertFalse(ListenBrainzClient.isServiceError(""));
+    }
+
+    @Test
+    public void aTokenWithACharacterThatCannotGoInAHeaderIsRefusedBeforeARequest() {
+        assertTrue(ListenBrainzClient.isTokenText("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
+        assertFalse(ListenBrainzClient.isTokenText("токен"));
+        assertFalse(ListenBrainzClient.isTokenText("abc def"));
+        assertFalse(ListenBrainzClient.isTokenText("abc\ndef"));
+        assertFalse(ListenBrainzClient.isTokenText("abc\u007F"));
+        assertFalse(ListenBrainzClient.isTokenText(""));
+        assertFalse(ListenBrainzClient.isTokenText(null));
+    }
 }

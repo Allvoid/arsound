@@ -79,7 +79,8 @@ public final class ListeningStats {
                 // heard before (it does nothing when the listen is in progress there already).
                 if (value.contains(":tracks:")) {
                     ListenRecord progress = SESSION.progress(System.currentTimeMillis());
-                    Scrobbler.onTrackResumed(value, itemLength(item), progress == null ? 0 : progress.playedMs);
+                    Scrobbler.onTrackResumed(value, itemLength(item), progress == null ? 0 : progress.playedMs,
+                            progress == null ? 0 : progress.start);
                 }
                 return;
             }

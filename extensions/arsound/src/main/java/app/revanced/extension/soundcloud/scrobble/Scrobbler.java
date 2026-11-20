@@ -62,6 +62,8 @@ public final class Scrobbler {
     }
 
     private static final String PREFERENCES = "arsound_scrobble";
+    /** The listen counted last (its track and start time), so a listen taken up again after a restart is not counted twice. */
+    private static final String COUNTED = "counted_listen";
     private static final long RETRY_AFTER_SECONDS = 60;
     /** How many times the names of a track are asked for before its listen is given up (the first ask included). */
     private static final int NAME_TRIES = 5;
@@ -159,7 +161,7 @@ public final class Scrobbler {
      */
     public static void onTrackStarted(String urn, long lengthMs) {
         long now = System.currentTimeMillis();
-        STATE.execute(() -> guarded(() -> trackStarted(urn, lengthMs, 0, now)));
+        STATE.execute(() -> guarded(() -> trackStarted(urn, lengthMs, 0, 0, now)));
     }
 
     /** The player started or stopped playing (ready and wanted). Called on the player's thread: only posts. */
@@ -174,12 +176,13 @@ public final class Scrobbler {
      * {@code heardMs} behind it. Called on the player's thread: only posts.
      *
      * @param heardMs What was heard of the listen before, as the statistics kept it.
+     * @param startMs When the listen began, as the statistics kept it; 0 if not known.
      */
-    public static void onTrackResumed(String urn, long lengthMs, long heardMs) {
+    public static void onTrackResumed(String urn, long lengthMs, long heardMs, long startMs) {
         long now = System.currentTimeMillis();
         STATE.execute(() -> guarded(() -> {
             if (current != null && current.urn.equals(urn)) return;
-            trackStarted(urn, lengthMs, heardMs, now);
+            trackStarted(urn, lengthMs, heardMs, startMs, now);
         }));
     }
 
@@ -195,13 +198,17 @@ public final class Scrobbler {
         }
     }
 
-    private static void trackStarted(String urn, long lengthMs, long heardMs, long now) {
+    private static void trackStarted(String urn, long lengthMs, long heardMs, long startMs, long now) {
         loadQueues();
         cancelCheck();
         current = null;
         if (!LISTENBRAINZ.active() && !LASTFM.active()) return;
-        // A listen taken up again began that long ago.
-        Current started = new Current(urn, (now - heardMs) / 1000);
+        // A listen taken up again began when the statistics say, else that long ago.
+        long startedAt = startMs > 0 ? startMs / 1000 : (now - heardMs) / 1000;
+        Current started = new Current(urn, startedAt);
+        // After a restart nothing in memory says the listen was counted before the pause: the mark kept with the
+        // scrobbler does, or it would be counted a second time, with another start time.
+        if (heardMs > 0 && CountedListen.matches(countedMark(), urn, startedAt)) started.submitted = true;
         started.heard.begin(lengthMs, heardMs);
         started.heard.onPlaying(lastPlaying, now);
         current = started;
@@ -254,8 +261,17 @@ public final class Scrobbler {
         // Paused: the next start of playing plans it again.
     }
 
+    private static String countedMark() {
+        SharedPreferences preferences = preferences();
+        return preferences == null ? null : preferences.getString(COUNTED, null);
+    }
+
     private static void submitListen(Current listen) {
         listen.submitted = true;
+        SharedPreferences preferences = preferences();
+        if (preferences != null) {
+            preferences.edit().putString(COUNTED, CountedListen.mark(listen.urn, listen.startedAtSeconds)).apply();
+        }
         ScrobbleListen finished = new ScrobbleListen(listen.artist, listen.title, listen.startedAtSeconds, listen.heard.durationMs());
         synchronized (LOCK) {
             for (Channel channel : CHANNELS) {
@@ -334,16 +350,16 @@ public final class Scrobbler {
             synchronized (LOCK) {
                 if (!channel.active()) return;
                 credential = channel.credential();
+                boolean changed = false;
                 if (channel.service == Service.LASTFM) {
-                    channel.queue.dropOlderThan(System.currentTimeMillis() / 1000 - LAST_FM_OLDEST_SECONDS);
+                    changed = channel.queue.dropOlderThan(System.currentTimeMillis() / 1000 - LAST_FM_OLDEST_SECONDS);
                 }
                 // Made under another account: not sent to this one's profile.
-                if (channel.queue.keepOnlyFor(ListenQueue.ownerOf(credential))) saveQueue(channel);
+                changed |= channel.queue.keepOnlyFor(ListenQueue.ownerOf(credential));
+                // Written only when it changed: this runs at every track start, with nothing waiting most of the time.
+                if (changed) saveQueue(channel);
                 front = channel.queue.peek();
-                if (front == null) {
-                    saveQueue(channel);
-                    return;
-                }
+                if (front == null) return;
             }
             ListenOutcome outcome = attempt(channel, credential, front, true);
             switch (outcome) {
@@ -488,7 +504,9 @@ public final class Scrobbler {
      */
     public static Check saveListenBrainzToken(String token) {
         String clean = token == null ? "" : token.trim();
-        if (clean.isEmpty()) return new Check(Status.INVALID, "", "");
+        // A character that cannot go in a header makes the request fail in the connection, with the token in its text:
+        // refused here, before any request.
+        if (!ListenBrainzClient.isTokenText(clean)) return new Check(Status.INVALID, "", "");
         try {
             String user = ListenBrainzClient.validate(clean);
             keepCredential(LISTENBRAINZ, clean, user);
@@ -508,8 +526,13 @@ public final class Scrobbler {
             String token = LastFmClient.getToken();
             return new Check(Status.OK, LastFmClient.authUrl(token), token);
         } catch (ScrobbleException ex) {
-            return new Check(ex.code == 0 ? Status.OFFLINE : Status.INVALID, "", "");
+            return new Check(connectStatus(ex.code), "", "");
         }
+    }
+
+    /** What a failed step of the Last.fm connection means: a service or a network that is not there now, or a refusal. */
+    static Status connectStatus(int code) {
+        return LastFmClient.classify(code) == ListenOutcome.RETRY ? Status.OFFLINE : Status.INVALID;
     }
 
     /**
@@ -525,7 +548,7 @@ public final class Scrobbler {
             return new Check(Status.OK, session.user, "");
         } catch (ScrobbleException ex) {
             if (ex.code == LastFmClient.ERROR_BASE + 14) return new Check(Status.NOT_APPROVED, "", "");
-            return new Check(ex.code == 0 || ex.code >= 500 && ex.code < 600 ? Status.OFFLINE : Status.INVALID, "", "");
+            return new Check(connectStatus(ex.code), "", "");
         }
     }
 

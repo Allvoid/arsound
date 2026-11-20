@@ -71,10 +71,11 @@ final class ListenQueue {
         return false;
     }
 
-    /** Drops listens started before {@code oldestSeconds} (Last.fm refuses what is older than two weeks). */
-    void dropOlderThan(long oldestSeconds) {
-        listens.removeIf(listen -> listen.listenedAt < oldestSeconds);
+    /** Drops listens started before {@code oldestSeconds} (Last.fm refuses what is older than two weeks). @return True if any was dropped. */
+    boolean dropOlderThan(long oldestSeconds) {
+        boolean dropped = listens.removeIf(listen -> listen.listenedAt < oldestSeconds);
         if (listens.isEmpty()) owner = "";
+        return dropped;
     }
 
     /** The queue as JSON: {@code {"o": owner, "l": [listens]}}. */
