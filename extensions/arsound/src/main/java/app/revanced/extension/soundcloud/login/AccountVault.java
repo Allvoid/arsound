@@ -117,7 +117,8 @@ final class AccountVault {
     /** Keeps the account, in place of an older copy of it, at the top of the list. False when it was not committed. */
     static synchronized boolean save(Context context, SavedAccount account) {
         // A list that loses entries when read is backed up before it is rewritten; no backup, no rewrite.
-        if (!backedUp(context, preferences(context).getString(LIST, null))) return false;
+        String stored = preferences(context).getString(LIST, null);
+        if (!mayRewrite(stored, () -> backedUp(context, stored))) return false;
         List<SavedAccount> updated = upsert(list(context), account);
         // The list is full of other accounts: nothing is dropped to make room, the user removes one first.
         return updated != null && write(context, updated);
@@ -141,7 +142,15 @@ final class AccountVault {
         return upsert(list(context), new SavedAccount(name, "", "", "", null, null, null, 0)) == null;
     }
 
+    /** Whether a list may be rewritten: it loses nothing when read, or a backup of it was made first. */
+    static boolean mayRewrite(String stored, java.util.function.BooleanSupplier backupDone) {
+        return !losesEntries(stored) || backupDone.getAsBoolean();
+    }
+
     static synchronized void remove(Context context, String name) {
+        // The rewrite below drops what is unreadable in the list: its text is backed up first, or nothing is rewritten.
+        String stored = preferences(context).getString(LIST, null);
+        if (!mayRewrite(stored, () -> backedUp(context, stored))) return;
         List<SavedAccount> accounts = list(context);
         List<SavedAccount> left = new ArrayList<>();
         for (SavedAccount account : accounts) {

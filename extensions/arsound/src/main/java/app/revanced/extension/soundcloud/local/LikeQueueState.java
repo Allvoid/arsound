@@ -54,13 +54,24 @@ final class LikeQueueState {
      *             is not known, and a day's likes given late in the evening are hours old only).
      */
     static LikeQueueState parse(String saved, TimeZone zone, long now) {
+        LikeQueueState read = tryParse(saved, zone, now);
+        return read == null ? new LikeQueueState() : read;
+    }
+
+    /**
+     * Reads the kept text strictly.
+     *
+     * @return The queue (an empty one for no text at all: no file yet); null when the text is there but is not a queue file
+     * (no header: a file cut to nothing, another file; or a number that is not one).
+     */
+    static LikeQueueState tryParse(String saved, TimeZone zone, long now) {
         String oldDay = "";
         int oldToday = 0;
         LikeQueueState state = new LikeQueueState();
         if (saved == null) return state;
         try {
             String[] lines = saved.split("\n");
-            if (lines.length == 0 || !HEADER.equals(lines[0].trim())) return state;
+            if (lines.length == 0 || !HEADER.equals(lines[0].trim())) return null;
             for (int i = 1; i < lines.length; i++) {
                 String line = lines[i].trim();
                 if (line.isEmpty()) continue;
@@ -81,7 +92,7 @@ final class LikeQueueState {
                 }
             }
         } catch (RuntimeException ex) {
-            return new LikeQueueState();
+            return null;
         }
         state.total = Math.max(state.total, state.done + state.pending.size());
         // A file of the calendar-day kind: the day's likes become that many moments at the start of that day, once.
@@ -155,14 +166,27 @@ final class LikeQueueState {
         prune(now);
     }
 
-    /** The moments kept for a clock that comes back: only those older than a week before the newest one are dropped. */
+    /** The moments kept for a clock that goes forward and comes back: only those older than a week before now are dropped. */
     private static final long KEEP_MS = 7 * WINDOW_MS;
 
+    /**
+     * Drops what is a week older than {@code now}. Measured from now, not from the newest moment: with the clock far behind
+     * (a dead clock, the year 2000) the moments of the real time are in the future and must not push the new ones out. The
+     * one just added is never dropped.
+     */
     private void prune(long now) {
-        long newest = now;
-        for (long at : given) newest = Math.max(newest, at);
-        long horizon = newest - KEEP_MS;
-        given.removeIf(at -> at < horizon);
+        long horizon = now - KEEP_MS;
+        for (int i = given.size() - 2; i >= 0; i--) if (given.get(i) < horizon) given.remove(i);
+    }
+
+    /**
+     * What stands in the place of a queue file that cannot be read (cut by a power loss, not ours): nothing is known of the
+     * likes given lately, so the window counts as full for the next 24 hours, and no like goes beyond what it would have.
+     */
+    static LikeQueueState afterUnreadable(long now) {
+        LikeQueueState state = new LikeQueueState();
+        for (int i = 0; i < PER_DAY; i++) state.given.add(now);
+        return state;
     }
 
     /**

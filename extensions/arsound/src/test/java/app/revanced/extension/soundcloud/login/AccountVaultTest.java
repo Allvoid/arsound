@@ -204,4 +204,16 @@ public class AccountVaultTest {
         assertTrue(AccountVault.canAddAnother(AccountVault.MAX_ACCOUNTS - 1));
         assertFalse(AccountVault.canAddAnother(AccountVault.MAX_ACCOUNTS));
     }
+
+    @Test
+    public void aListThatLosesAnEntryIsRewrittenOnlyAfterItsBackup() {
+        String lossy = "[{\"name\":\"a-1\"}]";
+        assertFalse(AccountVault.mayRewrite(lossy, () -> false));
+        assertTrue(AccountVault.mayRewrite(lossy, () -> true));
+        // A list that reads whole needs no backup: the backup is not even asked for.
+        String whole = AccountVault.serialize(java.util.Collections.singletonList(account("a-1", "1", "t", 1)));
+        assertTrue(AccountVault.mayRewrite(whole, () -> {
+            throw new AssertionError("no backup needed");
+        }));
+    }
 }

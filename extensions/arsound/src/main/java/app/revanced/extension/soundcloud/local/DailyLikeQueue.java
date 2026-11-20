@@ -383,9 +383,30 @@ public final class DailyLikeQueue {
                 return null;
             }
         }
-        state = LikeQueueState.parse(saved);
+        LikeQueueState read = saved == null ? new LikeQueueState()
+                : LikeQueueState.tryParse(saved, TimeZone.getDefault(), System.currentTimeMillis());
+        if (read == null) {
+            // The file is there but is not a queue (cut by a power loss, damaged): nothing is known of the likes given
+            // lately. The file is kept as it was, beside it, and the window counts as full for 24 hours; it is not read as
+            // an empty queue, which the next save would write over it and open another fifty.
+            Logger.printInfo(() -> "Like queue: the kept queue cannot be read, kept as .bad, no likes for 24 hours");
+            copyAside(file);
+            read = LikeQueueState.afterUnreadable(System.currentTimeMillis());
+        }
+        state = read;
         stateOwner = owner;
         return state;
+    }
+
+    /** A copy of a file that cannot be read, next to it as {@code .bad}; the first such copy stays. */
+    private static void copyAside(File file) {
+        File bad = new File(file.getPath() + ".bad");
+        if (bad.exists()) return;
+        try (FileInputStream in = new FileInputStream(file); java.io.FileOutputStream out = new java.io.FileOutputStream(bad)) {
+            out.write(readAll(in));
+        } catch (IOException ex) {
+            Logger.printInfo(() -> "Like queue: could not copy the unreadable queue aside: " + ex);
+        }
     }
 
     /** Under {@link #LOCK}: the queue of {@code owner} if it is still the account signed in, else null. */

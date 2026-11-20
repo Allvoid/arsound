@@ -19,6 +19,8 @@ public final class AtomicFiles {
         try {
             try (FileOutputStream output = new FileOutputStream(temporary)) {
                 output.write(bytes);
+                // To the disk before the rename: after a power loss the new name must not point at an empty file.
+                output.getFD().sync();
             }
             replace(temporary, target);
             moved = true;

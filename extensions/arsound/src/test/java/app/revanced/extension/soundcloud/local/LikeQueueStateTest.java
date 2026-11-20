@@ -322,4 +322,39 @@ public class LikeQueueStateTest {
         assertEquals(LikeQueueState.Counted.NOT_WRITTEN, state.countIfAllowed(NOW, () -> false));
         assertEquals(1, state.countIn(NOW));
     }
+
+    @Test
+    public void aFileThatIsNotAQueueIsNotReadAsAnEmptyOne() {
+        long now = NOW;
+        TimeZone zone = TimeZone.getTimeZone("UTC");
+        // A file cut to nothing by a power loss, another file, a number that is none.
+        assertNull(LikeQueueState.tryParse("", zone, now));
+        assertNull(LikeQueueState.tryParse("something else\n", zone, now));
+        assertNull(LikeQueueState.tryParse("arsound-like-queue 1\ntotal=abc\n", zone, now));
+        // No file at all is a fresh queue.
+        assertTrue(LikeQueueState.tryParse(null, zone, now).isEmpty());
+    }
+
+    @Test
+    public void afterAnUnreadableFileTheWindowCountsAsFullForADay() {
+        LikeQueueState state = LikeQueueState.afterUnreadable(NOW);
+        assertEquals(0, state.allowance(NOW + H));
+        assertEquals(0, state.allowance(NOW + 24 * H - 1));
+        assertEquals(50, state.allowance(NOW + 24 * H + 1));
+    }
+
+    @Test
+    public void aClockFarBehindStillCountsTheLikesItGives() {
+        LikeQueueState state = new LikeQueueState();
+        // The real time's likes (a few) are kept; the clock then falls back to the year 2000.
+        state.count(NOW);
+        state.count(NOW + 1);
+        state.count(NOW + 2);
+        long dead = 946_684_800_000L;
+        for (int i = 0; i < 100; i++) {
+            if (state.countIfAllowed(dead + i, () -> true) == LikeQueueState.Counted.LIMIT) break;
+        }
+        // The new likes were not pruned as they came: the window filled, and fifty is the end.
+        assertEquals(50, state.countIn(dead + 100));
+    }
 }
