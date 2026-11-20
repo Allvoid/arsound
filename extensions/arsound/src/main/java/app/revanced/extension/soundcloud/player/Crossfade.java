@@ -99,7 +99,9 @@ public final class Crossfade {
             handler.removeCallbacks(TICK);
             long now = SystemClock.uptimeMillis();
             boolean reporting = now - reportedAt < REPORT_GAP_MS;
-            long at = position + (reporting && reported ? now - reportedAt : 0);
+            // Between two reports the position runs on at the track's speed: wall milliseconds times the factor (review r16: at 140 %
+            // the fade-out lagged up to 200 ms behind the overlap's fade-in, which runs on the wall clock, and jumped at each report).
+            long at = position + (reporting && reported ? mediaElapsed(now - reportedAt, CrossfadeOverlap.playingFactor()) : 0);
             target = isEnabled() ? volumeAt(at, duration, fadingIn, fadeLength(duration)) : 1f;
             if (target >= 1f && at >= fadeLength(duration)) fadingIn = false;
             // A track that fades in may buffer for a while before its first report: its silence is kept until then.
@@ -108,6 +110,11 @@ public final class Crossfade {
         }
         PlayerVolume.set(PlayerVolume.Source.CROSSFADE, target);
         if (again) handler.postDelayed(TICK, TICK_MS);
+    }
+
+    /** Track time that passes in {@code wallMs} of real time at the speed factor (1 when unknown). */
+    static long mediaElapsed(long wallMs, float factor) {
+        return factor <= 0f ? wallMs : Math.round(wallMs * (double) factor);
     }
 
     private static long fadeLength(long duration) {

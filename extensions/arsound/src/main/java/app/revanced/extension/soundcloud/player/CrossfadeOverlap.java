@@ -304,6 +304,11 @@ public final class CrossfadeOverlap {
     /** The speed factor of the track that plays now; 1 until it is known (worked out on the overlap thread). */
     private static volatile float currentFactor = 1f;
 
+    /** {@link #currentFactor} for {@link Crossfade}, which counts the position between reports with it. */
+    static float playingFactor() {
+        return currentFactor;
+    }
+
     /**
      * Whether SoundCloud's player plays the track at another speed: the speed of the track itself holds whatever its
      * title says, the common choice leaves a track alone whose title says it is retimed already ({@link SlowedPlayback}).

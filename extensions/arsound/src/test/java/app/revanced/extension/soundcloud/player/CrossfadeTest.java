@@ -35,4 +35,12 @@ public class CrossfadeTest {
         assertEquals(1f, Crossfade.volumeAt(FADE, 0, true, FADE), 0f);
         assertEquals(1f, Crossfade.volumeAt(500, 0, false, FADE), 0f);
     }
+    @Test
+    public void betweenReportsThePositionRunsAtTheTracksSpeed() {
+        // Review r16: 500 ms of real time are 700 ms of the track at 140 %, 425 ms at 85 %; an unknown factor counts as 1.
+        org.junit.Assert.assertEquals(700, Crossfade.mediaElapsed(500, 1.4f));
+        org.junit.Assert.assertEquals(425, Crossfade.mediaElapsed(500, 0.85f));
+        org.junit.Assert.assertEquals(500, Crossfade.mediaElapsed(500, 1f));
+        org.junit.Assert.assertEquals(500, Crossfade.mediaElapsed(500, 0f));
+    }
 }
