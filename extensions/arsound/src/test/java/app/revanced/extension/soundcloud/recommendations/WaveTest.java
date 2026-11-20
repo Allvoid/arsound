@@ -373,4 +373,13 @@ public class WaveTest {
         // Still not a seed: it was skipped, only no longer kept away.
         assertTrue(ledger.isSkipped("soundcloud:tracks:1"));
     }
+
+    @Test
+    public void aFailedStartByATrackLeavesThePlayingWaveOn() {
+        assertTrue(MyWave.activeAfterFailedStart(true, true));
+        // Nothing was playing, or the start came from the tab: the wave is off as before.
+        assertFalse(MyWave.activeAfterFailedStart(true, false));
+        assertFalse(MyWave.activeAfterFailedStart(false, true));
+        assertFalse(MyWave.activeAfterFailedStart(false, false));
+    }
 }

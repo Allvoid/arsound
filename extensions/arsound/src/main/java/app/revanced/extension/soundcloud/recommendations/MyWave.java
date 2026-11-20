@@ -58,6 +58,8 @@ public final class MyWave {
     private static volatile int generation;
     /** Whether the wave being started was started from a track menu ({@link #startFromTrack}), not from the tab. */
     private static volatile boolean fromTrack;
+    /** Whether a wave was playing when the start in progress began: a failed "by this track" gives it back. */
+    private static volatile boolean activeBeforeStart;
     /**
      * Batches built in a row that brought nothing, and when the next one may be tried. Without the wait every change
      * of track asked every source again while they had nothing to give (no network, everything offered already heard).
@@ -189,6 +191,7 @@ public final class MyWave {
     private static void begin(String seed) {
         if (building) return;
         fromTrack = seed != null;
+        activeBeforeStart = active;
         building = true;
         active = true;
         holdUntil = Long.MAX_VALUE;
@@ -299,8 +302,16 @@ public final class MyWave {
         return text("Плеер ещё не готов, попробуйте через секунду", "The player is not ready yet, try again in a second");
     }
 
+    /**
+     * Whether the wave is on after a start failed. A start from a track menu that found nothing leaves the wave that was
+     * playing alone: its queue goes on playing and refilling. The start from the tab had no wave to leave.
+     */
+    static boolean activeAfterFailedStart(boolean fromTrack, boolean activeBeforeStart) {
+        return fromTrack && activeBeforeStart;
+    }
+
     private static void fail(String message) {
-        active = false;
+        active = activeAfterFailedStart(fromTrack, activeBeforeStart);
         building = false;
         holdUntil = 0;
         problem = message;
