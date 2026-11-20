@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.Field;
+
 import org.junit.Test;
 
 public class CrossfadeOverlapTest {
@@ -83,5 +85,58 @@ public class CrossfadeOverlapTest {
         // The fade, the 250 ms lead, a second of slack and six seconds for a stream to open.
         assertEquals(6_000 + 250 + 1_000 + 6_000, CrossfadeOverlap.startWindow(6_000));
         assertEquals(0 + 250 + 1_000 + 6_000, CrossfadeOverlap.startWindow(0));
+    }
+
+    @Test
+    public void aStreamedNextTrackDoesNotOverlap() {
+        // SoundCloud starts a streamed track from 0, so the second player's head start would sound twice.
+        assertFalse(CrossfadeOverlap.canHandOver(null));
+        assertFalse(CrossfadeOverlap.canHandOver(""));
+        assertTrue(CrossfadeOverlap.canHandOver("/storage/emulated/0/Music/a.mp3"));
+        assertTrue(CrossfadeOverlap.canHandOver("content://media/external/audio/media/5"));
+    }
+
+    private static Object get(String name) throws Exception {
+        Field field = CrossfadeOverlap.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(null);
+    }
+
+    private static void set(String name, Object value) throws Exception {
+        Field field = CrossfadeOverlap.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(null, value);
+    }
+
+    private static Object fakePlayer() throws Exception {
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field the = unsafeClass.getDeclaredField("theUnsafe");
+        the.setAccessible(true);
+        Object unsafe = the.get(null);
+        return unsafeClass.getMethod("allocateInstance", Class.class).invoke(unsafe, android.media.MediaPlayer.class);
+    }
+
+    @Test
+    public void aStopAfterAPauseLetsTheTrackStartTheOverlapAgain() throws Exception {
+        set("player", fakePlayer());
+        set("starting", true);
+        long before = (Long) get("attempt");
+        // The overlap stopped because the track was paused: the start must not stay marked as pending, or no later
+        // report would ever start the overlap for this track.
+        assertTrue(CrossfadeOverlap.detach(true) != null);
+        assertFalse((Boolean) get("starting"));
+        assertTrue((Long) get("attempt") > before);
+        assertTrue(get("player") == null);
+    }
+
+    @Test
+    public void aStopAfterTheHandoffLeavesTheNextTracksStartAlone() throws Exception {
+        set("player", fakePlayer());
+        set("starting", true);
+        long before = (Long) get("attempt");
+        CrossfadeOverlap.detach(false);
+        assertTrue((Boolean) get("starting"));
+        assertEquals(before, (long) (Long) get("attempt"));
+        set("starting", false);
     }
 }

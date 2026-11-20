@@ -4,7 +4,6 @@ import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
-import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -20,10 +19,11 @@ import app.revanced.extension.soundcloud.download.DownloadTrackPatch;
  * between them. When SoundCloud gets to the next track it starts it where the second player has got to
  * ({@link #startPosition}), at full volume, and the second player stops.
  * <p>
- * When the next track is on the phone (downloaded, imported or loaded ahead by {@link NextTrackPreload}) the second
- * player opens the file; otherwise it streams the track from SoundCloud, prepared {@link #STREAM_PREPARE_MS} earlier.
- * Only a track that cannot be streamed (a preview, a subscription, DRM) keeps the fade one after the other of
- * {@link Crossfade}. A skip, a pause or another track than the expected one stops the second player at once.
+ * Only when the next track is on the phone (downloaded, imported or loaded ahead by {@link NextTrackPreload}): the
+ * second player opens the file, and SoundCloud starts that same file where the second player has got to. A track that
+ * is streamed by SoundCloud cannot be handed over like that (SoundCloud starts a stream from 0, so its first seconds
+ * would play twice), so it keeps the fade one after the other of {@link Crossfade}. A skip, a pause or another track
+ * than the expected one stops the second player at once.
  */
 public final class CrossfadeOverlap {
     private static final long TICK_MS = 40;
@@ -136,19 +136,10 @@ public final class CrossfadeOverlap {
                 }
                 return;
             }
+            // Only a track SoundCloud also starts from a file: only such a start takes the position of the second player.
             String source = next == null ? null : DownloadTrackPatch.playableSource(next);
-            // A track that is not on the phone is streamed by the second player too: its address is asked for here, on the
-            // thread of the overlap, ahead of the fade.
-            // A gapless change without a fade streams only where data is not counted: it opens the track twice.
-            boolean gapless;
-            synchronized (lock) {
-                gapless = fadeMs == 0;
-            }
-            if (source == null && next != null && !(gapless && isMetered()) && isCurrent(mine)) {
-                source = DownloadTrackPatch.streamSource(next);
-            }
             Context context = Utils.getContext();
-            if (source == null || context == null) {
+            if (!canHandOver(source) || context == null) {
                 synchronized (lock) {
                     // Not again for this track: the fade stays the one after the other.
                     if (mine == attempt) starting = true;
@@ -188,6 +179,17 @@ public final class CrossfadeOverlap {
             }
             Logger.printInfo(() -> "Crossfade: the next track cannot be played ahead (" + ex + "), one after the other");
         }
+    }
+
+    /**
+     * Whether the overlap may play this track: only one SoundCloud starts from a file too. A start from a file takes the
+     * position of the second player ({@code InstantFilePlayback.playbackItem}); SoundCloud starts a streamed track from 0
+     * whatever the second player has played, so its first seconds would sound twice.
+     *
+     * @param playableSource {@link DownloadTrackPatch#playableSource} of the next track.
+     */
+    static boolean canHandOver(String playableSource) {
+        return playableSource != null && !playableSource.isEmpty();
     }
 
     private static final String TRACK_URN = "soundcloud:tracks:";
@@ -273,16 +275,10 @@ public final class CrossfadeOverlap {
         }
     }
 
-    private static boolean isMetered() {
-        Context context = Utils.getContext();
-        ConnectivityManager connectivity = context == null ? null : context.getSystemService(ConnectivityManager.class);
-        return connectivity == null || connectivity.isActiveNetworkMetered();
-    }
-
-    /** How long the second player may need to open a stream; the overlap is prepared this much earlier. */
+    /** How long the second player may need to open a file (a slow card); the overlap is prepared this much earlier. */
     private static final long STREAM_PREPARE_MS = 6_000;
 
-    /** How far before the end of a track the second player is prepared: its lead, a second of slack, a stream's opening. */
+    /** How far before the end of a track the second player is prepared: its lead, a second of slack, a file's opening. */
     static long startWindow(long fade) {
         return fade + LEAD_MS + 1_000 + STREAM_PREPARE_MS;
     }
@@ -324,6 +320,8 @@ public final class CrossfadeOverlap {
         MediaPlayer current;
         float volume;
         boolean again = true;
+        // Stopped because of a pause or a wait that came to nothing: the track may start the overlap again.
+        boolean rearm = false;
         // The sleep timer's fade lowers SoundCloud's player too: the overlap follows it, so a transition does not get
         // back to full volume under a sleep fade.
         float sleep = PlayerVolume.product(PlayerVolume.level(PlayerVolume.Source.SLEEP));
@@ -341,10 +339,12 @@ public final class CrossfadeOverlap {
                 if (isPaused(fadeMs, now, reportedAt, endAt)) {
                     Logger.printInfo(() -> "Crossfade: the track was paused, the overlap stops");
                     again = false;
+                    rearm = true;
                     volume = 0f;
                 } else if (now - endAt > HANDOFF_WAIT_MS) {
                     Logger.printInfo(() -> "Crossfade: SoundCloud did not go on to the next track, the overlap stops");
                     again = false;
+                    rearm = true;
                     volume = 0f;
                 } else {
                     volume = fadeInLevel(now, fadeStartAt, fadeMs) * sleep;
@@ -357,7 +357,7 @@ public final class CrossfadeOverlap {
             // Released meanwhile.
         }
         if (again) handler().postDelayed(TICK, TICK_MS);
-        else stop();
+        else stop(rearm);
     }
 
     /**
@@ -413,13 +413,16 @@ public final class CrossfadeOverlap {
     }
 
     private static void stop() {
-        MediaPlayer old;
-        synchronized (lock) {
-            old = player;
-            player = null;
-            trackId = null;
-            handedOff = false;
-        }
+        stop(false);
+    }
+
+    /**
+     * @param rearm Whether the track may start the overlap again: after a pause or a wait that came to nothing the track
+     *              still plays on (or plays on once resumed), and without this the pending start of the old attempt
+     *              would keep every later report from starting the overlap for it.
+     */
+    static void stop(boolean rearm) {
+        MediaPlayer old = detach(rearm);
         if (old == null) return;
         try {
             old.stop();
@@ -427,5 +430,20 @@ public final class CrossfadeOverlap {
             // Not started or already stopped.
         }
         old.release();
+    }
+
+    /** Forgets the second player under the lock and gives it back to be stopped; null if there is none. */
+    static MediaPlayer detach(boolean rearm) {
+        synchronized (lock) {
+            MediaPlayer old = player;
+            player = null;
+            trackId = null;
+            handedOff = false;
+            if (old != null && rearm) {
+                starting = false;
+                attempt++;
+            }
+            return old;
+        }
     }
 }

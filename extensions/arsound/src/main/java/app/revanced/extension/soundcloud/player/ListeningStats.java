@@ -150,6 +150,14 @@ public final class ListeningStats {
      */
     public static synchronized void onPlayerState(boolean playWhenReady, int state) {
         boolean playing = playWhenReady && state == STATE_READY;
+        // A pause ends the overlap of the smooth transition at once, not 1.5 s later when its silence check notices.
+        if (!playWhenReady) {
+            try {
+                CrossfadeOverlap.cancel();
+            } catch (Throwable ex) {
+                Logger.printException(() -> "Listening stats: the overlap could not be stopped at the pause", ex);
+            }
+        }
         // Before the session check: the scrobbler also needs to know whether sound is playing when a track starts.
         Scrobbler.onPlayingChanged(playing);
         if (!SESSION.isActive()) return;
