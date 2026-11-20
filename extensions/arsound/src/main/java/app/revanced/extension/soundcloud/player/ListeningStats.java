@@ -235,8 +235,13 @@ public final class ListeningStats {
     public static NameLookup lookupNames(String urn) {
         Entry entry = new Entry(urn);
         TrackTitleResolver.resolve(java.util.Collections.singletonList(entry), preferences());
-        // A track the resolver knows nothing of is named by its own urn.
-        boolean unresolved = urn.equals(entry.title);
+        return lookupOf(entry);
+    }
+
+    /** What the resolver left in the entry, as a lookup result. */
+    static NameLookup lookupOf(Entry entry) {
+        // A track the resolver knows nothing of has the placeholder name and the flag, not its urn.
+        boolean unresolved = entry.unresolved;
         if (entry.artist == null || entry.artist.trim().isEmpty() || entry.title == null || entry.title.trim().isEmpty()
                 || unresolved) {
             return new NameLookup(null, unresolved);
@@ -261,6 +266,8 @@ public final class ListeningStats {
         public String artist;
         public int plays;
         public long playedMs;
+        /** Set by the title resolver when nothing is known of the track: its title is then only a placeholder. */
+        boolean unresolved;
 
         Entry(String key) {
             this.key = key;

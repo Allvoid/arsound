@@ -121,13 +121,20 @@ public final class TrackTitleResolver {
         for (ListeningStats.Entry entry : entries) {
             if (entry.title != null) continue;
             JSONArray known = titles.optJSONArray(entry.key);
-            if (known != null) {
-                name(entry, known.optString(0), known.optString(1));
-            } else {
-                // Not the urn: the statistics show this name on the lists and on the review card.
-                entry.title = text("Неизвестный трек", "Unknown track");
-                entry.artist = "";
-            }
+            settle(entry, known);
+        }
+    }
+
+    /** Names the entry from what is known of it, or with the placeholder (and marks it unresolved) when nothing is. */
+    static void settle(ListeningStats.Entry entry, JSONArray known) {
+        if (known != null) {
+            name(entry, known.optString(0), known.optString(1));
+        } else {
+            // Not the urn: the statistics show this name on the lists and on the review card. The flag tells the
+            // scrobbler the track was not found at all, which the placeholder text no longer does.
+            entry.title = text("Неизвестный трек", "Unknown track");
+            entry.artist = "";
+            entry.unresolved = true;
         }
     }
 
