@@ -10,21 +10,30 @@ public class LauncherStartTest {
 
     @Test
     public void aPlainStartIsALauncherStart() {
-        assertTrue(BottomTabs.isLauncherStart(null, false, false, false));
-        assertTrue(BottomTabs.isLauncherStart(MAIN, false, true, false));
+        assertTrue(BottomTabs.isLauncherStart(null, false, false, false, false));
+        assertTrue(BottomTabs.isLauncherStart(MAIN, false, true, false, false));
     }
 
     @Test
     public void aLinkOrAnotherActionIsNot() {
-        assertFalse(BottomTabs.isLauncherStart(null, true, false, false));
-        assertFalse(BottomTabs.isLauncherStart("android.intent.action.VIEW", false, false, false));
+        assertFalse(BottomTabs.isLauncherStart(null, true, false, false, false));
+        assertFalse(BottomTabs.isLauncherStart("android.intent.action.VIEW", false, false, false, false));
     }
 
     @Test
     public void anIntentOnlyCarryingExtrasWithoutTheLauncherCategoryIsNot() {
         // A notification or a widget opens the app on a screen of its own: the start tab must not cover it 400 ms later.
-        assertFalse(BottomTabs.isLauncherStart(null, false, false, true));
-        assertFalse(BottomTabs.isLauncherStart(MAIN, false, false, true));
+        assertFalse(BottomTabs.isLauncherStart(null, false, false, true, false));
+        assertFalse(BottomTabs.isLauncherStart(MAIN, false, false, true, false));
+    }
+
+    @Test
+    public void theLauncherScreenMarkTurnsAnExtrasOnlyIntentIntoALauncherStart() {
+        // What the main screen really gets after a tap on the launcher: no action, no category, extras with the mark.
+        assertTrue(BottomTabs.isLauncherStart(null, false, false, true, true));
+        // The mark does not beat a link.
+        assertFalse(BottomTabs.isLauncherStart(null, true, false, true, true));
+        assertFalse(BottomTabs.isLauncherStart("android.intent.action.VIEW", false, false, true, true));
     }
 
     @Test

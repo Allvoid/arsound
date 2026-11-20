@@ -40,6 +40,9 @@ public final class BottomTabs {
         return intent != null && intent != appliedBefore;
     }
 
+    /** The extra SoundCloud's launcher screen puts on the intent it hands to the main screen. */
+    private static final String FROM_LAUNCHER_EXTRA = "EXTRA_FROM_LAUNCHER";
+
     private BottomTabs() {
     }
 
@@ -173,7 +176,8 @@ public final class BottomTabs {
         if (intent == null) return false;
         android.os.Bundle extras = intent.getExtras();
         return isLauncherStart(intent.getAction(), intent.getData() != null,
-                intent.hasCategory(android.content.Intent.CATEGORY_LAUNCHER), extras != null && !extras.isEmpty());
+                intent.hasCategory(android.content.Intent.CATEGORY_LAUNCHER), extras != null && !extras.isEmpty(),
+                intent.getBooleanExtra(FROM_LAUNCHER_EXTRA, false));
     }
 
     /**
@@ -181,11 +185,15 @@ public final class BottomTabs {
      * of SoundCloud hands a plain start on to the main screen without any action (checked on the emulator); a link or a
      * shortcut carries a data address or its own action. A start with neither but with extras and without the launcher
      * category (a notification or a widget that only carries extras) already says where to go, as a link does.
+     * The exception is the launcher screen's own mark: {@code LaunchLogic} copies the extras of its intent, with
+     * {@code EXTRA_FROM_LAUNCHER = true} added, onto the intent of the main screen and drops the action and the category
+     * (seen on the emulator: {@code flg=0x1000c000, has extras}), so that mark is what tells a tap on the launcher.
      */
-    static boolean isLauncherStart(String action, boolean hasData, boolean launcherCategory, boolean hasExtras) {
+    static boolean isLauncherStart(String action, boolean hasData, boolean launcherCategory, boolean hasExtras,
+                                   boolean fromLauncherExtra) {
         if (hasData) return false;
         if (action != null && !android.content.Intent.ACTION_MAIN.equals(action)) return false;
-        return launcherCategory || !hasExtras;
+        return launcherCategory || fromLauncherExtra || !hasExtras;
     }
 
     /**
