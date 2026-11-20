@@ -50,11 +50,10 @@ final class AccountVault {
 
     static synchronized List<SavedAccount> list(Context context) {
         String text = preferences(context).getString(LIST, null);
-        keepBackup(context, text);
         if (damaged(text)) {
             // Dropped, so it is not read (and logged) again on every call; the next save starts a clean list. The text
-            // stays in the backup key.
-            preferences(context).edit().remove(LIST).commit();
+            // stays in the backups, and the list is dropped only once it is there.
+            if (backedUp(context, text)) preferences(context).edit().remove(LIST).commit();
             return new ArrayList<>();
         }
         return parse(text);
@@ -64,11 +63,33 @@ final class AccountVault {
      * Keeps the text of a list the code cannot read whole (damaged, or with an entry that is skipped) before anything
      * rewrites it. The first such text is kept: it is the one with the most in it.
      */
-    private static void keepBackup(Context context, String text) {
+    private static boolean backedUp(Context context, String text) {
+        if (!losesEntries(text)) return true;
         SharedPreferences preferences = preferences(context);
-        if (losesEntries(text) && preferences.getString(LIST_BACKUP, null) == null) {
-            preferences.edit().putString(LIST_BACKUP, text).commit();
+        String before = preferences.getString(LIST_BACKUP, null);
+        String after = addBackup(before, text);
+        return after.equals(before) || preferences.edit().putString(LIST_BACKUP, after).commit();
+    }
+
+    /** How many different bad lists are kept. */
+    static final int BACKUPS = 3;
+
+    /**
+     * The backups with this text added: a JSON list of the last {@link #BACKUPS} different texts, the oldest dropped. A text
+     * that is there already changes nothing.
+     */
+    static String addBackup(String backups, String text) {
+        List<String> kept = new ArrayList<>();
+        try {
+            JSONArray array = backups == null || backups.isEmpty() ? new JSONArray() : new JSONArray(backups);
+            for (int i = 0; i < array.length(); i++) kept.add(array.getString(i));
+        } catch (JSONException ex) {
+            kept.clear();
         }
+        if (kept.contains(text)) return new JSONArray(kept).toString();
+        kept.add(text);
+        while (kept.size() > BACKUPS) kept.remove(0);
+        return new JSONArray(kept).toString();
     }
 
     /** Whether reading the text drops something: it is damaged, or it holds entries that do not read as accounts. */
@@ -95,9 +116,24 @@ final class AccountVault {
 
     /** Keeps the account, in place of an older copy of it, at the top of the list. False when it was not committed. */
     static synchronized boolean save(Context context, SavedAccount account) {
+        // A list that loses entries when read is backed up before it is rewritten; no backup, no rewrite.
+        if (!backedUp(context, preferences(context).getString(LIST, null))) return false;
         List<SavedAccount> updated = upsert(list(context), account);
         // The list is full of other accounts: nothing is dropped to make room, the user removes one first.
         return updated != null && write(context, updated);
+    }
+
+    /** Whether another account can be added to a list of this size without dropping any. */
+    static boolean canAddAnother(int kept) {
+        return kept < MAX_ACCOUNTS;
+    }
+
+    /**
+     * Whether the signed-in account may be taken out: only when nothing is signed in, or a usable copy of it is kept (its
+     * data is wiped with it, and the copy is the only way back).
+     */
+    static boolean canLeave(boolean signedIn, SavedAccount copy) {
+        return !signedIn || (copy != null && copy.usable());
     }
 
     /** Whether the account cannot be kept because ten others are: adding it would drop one of them. */
@@ -270,10 +306,14 @@ final class AccountVault {
     static List<SavedAccount> upsert(List<SavedAccount> accounts, SavedAccount account) {
         List<SavedAccount> result = new ArrayList<>();
         result.add(account);
+        boolean known = false;
         for (SavedAccount other : accounts) {
-            if (!other.name.equals(account.name)) result.add(other);
+            if (other.name.equals(account.name)) known = true;
+            else result.add(other);
         }
-        return result.size() > MAX_ACCOUNTS ? null : result;
+        // Only a NEW account is refused: a list that is over the limit already (an older build, a restored backup) still
+        // refreshes the copies it has, or every switch would fail.
+        return !known && result.size() > MAX_ACCOUNTS ? null : result;
     }
 
     static List<SavedAccount> parse(String text) {

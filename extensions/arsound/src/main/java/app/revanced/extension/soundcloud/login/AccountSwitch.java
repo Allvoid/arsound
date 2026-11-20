@@ -326,7 +326,13 @@ public final class AccountSwitch {
                 MAIN.post(AccountSwitch::hideProgress);
                 return;
             }
-            // Taking the account out wipes its data, and the only way back is the kept copy: no copy, no switch.
+            // Taking the account out wipes its data, and the only way back is the kept copy: no usable copy, no switch (a
+            // copy that was not made because the tokens are not there yet leaves nothing to come back to).
+            if (!kept.failed && !AccountVault.canLeave(account != null, account == null ? null : AccountVault.find(context, account.name))) {
+                Logger.printInfo(() -> "Accounts: the switch is stopped, there is no usable copy of the signed-in account");
+                MAIN.post(() -> noCopy(activity));
+                return;
+            }
             if (kept.failed || !AccountVault.setPending(context, what)) {
                 Logger.printInfo(() -> "Accounts: the switch is stopped, the account could not be kept");
                 final boolean full = kept.full;
@@ -632,8 +638,37 @@ public final class AccountSwitch {
                 .show();
     }
 
+    private static void noCopy(Activity activity) {
+        hideProgress();
+        if (!screenAlive(activity)) return;
+        new ArsoundDialog(activity)
+                .setTitle(Lang.text("Аккаунт пока нельзя сохранить", "The account cannot be kept yet"))
+                .setMessage(Lang.text("У аккаунта ещё нет данных для входа. Смена остановлена, ничего не удалено: откройте "
+                                + "SoundCloud на минуту и повторите.",
+                        "The account has no sign-in data yet. The switch was stopped and nothing was removed: use SoundCloud "
+                                + "for a minute and try again."))
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** The account the full-list message was shown for last: not repeated at every return to the app. */
+    private static volatile String toldFullFor;
+
+    /**
+     * On a return to the app: keeps a copy of the signed-in account; when the list is full and the account is not in it (a
+     * fresh sign-in of another), says so once, so the user does not learn it at the next switch.
+     */
+    static void snapshotAndTell(Activity activity) {
+        Kept kept = keepCurrent(activity);
+        if (!kept.full) return;
+        String name = currentName(activity);
+        if (name == null || name.equals(toldFullFor)) return;
+        toldFullFor = name;
+        MAIN.post(() -> listFull(activity));
+    }
+
     /** Ten accounts are kept and the one signed in is not among them: nothing is dropped, the user removes one. */
-    private static void listFull(Activity activity) {
+    static void listFull(Activity activity) {
         hideProgress();
         if (!screenAlive(activity)) return;
         new ArsoundDialog(activity)

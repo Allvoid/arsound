@@ -31,9 +31,10 @@ import app.revanced.extension.soundcloud.shared.AtomicFiles;
  * The likes of transferred tracks, {@link LikeQueueState#PER_DAY} in any 24 hours. SoundCloud takes about fifty likes a day
  * and, when more are given, bars the account from liking for a day, so a transfer that was asked to like everything puts
  * the tracks in this queue instead of liking them at once: fifty are given, the rest wait until the window lets them through.
- * The queue never likes more than fifty in any 24 hours, counting every like of the account made by Arsound (the queue, My
- * Wave, the transfer's own fifty: {@link #likeCounted}) or by hand ({@link #onManualLike}); a like is counted before it is
- * asked for, and one whose result is not known stays counted.
+ * The queue never likes more than fifty in any 24 hours, counting every like of the account made by hand
+ * ({@link #onManualLike}) and those of My Wave's and the transfer's "Like all" ({@link #likeCounted}); a like is counted
+ * before it is asked for, and one whose result is not known stays counted. Those two features have limits of their own and
+ * are NOT held to fifty in 24 hours: they only make the queue wait.
  * The queue is kept in a file after every like, so a restart or a phone that ended the app goes on where it stopped.
  * Each account has a queue of its own: it waits for the account it was made for, and is given only while that account
  * is the one signed in.
@@ -183,14 +184,17 @@ public final class DailyLikeQueue {
                 // and is not known to have, a process that dies meanwhile, an account switched under the run all stay
                 // inside the limit.
                 long stamp = System.currentTimeMillis();
-                boolean written;
+                LikeQueueState.Counted counted;
                 synchronized (LOCK) {
                     LikeQueueState current = queueOf(owner);
                     if (current == null || !LikeQueueState.ownerStillSame(owner, currentOwner())) break;
-                    // No like when the count did not reach the disk: a process that dies after it would have forgotten it.
-                    written = current.countAndKeep(stamp, DailyLikeQueue::save);
+                    // The limit is tested in the same locked step as the count: a heart by hand or a like of My Wave counted
+                    // since the allowance was read must not make this one the 51st. And no like when the count did not
+                    // reach the disk: a process that dies after it would have forgotten it.
+                    counted = current.countIfAllowed(stamp, DailyLikeQueue::save);
                 }
-                if (!written) {
+                if (counted == LikeQueueState.Counted.LIMIT) break;
+                if (counted == LikeQueueState.Counted.NOT_WRITTEN) {
                     Logger.printInfo(() -> "Like queue: the count could not be written, no like is given");
                     break;
                 }

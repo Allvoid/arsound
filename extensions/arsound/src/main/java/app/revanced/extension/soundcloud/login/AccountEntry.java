@@ -65,7 +65,7 @@ public final class AccountEntry {
     private static void onMain(Activity activity) {
         // The kept copy follows the tokens SoundCloud renews, once the list is in use.
         Utils.runOnBackgroundThread(() -> {
-            if (!AccountVault.isEmpty(activity)) AccountSwitch.snapshotCurrent(activity);
+            if (!AccountVault.isEmpty(activity)) AccountSwitch.snapshotAndTell(activity);
         });
         View decor = activity.getWindow().getDecorView();
         if (WATCH_TAG.equals(decor.getTag(tagKey(activity)))) {

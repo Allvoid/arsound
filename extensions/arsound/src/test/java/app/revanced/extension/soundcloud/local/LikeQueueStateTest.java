@@ -301,4 +301,25 @@ public class LikeQueueStateTest {
         // A day later, nothing waiting: nothing to keep.
         assertFalse(state.worthKeeping(NOW + 25 * H));
     }
+
+    @Test
+    public void aLikeCountedBetweenTheCheckAndTheCountMakesTheQueueStopNotGiveThe51st() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        give(state, 49, NOW);
+        // The queue looked: one place left ...
+        assertEquals(1, state.allowance(NOW));
+        // ... and a heart by hand (or a My Wave like) was counted before the queue counted its own.
+        state.count(NOW);
+        assertEquals(LikeQueueState.Counted.LIMIT, state.countIfAllowed(NOW, () -> true));
+        assertEquals(50, state.countIn(NOW));
+    }
+
+    @Test
+    public void theLimitAndTheCountAreOneStep() {
+        LikeQueueState state = new LikeQueueState();
+        assertEquals(LikeQueueState.Counted.COUNTED, state.countIfAllowed(NOW, () -> true));
+        assertEquals(LikeQueueState.Counted.NOT_WRITTEN, state.countIfAllowed(NOW, () -> false));
+        assertEquals(1, state.countIn(NOW));
+    }
 }

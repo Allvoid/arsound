@@ -237,12 +237,16 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                 ArsoundTheme.palette(activity, "secondary"), text("Что такое лайки по 50 в день", "What liking 50 a day is"),
                 text("В SoundCloud ограничение — около 50 лайков в сутки. Если лайкнуть больше, аккаунт на сутки теряет "
                                 + "возможность ставить лайки. Эта функция ставит не больше 50 лайков за любые 24 часа, считая "
-                                + "все лайки этого аккаунта, поставленные Arsound или вручную, пока не пролайкает все "
-                                + "перенесённые треки. Пока окно занято, свои лайки могут не сохраниться.",
+                                + "лайки этого аккаунта, поставленные вручную, и лайки «Лайкнуть все» в переносе и в «Моей "
+                                + "волне» (у тех свои пределы, и 50 за 24 часа на них не распространяется: они лишь заставляют "
+                                + "очередь ждать), пока не пролайкает все перенесённые треки. Пока окно занято, свои лайки "
+                                + "могут не сохраниться.",
                         "SoundCloud limits likes to about 50 a day. If you like more, the account loses the ability to like "
-                                + "for a day. This feature never likes more than 50 in any 24 hours, counting every like of this "
-                                + "account made by Arsound or by hand, until all the transferred tracks are liked. While the "
-                                + "window is full, your own likes may not be kept.")), app.revanced.extension.soundcloud.shared.HelpBadge.layoutParams(activity));
+                                + "for a day. This feature never likes more than 50 in any 24 hours, counting the likes of this "
+                                + "account made by hand and those of the transfer's and My Wave's \"Like all\" (those have "
+                                + "limits of their own and are not held to 50 in 24 hours: they only make the queue wait), until "
+                                + "all the transferred tracks are liked. While the window is full, your own likes may not be "
+                                + "kept.")), app.revanced.extension.soundcloud.shared.HelpBadge.layoutParams(activity));
         dailyRow.setVisibility(View.GONE);
         option.addView(dailyRow, 1);
         like.setOnCheckedChangeListener((button, checked) -> {

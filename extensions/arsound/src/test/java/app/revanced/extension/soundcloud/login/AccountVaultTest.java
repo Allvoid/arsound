@@ -168,4 +168,40 @@ public class AccountVaultTest {
                 "src/main/java/app/revanced/extension/soundcloud/login/AccountSwitch.java")), java.nio.charset.StandardCharsets.UTF_8);
         assertFalse(source.contains("AccountVault.remove("));
     }
+
+    @Test
+    public void aListOverTheLimitStillRefreshesItsOwnCopiesButRefusesANewOne() {
+        List<SavedAccount> accounts = new ArrayList<>();
+        for (int i = 0; i < 12; i++) accounts.add(account("u-" + i, "" + i, "t", i));
+        List<SavedAccount> renewed = AccountVault.upsert(accounts, account("u-5", "5", "fresh", 99));
+        assertEquals(12, renewed.size());
+        assertEquals("fresh", renewed.get(0).accessToken);
+        assertNull(AccountVault.upsert(accounts, account("u-new", "99", "t", 99)));
+    }
+
+    @Test
+    public void aSwitchNeedsAUsableCopyOfTheAccountItTakesOut() {
+        assertTrue(AccountVault.canLeave(false, null));
+        assertFalse(AccountVault.canLeave(true, null));
+        // A copy with no tokens is no way back.
+        assertFalse(AccountVault.canLeave(true, new SavedAccount("a-1", "1", null, null, null, null, null, 1)));
+        assertTrue(AccountVault.canLeave(true, account("a-1", "1", "t", 1)));
+    }
+
+    @Test
+    public void eachDifferentBadListIsKeptAndTheLastFewStay() throws Exception {
+        String backups = null;
+        for (int i = 1; i <= 5; i++) backups = AccountVault.addBackup(backups, "bad " + i);
+        assertEquals(AccountVault.BACKUPS, new org.json.JSONArray(backups).length());
+        assertTrue(backups.contains("bad 5"));
+        assertFalse(backups.contains("bad 1"));
+        // The same text again changes nothing.
+        assertEquals(backups, AccountVault.addBackup(backups, "bad 5"));
+    }
+
+    @Test
+    public void anotherAccountCanBeAddedOnlyBelowTheLimit() {
+        assertTrue(AccountVault.canAddAnother(AccountVault.MAX_ACCOUNTS - 1));
+        assertFalse(AccountVault.canAddAnother(AccountVault.MAX_ACCOUNTS));
+    }
 }

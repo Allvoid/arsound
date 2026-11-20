@@ -103,6 +103,11 @@ public final class AccountSheet {
     }
 
     private static void confirmAdd(Activity activity) {
+        // Ten are kept: the new account could not be kept after its sign-in, so it is told now, before anything is wiped.
+        if (!AccountVault.canAddAnother(AccountVault.list(activity).size())) {
+            AccountSwitch.listFull(activity);
+            return;
+        }
         new ArsoundDialog(activity)
                 .setTitle(Lang.text("Добавить аккаунт?", "Add an account?"))
                 .setMessage(Lang.text("Приложение перезапустится и откроет вход в SoundCloud. Текущий аккаунт "

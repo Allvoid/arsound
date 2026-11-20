@@ -177,6 +177,23 @@ final class LikeQueueState {
         return false;
     }
 
+    /** What {@link #countIfAllowed} did. */
+    enum Counted {
+        COUNTED, LIMIT, NOT_WRITTEN
+    }
+
+    /**
+     * The limit test and the count in one step, for the caller to run under one lock: a like of another kind counted
+     * between a look at the allowance and the count would otherwise make this one the 51st.
+     *
+     * @return {@link Counted#LIMIT} when the window is full (nothing counted), {@link Counted#NOT_WRITTEN} when the count
+     * could not be written (taken back), else {@link Counted#COUNTED}.
+     */
+    Counted countIfAllowed(long now, java.util.function.BooleanSupplier written) {
+        if (countIn(now) >= PER_DAY) return Counted.LIMIT;
+        return countAndKeep(now, written) ? Counted.COUNTED : Counted.NOT_WRITTEN;
+    }
+
     /** Takes back a like counted at {@code at}: the server said no to the track itself, so nothing was given. */
     void giveBack(long at) {
         given.remove(Long.valueOf(at));
