@@ -30,7 +30,12 @@ final class OwnPicture {
 
     /** The free bytes under the folder, or -1 when there is no folder or it is not there (the system answers 0 then). */
     static long usableOf(java.io.File folder) {
-        return folder == null || !folder.exists() ? -1 : folder.getUsableSpace();
+        return folder == null ? -1 : usableFrom(folder.exists(), folder.getUsableSpace());
+    }
+
+    /** The reading of the system for a folder: 0 means a full storage only when the folder is there. */
+    static long usableFrom(boolean exists, long reading) {
+        return exists ? reading : -1;
     }
 
     /** Whether a failure of the copy came from a full storage. */

@@ -1,6 +1,7 @@
 package app.revanced.extension.soundcloud.settings;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -18,5 +19,10 @@ public class TransitionTextsTest {
         assertFalse(source.contains("else streamed from the network"));
         assertFalse(source.contains("opened from the network for this"));
         assertFalse(source.contains("для этого открывается из сети"));
+        // And they say what is true now.
+        assertTrue(source.contains("трек из сети затихает и нарастает по очереди"));
+        assertTrue(source.contains("a streamed one fades one after the other"));
+        assertTrue(source.contains("Только для трека на телефоне"));
+        assertTrue(source.contains("Only for a track on the phone"));
     }
 }

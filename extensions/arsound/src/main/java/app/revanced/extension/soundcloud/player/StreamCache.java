@@ -72,7 +72,12 @@ public final class StreamCache {
 
     /** The free bytes under the path; -1 (unknown) when it is not there, where the system answers 0 as for a full disk. */
     static long usableOf(File path) {
-        return path == null || !path.exists() ? -1 : path.getUsableSpace();
+        return path == null ? -1 : usableFrom(path.exists(), path.getUsableSpace());
+    }
+
+    /** The reading of the system for a path: 0 means a full disk only when the path is there. */
+    static long usableFrom(boolean exists, long reading) {
+        return exists ? reading : -1;
     }
 
     /**

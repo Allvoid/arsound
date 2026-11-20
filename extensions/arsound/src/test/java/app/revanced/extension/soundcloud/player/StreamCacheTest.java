@@ -33,4 +33,11 @@ public class StreamCacheTest {
         assertEquals(-1, StreamCache.usableOf(new java.io.File("/no/such/folder/for/arsound")));
         assertEquals(9 * GB, StreamCache.limitBySpace(StreamCache.usableOf(new java.io.File("/no/such")), 10 * GB, 0));
     }
+
+    @Test
+    public void aReallyFullDiskIsTold() {
+        // The path is there and the system says 0: the disk really is full, and the cache is held to the smallest one.
+        assertEquals(0, StreamCache.usableFrom(true, 0));
+        assertEquals(120 * MB, StreamCache.limitBySpace(StreamCache.usableFrom(true, 0), 50 * GB, 0));
+    }
 }

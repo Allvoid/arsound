@@ -46,4 +46,12 @@ public class OwnPictureTest {
         assertFalse(OwnPicture.isNoSpace(new IOException("Permission denied")));
         assertFalse(OwnPicture.isNoSpace(null));
     }
+
+    @Test
+    public void aReallyFullDiskIsTold() {
+        // The folder is there and the system says 0: a really full storage, no room for a copy.
+        assertEquals(0, OwnPicture.usableFrom(true, 0));
+        assertFalse(OwnPicture.hasRoom(10 * MB, OwnPicture.usableFrom(true, 0)));
+        assertEquals(-1, OwnPicture.usableFrom(false, 0));
+    }
 }
