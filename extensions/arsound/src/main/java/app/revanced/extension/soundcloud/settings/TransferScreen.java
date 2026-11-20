@@ -367,6 +367,34 @@ final class TransferScreen extends ScrollingScreen implements TransferJob.Listen
                         .show());
         likesRow.icon("recs");
         likesPart.addView(likesRow);
+        // A like counted at a moment far ahead of the clock (it was set a year ahead for a while) blocks the queue: the user
+        // may count from now, after a confirmation.
+        if (DailyLikeQueue.clockRepairOffered()) {
+            likesPart.addView(ui.createActionRow(text("Часы телефона шли вперёд — считать от сейчас",
+                            "The phone's clock was ahead - count from now"),
+                    text("Лайки, посчитанные по сбившимся часам, будут считаться от этого момента: сутки от сейчас. "
+                                    + "Меньше лайков не засчитается, снимется только блок на месяцы вперёд.",
+                            "The likes counted by the wrong clock will count from this moment: 24 hours from now. Fewer "
+                                    + "likes are never counted; only the block that reaches far ahead is lifted."),
+                    v -> new ArsoundDialog(activity)
+                            .setTitle(text("Считать от сейчас?", "Count from now?"))
+                            .setMessage(text("Часы телефона шли вперёд, и очередь ждёт времени, которое ещё не наступило. "
+                                            + "Лайки будут считаться от этого момента: следующие лайки пойдут через сутки "
+                                            + "после последнего, а не раньше.",
+                                    "The phone's clock was ahead, and the queue waits for a time that has not come. The "
+                                            + "likes will count from this moment: the next ones go 24 hours after the last "
+                                            + "one, not sooner."))
+                            .setPositiveButton(text("Считать от сейчас", "Count from now"), (dialog, which) ->
+                                    Utils.runOnBackgroundThread(() -> {
+                                        DailyLikeQueue.repairClock();
+                                        Utils.runOnMainThread(() -> {
+                                            likesRow = null;
+                                            fillLikes();
+                                        });
+                                    }))
+                            .setNegativeButton(text("Отмена", "Cancel"), null)
+                            .show()).icon("info"));
+        }
     }
 
     private static String likesStatus(String line) {

@@ -38,8 +38,45 @@ final class LikeQueueState {
     /** The tracks that were queued in all, those liked or skipped and those still waiting. */
     private int total;
     private int done;
-    /** When the likes of the window were given (counted), UTC milliseconds; only the last 24 hours matter. */
-    private final List<Long> given = new ArrayList<>();
+    /** The likes of the window, counted when they were asked for, oldest first. */
+    private final List<Stamp> given = new ArrayList<>();
+
+    /**
+     * One counted like: its moment on the wall clock (never earlier than the one before it), and the elapsed time and the
+     * start of the phone when it was counted. Within that start its age is the elapsed time, whatever the wall clock was
+     * set to meanwhile; at any other start (and for a stamp of an older file, which has none) the wall clock is all there is.
+     */
+    static final class Stamp {
+        final long wall;
+        final long elapsed;
+        final String boot;
+
+        Stamp(long wall, long elapsed, String boot) {
+            this.wall = wall;
+            this.elapsed = elapsed;
+            this.boot = boot == null ? "" : boot;
+        }
+
+        boolean sameStart(Moment now) {
+            return !boot.isEmpty() && boot.equals(now.boot);
+        }
+
+        /** How long ago it was counted: the elapsed time within one start, else the wall clock's, never below 0. */
+        long ageAt(Moment now) {
+            return sameStart(now) ? Math.max(0, now.elapsed - elapsed) : Math.max(0, now.wall - wall);
+        }
+
+        /** {@code wall} alone, or {@code wall/elapsed/boot}. */
+        String format() {
+            return boot.isEmpty() ? String.valueOf(wall) : wall + "/" + elapsed + "/" + boot;
+        }
+
+        static Stamp parse(String text) {
+            String[] parts = text.trim().split("/");
+            if (parts.length == 3) return new Stamp(Long.parseLong(parts[0]), Long.parseLong(parts[1]), parts[2]);
+            return new Stamp(Long.parseLong(parts[0]), 0, "");
+        }
+    }
 
     /** An empty queue. */
     LikeQueueState() {
@@ -95,7 +132,7 @@ final class LikeQueueState {
                     else if (key.equals("given")) {
                         sawGiven = true;
                         for (String stamp : value.split(",")) {
-                            if (!stamp.trim().isEmpty()) state.given.add(Long.parseLong(stamp.trim()));
+                            if (!stamp.trim().isEmpty()) state.given.add(Stamp.parse(stamp));
                         }
                     }
                 } else if (line.startsWith("soundcloud:tracks:") && state.pending.size() < MAX_QUEUE) {
@@ -113,7 +150,7 @@ final class LikeQueueState {
         if (state.given.isEmpty() && oldToday > 0) {
             // A day long past has nothing in the window: only today's and yesterday's count are carried over.
             long start = dayStart(oldDay, zone);
-            if (start >= 0 && start > now - 2 * WINDOW_MS) for (int i = 0; i < Math.min(oldToday, PER_DAY); i++) state.given.add(now);
+            if (start >= 0 && start > now - 2 * WINDOW_MS) for (int i = 0; i < Math.min(oldToday, PER_DAY); i++) state.given.add(new Stamp(now, 0, ""));
         }
         return state;
     }
@@ -124,7 +161,7 @@ final class LikeQueueState {
         out.append("total=").append(total).append('\n');
         out.append("done=").append(done).append('\n');
         out.append("given=");
-        for (int i = 0; i < given.size(); i++) out.append(i == 0 ? "" : ",").append(given.get(i));
+        for (int i = 0; i < given.size(); i++) out.append(i == 0 ? "" : ",").append(given.get(i).format());
         out.append('\n');
         for (String urn : pending) out.append(urn).append('\n');
         // Written last: a file cut in the middle (a power loss) has no end, and is not read as a shorter one.
@@ -161,71 +198,151 @@ final class LikeQueueState {
     }
 
     /**
-     * How many likes the window of the 24 hours before {@code now} holds. Reads only: nothing is changed or dropped, so
-     * a view of the queue on the main thread and the timer on another can share it, and a clock that jumps and comes back
-     * finds the likes where they were. A moment in the future (the clock went back) counts until 24 hours after it.
+     * How many likes the window of the 24 hours before {@code now} holds. Reads only: nothing is changed or dropped, so a
+     * view of the queue on the main thread and the timer on another can share it. A stamp's age is the elapsed time while it
+     * is the same start of the phone, so a wall clock that jumped (set right by the network, or by the user) opens nothing;
+     * across starts it is the wall clock's, and a stamp ahead of it counts as just given until the clock has passed it.
      */
-    int countIn(long now) {
+    int countIn(Moment now) {
         int count = 0;
-        for (long at : given) if (at > now - WINDOW_MS) count++;
+        for (Stamp stamp : given) if (stamp.ageAt(now) < WINDOW_MS) count++;
         return count;
     }
 
+    int countIn(long now) {
+        return countIn(Moment.wall(now));
+    }
+
     /** How many more likes the window lets through now. */
-    int allowance(long now) {
+    int allowance(Moment now) {
         return Math.max(0, PER_DAY - countIn(now));
+    }
+
+    int allowance(long now) {
+        return allowance(Moment.wall(now));
     }
 
     /** The most stamps kept: the window needs the last fifty, the rest is room for a clock that jumps. */
     static final int KEEP_STAMPS = 200;
 
     /**
-     * Counts a like: before it is asked for, or for one the user gave by hand. The stamp is never earlier than the newest
-     * one (RULE B, final form): a clock that went back does not make the likes of that time look old, so they still count
-     * after the clock is set right; and stamps are never dropped by age, only the oldest beyond {@link #KEEP_STAMPS}, so a
-     * clock that jumped forward and back finds them all.
+     * Counts a like: before it is asked for, or for one the user gave by hand. On the same start of the phone as the one
+     * before it the wall moment is never earlier than that one's (a clock that went back does not make the likes of that
+     * time look old); on another start it is the wall clock's own. Stamps are never dropped by age, only the oldest beyond
+     * {@link #KEEP_STAMPS}.
      *
      * @return The stamp given to the like.
      */
-    long count(long now) {
-        long stamp = Math.max(now, newestStamp());
+    Stamp count(Moment now) {
+        Stamp last = given.isEmpty() ? null : given.get(given.size() - 1);
+        // Unknown starts (both empty) are taken as one: the conservative way, as before the start was told.
+        boolean sameStart = last != null && last.boot.equals(now.boot);
+        long wall = sameStart ? Math.max(now.wall, last.wall) : now.wall;
+        Stamp stamp = new Stamp(wall, now.elapsed, now.boot);
         given.add(stamp);
         while (given.size() > KEEP_STAMPS) given.remove(0);
         return stamp;
     }
 
-    /** The latest moment counted, 0 when none. */
+    /** As above for a moment known by the wall clock only; returns the wall moment given. */
+    long count(long now) {
+        return count(Moment.wall(now)).wall;
+    }
+
+    /** The latest wall moment counted, 0 when none. */
     long newestStamp() {
         long newest = 0;
-        for (long at : given) newest = Math.max(newest, at);
+        for (Stamp stamp : given) newest = Math.max(newest, stamp.wall);
         return newest;
     }
 
     /** Whether the clock looks wrong: the likes were counted at a moment more than an hour ahead of it. */
+    boolean clockLooksWrong(Moment now) {
+        return newestStamp() > now.wall + 3_600_000;
+    }
+
     boolean clockLooksWrong(long now) {
-        return newestStamp() > now + 3_600_000;
+        return clockLooksWrong(Moment.wall(now));
+    }
+
+    /**
+     * Whether the user is offered the repair "the phone's clock was ahead: count from now": the window is full and the newest
+     * stamp is more than an hour ahead of the clock.
+     */
+    boolean repairOffered(Moment now) {
+        return countIn(now) >= PER_DAY && clockLooksWrong(now);
+    }
+
+    /**
+     * The repair (the user asked for it): every stamp ahead of the wall clock is moved to now, so it counts 24 hours from
+     * now. Never fewer likes are counted; only the block that reaches far into the future (a clock set a year ahead for
+     * one like) is taken away.
+     *
+     * @return How many stamps were moved.
+     */
+    int repairFuture(Moment now) {
+        int moved = 0;
+        for (int i = 0; i < given.size(); i++) {
+            if (given.get(i).wall > now.wall) {
+                given.set(i, new Stamp(now.wall, now.elapsed, now.boot));
+                moved++;
+            }
+        }
+        return moved;
     }
 
     /**
      * What stands in the place of a queue file that cannot be read (cut by a power loss, not ours): nothing is known of the
      * likes given lately, so the window counts as full for the next 24 hours, and no like goes beyond what it would have.
      */
-    static LikeQueueState afterUnreadable(long now) {
+    static LikeQueueState afterUnreadable(Moment now) {
         LikeQueueState state = new LikeQueueState();
-        for (int i = 0; i < PER_DAY; i++) state.given.add(now);
+        for (int i = 0; i < PER_DAY; i++) state.given.add(new Stamp(now.wall, now.elapsed, now.boot));
         return state;
     }
 
+    static LikeQueueState afterUnreadable(long now) {
+        return afterUnreadable(Moment.wall(now));
+    }
+
     /**
-     * Counts a like at {@code now} and has it written; when it is not written the count is taken back and false is
-     * returned: no like is given then, so a process that dies after it cannot have forgotten one. The single step every like
-     * of Arsound's own goes through (the queue, My Wave, the transfer).
+     * {@link #afterUnreadable} that also keeps the tracks still waiting: the intact {@code soundcloud:tracks:} lines of the
+     * file that could not be read. The window is full for 24 hours all the same; the queue is not lost.
      */
-    boolean countAndKeep(long now, java.util.function.BooleanSupplier written) {
-        long stamp = count(now);
+    static LikeQueueState salvage(String saved, Moment now) {
+        LikeQueueState state = afterUnreadable(now);
+        if (saved == null) return state;
+        Set<String> seen = new HashSet<>();
+        for (String line : saved.split("\n")) {
+            String urn = line.trim();
+            if (isTrackUrn(urn) && seen.add(urn) && state.pending.size() < MAX_QUEUE) state.pending.add(urn);
+        }
+        state.total = state.pending.size();
+        return state;
+    }
+
+    /** A whole line {@code soundcloud:tracks:<digits>}: one cut in the middle is not taken. */
+    private static boolean isTrackUrn(String line) {
+        String prefix = "soundcloud:tracks:";
+        if (!line.startsWith(prefix) || line.length() == prefix.length()) return false;
+        for (int i = prefix.length(); i < line.length(); i++) if (!Character.isDigit(line.charAt(i))) return false;
+        return true;
+    }
+
+    /**
+     * Counts a like and has it written; when it is not written the count is taken back and false is returned: no like is
+     * given then, so a process that dies after it cannot have forgotten one. The single step every like of Arsound's own
+     * goes through (the queue, My Wave, the transfer).
+     */
+    boolean countAndKeep(Moment now, java.util.function.BooleanSupplier written) {
+        Stamp stamp = count(now);
         if (written.getAsBoolean()) return true;
-        giveBack(stamp);
+        given.remove(stamp);
         return false;
+    }
+
+    boolean countAndKeep(long now, java.util.function.BooleanSupplier written) {
+        return countAndKeep(Moment.wall(now), written);
     }
 
     /** What {@link #countIfAllowed} did. */
@@ -240,28 +357,51 @@ final class LikeQueueState {
      * @return {@link Counted#LIMIT} when the window is full (nothing counted), {@link Counted#NOT_WRITTEN} when the count
      * could not be written (taken back), else {@link Counted#COUNTED}.
      */
-    Counted countIfAllowed(long now, java.util.function.BooleanSupplier written) {
+    Counted countIfAllowed(Moment now, java.util.function.BooleanSupplier written) {
         if (countIn(now) >= PER_DAY) return Counted.LIMIT;
         return countAndKeep(now, written) ? Counted.COUNTED : Counted.NOT_WRITTEN;
     }
 
-    /** Takes back a like counted at {@code at}: the server said no to the track itself, so nothing was given. */
-    void giveBack(long at) {
-        given.remove(Long.valueOf(at));
+    Counted countIfAllowed(long now, java.util.function.BooleanSupplier written) {
+        return countIfAllowed(Moment.wall(now), written);
     }
 
-    /** The moment the window lets the next like through: now when it does already, else when the oldest needed one leaves. */
+    /** Takes back a like counted at the wall moment {@code at}: the server said no to the track itself. */
+    void giveBack(long at) {
+        for (int i = given.size() - 1; i >= 0; i--) {
+            if (given.get(i).wall == at) {
+                given.remove(i);
+                return;
+            }
+        }
+    }
+
+    /**
+     * The wall moment the window lets the next like through: now when it does already, else when the oldest needed one
+     * leaves (worked out from the age the same way as the count, so it is right whatever the wall clock was set to).
+     */
+    long nextSlotAt(Moment now) {
+        List<Long> left = new ArrayList<>();
+        for (Stamp stamp : given) {
+            long age = stamp.ageAt(now);
+            if (age < WINDOW_MS) left.add(WINDOW_MS - age);
+        }
+        if (left.size() < PER_DAY) return now.wall;
+        java.util.Collections.sort(left);
+        return now.wall + left.get(left.size() - PER_DAY);
+    }
+
     long nextSlotAt(long now) {
-        List<Long> sorted = new ArrayList<>();
-        for (long at : given) if (at > now - WINDOW_MS) sorted.add(at);
-        if (sorted.size() < PER_DAY) return now;
-        java.util.Collections.sort(sorted);
-        return sorted.get(sorted.size() - PER_DAY) + WINDOW_MS;
+        return nextSlotAt(Moment.wall(now));
     }
 
     /** True while tracks wait and the window is full. */
-    boolean waitingForSlot(long now) {
+    boolean waitingForSlot(Moment now) {
         return !pending.isEmpty() && allowance(now) == 0;
+    }
+
+    boolean waitingForSlot(long now) {
+        return waitingForSlot(Moment.wall(now));
     }
 
     /**

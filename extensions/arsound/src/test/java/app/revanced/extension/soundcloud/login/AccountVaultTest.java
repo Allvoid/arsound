@@ -232,4 +232,19 @@ public class AccountVaultTest {
     public void unreadableBackupsAreNotClearedByAddingOne() {
         assertNull(AccountVault.addBackup("not a list", "[{\"a\":1}]"));
     }
+
+    @Test
+    public void aBackupThatDoesNotParseIsSizedByTheAccountsItShowsAndNeverByZero() {
+        String cut = "[{\"name\":\"a\",\"x\":1},{\"name\":\"b\"},{\"name\":\"c\"},{\"na";
+        assertEquals(3, AccountVault.entriesOf(cut));
+        assertEquals(1, AccountVault.entriesOf("garbage"));
+    }
+
+    @Test
+    public void anUnreadableBackupWithTheMostAccountsIsNotTheFirstToGo() {
+        String cut = "[{\"name\":\"a\"},{\"name\":\"b\"},{\"name\":\"c\"},{\"name\":\"d\"},{\"na";
+        String backups = AccountVault.addBackup(null, cut);
+        for (int i = 0; i < 6; i++) backups = AccountVault.addBackup(backups, "[{\"name\":\"x" + i + "\"}]");
+        assertTrue(backups.contains("{\\\"name\\\":\\\"d\\\"}"));
+    }
 }

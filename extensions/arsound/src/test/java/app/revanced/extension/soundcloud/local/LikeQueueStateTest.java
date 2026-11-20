@@ -417,4 +417,104 @@ public class LikeQueueStateTest {
         // Cut before the end line.
         assertNull(LikeQueueState.tryParse(whole.substring(0, whole.lastIndexOf("end")), TimeZone.getTimeZone("UTC"), NOW));
     }
+
+    private static Moment at(long wall, long elapsed, String boot) {
+        return new Moment(wall, elapsed, boot);
+    }
+
+    private static void giveAt(LikeQueueState state, int count, Moment moment) {
+        for (int i = 0; i < count; i++) {
+            state.count(new Moment(moment.wall, moment.elapsed + i, moment.boot));
+            state.liked(state.peek());
+        }
+    }
+
+    @Test
+    public void onTheSameStartTheElapsedTimeIsTheTrueTimeWhateverTheWallClockSays() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        giveAt(state, 50, at(NOW, 1_000, "7"));
+        // The wall clock jumps forward 25 hours (the network set it right): only an hour of the phone's own time passed.
+        assertEquals(0, state.allowance(at(NOW + 25 * H, 1_000 + H, "7")));
+        assertEquals(0, state.allowance(at(NOW + 25 * H, 1_000 + 24 * H - 1_000, "7")));
+        // 24 hours of elapsed time later the window opens, whatever the wall clock says.
+        assertEquals(50, state.allowance(at(NOW + H, 1_000 + 24 * H + 100, "7")));
+    }
+
+    @Test
+    public void onAnotherStartTheWallClockIsAllThereIs() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        giveAt(state, 50, at(NOW, 1_000, "7"));
+        assertEquals(50, state.allowance(at(NOW + 25 * H, 5, "8")));
+        assertEquals(0, state.allowance(at(NOW + 23 * H, 5, "8")));
+        // A stamp of an older file has no start: it is another start.
+        LikeQueueState old = new LikeQueueState();
+        old.count(NOW);
+        assertEquals(49, LikeQueueState.parse(old.serialize()).allowance(Moment.wall(NOW + H)));
+    }
+
+    @Test
+    public void aStrayFutureStampDoesNotKillTheQueueForAYearOnTheSameStart() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        long year = 365 * 24 * H;
+        // One like while the clock was a year ahead, then the clock is set right.
+        state.count(at(NOW + year, 1_000, "7"));
+        giveAt(state, 49, at(NOW, 2_000, "7"));
+        assertEquals(0, state.allowance(at(NOW, 3_000, "7")));
+        // After 24 hours of the phone's own time all fifty are old, though the stamps' wall moments are a year ahead.
+        assertEquals(50, state.allowance(at(NOW + 25 * H, 2_000 + 24 * H + 100, "7")));
+    }
+
+    @Test
+    public void afterARebootAStrayFutureStampIsRepairedByTheUserNotForgotten() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(120), Collections.emptySet());
+        long year = 365 * 24 * H;
+        state.count(at(NOW + year, 1_000, "7"));
+        giveAt(state, 49, at(NOW, 2_000, "7"));
+        Moment rebooted = at(NOW + 3 * H, 10, "8");
+        // On the new start only the wall clock is left: the stamps are a year ahead, the window is full and the clock looks wrong.
+        assertEquals(0, state.allowance(rebooted));
+        assertTrue(state.repairOffered(rebooted));
+        assertEquals(50, state.repairFuture(rebooted));
+        // Never fewer counted: still full, but from now, so it opens 24 hours later.
+        assertEquals(0, state.allowance(rebooted));
+        assertFalse(state.repairOffered(rebooted));
+        assertEquals(rebooted.wall + 24 * H, state.nextSlotAt(rebooted));
+        assertEquals(50, state.allowance(at(rebooted.wall + 24 * H + 1, 10 + 24 * H + 1, "8")));
+    }
+
+    @Test
+    public void theRepairIsNotOfferedWhileTheWindowIsNotFullOrTheClockIsRight() {
+        LikeQueueState state = new LikeQueueState();
+        state.count(at(NOW + 365 * 24 * H, 1, "7"));
+        assertFalse(state.repairOffered(at(NOW, 2, "8")));
+        LikeQueueState full = new LikeQueueState();
+        full.add(urns(60), Collections.emptySet());
+        giveAt(full, 50, at(NOW, 1, "7"));
+        assertFalse(full.repairOffered(at(NOW + H, 5, "8")));
+    }
+
+    @Test
+    public void theStampsKeepTheirStartAndElapsedTimeThroughTheFile() {
+        LikeQueueState state = new LikeQueueState();
+        state.add(urns(60), Collections.emptySet());
+        giveAt(state, 50, at(NOW, 1_000, "7"));
+        LikeQueueState back = LikeQueueState.parse(state.serialize());
+        assertEquals(0, back.allowance(at(NOW + 25 * H, 1_000 + H, "7")));
+    }
+
+    @Test
+    public void anUnreadableQueueFileKeepsItsWaitingTracks() {
+        String torn = "arsound-like-queue 1\ntotal=3\ndone=0\ngiven=1,2,3\nsoundcloud:tracks:11\nsoundcloud:tracks:12\nsoundcloud:tra";
+        Moment now = at(NOW, 5, "7");
+        LikeQueueState state = LikeQueueState.salvage(torn, now);
+        // The intact lines are the queue; the cut one is not taken; the window is full for the day.
+        assertEquals(2, state.remaining());
+        assertEquals("soundcloud:tracks:11", state.peek());
+        assertEquals(0, state.allowance(now));
+        assertEquals(50, state.allowance(at(NOW + 24 * H + 1, 5 + 24 * H + 1, "7")));
+    }
 }

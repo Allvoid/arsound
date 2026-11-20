@@ -82,11 +82,15 @@ final class AccountVault {
     static final int BACKUPS = 3;
 
     /** How many accounts a backed up text holds; what cannot be read counts as none. */
-    private static int entriesOf(String text) {
+    static int entriesOf(String text) {
         try {
             return new JSONArray(text).length();
         } catch (JSONException ex) {
-            return 0;
+            // Cut or damaged: it may hold the most accounts of all, so it is sized by the accounts it still shows (their
+            // names), and at least 1: never 0, never evicted first for being unreadable.
+            int names = 0;
+            for (int at = text.indexOf("\"name\""); at >= 0; at = text.indexOf("\"name\"", at + 1)) names++;
+            return Math.max(1, names);
         }
     }
 
@@ -110,10 +114,9 @@ final class AccountVault {
         while (kept.size() > BACKUPS) {
             int largest = 0;
             for (int i = 1; i < kept.size(); i++) {
-                if (entriesOf(kept.get(i)) > entriesOf(kept.get(largest))) largest = i;
+                // The newest of equal ones: the oldest is the one that goes.
+                if (entriesOf(kept.get(i)) >= entriesOf(kept.get(largest))) largest = i;
             }
-            // Texts that hold no account at all protect nothing.
-            if (entriesOf(kept.get(largest)) == 0) largest = -1;
             // The oldest that is not the largest; the new text is never the one to go.
             int drop = largest == 0 ? 1 : 0;
             if (drop == kept.size() - 1) drop = 0;

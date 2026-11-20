@@ -130,21 +130,22 @@ public final class DailyLikeQueue {
     public static String progressLine() {
         LikeQueueState current = view();
         if (current == null || current.isEmpty()) return null;
-        long now = System.currentTimeMillis();
+        Moment at = moment();
+        long now = at.wall;
         String head = text("Пролайкано ", "Liked ") + current.done() + text(" из ", " of ") + current.total();
         int left = current.remaining();
-        if (current.waitingForSlot(now) && current.clockLooksWrong(now)) {
+        if (current.waitingForSlot(at) && current.clockLooksWrong(at)) {
             // The likes were counted at a moment ahead of the phone's clock (it was ahead and was set back): conservative.
             String when = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
-                    .format(new java.util.Date(current.nextSlotAt(now)));
+                    .format(new java.util.Date(current.nextSlotAt(at)));
             return head + text(", часы телефона шли вперёд; следующий лайк после " + when,
                     ", the phone's clock was ahead; the next like after " + when);
         }
-        if (current.waitingForSlot(now)) {
-            long hours = Math.max(1, (current.nextSlotAt(now) - now + 3_600_000 - 1) / 3_600_000);
+        if (current.waitingForSlot(at)) {
+            long hours = Math.max(1, (current.nextSlotAt(at) - now + 3_600_000 - 1) / 3_600_000);
             return head + text(", следующие — через " + hours + " ч", ", the next in " + hours + " h");
         }
-        int allowed = Math.min(current.allowance(now), left);
+        int allowed = Math.min(current.allowance(at), left);
         return head + text(", сейчас можно ещё " + allowed, ", " + allowed + " more now");
     }
 
@@ -172,7 +173,7 @@ public final class DailyLikeQueue {
                 String urn;
                 synchronized (LOCK) {
                     LikeQueueState current = load();
-                    if (current == null || current.isEmpty() || current.allowance(System.currentTimeMillis()) == 0) break;
+                    if (current == null || current.isEmpty() || current.allowance(moment()) == 0) break;
                     urn = current.peek();
                     owner = stateOwner;
                 }
@@ -190,7 +191,7 @@ public final class DailyLikeQueue {
                 // Counted before the like is asked for, and the account is looked at once more: a like that reaches the server
                 // and is not known to have, a process that dies meanwhile, an account switched under the run all stay
                 // inside the limit.
-                long stamp = System.currentTimeMillis();
+                Moment stamp = moment();
                 LikeQueueState.Counted counted;
                 synchronized (LOCK) {
                     LikeQueueState current = queueOf(owner);
@@ -276,7 +277,7 @@ public final class DailyLikeQueue {
         synchronized (LOCK) {
             LikeQueueState current = load();
             if (current == null) return false;
-            return current.countAndKeep(System.currentTimeMillis(), DailyLikeQueue::save);
+            return current.countAndKeep(moment(), DailyLikeQueue::save);
         }
     }
 
@@ -300,9 +301,10 @@ public final class DailyLikeQueue {
     /** The timer: when the window lets the next like through, and every hour while likes wait (a run may stop on a refusal). */
     private static void schedule() {
         if (!TIMER_SET.compareAndSet(false, true)) return;
-        long now = System.currentTimeMillis();
+        Moment at = moment();
+        long now = at.wall;
         LikeQueueState current = view();
-        long slot = current == null ? now : current.nextSlotAt(now);
+        long slot = current == null ? now : current.nextSlotAt(at);
         long wait = slot <= now ? RETRY_MS : Math.min(Math.max(1_000, slot - now + 60_000 + (long) (Math.random() * 120_000)), RETRY_MS);
         HANDLER.postDelayed(() -> {
             TIMER_SET.set(false);
@@ -334,12 +336,12 @@ public final class DailyLikeQueue {
                 synchronized (LOCK) {
                     LikeQueueState counting = load();
                     if (counting == null) return;
-                    counting.count(System.currentTimeMillis());
+                    counting.count(moment());
                     save();
                 }
             });
             LikeQueueState current = view();
-            if (current == null || !current.waitingForSlot(now) || now - noticeAt < NOTICE_GAP_MS) return;
+            if (current == null || !current.waitingForSlot(moment()) || now - noticeAt < NOTICE_GAP_MS) return;
             noticeAt = now;
             Context context = Utils.getContext();
             if (context == null) return;
@@ -390,21 +392,74 @@ public final class DailyLikeQueue {
             // an empty queue, which the next save would write over it and open another fifty.
             Logger.printInfo(() -> "Like queue: the kept queue cannot be read, kept as .bad, no likes for 24 hours");
             copyAside(file);
-            read = LikeQueueState.afterUnreadable(System.currentTimeMillis());
+            // The tracks still waiting are saved from the text; the window is full for a day all the same.
+            read = LikeQueueState.salvage(saved, moment());
         }
         state = read;
         stateOwner = owner;
         return state;
     }
 
-    /** A copy of a file that cannot be read, next to it as {@code .bad}; the first such copy stays. */
+    /** How many copies of unreadable queue files are kept beside it: .bad1 is the newest. */
+    private static final int BAD_COPIES = 3;
+
+    /** A copy of a file that cannot be read, next to it as {@code .bad1}; the earlier copies move on, the last three stay. */
     private static void copyAside(File file) {
-        File bad = new File(file.getPath() + ".bad");
-        if (bad.exists()) return;
-        try (FileInputStream in = new FileInputStream(file); java.io.FileOutputStream out = new java.io.FileOutputStream(bad)) {
-            out.write(readAll(in));
+        try {
+            File last = new File(file.getPath() + ".bad" + BAD_COPIES);
+            //noinspection ResultOfMethodCallIgnored
+            last.delete();
+            for (int i = BAD_COPIES - 1; i >= 1; i--) {
+                File from = new File(file.getPath() + ".bad" + i);
+                //noinspection ResultOfMethodCallIgnored
+                if (from.exists()) from.renameTo(new File(file.getPath() + ".bad" + (i + 1)));
+            }
+            try (FileInputStream in = new FileInputStream(file);
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(new File(file.getPath() + ".bad1"))) {
+                out.write(readAll(in));
+            }
         } catch (IOException ex) {
             Logger.printInfo(() -> "Like queue: could not copy the unreadable queue aside: " + ex);
+        }
+    }
+
+    /**
+     * The moment now, as the window needs it: wall clock, elapsed time and which start of the phone. The start is told by
+     * {@code Settings.Global.BOOT_COUNT} (API 24, no permission); empty when it cannot be read.
+     */
+    private static Moment moment() {
+        String boot = "";
+        try {
+            Context context = Utils.getContext();
+            if (context != null) {
+                int count = android.provider.Settings.Global.getInt(context.getContentResolver(),
+                        android.provider.Settings.Global.BOOT_COUNT, -1);
+                if (count >= 0) boot = String.valueOf(count);
+            }
+        } catch (RuntimeException ex) {
+            // Not readable: nothing is taken for the same start.
+        }
+        return new Moment(System.currentTimeMillis(), android.os.SystemClock.elapsedRealtime(), boot);
+    }
+
+    /** Whether the user is offered the repair of a clock that was ahead (see {@link LikeQueueState#repairOffered}). */
+    public static boolean clockRepairOffered() {
+        LikeQueueState current = view();
+        return current != null && current.repairOffered(moment());
+    }
+
+    /**
+     * The repair, after the user confirmed: the stamps ahead of the clock are moved to now, so the block that reaches into
+     * the future is lifted and they count 24 hours from now. Never fewer likes are counted.
+     *
+     * @return False when it could not be written.
+     */
+    public static boolean repairClock() {
+        synchronized (LOCK) {
+            LikeQueueState current = load();
+            if (current == null) return false;
+            current.repairFuture(moment());
+            return save();
         }
     }
 
