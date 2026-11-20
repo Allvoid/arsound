@@ -2,6 +2,8 @@ package app.revanced.extension.soundcloud.settings;
 
 import static app.revanced.extension.soundcloud.shared.Lang.text;
 
+import app.revanced.extension.soundcloud.shared.Lang;
+
 import android.graphics.drawable.GradientDrawable;
 import android.text.format.Formatter;
 import android.view.Gravity;
@@ -74,7 +76,7 @@ final class StorageUsage {
         // Apart from the bar: it is not Arsound's, it is what the phone has left.
         LinearLayout freeLine = new LinearLayout(ui.activity);
         freeLine.setGravity(Gravity.CENTER_VERTICAL);
-        freeLine.addView(ui.createText("Body.Secondary", text("Свободно на телефоне", "Free on the phone")),
+        freeLine.addView(ui.createText("Body.Secondary", FreeSpace.label(Lang.russian())),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView free = ui.createText("Body.Primary", "…");
         freeLine.addView(free);
