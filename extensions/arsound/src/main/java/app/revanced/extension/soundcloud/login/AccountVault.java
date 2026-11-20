@@ -28,6 +28,15 @@ final class AccountVault {
     static final String PENDING_ADD = "\u0000add";
     /** A switch older than this is not finished any more: the app was killed in the middle of it. */
     private static final long PENDING_FOR_MS = 120_000;
+    /**
+     * While this very run of the app has the switch going (its wipe is followed, the user may be reading the question
+     * about it), the mark is kept this long: the wipe of a big account takes minutes, and a mark that went stale by then
+     * made the end of the wipe look like SoundCloud's own sign-out, which dropped the saved copy of the account the user
+     * was switching away from.
+     */
+    private static final long PENDING_HERE_FOR_MS = 15 * 60_000;
+    /** The switch under way was started by this run of the app (not left by one that was killed). */
+    private static volatile boolean pendingHere;
     /** More are not kept: the oldest goes. */
     static final int MAX_ACCOUNTS = 10;
 
@@ -79,7 +88,14 @@ final class AccountVault {
 
     /** False when the mark did not reach the disk: the switch must not go on then. */
     static boolean setPending(Context context, String what) {
-        return preferences(context).edit().putString(PENDING, what).putLong(PENDING_AT, System.currentTimeMillis()).commit();
+        boolean written = preferences(context).edit().putString(PENDING, what).putLong(PENDING_AT, System.currentTimeMillis()).commit();
+        pendingHere = written;
+        return written;
+    }
+
+    /** Whether a mark of this age is no longer a switch under way. */
+    static boolean isStale(long ageMs, boolean startedHere) {
+        return ageMs < 0 || ageMs > (startedHere ? PENDING_HERE_FOR_MS : PENDING_FOR_MS);
     }
 
     /** Puts the switch under way back to a new time, so a wait that went on does not make it look abandoned. */
@@ -95,7 +111,7 @@ final class AccountVault {
         String what = preferences.getString(PENDING, null);
         if (what == null) return null;
         long age = System.currentTimeMillis() - preferences.getLong(PENDING_AT, 0);
-        if (age < 0 || age > PENDING_FOR_MS) {
+        if (isStale(age, pendingHere)) {
             clearPending(context);
             return null;
         }
@@ -103,6 +119,7 @@ final class AccountVault {
     }
 
     static boolean clearPending(Context context) {
+        pendingHere = false;
         return preferences(context).edit().remove(PENDING).remove(PENDING_AT).commit();
     }
 

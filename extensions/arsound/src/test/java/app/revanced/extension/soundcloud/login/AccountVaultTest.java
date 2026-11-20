@@ -82,4 +82,17 @@ public class AccountVaultTest {
         assertTrue(AccountVault.parse("[{\"name\":\"a-1\",\"seenAt\":1}]").isEmpty());
         assertTrue(AccountVault.parse("").isEmpty());
     }
+
+    @Test
+    public void aSwitchOfThisRunIsNotAbandonedWhileItsWipeTakesMinutes() {
+        // Left by a run that was killed: dropped after two minutes.
+        assertFalse(AccountVault.isStale(119_000, false));
+        assertTrue(AccountVault.isStale(121_000, false));
+        // Followed by this run (the question about the wipe may wait on the screen): kept, or the end of the wipe would
+        // look like SoundCloud's own sign-out and drop the saved copy of the account the user switched from.
+        assertFalse(AccountVault.isStale(121_000, true));
+        assertFalse(AccountVault.isStale(10 * 60_000, true));
+        assertTrue(AccountVault.isStale(16 * 60_000, true));
+        assertTrue(AccountVault.isStale(-1, true));
+    }
 }
