@@ -16,6 +16,11 @@ import java.io.File;
 @SuppressWarnings("unused")
 public final class AppStorage {
     private static volatile Boolean usable;
+    /**
+     * An early "no folder yet" was answered with the app's own files for the stream cache: that stays the answer for the
+     * whole run, or the parts of the cache would be split between two folders when the shared one shows up later.
+     */
+    private static volatile boolean ownForRun;
 
     private AppStorage() {
     }
@@ -44,7 +49,8 @@ public final class AppStorage {
         } catch (Exception ex) {
             folders = new File[0];
         }
-        if (folders.length > 0 && usable(folders[0])) return folders;
+        if (!ownForRun && folders.length > 0 && usable(folders[0])) return folders;
+        if (pinsOwnFolder(folders)) ownForRun = true;
         File own = type == null ? context.getFilesDir() : new File(context.getFilesDir(), type);
         Logger.printInfo(() -> "Storage: the shared app folder cannot be written, using " + own);
         File[] result = folders.length == 0 ? new File[1] : folders.clone();
@@ -74,6 +80,11 @@ public final class AppStorage {
         usable = ok;
         Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
         return ok;
+    }
+
+    /** Whether the answer with no shared folder at all (an early start) must stay the app's own files for the run. */
+    static boolean pinsOwnFolder(File[] folders) {
+        return folders == null || folders.length == 0 || folders[0] == null;
     }
 
     /**

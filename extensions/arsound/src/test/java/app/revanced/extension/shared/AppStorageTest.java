@@ -29,4 +29,12 @@ public class AppStorageTest {
         File file = temp.newFile("not-a-folder");
         assertEquals(Boolean.FALSE, AppStorage.probe(file));
     }
+
+    @Test
+    public void anEarlyAnswerWithTheOwnFolderStaysForTheRun() throws Exception {
+        // No shared folder yet: the own folder answers, and the cache must not move to the shared one later.
+        assertEquals(true, AppStorage.pinsOwnFolder(new File[0]));
+        assertEquals(true, AppStorage.pinsOwnFolder(new File[]{null}));
+        assertEquals(false, AppStorage.pinsOwnFolder(new File[]{temp.newFolder("shared")}));
+    }
 }
