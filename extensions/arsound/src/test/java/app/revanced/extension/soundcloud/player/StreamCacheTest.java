@@ -25,4 +25,12 @@ public class StreamCacheTest {
     public void theFreeSpaceAndTheCacheTogetherLessTheReserveAreTheLimit() {
         assertEquals(4 * GB, StreamCache.limitBySpace(3 * GB, 0, 2 * GB));
     }
+
+    @Test
+    public void aMissingPathIsNotAFullDisk() {
+        // The system answers 0 for a path that is not there: unknown, so the last measurement is used.
+        assertEquals(-1, StreamCache.usableOf(null));
+        assertEquals(-1, StreamCache.usableOf(new java.io.File("/no/such/folder/for/arsound")));
+        assertEquals(9 * GB, StreamCache.limitBySpace(StreamCache.usableOf(new java.io.File("/no/such")), 10 * GB, 0));
+    }
 }

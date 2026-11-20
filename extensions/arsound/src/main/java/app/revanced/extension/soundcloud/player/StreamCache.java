@@ -59,7 +59,7 @@ public final class StreamCache {
             File directory = directory();
             File measured = directory == null ? null : (directory.isDirectory() ? directory : directory.getParentFile());
             // Unknown only when there is nothing to ask: a full storage answers 0, and that is the answer.
-            long free = measured == null ? -1 : measured.getUsableSpace();
+            long free = usableOf(measured);
             long limit = limitBySpace(free, Settings.getLong(AVAILABLE_BYTES, -1), Settings.getLong(USED_BYTES, 0));
             if (limit < 0) return chosen;
             if (limit < chosen) Logger.printInfo(() -> "Stream cache size " + chosen + " is limited by free space to " + limit);
@@ -68,6 +68,11 @@ public final class StreamCache {
             Logger.printException(() -> "Could not limit the stream cache by free space", ex);
             return chosen;
         }
+    }
+
+    /** The free bytes under the path; -1 (unknown) when it is not there, where the system answers 0 as for a full disk. */
+    static long usableOf(File path) {
+        return path == null || !path.exists() ? -1 : path.getUsableSpace();
     }
 
     /**
