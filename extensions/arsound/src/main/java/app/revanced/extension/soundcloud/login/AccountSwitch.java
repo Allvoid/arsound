@@ -347,6 +347,10 @@ public final class AccountSwitch {
                 // Nobody to ask: the switch stays pending (and goes stale on its own), the app is not restarted.
                 Logger.printInfo(() -> "Accounts: the wipe did not finish, no screen to ask on");
                 hideProgress();
+                // Abandoned: the mark must not outlive this, or SoundCloud's own sign-out finishing later would be taken for
+                // the end of this switch and restart the app into the other account.
+                Context abandoned = Utils.getContext();
+                if (abandoned != null) Utils.runOnBackgroundThread(() -> AccountVault.clearPending(abandoned));
                 return;
             }
             hideProgress();

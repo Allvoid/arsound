@@ -95,4 +95,16 @@ public class AccountVaultTest {
         assertTrue(AccountVault.isStale(16 * 60_000, true));
         assertTrue(AccountVault.isStale(-1, true));
     }
+
+    @Test
+    public void anAbandonedSwitchIsNoLongerFollowedByThisRun() throws Exception {
+        java.lang.reflect.Field field = AccountVault.class.getDeclaredField("pendingHere");
+        field.setAccessible(true);
+        field.set(null, true);
+        assertTrue(AccountVault.startedHere());
+        AccountVault.forgetHere();
+        assertFalse(AccountVault.startedHere());
+        // Its mark then goes stale at the usual two minutes, not after a quarter of an hour.
+        assertTrue(AccountVault.isStale(121_000, AccountVault.startedHere()));
+    }
 }

@@ -118,8 +118,18 @@ final class AccountVault {
         return what;
     }
 
-    static boolean clearPending(Context context) {
+    /** Whether the switch under way was started by this run of the app. */
+    static boolean startedHere() {
+        return pendingHere;
+    }
+
+    /** The run no longer follows a switch: its mark goes stale at the usual time. */
+    static void forgetHere() {
         pendingHere = false;
+    }
+
+    static boolean clearPending(Context context) {
+        forgetHere();
         return preferences(context).edit().remove(PENDING).remove(PENDING_AT).commit();
     }
 
