@@ -33,6 +33,8 @@ public final class LoginLogsButton {
     /** Called when an activity comes to the screen. Only the sign-in activity gets the pill. */
     public static void onActivityResumed(Activity activity) {
         if (!AUTHENTICATION_ACTIVITY.equals(activity.getClass().getName())) return;
+        // A refused account is explained over this screen (SignInAccount).
+        SignInAccount.onSignInScreen(activity);
         ViewGroup content = activity.findViewById(android.R.id.content);
         // Resuming again (back from the browser) finds the pill already there.
         if (content == null || hasPill(content)) return;

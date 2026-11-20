@@ -10,6 +10,8 @@
  * <p>Entry points: {@code LoginLogsButton.onActivityResumed} and {@code AccountEntry.onActivityResumed}, screen hooks
  * registered in {@code update.UpdateChecker} (see {@code update.ScreenHooks}). {@code AccountSwitch.subscribePurge} is
  * called by {@code misc/account/AccountSwitchPatch} from SoundCloud's authenticator when an account is taken out.
+ * {@code SignInAccount.add} stands in for {@code addAccountExplicitly} in SoundCloud's sign-in
+ * ({@code misc/account/SignInAccountPatch}): an account Android refuses is retried under another name, and explained.
  *
  * <p>Settings: none. The kept accounts (with their tokens) are in the preferences file {@code arsound_accounts}, outside
  * the settings backup; their pictures in {@code files/arsound_accounts}.

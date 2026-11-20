@@ -16,6 +16,7 @@ import app.arsound.patches.soundcloud.misc.SOUNDCLOUD_VERSION
 import app.arsound.patches.soundcloud.navbar.bottomTabsPatch
 import app.arsound.patches.soundcloud.misc.account.accountTypePatch
 import app.arsound.patches.soundcloud.misc.account.accountSwitchPatch
+import app.arsound.patches.soundcloud.misc.account.signInAccountPatch
 import app.arsound.patches.soundcloud.misc.permissions.removePhonePermissionPatch
 import app.arsound.patches.soundcloud.misc.playservices.playServicesDialogPatch
 import app.arsound.patches.soundcloud.misc.screenshot.screenshotSharePatch
@@ -117,6 +118,7 @@ val arsoundBaseGroup = arsoundGroup(
     widgetDiagnosticsPatch,
     squarePlayerWidgetPatch,
     accountSwitchPatch,
+    signInAccountPatch,
 )
 
 @Suppress("unused")
