@@ -100,7 +100,7 @@ public final class CrossfadeOverlap {
                 starting = false;
                 attempt++;
             } else {
-                endAt = SystemClock.uptimeMillis() + left;
+                endAt = SystemClock.uptimeMillis() + wallLeft(left, currentFactor);
             }
         }
         if (seekedAway) {
@@ -113,7 +113,7 @@ public final class CrossfadeOverlap {
             if (left > startWindow(fade) || left < fade / 2 || duration < 3 * fade) return;
             starting = true;
             long now = SystemClock.uptimeMillis();
-            endAt = now + left;
+            endAt = now + wallLeft(left, currentFactor);
             fadeMs = fade;
             fadeStartAt = endAt - fade;
             long mine = ++attempt;
@@ -211,19 +211,46 @@ public final class CrossfadeOverlap {
     private static float overlapSpeed(String urn) {
         try {
             if (TrackSpeeds.reverbOf(urn).isOn() || TrackSpeeds.bassOf(urn).isOn()) return 0f;
-            VersionSpeed own = TrackSpeeds.of(urn);
-            VersionSpeed common = TrackVersions.speed();
-            boolean retimed = false;
-            if (own == null && common != VersionSpeed.NORMAL) {
-                String[] title = TrackTitleResolver.storedTitles(java.util.Collections.singletonList(urn)).get(urn);
-                retimed = title != null && SlowedPlayback.isRetimed(title[0]);
-            }
-            return playsSlowed(own, common, retimed) ? TrackVersions.factorOf(own != null ? own : common) : 1f;
+            // The second player is outside the player's sound chain (equalizer, preamp, limiter): with any of them on it would
+            // come in at another level and without the curve, then jump at the handoff.
+            if (outsideChain(AudioEqualizer.isEnabled(), AudioEqualizer.preamp())) return 0f;
+            return trackFactor(urn);
         } catch (Exception ex) {
             Logger.printInfo(() -> "Crossfade: the speed of the next track is not known (" + ex + ")");
             return 0f;
         }
     }
+
+    /** The speed factor SoundCloud's player gives the track (1 for the normal speed). */
+    private static float trackFactor(String urn) {
+        VersionSpeed own = TrackSpeeds.of(urn);
+        VersionSpeed common = TrackVersions.speed();
+        boolean retimed = false;
+        if (own == null && common != VersionSpeed.NORMAL) {
+            String[] title = TrackTitleResolver.storedTitles(java.util.Collections.singletonList(urn)).get(urn);
+            retimed = title != null && SlowedPlayback.isRetimed(title[0]);
+        }
+        return playsSlowed(own, common, retimed) ? TrackVersions.factorOf(own != null ? own : common) : 1f;
+    }
+
+    /**
+     * Whether the sound of SoundCloud's player is shaped after the track by something the second player lacks: the equalizer
+     * is on, or the preamp is not 0. Then the tracks fade one after the other.
+     */
+    static boolean outsideChain(boolean equalizerOn, int preampMillibels) {
+        return equalizerOn || preampMillibels != 0;
+    }
+
+    /**
+     * How long, on the wall clock, the rest of the track takes: a position report gives media time, and at 140 % speed it
+     * passes 1.4 times as fast. Without this the fade-in of the second player lags and the handoff dips and then jumps.
+     */
+    static long wallLeft(long mediaLeft, float factor) {
+        return factor <= 0f ? mediaLeft : Math.round(mediaLeft / (double) factor);
+    }
+
+    /** The speed factor of the track that plays now; 1 until it is known (worked out on the overlap thread). */
+    private static volatile float currentFactor = 1f;
 
     /**
      * Whether SoundCloud's player plays the track at another speed: the speed of the track itself holds whatever its
@@ -389,6 +416,17 @@ public final class CrossfadeOverlap {
     static boolean onPlay(String trackId, boolean newTrack) {
         synchronized (lock) {
             if (!newTrack) return false;
+            // The speed this track plays at, for the time left: looked up on the overlap thread (it reads the title store).
+            String urn = trackId == null ? null : TRACK_URN + trackId;
+            handler().post(() -> {
+                float factor = 1f;
+                try {
+                    if (urn != null) factor = trackFactor(urn);
+                } catch (Exception ex) {
+                    // Not known: the normal speed.
+                }
+                currentFactor = factor;
+            });
             boolean expected = player != null && !handedOff && trackId != null && trackId.equals(CrossfadeOverlap.trackId);
             starting = false;
             attempt++;

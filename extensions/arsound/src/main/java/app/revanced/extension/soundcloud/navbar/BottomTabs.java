@@ -28,8 +28,17 @@ public final class BottomTabs {
     private static volatile List<Boolean> shown = Collections.emptyList();
     /** The key ({@link #keyOf}) of the tab at each place of the list arranged last, null for a tab with none. */
     private static volatile List<String> keys = Collections.emptyList();
-    /** Whether the start tab was opened in this run of the app: only the launch does it. */
-    private static boolean startApplied;
+    /**
+     * The intent of the launch the start tab was opened for (weakly held). Back closes the activity and the process stays
+     * cached, so "once per run" was once per process: the next tap on the launcher opened the first tab, against the
+     * setting. A new launch has a new intent; a turned phone makes a new activity with the same intent and is left alone.
+     */
+    private static java.lang.ref.WeakReference<Object> appliedFor = new java.lang.ref.WeakReference<>(null);
+
+    /** Whether a start from the launcher with this intent is a launch the start tab has not been opened for yet. */
+    static boolean isNewLaunch(Object appliedBefore, Object intent) {
+        return intent != null && intent != appliedBefore;
+    }
 
     private BottomTabs() {
     }
@@ -115,7 +124,7 @@ public final class BottomTabs {
     }
 
     /**
-     * The tab the user chose to start on, opened once per run of the app and only when the app was started from the
+     * The tab the user chose to start on, opened once per launch of the app (per intent) and only when the app was started from the
      * launcher: a link or a shortcut already says where to go. The first tab of the bar is what the app opens by itself;
      * here another one is selected by its button, as a tap on it would.
      * <p>
@@ -124,8 +133,10 @@ public final class BottomTabs {
      * once, 400 ms after the bar is built.
      */
     private static void openStartTab(View navigationBar, Menu menu, List<Boolean> places) throws Exception {
-        if (startApplied) return;
-        startApplied = true;
+        android.app.Activity screen = activityOf(navigationBar);
+        Object intent = screen == null ? null : screen.getIntent();
+        if (!isNewLaunch(appliedFor.get(), intent)) return;
+        appliedFor = new java.lang.ref.WeakReference<>(intent);
         String wanted = TabChoice.start();
         if (wanted.isEmpty() || !launchedFromLauncher(navigationBar)) return;
         List<String> placed = keys;
@@ -147,13 +158,18 @@ public final class BottomTabs {
         }
     }
 
-    private static boolean launchedFromLauncher(View view) {
+    private static android.app.Activity activityOf(View view) {
         android.content.Context context = view.getContext();
         while (context instanceof android.content.ContextWrapper && !(context instanceof android.app.Activity)) {
             context = ((android.content.ContextWrapper) context).getBaseContext();
         }
-        if (!(context instanceof android.app.Activity)) return false;
-        android.content.Intent intent = ((android.app.Activity) context).getIntent();
+        return context instanceof android.app.Activity ? (android.app.Activity) context : null;
+    }
+
+    private static boolean launchedFromLauncher(View view) {
+        android.app.Activity context = activityOf(view);
+        if (context == null) return false;
+        android.content.Intent intent = context.getIntent();
         if (intent == null) return false;
         android.os.Bundle extras = intent.getExtras();
         return isLauncherStart(intent.getAction(), intent.getData() != null,

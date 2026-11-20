@@ -26,4 +26,16 @@ public class LauncherStartTest {
         assertFalse(BottomTabs.isLauncherStart(null, false, false, true));
         assertFalse(BottomTabs.isLauncherStart(MAIN, false, false, true));
     }
+
+    @Test
+    public void theStartTabIsOpenedForEachLaunchNotOncePerProcess() {
+        Object first = new Object();
+        Object second = new Object();
+        assertTrue(BottomTabs.isNewLaunch(null, first));
+        // A turned phone makes a new activity with the same intent: left alone.
+        assertFalse(BottomTabs.isNewLaunch(first, first));
+        // Back, then a tap on the launcher: a new intent, a new launch.
+        assertTrue(BottomTabs.isNewLaunch(first, second));
+        assertFalse(BottomTabs.isNewLaunch(first, null));
+    }
 }

@@ -139,4 +139,22 @@ public class CrossfadeOverlapTest {
         assertEquals(before, (long) (Long) get("attempt"));
         set("starting", false);
     }
+
+    @Test
+    public void withTheEqualizerOnOrAPreampTheSecondPlayerIsNotUsed() {
+        // It is outside the player's sound chain: it would come in at another level, without the curve.
+        assertTrue(CrossfadeOverlap.outsideChain(true, 0));
+        assertTrue(CrossfadeOverlap.outsideChain(false, -2000));
+        assertTrue(CrossfadeOverlap.outsideChain(false, 500));
+        assertFalse(CrossfadeOverlap.outsideChain(false, 0));
+    }
+
+    @Test
+    public void theTimeLeftIsWallTimeNotMediaTime() {
+        // At 140 % speed 10 s of the track pass in about 7.1 s.
+        assertEquals(7_143, CrossfadeOverlap.wallLeft(10_000, 1.4f));
+        assertEquals(11_765, CrossfadeOverlap.wallLeft(10_000, 0.85f));
+        assertEquals(10_000, CrossfadeOverlap.wallLeft(10_000, 1f));
+        assertEquals(10_000, CrossfadeOverlap.wallLeft(10_000, 0f));
+    }
 }
