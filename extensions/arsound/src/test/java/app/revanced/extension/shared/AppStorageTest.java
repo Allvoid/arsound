@@ -15,7 +15,7 @@ public class AppStorageTest {
 
     @Test
     public void noFolderYetIsNoAnswerToKeep() {
-        // Android gives null early in the start: that must not be kept as "cannot be used" for the whole run.
+        // Android gives null early in the start: the probe gives no answer (settle turns it into the first, kept one).
         assertNull(AppStorage.probe(null));
     }
 
@@ -31,10 +31,13 @@ public class AppStorageTest {
     }
 
     @Test
-    public void anEarlyAnswerWithTheOwnFolderStaysForTheRun() throws Exception {
-        // No shared folder yet: the own folder answers, and the cache must not move to the shared one later.
-        assertEquals(true, AppStorage.pinsOwnFolder(new File[0]));
-        assertEquals(true, AppStorage.pinsOwnFolder(new File[]{null}));
-        assertEquals(false, AppStorage.pinsOwnFolder(new File[]{temp.newFolder("shared")}));
+    public void aLaterCallKeepsTheFirstAnswer() throws Exception {
+        // An early start without the folder: unusable, and it stays so when the folder shows up later.
+        boolean first = AppStorage.settle(null, AppStorage.probe(null));
+        assertEquals(false, first);
+        assertEquals(false, AppStorage.settle(first, AppStorage.probe(temp.newFolder("shared"))));
+        // And the other way round.
+        assertEquals(true, AppStorage.settle(true, AppStorage.probe(null)));
+        assertEquals(true, AppStorage.settle(null, AppStorage.probe(temp.newFolder("later"))));
     }
 }

@@ -16,12 +16,6 @@ import java.io.File;
 @SuppressWarnings("unused")
 public final class AppStorage {
     private static volatile Boolean usable;
-    /**
-     * An early "no folder yet" was answered with the app's own files for the stream cache: that stays the answer for the
-     * whole run, or the parts of the cache would be split between two folders when the shared one shows up later.
-     */
-    private static volatile boolean ownForRun;
-
     private AppStorage() {
     }
 
@@ -49,8 +43,7 @@ public final class AppStorage {
         } catch (Exception ex) {
             folders = new File[0];
         }
-        if (!ownForRun && folders.length > 0 && usable(folders[0])) return folders;
-        if (pinsOwnFolder(folders)) ownForRun = true;
+        if (folders.length > 0 && usable(folders[0])) return folders;
         File own = type == null ? context.getFilesDir() : new File(context.getFilesDir(), type);
         Logger.printInfo(() -> "Storage: the shared app folder cannot be written, using " + own);
         File[] result = folders.length == 0 ? new File[1] : folders.clone();
@@ -64,27 +57,25 @@ public final class AppStorage {
     }
 
     /**
-     * The first real answer is kept for the whole run of the app. A folder that is writable at one call and not at the
-     * next would send the stream cache to the shared folder and then to the app's own files: the part written under the
-     * other one would be left behind, out of the settings' sizes and out of the clearing. Only "there is no folder yet"
-     * (Android gives null early in the start, before the storage is up) is not an answer: it is asked again.
+     * The first answer is kept for the whole run of the app, whoever asks (this method, {@link #externalFilesDirs}, the
+     * stream cache, the logs): a folder that is writable at one call and not at the next, or one that is not there yet at
+     * an early start and shows up later, would send the stream cache to the shared folder and then to the app's own
+     * files, or the other way round. The part written under the other one would be left behind, out of the settings'
+     * sizes and out of the clearing. "No folder yet" is an answer too (the own folder), kept the same way.
      */
     private static boolean usable(File folder) {
         Boolean first = usable;
-        if (first != null) return first;
-        Boolean ok = probe(folder);
-        if (ok == null) {
-            Logger.printInfo(() -> "Storage: the shared app folder is not there yet, asking again later");
-            return false;
-        }
+        Boolean ok = settle(first, probe(folder));
+        if (first != null) return ok;
         usable = ok;
         Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
         return ok;
     }
 
-    /** Whether the answer with no shared folder at all (an early start) must stay the app's own files for the run. */
-    static boolean pinsOwnFolder(File[] folders) {
-        return folders == null || folders.length == 0 || folders[0] == null;
+    /** The answer to keep: the first one given, else what the probe found (no folder at all counts as unusable). */
+    static boolean settle(Boolean kept, Boolean probed) {
+        if (kept != null) return kept;
+        return probed != null && probed;
     }
 
     /**
