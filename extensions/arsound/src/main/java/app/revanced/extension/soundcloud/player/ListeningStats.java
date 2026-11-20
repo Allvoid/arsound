@@ -388,8 +388,20 @@ public final class ListeningStats {
 
     /** The listen still going on or paused: it is written only when the next track starts. */
     private static void addCurrent(Summary summary, Map<String, Entry> tracks, long since) {
+        ListenRecord current = currentListen();
+        if (current == null || current.start < since) return;
+        summary.addListen(entry(tracks, current.urn), current.start, current.playedMs);
+    }
+
+    /**
+     * The listen in progress, as the statistics count it: the screen and the year in review both add it to the history
+     * so they show the same time and tracks.
+     *
+     * @return The listen, or null when the statistics are off or it is too short to count.
+     */
+    private static ListenRecord currentListen() {
         // With the statistics off the listen is followed only for the wave and never written: it is no part of them.
-        if (!isEnabled()) return;
+        if (!isEnabled()) return null;
         ListenRecord current;
         synchronized (ListeningStats.class) {
             current = SESSION.progress(System.currentTimeMillis());
@@ -398,10 +410,13 @@ public final class ListeningStats {
             SharedPreferences preferences = preferences();
             String pending = preferences == null ? null : preferences.getString(PENDING, null);
             current = pending == null ? null : ListenRecord.parse(pending);
-            if (current == null) return;
         }
-        if (current.start < since || current.playedMs < MIN_LISTEN_MS) return;
-        summary.addListen(entry(tracks, current.urn), current.start, current.playedMs);
+        return countable(current);
+    }
+
+    /** The listen if it is long enough to be a line of the history, else null. */
+    static ListenRecord countable(ListenRecord listen) {
+        return listen == null || listen.playedMs < MIN_LISTEN_MS ? null : listen;
     }
 
     /**
@@ -418,6 +433,9 @@ public final class ListeningStats {
             ListenRecord record = ListenRecord.parse(line);
             if (record != null && record.start >= ListenBuckets.EARLIEST) listens.add(record);
         });
+        // The listen in progress counts here as on the statistics screen, or the card says less than the screen.
+        ListenRecord current = currentListen();
+        if (current != null && current.start >= ListenBuckets.EARLIEST) listens.add(current);
         Map<String, Entry> tracks = new HashMap<>();
         for (ListenRecord listen : listens) entry(tracks, listen.urn);
         TrackTitleResolver.resolve(new ArrayList<>(tracks.values()), preferences());
