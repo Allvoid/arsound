@@ -100,7 +100,9 @@ public final class CrossfadeOverlap {
                 starting = false;
                 attempt++;
             } else {
-                endAt = SystemClock.uptimeMillis() + wallLeft(left, currentFactor);
+                endAt = endAtFor(SystemClock.uptimeMillis(), left, currentFactor);
+                // A change of speed mid-track moves the end, and the fade with it (the fade of a handed-off track is over).
+                if ((starting || player != null) && !handedOff) fadeStartAt = fadeStartFor(endAt, fadeMs);
             }
         }
         if (seekedAway) {
@@ -113,9 +115,9 @@ public final class CrossfadeOverlap {
             if (left > startWindow(fade) || left < fade / 2 || duration < 3 * fade) return;
             starting = true;
             long now = SystemClock.uptimeMillis();
-            endAt = now + wallLeft(left, currentFactor);
+            endAt = endAtFor(now, left, currentFactor);
             fadeMs = fade;
-            fadeStartAt = endAt - fade;
+            fadeStartAt = fadeStartFor(endAt, fade);
             long mine = ++attempt;
             handler().post(() -> start(mine));
         }
@@ -247,6 +249,35 @@ public final class CrossfadeOverlap {
      */
     static long wallLeft(long mediaLeft, float factor) {
         return factor <= 0f ? mediaLeft : Math.round(mediaLeft / (double) factor);
+    }
+
+    /** The uptime the track ends at: now and the time left, in wall time at the speed it plays at. */
+    static long endAtFor(long now, long mediaLeft, float factor) {
+        return now + wallLeft(mediaLeft, factor);
+    }
+
+    /** The uptime the fade-out begins at, for an end and a fade length. */
+    static long fadeStartFor(long endAt, long fadeMs) {
+        return endAt - fadeMs;
+    }
+
+    /**
+     * The speed the track that plays now has was changed (the versions popup, the settings, a speed of its own): the factor is
+     * worked out again on the overlap thread, so the next report moves the end and the fade to the right time. Without it the
+     * fade came about two seconds early after "Slowed 85 %" was chosen in the middle of a track, and cut the tail the other way.
+     */
+    public static void refreshFactor() {
+        handler().post(() -> currentFactor = factorOfPlaying(PlaybackEvents.playingUrn()));
+    }
+
+    private static float factorOfPlaying(String urn) {
+        if (urn == null) return 1f;
+        try {
+            return trackFactor(urn);
+        } catch (Exception ex) {
+            // Not known: the normal speed.
+            return 1f;
+        }
     }
 
     /** The speed factor of the track that plays now; 1 until it is known (worked out on the overlap thread). */
@@ -418,15 +449,7 @@ public final class CrossfadeOverlap {
             if (!newTrack) return false;
             // The speed this track plays at, for the time left: looked up on the overlap thread (it reads the title store).
             String urn = trackId == null ? null : TRACK_URN + trackId;
-            handler().post(() -> {
-                float factor = 1f;
-                try {
-                    if (urn != null) factor = trackFactor(urn);
-                } catch (Exception ex) {
-                    // Not known: the normal speed.
-                }
-                currentFactor = factor;
-            });
+            handler().post(() -> currentFactor = factorOfPlaying(urn));
             boolean expected = player != null && !handedOff && trackId != null && trackId.equals(CrossfadeOverlap.trackId);
             starting = false;
             attempt++;

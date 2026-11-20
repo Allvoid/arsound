@@ -138,6 +138,12 @@ public final class SlowedPlayback {
 
     /** The setting was changed: the track that plays now changes speed at once. */
     public static void onSettingChanged() {
+        // The overlap of the smooth transition times the end of the track by the speed.
+        try {
+            CrossfadeOverlap.refreshFactor();
+        } catch (RuntimeException ex) {
+            // Not needed for the speed itself.
+        }
         Handler target;
         String itemUrn;
         synchronized (lock) {

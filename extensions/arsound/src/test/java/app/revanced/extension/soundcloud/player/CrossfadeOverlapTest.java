@@ -157,4 +157,21 @@ public class CrossfadeOverlapTest {
         assertEquals(10_000, CrossfadeOverlap.wallLeft(10_000, 1f));
         assertEquals(10_000, CrossfadeOverlap.wallLeft(10_000, 0f));
     }
+
+    @Test
+    public void aSpeedChosenInTheMiddleOfATrackMovesTheEndAndTheFadeWithIt() {
+        long now = 100_000;
+        long left = 20_000;
+        long fade = 6_000;
+        // Normal speed: the end is 20 s away and the fade begins 14 s from now.
+        long end = CrossfadeOverlap.endAtFor(now, left, 1f);
+        assertEquals(now + 20_000, end);
+        assertEquals(now + 14_000, CrossfadeOverlap.fadeStartFor(end, fade));
+        // Slowed 85 % chosen: the same 20 s of the track take 23.5 s, so the fade begins 2.5 s later, not 2.5 s too early.
+        long slowedEnd = CrossfadeOverlap.endAtFor(now, left, 0.85f);
+        assertEquals(now + 23_529, slowedEnd);
+        assertEquals(now + 17_529, CrossfadeOverlap.fadeStartFor(slowedEnd, fade));
+        // Sped up to 140 %: it is over sooner.
+        assertEquals(now + 14_286, CrossfadeOverlap.endAtFor(now, left, 1.4f));
+    }
 }
