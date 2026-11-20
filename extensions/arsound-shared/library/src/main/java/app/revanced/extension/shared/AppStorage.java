@@ -58,16 +58,30 @@ public final class AppStorage {
     }
 
     /**
-     * The first answer is kept for the whole run of the app. A folder that is writable at one call and not at the next
-     * would send the stream cache to the shared folder and then to the app's own files: the part written under the other
-     * one would be left behind, out of the settings' sizes and out of the clearing.
+     * The first real answer is kept for the whole run of the app. A folder that is writable at one call and not at the
+     * next would send the stream cache to the shared folder and then to the app's own files: the part written under the
+     * other one would be left behind, out of the settings' sizes and out of the clearing. Only "there is no folder yet"
+     * (Android gives null early in the start, before the storage is up) is not an answer: it is asked again.
      */
     private static boolean usable(File folder) {
         Boolean first = usable;
         if (first != null) return first;
-        boolean ok = folder != null && (folder.isDirectory() || folder.mkdirs()) && folder.canWrite();
+        Boolean ok = probe(folder);
+        if (ok == null) {
+            Logger.printInfo(() -> "Storage: the shared app folder is not there yet, asking again later");
+            return false;
+        }
         usable = ok;
         Logger.printInfo(() -> "Storage: the shared app folder " + folder + (ok ? " is usable" : " cannot be used"));
         return ok;
+    }
+
+    /**
+     * @return Whether the folder can be written; null when Android gave no folder at all (nothing was tried, so it is no
+     * answer to keep).
+     */
+    static Boolean probe(File folder) {
+        if (folder == null) return null;
+        return (folder.isDirectory() || folder.mkdirs()) && folder.canWrite();
     }
 }
